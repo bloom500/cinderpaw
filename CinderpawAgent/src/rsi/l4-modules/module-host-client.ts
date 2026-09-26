@@ -1,16 +1,23 @@
 /**
  * L4 module host — the parent (runtime) side (spec §4).
  *
- * Spawns one Bun subprocess per active/evaluating module, enforces the
- * walls the child cannot be trusted with:
- *   - lexical wall on the entry source BEFORE any spawn (module-wall.ts);
- *   - scrubbed env: PATH + the RNG seed, nothing else;
+ * Starts one module host per active/evaluating module INSIDE an isolation
+ * cell (`ModuleCell`, Docker by default): no network, no host filesystem
+ * beyond the module and the host script (read-only), no capabilities, a
+ * memory and pid cap. That is the boundary. Generated module code used to
+ * run as a plain Bun process on the host, where a module that slipped the
+ * lexical wall (`globalThis["fe" + "tch"]` does) had the network and the
+ * user's files. No cell → refused, never run on the host instead.
+ *
+ * On top of the cell, the walls the child cannot be trusted with:
+ *   - lexical wall on the entry source BEFORE any spawn (module-wall.ts),
+ *     a cheap first filter, not the boundary;
+ *   - scrubbed env: the RNG seed, nothing else;
  *   - hard per-request timeout (request fails → caller falls back to
  *     builtin; the host is NOT killed for one late answer);
  *   - N consecutive timeouts → host killed (spec §4 resource wall);
  *   - maxRssMb: the host self-reports RSS on every reply; a breach kills
- *     the host. // ponytail: self-reported RSS, OS-level polling if a
- *     module ever learns to lie about memoryUsage() while staying pure.
+ *     the host. The cell's memory cap is the hard wall under it.
  *
  * The child script is embedded as a compile-time text import (same
  * mechanism as SOUL.md — compiled sidecars have no src/ on disk) and
@@ -20,10 +27,13 @@
  * this file knows nothing about seams or registries.
  */
 
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { wallCheck } from "./module-wall.ts";
+import { DockerIsolation, type ModuleCell } from "../l3-code/isolation.ts";
+import { bunExec } from "../l3-code/code-sandbox.ts";
 // @ts-expect-error — Bun's text import attribute, not typed by @types/bun yet.
 import HOST_SOURCE from "./module-host.ts" with { type: "text" };
 
@@ -55,7 +65,9 @@ export interface ModuleHost {
 
 export type SpawnResult =
   | { ok: true; host: ModuleHost }
-  | { ok: false; reason: string };
+  /** `unavailable`: there is no cell on this machine right now (Docker
+   *  missing or stopped). Not the module's failure. */
+  | { ok: false; reason: string; unavailable?: true };
 
 export interface SpawnOpts {
   moduleDir: string;
@@ -66,12 +78,15 @@ export interface SpawnOpts {
   /** How long to wait for the hello line. */
   spawnTimeoutMs?: number;
   log?: (msg: string) => void;
+  /** Where the module runs. Default: a Docker cell. */
+  cell?: ModuleCell;
 }
 
-/** Resolve the interpreter for the host. A dev machine has `bun` on PATH;
- *  a compiled sidecar IS a bun binary — BUN_BE_BUN=1 makes it act as one. */
-function bunExe(): string {
-  return Bun.which("bun") ?? process.execPath;
+let dockerCell: ModuleCell | null = null;
+/** One Docker cell backend per process: one CPU, 128 pids (bun's own
+ *  threads count against the pid cap). */
+function defaultCell(): ModuleCell {
+  return (dockerCell ??= new DockerIsolation({ exec: bunExec, limits: { cpus: 1, pids: 128 } }));
 }
 
 export async function spawnModuleHost(opts: SpawnOpts): Promise<SpawnResult> {
@@ -95,25 +110,44 @@ export async function spawnModuleHost(opts: SpawnOpts): Promise<SpawnResult> {
   const wall = wallCheck(source);
   if (!wall.ok) return { ok: false, reason: `lexical wall: ${wall.reason}` };
 
+  // The cell, or nothing. The reason is the one a person reads.
+  const cell = opts.cell ?? defaultCell();
+  const avail = await cell.available();
+  if (!avail.ok) return { ok: false, reason: avail.reason, unavailable: true };
+  const ready = await cell.prepare();
+  if (!ready.ok) return { ok: false, reason: ready.reason, unavailable: true };
+
   // Write the embedded host script out — compiled sidecars have no src/.
   const hostDir = mkdtempSync(join(tmpdir(), "cinderpaw-module-host-"));
   const hostPath = join(hostDir, "host.ts");
   writeFileSync(hostPath, HOST_SOURCE as unknown as string, "utf8");
 
-  const proc = Bun.spawn({
-    cmd: [bunExe(), hostPath, opts.moduleDir],
-    cwd: opts.moduleDir,
-    // Scrubbed env (§4): revoke ambient authority. PATH only, plus the
-    // determinism seed and the be-bun switch (inert for a real bun).
-    env: {
-      PATH: process.env["PATH"] ?? "",
-      CINDERPAW_MODULE_SEED: String(opts.seed ?? 1),
-      BUN_BE_BUN: "1",
-    },
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
+  const cellName = `cinderpaw-module-${randomUUID().slice(0, 12)}`;
+  const { argv, env } = cell.command({
+    hostScript: hostPath,
+    moduleDir: opts.moduleDir,
+    // Scrubbed env (§4): the determinism seed, nothing else.
+    env: { CINDERPAW_MODULE_SEED: String(opts.seed ?? 1) },
+    // Room for bun itself on top of what the module may use.
+    memoryMb: opts.limits.maxRssMb + 256,
+    name: cellName,
   });
+  const proc = Bun.spawn({ cmd: argv, cwd: tmpdir(), env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+
+  // Killing the client does not stop the cell: destroy it by name, then the
+  // host script it had mounted. Once, whichever path gets here first.
+  let destroyed: Promise<void> | null = null;
+  const destroyCell = (): Promise<void> =>
+    (destroyed ??= cell
+      .destroy(cellName)
+      .catch(() => undefined)
+      .then(() => {
+        try {
+          rmSync(hostDir, { recursive: true, force: true });
+        } catch {
+          /* best-effort temp cleanup */
+        }
+      }));
 
   let alive = true;
   let requests = 0;
@@ -138,11 +172,7 @@ export async function spawnModuleHost(opts: SpawnOpts): Promise<SpawnResult> {
     }
     for (const [, settle] of pending) settle({ ok: false, error: `host stopped: ${why}` });
     pending.clear();
-    try {
-      rmSync(hostDir, { recursive: true, force: true });
-    } catch {
-      /* best-effort temp cleanup */
-    }
+    void destroyCell();
   };
 
   // stdout reader — JSON lines; non-JSON lines (a module's stray
@@ -191,16 +221,33 @@ export async function spawnModuleHost(opts: SpawnOpts): Promise<SpawnResult> {
     helloResolve!(null);
   })();
 
+  // stderr is read, not left in the pipe: a chatty module would fill it and
+  // stall, and a cell that fails to start says why here (bad mount, no image).
+  let stderrTail = "";
+  const stderrDone = (async () => {
+    const dec = new TextDecoder();
+    try {
+      for await (const chunk of proc.stderr) stderrTail = (stderrTail + dec.decode(chunk)).slice(-2048);
+    } catch {
+      /* stream torn down */
+    }
+  })();
+
   void proc.exited.then(() => {
     if (alive) kill("process exited");
   });
 
-  const spawnTimeout = setTimeout(() => helloResolve!(null), opts.spawnTimeoutMs ?? 15_000);
+  // 60s, not 15: the first cell after Docker Desktop starts took 14.4s to
+  // say hello (measured 26 Sep); a warm one takes under a second.
+  const spawnTimeout = setTimeout(() => helloResolve!(null), opts.spawnTimeoutMs ?? 60_000);
   const h = await hello;
   clearTimeout(spawnTimeout);
   if (!h) {
     kill("no hello");
-    return { ok: false, reason: "host did not announce itself (crash or spawn timeout)" };
+    // The last words can land just after stdout closed.
+    await Promise.race([stderrDone, new Promise((r) => setTimeout(r, 1_000))]);
+    const said = stderrTail.trim().split("\n").pop()?.trim();
+    return { ok: false, reason: `host did not announce itself (crash or spawn timeout)${said ? `: ${said}` : ""}` };
   }
   if (h.protocol !== HOST_PROTOCOL) {
     kill(`protocol mismatch (host ${h.protocol}, runtime ${HOST_PROTOCOL})`);
@@ -213,7 +260,8 @@ export async function spawnModuleHost(opts: SpawnOpts): Promise<SpawnResult> {
     alive: () => alive,
     stats: () => ({ requests, failures, consecutiveTimeouts }),
     stop: () => kill("stopped by runtime"),
-    exited: proc.exited,
+    // Gone means the client exited AND the cell is destroyed.
+    exited: proc.exited.then(destroyCell),
     request(method: string, params: unknown): Promise<HostReply> {
       if (!alive) return Promise.resolve({ ok: false, error: "host not running" });
       requests++;

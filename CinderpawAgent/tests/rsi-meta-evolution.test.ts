@@ -30,7 +30,9 @@ const cycle = (
   durationMin: 1,
   observed: [],
   hypothesized: [],
-  experimented: null,
+  // A per-candidate row, the shape the Contract FSM writes. (A row with no
+  // `experimented` is the episode summary; see the summary-row test below.)
+  experimented: { candidateId: `g-${timestamp}`, change: "", layer: "L1" },
   result:
     action === "halt"
       ? null
@@ -56,6 +58,19 @@ const cycle = (
         : { action: "halt", reason: "test", stage: "evaluate" },
   budgetRemaining: { wallClockMin: 1, tokens: 1, cpuPct: 1, ramMb: 1, diskMb: 1 },
 });
+
+/** The row makeCycleSummary writes once per dream episode: no candidate and
+ *  no evaluation of its own. L6 counts its evidence in these. */
+const summary = (action: "accept" | "reject" | "halt" = "reject", timestamp = 1_000): JournalEntry => ({
+  ...cycle(action, 0, timestamp),
+  observed: ["trigger: idle"],
+  experimented: null,
+  result: null,
+});
+
+/** One dream episode per candidate row: the candidate, then its summary. */
+const episodes = (...candidates: JournalEntry[]): JournalEntry[] =>
+  candidates.flatMap((c) => [c, summary(c.decided.action === "accept" ? "accept" : "reject", c.timestamp)]);
 
 describe("clampMetaGenome", () => {
   test("clamps every field to META_BOUNDS and rounds integral fields", () => {
@@ -111,28 +126,75 @@ describe("mutateMetaGenome", () => {
 describe("metaFitness", () => {
   test("null under MIN_META_CYCLES (no mutation without evidence)", () => {
     expect(metaFitness([])).toBeNull();
-    expect(metaFitness(Array(MIN_META_CYCLES - 1).fill(cycle("accept", 0.8)))).toBeNull();
+    expect(metaFitness(episodes(...Array(MIN_META_CYCLES - 1).fill(cycle("accept", 0.8))))).toBeNull();
   });
 
   test("rewards accepts + high scores, punishes halts", () => {
-    const good = metaFitness([
+    const good = metaFitness(episodes(
       cycle("accept", 0.9), cycle("accept", 0.8), cycle("accept", 0.85),
       cycle("accept", 0.9), cycle("reject", 0.7),
-    ])!;
-    const bad = metaFitness([
+    ))!;
+    const bad = metaFitness(episodes(
       cycle("halt", 0), cycle("halt", 0), cycle("halt", 0),
       cycle("halt", 0), cycle("reject", 0.1),
-    ])!;
+    ))!;
     expect(good.score).toBeGreaterThan(bad.score);
     expect(good.acceptRate).toBeCloseTo(4 / 5);
     expect(bad.haltRate).toBeCloseTo(4 / 5);
   });
 });
 
+describe("metaFitness counts episodes, and only L1's", () => {
+  test("one episode is not enough evidence, however many candidate rows it wrote", () => {
+    // The default dream_batch is 40: a single episode writes up to 41 rows,
+    // which used to count as 41 "dream cycles" and settle a generation alone.
+    const oneEpisode = [
+      ...Array.from({ length: 40 }, (_, i) => cycle("reject", 0.5, i)),
+      summary("reject", 40),
+    ];
+    expect(oneEpisode.length).toBeGreaterThan(MIN_META_CYCLES);
+    expect(metaFitness(oneEpisode)).toBeNull();
+  });
+
+  test("a smaller dream_batch is not fitter by itself: accepts count per episode", () => {
+    // The same improvement (one sound accept per episode) at two batch sizes.
+    // Per row, the batch of 10 scored 1/11 against 1/41, and dream_batch is a
+    // knob L6 sets itself.
+    const batch = (size: number): JournalEntry[] =>
+      Array.from({ length: MIN_META_CYCLES }, (_, ep) => [
+        cycle("accept", 0.8, ep * 100),
+        ...Array.from({ length: size - 1 }, (_, i) => cycle("reject", 0.8, ep * 100 + 1 + i)),
+        summary("accept", ep * 100 + 99),
+      ]).flat();
+    const big = metaFitness(batch(40))!;
+    const small = metaFitness(batch(10))!;
+    expect(small.acceptRate).toBe(1);
+    expect(big.acceptRate).toBe(1);
+    expect(small.score).toBe(big.score);
+  });
+
+  test("L3 code rows and L4 module rows do not move the fitness of L1's knobs", () => {
+    const l1 = episodes(
+      cycle("accept", 0.9), cycle("accept", 0.8), cycle("reject", 0.7),
+      cycle("reject", 0.7), cycle("reject", 0.6),
+    );
+    const other = (layer: "L3" | "L4", action: "accept" | "halt", aggregate: number): JournalEntry => ({
+      ...cycle(action, aggregate),
+      experimented: { candidateId: `${layer}-x`, change: "", layer },
+    });
+    const mixed = [
+      ...l1,
+      other("L3", "halt", 0), other("L3", "accept", 0), other("L3", "halt", 0),
+      other("L4", "accept", 0.1), other("L4", "halt", 0),
+    ];
+    expect(metaFitness(mixed)).toEqual(metaFitness(l1));
+  });
+});
+
 describe("MetaEvolution epoch ratchet", () => {
   /** A journal window of MIN_META_CYCLES identical cycles. */
   const win = (action: "accept" | "reject" | "halt", aggregate: number): JournalEntry[] =>
-    Array.from({ length: MIN_META_CYCLES }, (_, i) => cycle(action, aggregate, 1_000 + i));
+    episodes(...Array.from({ length: MIN_META_CYCLES }, (_, i) => cycle(action, aggregate, 1_000 + i)));
 
   const make = (windows: JournalEntry[][]) => {
     const dir = mkdtempSync(join(tmpdir(), "meta-evo-"));
@@ -186,11 +248,32 @@ describe("MetaEvolution epoch ratchet", () => {
     const candidate = me.current();
     const r = me.evolve(); // candidate lived through `worse` → reject + revert
     expect(r.settled).toBe("rejected");
-    // After revert, a NEW candidate is proposed from the restored champion —
-    // the rejected candidate's genome must not be the new baseline.
+    // Reverted to the baseline, and nothing proposed on top: the champion is
+    // measured again over a fresh window first (next test).
     const rollbackRow = me.history().find((h) => h.event === "rollback");
     expect(rollbackRow?.genome).toEqual(DEFAULT_META_GENOME);
     expect(me.current()).not.toEqual(candidate);
+    expect(me.current()).toEqual(DEFAULT_META_GENOME);
+    expect(me.status().pendingCandidate).toBe(false);
+  });
+
+  test("after a reject the champion is re-measured before the next proposal", () => {
+    // The old baseline was scored over an older window. Later windows ratchet
+    // less (the champion gets harder to beat), so comparing every new
+    // candidate against that old score drifts toward rejecting everything.
+    const fresh = win("reject", 0.5);
+    const { me } = make([win("accept", 0.9), win("halt", 0), fresh]);
+    me.evolve(); // bootstrap over the 0.9 window, propose generation 1
+
+    const rejected = me.evolve();
+    expect(rejected.settled).toBe("rejected");
+    expect(rejected.diff).toBeUndefined();
+    expect(me.history().at(-1)?.event).toBe("rollback");
+
+    const next = me.evolve(); // the reverted champion's own, fresh window
+    expect(next.settled).toBe("bootstrap");
+    expect(typeof next.diff).toBe("string");
+    expect(me.status().baselineScore).toBe(metaFitness(fresh)!.score);
   });
 
   test("manual rollback returns to the baseline; errors when nothing pending", () => {
@@ -254,7 +337,7 @@ describe("MetaEvolution epoch ratchet", () => {
 
 describe("MetaEvolution hardening (audit fixes)", () => {
   const win = (action: "accept" | "reject" | "halt", aggregate: number): JournalEntry[] =>
-    Array.from({ length: MIN_META_CYCLES }, (_, i) => cycle(action, aggregate, 1_000 + i));
+    episodes(...Array.from({ length: MIN_META_CYCLES }, (_, i) => cycle(action, aggregate, 1_000 + i)));
 
   test("a candidate within the acceptance margin is rejected (no noise ratchet)", () => {
     const dir = mkdtempSync(join(tmpdir(), "meta-evo-"));
@@ -316,10 +399,10 @@ describe("metaFitness rewards being right, not being permissive", () => {
     result: null,
   });
 
-  const clean = [
+  const clean = episodes(
     cycle("accept", 0.9), cycle("accept", 0.8), cycle("accept", 0.85),
     cycle("accept", 0.9), cycle("reject", 0.7),
-  ];
+  );
 
   test("a clean window is scored exactly as before — the change is a no-op there", () => {
     const f = metaFitness(clean)!;
@@ -331,14 +414,14 @@ describe("metaFitness rewards being right, not being permissive", () => {
   });
 
   test("accepting over a regression scores WORSE than not accepting at all", () => {
-    const reckless = metaFitness([
+    const reckless = metaFitness(episodes(
       recklessAccept(0.9), recklessAccept(0.8), recklessAccept(0.85),
       recklessAccept(0.9), cycle("reject", 0.7),
-    ])!;
-    const restrained = metaFitness([
+    ))!;
+    const restrained = metaFitness(episodes(
       cycle("reject", 0.9), cycle("reject", 0.8), cycle("reject", 0.85),
       cycle("reject", 0.9), cycle("reject", 0.7),
-    ])!;
+    ))!;
     expect(reckless.score).toBeLessThan(restrained.score);
     expect(reckless.recklessAcceptRate).toBeCloseTo(0.8, 4);
     expect(reckless.soundAcceptRate).toBe(0);
@@ -346,36 +429,52 @@ describe("metaFitness rewards being right, not being permissive", () => {
 
   test("the accurate engine beats the permissive one on identical evaluations", () => {
     const accurate = metaFitness(clean)!;
-    const permissive = metaFitness([
+    const permissive = metaFitness(episodes(
       cycle("accept", 0.9), cycle("accept", 0.8), cycle("accept", 0.85),
       cycle("accept", 0.9), recklessAccept(0.7),
-    ])!;
+    ))!;
     // Both accept a lot; only one of them was right about the last candidate.
     expect(permissive.acceptRate).toBeGreaterThan(accurate.acceptRate);
     expect(permissive.score).toBeLessThan(accurate.score);
   });
 
   test("an accept with no evaluation counts as reckless", () => {
-    const f = metaFitness([
+    const f = metaFitness(episodes(
       blindAccept(), blindAccept(), blindAccept(), blindAccept(), cycle("reject", 0.7),
-    ])!;
+    ))!;
     expect(f.soundAcceptRate).toBe(0);
     expect(f.recklessAcceptRate).toBeCloseTo(0.8, 4);
   });
 
-  test("halting every cycle is still a failure — declining is a reject, not a halt", () => {
-    const halting = metaFitness([
-      cycle("halt", 0), cycle("halt", 0), cycle("halt", 0), cycle("halt", 0), cycle("halt", 0),
+  test("an episode summary row does not count its episode's accept a second time", () => {
+    // What makeCycleSummary writes after an episode that ratcheted: no
+    // candidate, no evaluation, decided "accept" because the candidate row
+    // already was. It used to be scored as a reckless accept, cancelling the
+    // sound one it summarises.
+    const withSummaries = metaFitness([
+      cycle("accept", 0.9, 1), summary("accept", 2),
+      cycle("accept", 0.8, 3), summary("accept", 4),
+      cycle("reject", 0.7, 5), summary("reject", 6),
+      cycle("reject", 0.7, 7), summary("reject", 8),
+      cycle("reject", 0.7, 9), summary("reject", 10),
     ])!;
-    const rejecting = metaFitness([
+    expect(withSummaries.recklessAcceptRate).toBe(0);
+    expect(withSummaries.soundAcceptRate).toBeCloseTo(2 / 5, 4);
+  });
+
+  test("halting every cycle is still a failure — declining is a reject, not a halt", () => {
+    const halting = metaFitness(episodes(
+      cycle("halt", 0), cycle("halt", 0), cycle("halt", 0), cycle("halt", 0), cycle("halt", 0),
+    ))!;
+    const rejecting = metaFitness(episodes(
       cycle("reject", 0.8), cycle("reject", 0.8), cycle("reject", 0.8),
       cycle("reject", 0.8), cycle("reject", 0.8),
-    ])!;
+    ))!;
     expect(halting.score).toBeLessThan(rejecting.score);
   });
 
   test("the score stays inside [0, 1] however reckless the engine is", () => {
-    const f = metaFitness(Array(10).fill(recklessAccept(0)))!;
+    const f = metaFitness(episodes(...Array(10).fill(recklessAccept(0))))!;
     expect(f.score).toBeGreaterThanOrEqual(0);
     expect(f.score).toBeLessThanOrEqual(1);
   });

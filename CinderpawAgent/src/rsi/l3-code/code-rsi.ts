@@ -10,13 +10,13 @@
  * worktree runner, mirroring `adapters.ts` discipline.
  *
  * What promotion means here (IMPORTANT): the candidate's CodeGenome —
- * patch text included — is committed to the git SUBSTRATE and the
- * strict-greater ratchet moves the champion pointer. The live source
- * tree is NEVER touched: applying a promoted patch to the running agent
- * stays behind the Slice 5 approval gate (first 10 patches need explicit
- * UI approval per spec §2.5). Until then a promoted code genome is a
- * receipt: "this patch exists, applied cleanly, kept 100% of the suite
- * green, type-checked, built, and out-scored the incumbent."
+ * patch text included — is committed to the git SUBSTRATE and recorded on
+ * `code-main`, and it joins the approval queue. The live source tree is
+ * NEVER touched: applying a promoted patch to the running agent stays
+ * behind the Slice 5 approval gate (first 10 patches need explicit UI
+ * approval per spec §2.5). Until then a promoted code genome is a
+ * receipt: "this patch exists, applied cleanly, and did no worse than its
+ * unpatched base on tests, tsc and build, measured in the same sandbox."
  *
  * This file is on the patch DENYLIST (it wires the walls together).
  */
@@ -26,7 +26,7 @@ import { join } from "node:path";
 import type { RsiBridge } from "../infra/bridge.ts";
 import type { CodeGenome } from "./code-genome.ts";
 import { isDiffParseError, parseUnifiedDiff, validateCodePatch } from "./code-genome.ts";
-import type { CodeEvalMeasurements } from "./code-sandbox.ts";
+import type { CodeEvalMeasurements, CodeEvalResult } from "./code-sandbox.ts";
 import { evaluateCodePatch, type CodeSandboxOptions } from "./code-sandbox.ts";
 import { bunExec } from "./code-sandbox.ts";
 import { DockerIsolation } from "./isolation.ts";
@@ -47,6 +47,32 @@ import type { PendingPatchStore } from "./pending-patches.ts";
  *  free the slot, not hang the candidate forever. */
 const BRIDGE_TIMEOUT_MS = 30_000;
 
+/** At most this many patches wait for a person at once. Past it the round
+ *  does not propose: a queue nobody gets through is noise, and every round
+ *  costs a proposal and a sandbox run. */
+export const MAX_PENDING_CODE_PATCHES = 5;
+
+/** Base measurements by repo, base commit and host bun: the sandbox image
+ *  is built from the base's lockfile on `oven/bun:<host version>`, so the
+ *  base runs once until an approved patch moves HEAD. A run the sandbox
+ *  killed is not kept, nor is a failed one.
+ *  ponytail: in memory, so one base run per restart; persist it if that
+ *  ever shows up as a cost. */
+const baseRuns = new Map<string, Promise<CodeEvalResult>>();
+
+/** Measurements as the Rust side reads them (snake_case, like every
+ *  bridge payload). */
+function toWire(m: CodeEvalMeasurements) {
+  return {
+    tests_passed: m.testsPassed,
+    tests_failed: m.testsFailed,
+    tests_exit_code: m.testsExitCode,
+    tsc_exit_code: m.tscExitCode,
+    build_exit_code: m.buildExitCode,
+    changed_lines: m.changedLines,
+  };
+}
+
 /**
  * Bind the code leaves' primitives to the production surfaces: the Rust
  * bridge (wall / scorer / commit / ratchet — snake_case wire, like every
@@ -61,6 +87,14 @@ export function makeCodeStageAdapters(args: {
   log?: (line: string) => void;
 }): CodeStageDeps {
   const { bridge, repoRoot } = args;
+  const sandbox = (): CodeSandboxOptions => ({
+    repoRoot,
+    scratchDir: join(tmpdir(), "cinderpaw-code-rsi"),
+    // The cell the candidate runs in. Docker is the only backend today;
+    // without it the candidate is refused with the reason on the card.
+    isolation: new DockerIsolation({ exec: bunExec, log: args.log ?? (() => {}) }),
+    ...args.sandbox,
+  });
   return {
     validatePatch: async (patch) => {
       // TS wall first (parse + policy, in-process): cheap rejections never
@@ -79,32 +113,37 @@ export function makeCodeStageAdapters(args: {
       return { ok: v.ok, ...(v.reason ? { reason: v.reason } : {}) };
     },
 
-    evaluateInWorktree: (genome) =>
-      evaluateCodePatch(genome, {
-        repoRoot,
-        scratchDir: join(tmpdir(), "cinderpaw-code-rsi"),
-        // The cell the candidate runs in. Docker is the only backend today;
-        // without it the candidate is refused with the reason on the card.
-        isolation: new DockerIsolation({ exec: bunExec, log: args.log ?? (() => {}) }),
-        ...args.sandbox,
-      }),
+    evaluateInWorktree: (genome) => evaluateCodePatch(genome, sandbox()),
 
-    scorePatch: async (m: CodeEvalMeasurements) => {
-      const scored = await bridge.request<{ score: number }>(
-        "rsi_score_code_patch",
-        {
-          measurements: {
-            tests_passed: m.testsPassed,
-            tests_failed: m.testsFailed,
-            tests_exit_code: m.testsExitCode,
-            tsc_exit_code: m.tscExitCode,
-            build_exit_code: m.buildExitCode,
-            changed_lines: m.changedLines,
-          },
-        },
-        BRIDGE_TIMEOUT_MS,
-      );
-      return { score: scored.score };
+    measureBase: (baseCommit) => {
+      const key = `${repoRoot}\0${baseCommit}\0${Bun.version}`;
+      let run = baseRuns.get(key);
+      if (!run) {
+        run = evaluateCodePatch({ patch: null, baseCommit }, sandbox());
+        baseRuns.set(key, run);
+        const forget = () => baseRuns.delete(key);
+        run.then((r) => { if (!r.ok || r.measurements.testsExitCode < 0) forget(); }, forget);
+      }
+      return run;
+    },
+
+    judgePatch: async (base, candidate) => {
+      const j = await bridge.request<{
+        candidate: { score: number };
+        base: { score: number };
+        tests: string | null;
+        tsc: string | null;
+        build: string | null;
+        no_worse: boolean;
+      }>("rsi_judge_code_patch", { base: toWire(base), candidate: toWire(candidate) }, BRIDGE_TIMEOUT_MS);
+      return {
+        score: j.candidate.score,
+        baseScore: j.base.score,
+        tests: j.tests ?? null,
+        tsc: j.tsc ?? null,
+        build: j.build ?? null,
+        noWorse: j.no_worse,
+      };
     },
 
     commitCodePatch: async ({ genomeId, genome, score }) => {
@@ -161,22 +200,22 @@ export interface CodeCandidateArgs {
   /** Journal linkage — same knobs as `RatchetDeps`. */
   cycleId?: string;
   journalPath?: () => string;
-  /** Slice 5: when supplied, a ratchet-winning candidate is queued for
-   *  the approval gate (live apply NEVER happens here — see
-   *  `pending-patches.ts`). */
+  /** Slice 5: when supplied, every candidate the contract accepts (no
+   *  worse than its base) is queued for the approval gate (live apply
+   *  NEVER happens here — see `pending-patches.ts`). */
   pendingStore?: PendingPatchStore;
 }
 
 export interface CodeCandidateResult {
   /** The contract's terminal verdict (accept / reject / halt + reason). */
   decided: ContractState["decided"];
-  /** True iff the Rust ratchet advanced the champion pointer. */
+  /** True iff the patch was recorded on `code-main`. */
   advanced: boolean;
   commitHash?: string;
   /** The Rust composite score, when the benchmark stage was reached. */
   score?: number;
-  /** What main scored before this candidate, when the ratchet was tried:
-   *  `score - previousBest` is the observed effect the self-model records. */
+  /** What the unpatched base scored: `score - previousBest` is the
+   *  observed effect the self-model records. */
   previousBest?: number;
   measurements?: CodeEvalMeasurements;
 }
@@ -218,8 +257,8 @@ export async function runCodeCandidate(args: CodeCandidateArgs): Promise<CodeCan
     args.pop.setCommitHash(args.genomeId, run.commitHash);
   }
 
-  // Promotion won the substrate ratchet — queue it for the human gate.
-  if (args.pendingStore && run.advanced && run.commitHash && run.score !== undefined) {
+  // No worse than its base, and recorded: queue it for the human gate.
+  if (args.pendingStore && final.decided?.action === "accept" && run.commitHash && run.score !== undefined) {
     args.pendingStore.add({
       id: args.genomeId,
       genome: args.genome,

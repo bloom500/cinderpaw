@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Desktop control and Jev drive other apps through System Events
+       (desktop_control_unix.rs). macOS asks the person first, and refuses
+       silently when an app gives no reason. -->
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Cinderpaw uses System Events to switch windows, press keys and type for you when you turn on desktop control.</string>
+</dict>
+</plist>

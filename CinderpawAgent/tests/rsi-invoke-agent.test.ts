@@ -115,23 +115,30 @@ describe("makeInvokeAgent — single-call mapping", () => {
     expect(userMsg.content).toBe("Capital of France?");
   });
 
-  test("computes maxTokens as floor(budget * contextWindowUsage), clamped to 256", async () => {
+  test("grades every genome at the whole budget while contextWindowUsage is dropped, floored at 256", async () => {
+    // LIVE_REACH marks contextWindowUsage "dropped": the live agent never reads
+    // it, so it must not move the score. It used to set maxTokens to
+    // floor(budget * usage), and genomes that are the same agent live were
+    // graded with different room (see rsi-eval-live-dimensions.test.ts).
     const router = new FakeRouter();
     const invoke = makeInvokeAgent({
       router,
       getSystemPrompt: () => "sys",
       contextBudget: 4096,
     });
-    await invoke("x", makeGenome({ contextWindowUsage: 0.5 })); // 0.5 * 4096 = 2048
-    expect(router.calls[0]!.maxTokens).toBe(2048);
+    await invoke("x", makeGenome({ contextWindowUsage: 0.5 }));
+    await invoke("x", makeGenome({ contextWindowUsage: 0.1 }));
+    expect(router.calls[0]!.maxTokens).toBe(4096);
+    expect(router.calls[1]!.maxTokens).toBe(4096);
 
-    // Floor 256: a low-usage genome must not truncate CORRECT answers
-    // (tier2/plan_make_tea was cut at 130 tokens on usage 0.1 × 1024).
-    await invoke("x", makeGenome({ contextWindowUsage: 0.1 })); // floor=409 > 256 → 409
-    expect(router.calls[1]!.maxTokens).toBe(409);
-
-    await invoke("x", makeGenome({ contextWindowUsage: 0.001 })); // floor=4 → clamped to 256
-    expect(router.calls[2]!.maxTokens).toBe(256);
+    // The floor still holds for a tiny budget: a CORRECT answer must not be
+    // cut off (tier2/plan_make_tea was truncated at 130 tokens).
+    const small = new FakeRouter();
+    await makeInvokeAgent({ router: small, getSystemPrompt: () => "sys", contextBudget: 100 })(
+      "x",
+      makeGenome({ contextWindowUsage: 0.9 }),
+    );
+    expect(small.calls[0]!.maxTokens).toBe(256);
   });
 
   test("uses a stable session id per genome", async () => {

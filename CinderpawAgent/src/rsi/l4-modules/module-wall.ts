@@ -2,10 +2,11 @@
  * L4 module lexical wall (spec §4) — static rejection of module sources
  * that reach for ambient authority. Same fail-loud philosophy as the L3
  * CodeGenome policy wall: crude on purpose, over-rejection is fine,
- * under-rejection is not. This is defense-in-depth on top of the process
- * boundary (scrubbed env, no permissions) — Bun cannot fully sandbox
- * in-process code, so the wall keeps the obvious escape hatches out of
- * the source before it is ever imported.
+ * under-rejection is not. It is a cheap FIRST FILTER, not the boundary:
+ * `globalThis["fe" + "tch"]` and `(() => {}).constructor` pass it (shown
+ * 26 Sep). The boundary is the isolation cell the host runs in
+ * (`module-host-client.ts`: no network, no host files, capped). The wall
+ * only keeps the obvious escape hatches from ever reaching the cell.
  *
  * Rules (v1, spec §4):
  *   - imports: ONLY `node:assert` (pure). Every other specifier —

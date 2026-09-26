@@ -865,6 +865,13 @@ pub fn meta(op: &str) -> i32 {
         _ => {
             let gen = v.get("generation").and_then(|g| g.as_u64()).unwrap_or(0);
             println!("  {ACCENT}✦ meta{RESET} {TEXT}generation {gen}{RESET}");
+            if let Some(settled) = v.get("settled").and_then(|s| s.as_str()) {
+                println!("  {TEXT}settled{RESET} {DIM}{META}{settled}{RESET}");
+            }
+            // After a reject evolve proposes nothing, and says why here.
+            if let Some(note) = v.get("note").and_then(|n| n.as_str()) {
+                println!("  {DIM}{META}{note}{RESET}");
+            }
             if let Some(diff) = v.get("diff").and_then(|d| d.as_str()) {
                 println!("  {TEXT}proposed{RESET} {DIM}{META}{diff}{RESET}");
             }

@@ -186,11 +186,16 @@ export interface RsiSidecarDeps {
    *  same max()/min() discipline as `metaParams`. Absent → pre-L5
    *  behaviour (§7). */
   policyGates?: () => import("./infra/confidence.ts").GateThresholds;
+  /** Optional: L5 `frozen.l1` (boot wires `layerFrozen("l1")`). Read at
+   *  every start, so a freeze or an unfreeze applies without a restart.
+   *  Absent → pre-L5 behaviour (never frozen). */
+  l1Frozen?: () => { frozen: boolean; reason: string };
   /** Optional: L4 seam builtins for the paired module eval (§5) — the
-   *  INCUMBENT implementation per seam, keyed by seam name. index.ts
+   *  INCUMBENT implementation per seam, keyed by seam name. boot.ts
    *  provides `retrieval_strategy` (FractalMemory-backed); `planner`
-   *  defaults to the builtin split. Absent seam → that seam's method is
-   *  left unbound on BOTH eval runs (symmetric pairing). */
+   *  defaults to the builtin split. Absent seam → the INCUMBENT run has
+   *  nothing bound for it while the candidate has the module, so the pair is
+   *  only symmetric when the builtin is supplied. */
   seamBuiltins?: Record<string, (method: string, params: unknown) => Promise<unknown>>;
 }
 
@@ -211,6 +216,16 @@ export class RsiSidecar {
   /** The engine is running. */
   isRunning(): boolean {
     return this.engine !== null;
+  }
+
+  /** Why a start would be refused right now (L5 `frozen.l1`), worded for
+   *  the person who will read it, or null. The Dream Cycle asks before its
+   *  wake pulse, so a frozen layer never announces a dream. */
+  frozenReason(): string | null {
+    const f = this.deps.l1Frozen?.();
+    return f?.frozen
+      ? `Self-improvement is paused: ${f.reason}. Run \`cinderpaw governance unfreeze l1\` to resume it.`
+      : null;
   }
 
   // ── Eval-harness building blocks (shared by start() and L4 §5) ───────
@@ -405,6 +420,19 @@ export class RsiSidecar {
       return;
     }
 
+    // L5 `frozen.l1`. Every start comes through here (the UI's rsi_start and
+    // each Dream Cycle episode), so this is the one door. It refuses new
+    // starts only: an episode already running ends within its own budget.
+    const frozen = this.frozenReason();
+    if (frozen !== null) {
+      if (ackId !== undefined) {
+        this.deps.send({ type: "error", message: frozen });
+      } else {
+        this.deps.log?.(`rsi dream: skipped background start (${frozen})`);
+      }
+      return;
+    }
+
     // ── Population + seeds ────────────────────────────────────────────
     const pop = new PopulationManager({ concurrency: opts.concurrency ?? 1 });
     // Resume from the persisted champion (best-known config) so a fresh
@@ -418,7 +446,8 @@ export class RsiSidecar {
     // recorded in the RatchetAdvanced handler below.
     const championTreePath = this.deps.championTreePath ?? defaultChampionTreePath();
     const championTree = readChampionTree(championTreePath);
-    const resumeSeed = championSeed(readChampion(championPath));
+    const persistedChampion = readChampion(championPath);
+    const resumeSeed = championSeed(persistedChampion);
     const baseSeeds = defaultEngineSeedsWithExtras(this.deps.extraSeeds);
     const seeds = resumeSeed ? [resumeSeed, ...baseSeeds] : baseSeeds;
     for (const seed of seeds) pop.add(seed);
@@ -662,6 +691,9 @@ export class RsiSidecar {
           });
         },
         cycleId: () => cycleId,
+        // The gate's baseline outlives the engine: without it the first
+        // candidate of every episode bypassed I6 (each episode is a new engine).
+        ...(persistedChampion?.outcomes?.length ? { championOutcomes: persistedChampion.outcomes } : {}),
         // §2.10 personal fitness: recent tool-call outcomes + thumbs feedback
         // → a real userSatisfaction in each candidate's Journal row. Observed
         // only — the deploy leaf still hands the ratchet the raw score.
@@ -762,7 +794,10 @@ export class RsiSidecar {
         // anything the user will feel). Pass THAT on, not the bare record.
         let stamped = record;
         try {
-          stamped = writeChampion(championPath, record);
+          // The per-task outcomes ride along: they are the next episode's
+          // gate baseline (see `championOutcomes` above).
+          const outcomes = ev.outcomes as ChampionRecord["outcomes"];
+          stamped = writeChampion(championPath, outcomes ? { ...record, outcomes } : record);
         } catch {
           // disk error — soft layer
         }

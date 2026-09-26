@@ -33,7 +33,9 @@ export function ChatPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const loaded      = useModel((s) => s.loaded);
-  const messages    = useChat((s) => s.messages);
+  // Only whether there is a transcript: the page does not re-render on every
+  // streamed token (the transcript itself subscribes in MessageList).
+  const isEmpty     = useChat((s) => s.messages.length === 0);
   const loadingConversation = useConversations((s) => s.loadingConversation);
 
   const inputMode    = useUI((s) => s.inputMode);
@@ -47,7 +49,6 @@ export function ChatPage() {
   // model by definition — met a dead end instead of a product. When there
   // is no model, ChatInput answers the first message itself and offers the
   // two ways forward.
-  const isEmpty   = messages.length === 0;
 
   const containerRef    = useRef<HTMLDivElement>(null);
   const inputWrapperRef = useRef<HTMLDivElement>(null);
@@ -279,7 +280,7 @@ export function ChatPage() {
         )}
 
         {/* Content: messages, no-model state, or empty overlay */}
-        {messages.length > 0 ? (
+        {!isEmpty ? (
           <MessageList />
         ) : (
           <NewChatEmptyState isEmpty={isEmpty} />

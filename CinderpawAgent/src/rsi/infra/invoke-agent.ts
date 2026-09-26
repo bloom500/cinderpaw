@@ -22,9 +22,11 @@
  *                                strategy + query and uses whatever the
  *                                engine returns.
  *   - `contextWindowUsage`     → `maxTokens = floor(budget * usage)` where
- *                                `budget` defaults to 4096. Clamped to
- *                                ≥ 32 so an agent never gets a zero-token
- *                                budget on a 0.1 fraction.
+ *                                `budget` defaults to 4096, floored at 256 —
+ *                                but only while `LIVE_REACH` marks it
+ *                                applied. Dropped (today), every genome gets
+ *                                the whole budget: eval must not reward a
+ *                                knob the live agent ignores.
  *   - `decompositionDepth`     → CEILING on the number of parallel sub-calls
  *                                (depth+1, capped at MAX_DECOMPOSITION so a
  *                                pathological genome cannot burst the router
@@ -60,7 +62,7 @@
 
 import { stripThinking } from "../../core/strip-thinking.ts";
 import type { InferenceRequest, InferenceResponse } from "../../types.ts";
-import type { GenomeConfig } from "../l1-config/genome.ts";
+import { LIVE_REACH, type GenomeConfig } from "../l1-config/genome.ts";
 import type { GenomeSpec } from "../l1-config/population-manager.ts";
 
 /** One agent invocation result — the shape `makeRunEval` expects. */
@@ -225,8 +227,10 @@ export function makeInvokeAgent(
  * was the single most expensive bug in the engine: the genome is judged worse
  * on a question it never got room to answer. `completeGradable` retries such a
  * call once with room, and anything still empty after that is reported through
- * `AgentResponse.unanswered` so the caller can decline to score it rather than
- * scoring it zero.
+ * `AgentResponse.unanswered`. The suite runner does NOT decline to score it
+ * yet — it still fails its validator; the sidecar counts an EMPTY response
+ * toward its unanswered-response breaker, which stops the episode when most of
+ * the suite goes unanswered.
  */
 function gradableAnswer(raw: string): string {
   return stripThinking(raw);
@@ -261,10 +265,14 @@ async function runOnce(args: {
   // Floor 256: a genome with low contextWindowUsage was truncating CORRECT
   // answers (tier2/plan_make_tea cut at 130 tokens) — the floor keeps the
   // eval fair while usage still differentiates genomes above it.
-  const maxTokens = Math.max(
-    256,
-    Math.floor(args.contextBudget * args.config.contextWindowUsage),
-  );
+  //
+  // Only while the live agent applies it (LIVE_REACH). Dropped, it is graded
+  // at its neutral value — the whole budget — or two genomes that are the same
+  // agent live get 409 vs 921 tokens of room here, and the ratchet credits
+  // the lineage that won on a knob the user never feels.
+  const usage =
+    LIVE_REACH.contextWindowUsage === "applied" ? args.config.contextWindowUsage : 1;
+  const maxTokens = Math.max(256, Math.floor(args.contextBudget * usage));
 
   const { nativeTools, openAITools } = selectTools(
     args.toolRegistry?.tools() ?? [],

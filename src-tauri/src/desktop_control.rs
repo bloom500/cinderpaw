@@ -501,6 +501,89 @@ pub async fn list_apps() -> Result<Vec<InstalledApp>, String> {
     run_blocking(installed_apps).await
 }
 
+/// macOS: every `.app` in the Applications folders. Linux: every desktop
+/// entry a launcher would show (NoDisplay and Hidden ones left out), by its
+/// Name. The path is what `spawn_detached` opens.
+#[cfg(not(windows))]
+fn installed_apps() -> Result<Vec<InstalledApp>, String> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let mut out: Vec<InstalledApp> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    #[cfg(target_os = "macos")]
+    {
+        fn walk(dir: &std::path::Path, depth: u8, out: &mut Vec<InstalledApp>, seen: &mut std::collections::HashSet<String>) {
+            let Ok(rd) = std::fs::read_dir(dir) else { return };
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.extension().is_some_and(|x| x == "app") {
+                    let Some(name) = p.file_stem().and_then(|x| x.to_str()) else { continue };
+                    if seen.insert(name.to_lowercase()) {
+                        out.push(InstalledApp { name: name.to_string(), path: p.to_string_lossy().to_string() });
+                    }
+                } else if p.is_dir() && depth < 1 {
+                    walk(&p, depth + 1, out, seen);
+                }
+            }
+        }
+        for d in [std::path::PathBuf::from("/Applications"), std::path::PathBuf::from("/System/Applications"), home.join("Applications")] {
+            walk(&d, 0, &mut out, &mut seen);
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let data_home = std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from).unwrap_or_else(|| home.join(".local/share"));
+        let mut dirs_: Vec<std::path::PathBuf> = vec![data_home.join("applications")];
+        let data_dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
+        dirs_.extend(data_dirs.split(':').filter(|d| !d.is_empty()).map(|d| std::path::PathBuf::from(d).join("applications")));
+        dirs_.push("/var/lib/flatpak/exports/share/applications".into());
+        dirs_.push(home.join(".local/share/flatpak/exports/share/applications"));
+        dirs_.push("/var/lib/snapd/desktop/applications".into());
+        for d in dirs_ {
+            let Ok(rd) = std::fs::read_dir(&d) else { continue };
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.extension().is_none_or(|x| x != "desktop") {
+                    continue;
+                }
+                let Ok(text) = std::fs::read_to_string(&p) else { continue };
+                if let Some(name) = desktop_entry_name(&text) {
+                    if seen.insert(name.to_lowercase()) {
+                        out.push(InstalledApp { name, path: p.to_string_lossy().to_string() });
+                    }
+                }
+            }
+        }
+    }
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(out)
+}
+
+/// The `Name=` of a launchable application entry, or None for one a launcher
+/// hides (NoDisplay, Hidden, not an Application).
+#[cfg_attr(any(windows, target_os = "macos"), allow(dead_code))]
+fn desktop_entry_name(text: &str) -> Option<String> {
+    let mut in_entry = false;
+    let (mut name, mut app, mut hidden) = (None, false, false);
+    for line in text.lines().map(str::trim) {
+        if line.starts_with('[') {
+            in_entry = line == "[Desktop Entry]";
+            continue;
+        }
+        if !in_entry {
+            continue;
+        }
+        if let Some(v) = line.strip_prefix("Name=") {
+            name.get_or_insert_with(|| v.trim().to_string());
+        } else if line == "Type=Application" {
+            app = true;
+        } else if line == "NoDisplay=true" || line == "Hidden=true" {
+            hidden = true;
+        }
+    }
+    name.filter(|n| app && !hidden && !n.is_empty())
+}
+
+#[cfg(windows)]
 fn installed_apps() -> Result<Vec<InstalledApp>, String> {
     let mut roots = Vec::new();
     if let Ok(p) = std::env::var("ProgramData") {
@@ -564,6 +647,7 @@ fn start_menu_path(name: &str) -> Option<String> {
 /// agent. `Get-StartApps` reads them but takes seconds, so it runs once, in the
 /// background; the first answer is the shortcuts alone, and every one after it
 /// has both.
+#[cfg(windows)]
 fn store_apps() -> Vec<InstalledApp> {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Mutex, OnceLock};
@@ -616,10 +700,6 @@ fn read_start_apps() -> Vec<InstalledApp> {
         .collect()
 }
 
-#[cfg(not(windows))]
-fn read_start_apps() -> Vec<InstalledApp> {
-    Vec::new()
-}
 
 /// Lowercased final path component of an executable name/path, used for the
 /// allow/deny check. `C:\\Windows\\System32\\notepad.exe` → `notepad.exe`.
@@ -669,7 +749,23 @@ fn spawn_detached(app: &str) -> Result<LaunchResult, String> {
         }
         c
     };
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(not(target_os = "macos"), not(windows)))]
+    let mut cmd = {
+        // A desktop entry is launched the way a launcher does, by the entry
+        // (its Exec line, working directory and flags), not by guessing a binary.
+        if app.ends_with(".desktop") {
+            let mut c = Command::new("gio");
+            c.args(["launch", app]);
+            c
+        } else {
+            let mut c = Command::new(app);
+            if chromium {
+                c.arg("--force-renderer-accessibility");
+            }
+            c
+        }
+    };
+    #[cfg(windows)]
     let mut cmd = {
         // A `.lnk` from the Start Menu is not a program: the shell resolves it
         // (working directory, arguments, elevation) the way a double-click does.
@@ -830,46 +926,12 @@ pub async fn handle_request(
 mod imp;
 
 #[cfg(not(target_os = "windows"))]
-mod imp {
-    //! Non-Windows fallback. macOS AX support is planned; until then every
-    //! entry point returns a clear, recoverable error. On Linux it is simply
-    //! unsupported. Everything still compiles so the Tauri command surface and
-    //! the sidecar bridge exist on every platform.
-    use super::*;
+#[path = "desktop_control_unix.rs"]
+mod imp;
 
-    #[cfg(target_os = "macos")]
-    const MSG: &str = "Desktop control on macOS (Accessibility API) is not implemented yet — Windows (UIA) only for now.";
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    const MSG: &str = "Desktop control is not yet supported on Linux — UIA (Windows) and AX (macOS) only.";
-
-    pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
-        Err(MSG.into())
-    }
-    pub fn get_accessibility_tree(_pid: u32, _depth: u8, _window_title: Option<&str>) -> Result<AccessibilityNode, String> {
-        Err(MSG.into())
-    }
-    pub fn find_elements(_pid: u32, _q: &ElementQuery, _window_title: Option<&str>) -> Result<Vec<AccessibilityElement>, String> {
-        Err(MSG.into())
-    }
-    pub fn click_element(_id: &str) -> Result<(), String> {
-        Err(MSG.into())
-    }
-    pub fn type_into_element(_id: &str, _text: &str) -> Result<(), String> {
-        Err(MSG.into())
-    }
-    pub fn get_element_value(_id: &str) -> Result<String, String> {
-        Err(MSG.into())
-    }
-    pub fn get_focused_element() -> Result<AccessibilityElement, String> {
-        Err(MSG.into())
-    }
-    pub fn take_element_action(_id: &str, _action: &str) -> Result<(), String> {
-        Err(MSG.into())
-    }
-    pub fn send_keys(_id: &str, _keys: &str) -> Result<(), String> {
-        Err(MSG.into())
-    }
-}
+/// The key-spec grammar, shared by every backend.
+#[path = "desktop_control_keys.rs"]
+pub mod keys;
 
 // ---------------------------------------------------------------------------
 // Tests (platform-independent: encoding + security policy)

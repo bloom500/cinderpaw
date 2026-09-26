@@ -44,6 +44,7 @@ vi.mock('livekit-client', () => {
       Disconnected: 'disconnected',
       Reconnecting: 'reconnecting',
       Reconnected: 'reconnected',
+      ParticipantDisconnected: 'participantDisconnected',
     },
     Track: { Kind: { Audio: 'audio' } },
     __lastRoom: () => rooms[rooms.length - 1],
@@ -316,5 +317,94 @@ describe('the ways a call can fail', () => {
     await act(async () => { releaseStart!(CALL); await Promise.resolve(); });
     await waitFor(() => expect(tauri.raw.endLivekitCall).toHaveBeenCalled());
     expect(result.current.phase).toBe('idle');
+  });
+});
+
+describe('a call that ends on its own leaves nothing behind for the next one', () => {
+  it('starts the next call unmuted after one that closed while muted', async () => {
+    const { result } = renderHook(() => useLiveKitCallSession());
+    await waitFor(() => expect(emit).toBeTruthy());
+    await connectFully(result);
+    act(() => result.current.setMuted(true));
+    expect(result.current.muted).toBe(true);
+    // The vendor ends it: no hang-up from this side.
+    act(() => emit!({ kind: 'closed', text: '429 RESOURCE_EXHAUSTED' } as LiveKitAgentEvent));
+    expect(result.current.phase).toBe('ready');
+    await connectFully(result);
+    // The new room's microphone is live; the screen must not say otherwise.
+    expect(result.current.muted).toBe(false);
+  });
+
+  it('shows the caller\'s new sentence instead of the last answer', async () => {
+    const { result } = renderHook(() => useLiveKitCallSession());
+    await waitFor(() => expect(emit).toBeTruthy());
+    await connectFully(result);
+    act(() => emit!({ kind: 'heard', text: 'what time is it', partial: false } as LiveKitAgentEvent));
+    act(() => emit!({ kind: 'said', text: 'It is five.' } as LiveKitAgentEvent));
+    expect(result.current.said).toBe('It is five.');
+    act(() => emit!({ kind: 'heard', text: 'and in Tokyo', partial: true } as LiveKitAgentEvent));
+    expect(result.current.said).toBe('');
+    expect(result.current.heard).toBe('and in Tokyo');
+  });
+
+  it('keeps the answer when the final transcript of its question lands after it', async () => {
+    const { result } = renderHook(() => useLiveKitCallSession());
+    await waitFor(() => expect(emit).toBeTruthy());
+    await connectFully(result);
+    act(() => emit!({ kind: 'said', text: 'It is five.' } as LiveKitAgentEvent));
+    act(() => emit!({ kind: 'heard', text: 'what time is it', partial: false } as LiveKitAgentEvent));
+    expect(result.current.said).toBe('It is five.');
+  });
+
+  it('ends the call when the agent leaves the room without a close', async () => {
+    const { result } = renderHook(() => useLiveKitCallSession());
+    await waitFor(() => expect(emit).toBeTruthy());
+    await connectFully(result);
+    // Only now: `waitFor` above runs on the real clock.
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      const ends = vi.mocked(tauri.raw.endLivekitCall).mock.calls.length;
+      act(() => lastRoom().__fire('participantDisconnected', { isAgent: true }));
+      // Not at once: a clean close sends its reason first, over another pipe.
+      expect(result.current.phase).toBe('listening');
+      act(() => { vi.advanceTimersByTime(2000); });
+      expect(result.current.phase).toBe('ready');
+      expect(result.current.notice).toMatch(/stopped unexpectedly/);
+      expect(vi.mocked(tauri.raw.endLivekitCall).mock.calls.length).toBe(ends + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('lets a close that arrives within the grace keep its own reason', async () => {
+    const { result } = renderHook(() => useLiveKitCallSession());
+    await waitFor(() => expect(emit).toBeTruthy());
+    await connectFully(result);
+    // Only now: `waitFor` above runs on the real clock.
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      act(() => lastRoom().__fire('participantDisconnected', { isAgent: true }));
+      act(() => emit!({ kind: 'closed', text: 'CONTENT_TYPE_AUDIO is not supported for this model' } as LiveKitAgentEvent));
+      act(() => { vi.advanceTimersByTime(2000); });
+      expect(result.current.phase).toBe('ready');
+      expect(result.current.notice).toMatch(/cannot speak/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores a person, not the agent, leaving the room', async () => {
+    const { result } = renderHook(() => useLiveKitCallSession());
+    await waitFor(() => expect(emit).toBeTruthy());
+    await connectFully(result);
+    // Only now: `waitFor` above runs on the real clock.
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      act(() => lastRoom().__fire('participantDisconnected', { isAgent: false }));
+      act(() => { vi.advanceTimersByTime(2000); });
+      expect(result.current.phase).toBe('listening');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -9,7 +9,9 @@
  *   - `active === <module id>` → request goes to the module host; ANY
  *     failure (spawn refusal, crash, timeout, malformed reply) returns
  *     the BUILTIN result for that request — the user never sees a module
- *     error (spec §4) — and counts one watchdog strike.
+ *     error (spec §4) — and counts one watchdog strike. Except a machine
+ *     with no isolation cell (Docker missing or stopped): builtin, no
+ *     strike, retried after a minute. That is not the module failing.
  *   - ≥ `maxStrikes` strikes inside `strikeWindowMs` → automatic
  *     quarantine (§8.2): registry re-pointed to builtin, governance
  *     audit row `module_quarantined`, host stopped. Mirrors the Faza 3
@@ -23,6 +25,9 @@ import { appendGovernanceAudit } from "../l5-gov/governance-audit.ts";
 import { defaultGovernanceDir } from "../l5-gov/governance.ts";
 import { spawnModuleHost, type ModuleHost, type ModuleHostLimits, type SpawnResult } from "./module-host-client.ts";
 import { defaultModulesDir, type ModuleRegistry } from "./module-registry.ts";
+
+/** How long the builtin serves alone after the machine had no cell. */
+const CELL_RETRY_MS = 60_000;
 
 export interface SeamAdapterOpts {
   seam: string;
@@ -59,6 +64,9 @@ export class SeamAdapter {
   /** Which module `spawning` is actually starting — see `ensureHost`. */
   private spawningModuleId: string | null = null;
   private strikes: number[] = [];
+  /** Until when the builtin serves without trying to start a cell: set
+   *  when the machine has no cell (Docker missing or stopped). */
+  private cellDownUntil = 0;
 
   constructor(opts: SeamAdapterOpts) {
     this.o = opts as typeof this.o;
@@ -77,8 +85,14 @@ export class SeamAdapter {
       this.stopHost(); // demotion re-resolves here — host is dead weight
       return this.o.builtin(method, params);
     }
+    // No cell on this machine is not the module's failure: no strike, so a
+    // good module is not quarantined because Docker is stopped. The builtin
+    // serves, and the cell is tried again after a minute rather than on
+    // every request (a probe of a starting Docker can take seconds).
+    if (this.now() < this.cellDownUntil) return this.o.builtin(method, params);
     const host = await this.ensureHost(active);
     if (!host) {
+      if (this.now() < this.cellDownUntil) return this.o.builtin(method, params);
       this.strike(active, "host spawn failed");
       return this.o.builtin(method, params);
     }
@@ -131,6 +145,7 @@ export class SeamAdapter {
     this.spawningModuleId = null;
     if (!res.ok) {
       this.log(`seam(${this.o.seam}): host spawn failed for ${moduleId} — ${res.reason}`);
+      if (res.unavailable) this.cellDownUntil = this.now() + CELL_RETRY_MS;
       return null;
     }
     if (spawnedFor !== moduleId) {

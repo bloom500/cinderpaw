@@ -19,6 +19,11 @@
  * is a container on the host kernel, not a VM: weaker, and said so in the
  * `isolationNote` the receipt carries.
  *
+ * Two shapes of cell. `run` executes L3 steps to completion. `command` starts
+ * a long-lived L4 module host that the runtime talks to over stdin/stdout
+ * (`ModuleCell`): same walls, with the module and the host script mounted
+ * read-only instead of copied in, because stdin is the protocol channel.
+ *
  * This file is on the L3 patch denylist. A candidate that could patch the
  * walls of its own cell has no walls.
  */
@@ -26,8 +31,8 @@
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, sep } from "node:path";
-import type { ExecFn, ExecResult } from "./code-sandbox.ts";
+import { basename, dirname, join, relative, sep } from "node:path";
+import { minimalEnv, type ExecFn, type ExecResult } from "./code-sandbox.ts";
 
 /** One measurement command, run inside the sandbox in order. */
 export interface IsolatedStep {
@@ -75,6 +80,34 @@ export interface IsolationBackend {
   run(pkgDir: string, steps: IsolatedStep[]): Promise<ExecResult[]>;
 }
 
+/** What an L4 module host needs from a cell. */
+export interface ModuleCellSpec {
+  /** Host path of the module host script; the cell reads it, nothing more. */
+  hostScript: string;
+  /** Host path of the module's directory; read-only inside the cell. */
+  moduleDir: string;
+  /** The whole environment inside the cell. Nothing else crosses. */
+  env: Record<string, string>;
+  /** Hard memory cap for the cell, in MB. */
+  memoryMb: number;
+  /** Unique name. Killing the client that started a cell does not stop
+   *  it; the name is how it is destroyed. */
+  name: string;
+}
+
+/** A cell for a long-lived module host (L4), spoken to over stdin/stdout. */
+export interface ModuleCell {
+  readonly name: string;
+  available(): Promise<Availability>;
+  /** Whatever the first start needs (the image). The only step that may
+   *  use the network. The reason is worded for the person reading it. */
+  prepare(): Promise<Availability>;
+  /** The process to spawn for `spec`, and that process's own environment. */
+  command(spec: ModuleCellSpec): { argv: string[]; env: Record<string, string> };
+  /** Destroy the cell by name. Idempotent; resolves when it is gone. */
+  destroy(name: string): Promise<void>;
+}
+
 export interface DockerIsolationOptions {
   exec: ExecFn;
   limits?: Partial<IsolationLimits>;
@@ -95,7 +128,7 @@ const IMAGE_REPO = "cinderpaw-code-rsi";
 
 const timedOut = (): ExecResult => ({ exitCode: -1, stdout: "", stderr: "killed: sandbox wall clock", timedOut: true });
 
-export class DockerIsolation implements IsolationBackend {
+export class DockerIsolation implements IsolationBackend, ModuleCell {
   readonly name = "docker";
   readonly #exec: ExecFn;
   readonly #limits: IsolationLimits;
@@ -246,6 +279,82 @@ export class DockerIsolation implements IsolationBackend {
     } finally {
       await this.#exec(["docker", "rm", "-f", cid], { cwd: tmpdir(), timeoutMs: 60_000 });
     }
+  }
+
+  // ── L4 module cells ────────────────────────────────────────────────────
+
+  /** A module host needs bun and node builtins only, so the cell runs the
+   *  plain base image: no lockfile, no dependency layer. */
+  async prepare(): Promise<Availability> {
+    const have = await this.#exec(["docker", "image", "inspect", this.#base], { cwd: tmpdir(), timeoutMs: 30_000 });
+    if (have.exitCode === 0) return { ok: true, note: this.#base };
+    this.#log(`isolation: pulling ${this.#base} for module cells (first run; needs the network once)`);
+    const pulled = await this.#exec(["docker", "pull", this.#base], { cwd: tmpdir(), timeoutMs: 10 * 60_000 });
+    if (pulled.exitCode === 0) return { ok: true, note: this.#base };
+    return {
+      ok: false,
+      reason: pulled.timedOut
+        ? `Downloading ${this.#base} timed out after 10 minutes. Check the internet connection; modules run once it is there.`
+        : `Could not download ${this.#base}: ${lastLine(pulled.stderr) || `exit ${pulled.exitCode}`}`,
+    };
+  }
+
+  /** `docker run -i`: stdin and stdout are the module protocol. The cell
+   *  sees two read-only mounts (the host script and the module), no
+   *  network, no capabilities, a read-only root, and the caps.
+   *  ponytail: a bind source containing a comma breaks `--mount`; module
+   *  and temp paths do not have one. */
+  command(spec: ModuleCellSpec): { argv: string[]; env: Record<string, string> } {
+    const L = this.#limits;
+    return {
+      argv: [
+        "docker", "run", "-i", "--rm",
+        "--name", spec.name,
+        "--network", "none",
+        "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges",
+        "--read-only",
+        "--tmpfs", "/tmp:rw,size=64m",
+        "--tmpfs", "/root/.bun:rw,size=64m",
+        "--memory", `${spec.memoryMb}m`,
+        "--cpus", String(L.cpus),
+        "--pids-limit", String(L.pids),
+        "--label", "cinderpaw=module-host",
+        // Bind mounts keep host ownership, and root with every capability
+        // dropped cannot read a 0700 dir it does not own (mkdtemp makes
+        // exactly those): "CouldntReadCurrentDirectory" on the Linux CI
+        // runner, 26 Sep. So run as the owner. Docker Desktop on Windows
+        // maps ownership itself, and Windows has no uid.
+        ...(process.getuid && process.getgid ? ["--user", `${process.getuid()}:${process.getgid()}`] : []),
+        // bun keeps a cache under $HOME, and the root is read-only.
+        "-e", "HOME=/tmp",
+        "--mount", `type=bind,source=${dirname(spec.hostScript)},target=/host,readonly`,
+        "--mount", `type=bind,source=${spec.moduleDir},target=/module,readonly`,
+        "--workdir", "/module",
+        ...Object.entries(spec.env).flatMap(([k, v]) => ["-e", `${k}=${v}`]),
+        this.#base,
+        "bun", `/host/${basename(spec.hostScript)}`, "/module",
+      ],
+      // The docker CLI's own environment, not the cell's: the cell gets
+      // only the `-e` pairs above.
+      env: minimalEnv(),
+    };
+  }
+
+  async destroy(name: string): Promise<void> {
+    await this.#exec(["docker", "rm", "-f", name], { cwd: tmpdir(), timeoutMs: 60_000 });
+    // `--rm` may already be removing it (the host exits when its stdin
+    // closes, which is what killing the client does), and then `rm -f`
+    // returns while it is still there. "Gone" has to mean gone.
+    for (let i = 0; i < 50; i++) {
+      const r = await this.#exec(["docker", "container", "inspect", "--format", "{{.Id}}", name], {
+        cwd: tmpdir(),
+        timeoutMs: 15_000,
+      });
+      if (r.exitCode !== 0) return;
+      await Bun.sleep(200);
+    }
+    this.#log(`isolation: module cell ${name} still listed 10s after removal`);
   }
 }
 

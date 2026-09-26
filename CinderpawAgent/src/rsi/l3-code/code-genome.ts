@@ -398,6 +398,12 @@ export const DEFAULT_CODE_PATCH_POLICY: CodePatchPolicy = {
     "hash-chain.ts", // I4 tamper-evidence
     "event-bus.ts", // I15 runtime assert
     "provenance.ts", // I12 acyclic lineage
+    // Missed when the chain above was listed: the scorer's input mapping, the
+    // composition root that sets the gate's thresholds and seeds its
+    // baseline, and the file that persists that baseline with the champion.
+    "adapters.ts", // EvalOutcome[] → the Rust scorer's input
+    "sidecar.ts", // I6 thresholds + baseline wiring
+    "champion.ts", // the gate baseline on disk
     // The layers that GOVERN L3. Astra's 12 Sep audit proved governance.ts,
     // governance-lifecycle.ts and meta-evolution.ts were legal targets: the
     // layer being governed could patch its governor and the layer above it.
@@ -414,6 +420,24 @@ export const DEFAULT_CODE_PATCH_POLICY: CodePatchPolicy = {
     "code-proposer.ts",
     "experiment-selector.ts",
     "self-model.ts", // the selector's opinion of the agent; same hook
+    // The walls, gates and wires of the OTHER layers. Until 26 Sep this list
+    // covered L1's chain and missed these: every one was a legal target.
+    "isolation.ts", // L3: the Docker cell a code candidate runs in
+    "module-host-client.ts", // L4: spawns a module, runs its wall, scrubs the env
+    "module-host.ts", // L4: the child process a module executes in
+    "module-eval.ts", // L4: the paired gate
+    "module-lifecycle.ts", // L4: freeze, approval, promotion
+    "module-registry.ts", // L4: which implementation serves a seam
+    "seam-adapter.ts", // L4: the watchdog that quarantines a module
+    "module-proposer.ts", // L4: the lexical wall before a module reaches disk
+    "lora-eval-gate.ts", // L2: the verdict
+    "lora-eval-runner.ts", // L2: the paired A/B that feeds it
+    "lora-registry.ts", // L2: the champion adapter and its rollback
+    "lora-pipeline.ts", // L2: approve only on a recommend_promote verdict
+    "bridge.ts", // the wire to the Rust scorer and ratchet
+    "tier-loader.ts", // loads the Tier 1/2 suite, refuses a partial one
+    "fixtures.ts", // the campaign's held-out promotion partitions
+    "instance-paths.ts", // where the governance, journal and champion files live
   ],
 };
 

@@ -336,12 +336,69 @@ pub fn commit_genome(
     Ok(commit_oid.to_string())
 }
 
-/// One row on the ratchet's own audit chain. `field` is always `main_tip`, so
-/// `last_values()` on this log answers "what did the ratchet last set main to".
-fn append_ratchet_audit(old_tip: Option<&str>, new_tip: &str, reason: &str) -> Result<()> {
+/// One row on the ratchet's own audit chain. `field` names the lineage's ref
+/// (`main_tip` for config genomes, `code_main_tip` for code patches), so
+/// `last_values()` on this log answers "what did the ratchet last set it to".
+fn append_ratchet_audit(field: &str, old_tip: Option<&str>, new_tip: &str, reason: &str) -> Result<()> {
     let log = SandboxBoundsAudit::open(rsi_ratchet_audit_path())?;
-    log.append("main_tip", old_tip, new_tip, reason)?;
+    log.append(field, old_tip, new_tip, reason)?;
     Ok(())
+}
+
+/// The ref code patches (L3) ratchet. Config genomes (L1) keep `main`.
+///
+/// The two are scored on different scales — a config genome by the eval
+/// scorer (0..`w_success`, 55 by default), a code patch by tests / tsc / build
+/// / diff size (0..100) — and a strict-greater between them is meaningless.
+/// They used to share `main`: the first code patch to advance put ~96 on it,
+/// no config genome could beat that again, and config evolution froze for
+/// good while every code patch "out-scored the incumbent" by beating a number
+/// on another scale.
+///
+/// `code-main` RECORDS; it no longer ratchets. Its strict-greater bar was
+/// absolute: a green one-line patch scored 99.95 and nothing could beat it
+/// again, so L3 went silent. A code candidate is now judged against its own
+/// unpatched base (`code_patch::judge_code_patch`) before it gets here, and
+/// every candidate that arrives moves the ref, on the audit chain like any
+/// advance. Nothing reads this ref to apply a patch; the human gate does that.
+pub const CODE_LINEAGE: &str = "code-main";
+
+fn is_code_patch(meta: &IterationMetadata) -> bool {
+    meta.mutation_type == "code_patch"
+}
+
+/// The lineage's current tip, and the score a candidate of that lineage must
+/// beat. The ref's own tip is used when it belongs to the lineage. Otherwise
+/// (the ref does not exist yet, or a pre-split repo left a code patch on
+/// `main`) the lineage's last tip is recovered from the ratchet audit chain,
+/// which records every tip each ref was ever set to.
+fn lineage_prior(repo: &Repository, branch: &str, code: bool) -> Result<(Option<String>, Option<f64>)> {
+    let tip = repo
+        .find_branch(branch, BranchType::Local)
+        .ok()
+        .and_then(|b| b.get().target());
+    if let Some(oid) = tip {
+        match parse_iteration_metadata(&repo.find_commit(oid)?) {
+            Some(m) if is_code_patch(&m) == code => return Ok((Some(oid.to_string()), Some(m.score))),
+            // The bootstrap commit on `main`: a tip with nothing to beat.
+            None if !code => return Ok((Some(oid.to_string()), None)),
+            _ => {}
+        }
+    }
+    let rows = std::fs::read_to_string(rsi_ratchet_audit_path()).unwrap_or_default();
+    for line in rows.lines().rev() {
+        let Ok(row) = serde_json::from_str::<crate::rsi::audit::BoundsAuditRow>(line.trim()) else {
+            continue;
+        };
+        let Ok(oid) = Oid::from_str(&row.new_value) else { continue };
+        let Ok(commit) = repo.find_commit(oid) else { continue };
+        if let Some(m) = parse_iteration_metadata(&commit) {
+            if is_code_patch(&m) == code {
+                return Ok((tip.map(|o| o.to_string()), Some(m.score)));
+            }
+        }
+    }
+    Ok((tip.map(|o| o.to_string()), None))
 }
 
 /// Attempt to advance `main` to `candidate_commit`. Succeeds only if
@@ -359,6 +416,12 @@ fn append_ratchet_audit(old_tip: Option<&str>, new_tip: &str, reason: &str) -> R
 #[track_caller]
 pub fn ratchet_attempt(candidate_commit: &str) -> Result<RatchetResult> {
     let caller = std::panic::Location::caller();
+    // Read-compare-move is one operation. Every sidecar request runs on its
+    // own task, and a code-RSI round can overlap a dream episode: two attempts
+    // that both read the old tip could both "advance", the lower score last,
+    // leaving the lineage's bar lower than a score it already reached.
+    static RATCHET_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _serialised = RATCHET_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let repo = open()?;
     let candidate_oid =
         Oid::from_str(candidate_commit).with_context(|| format!("parse candidate oid '{}'", candidate_commit))?;
@@ -369,26 +432,20 @@ pub fn ratchet_attempt(candidate_commit: &str) -> Result<RatchetResult> {
         .ok_or_else(|| anyhow!("candidate commit has no parseable iteration metadata"))?;
     let candidate_score = candidate_meta.score;
 
-    // Find main's current tip (if any).
-    let (previous_tip, prior_score) = match repo.find_branch("main", BranchType::Local) {
-        Ok(b) => match b.get().target() {
-            Some(tip_oid) => {
-                let tip_commit = repo.find_commit(tip_oid)?;
-                let prior = parse_iteration_metadata(&tip_commit).map(|m| m.score);
-                (Some(tip_oid.to_string()), prior)
-            }
-            None => (None, None),
-        },
-        Err(_) => (None, None),
-    };
+    // The lineage this candidate competes in, its current tip, and its bar.
+    let code = is_code_patch(&candidate_meta);
+    let (branch, field) = if code { (CODE_LINEAGE, "code_main_tip") } else { ("main", "main_tip") };
+    let (previous_tip, prior_score) = lineage_prior(&repo, branch, code)?;
 
     let prior_score_value = prior_score.unwrap_or(f64::NEG_INFINITY);
-    let advanced = candidate_score > prior_score_value;
+    // The code lineage records (see CODE_LINEAGE); only config genomes ratchet.
+    let advanced = code || candidate_score > prior_score_value;
 
     if !advanced {
         // Best-effort: main did not move, so a lost row costs a line of history
         // rather than an unrecorded change of state.
         let _ = append_ratchet_audit(
+            field,
             previous_tip.as_deref(),
             previous_tip.as_deref().unwrap_or("none"),
             &format!(
@@ -415,33 +472,42 @@ pub fn ratchet_attempt(candidate_commit: &str) -> Result<RatchetResult> {
     // The row goes down before the ref moves. If the audit cannot be written,
     // the advance is abandoned rather than made silently: `main` moving with no
     // record of why is the one outcome I1 exists to forbid.
-    append_ratchet_audit(
-        previous_tip.as_deref(),
-        candidate_commit,
-        &format!(
-            "advanced: candidate {candidate_score} beats prior {} (called from {}:{})",
-            prior_score
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "none".into()),
+    let prior_text = prior_score.map(|s| s.to_string()).unwrap_or_else(|| "none".into());
+    let reason = if code {
+        format!(
+            "recorded: code patch {candidate_score} cleared its base gate, previous record {prior_text} (called from {}:{})",
             caller.file(),
             caller.line(),
-        ),
-    )
-    .context("ratchet refused to advance main because the audit row could not be written")?;
+        )
+    } else {
+        format!(
+            "advanced: candidate {candidate_score} beats prior {prior_text} (called from {}:{})",
+            caller.file(),
+            caller.line(),
+        )
+    };
+    append_ratchet_audit(field, previous_tip.as_deref(), candidate_commit, &reason)
+        .context("ratchet refused to advance main because the audit row could not be written")?;
 
     // Fast-forward main. We do NOT merge — the ratchet is a strict
     // replacement of the tip with a strictly-higher-scoring commit.
     // If main's history does not contain the candidate, this is a
     // fast-forward of a fresh ref.
-    let main_branch = repo.find_branch("main", BranchType::Local)?;
-    let mut main_reference = main_branch.into_reference();
-    main_reference.set_target(candidate_oid, "rsi: ratchet advance")?;
-    // Not `let _ =`. If HEAD fails to follow main, the next `commit_genome` —
-    // which commits to "HEAD" — writes onto whatever ref HEAD still points at,
-    // quietly building the lineage somewhere other than main. A ratchet that
-    // reports `advanced: true` with the repo in that state is a lie.
-    repo.set_head("refs/heads/main")
-        .context("ratchet advanced main but could not move HEAD to it")?;
+    if code {
+        // Created on its first advance; `force` moves it after that.
+        repo.branch(CODE_LINEAGE, &candidate, true)
+            .context("ratchet could not move the code lineage")?;
+    } else {
+        let main_branch = repo.find_branch("main", BranchType::Local)?;
+        let mut main_reference = main_branch.into_reference();
+        main_reference.set_target(candidate_oid, "rsi: ratchet advance")?;
+        // Not `let _ =`. If HEAD fails to follow main, the next `commit_genome` —
+        // which commits to "HEAD" — writes onto whatever ref HEAD still points at,
+        // quietly building the lineage somewhere other than main. A ratchet that
+        // reports `advanced: true` with the repo in that state is a lie.
+        repo.set_head("refs/heads/main")
+            .context("ratchet advanced main but could not move HEAD to it")?;
+    }
 
     Ok(RatchetResult {
         advanced: true,
@@ -450,6 +516,22 @@ pub fn ratchet_attempt(candidate_commit: &str) -> Result<RatchetResult> {
         candidate_score,
         prior_score,
     })
+}
+
+/// `main`'s tip and its score — the config champion. Not `log(1)`: `log`
+/// walks every candidate branch, so its first entry is whatever was evaluated
+/// last, promoted or not, and the UI's "main tip" showed a refused candidate's
+/// score as the champion's.
+pub fn main_tip() -> Result<Option<(String, Option<f64>)>> {
+    let repo = open()?;
+    let Ok(branch) = repo.find_branch("main", BranchType::Local) else {
+        return Ok(None);
+    };
+    let Some(oid) = branch.get().target() else {
+        return Ok(None);
+    };
+    let score = parse_iteration_metadata(&repo.find_commit(oid)?).map(|m| m.score);
+    Ok(Some((oid.to_string(), score)))
 }
 
 /// Last N commits across all refs, newest first. Used by the
@@ -1108,6 +1190,140 @@ mod tests {
                 "second gc should prune nothing, got {:?}",
                 report2
             );
+        });
+    }
+
+    fn lineage_meta(score: f64, mutation_type: &str) -> IterationMetadata {
+        IterationMetadata {
+            score,
+            strategy: if mutation_type == "code_patch" { "code-rsi".into() } else { "pbt-v1".into() },
+            parent_lineage: vec![],
+            mutation_type: mutation_type.into(),
+            cost_tokens: 0,
+            duration_ms: 0,
+        }
+    }
+
+    fn lineage_commit(id: &str, score: f64, mutation_type: &str) -> String {
+        commit_genome(
+            id,
+            &serde_json::json!({ "id": id }),
+            &[],
+            &lineage_meta(score, mutation_type),
+            &format!("genome-{id}"),
+        )
+        .expect("commit")
+    }
+
+    fn branch_tip(name: &str) -> Option<String> {
+        let repo = open().expect("open");
+        let branch = repo.find_branch(name, BranchType::Local).ok()?;
+        branch.get().target().map(|o| o.to_string())
+    }
+
+    /// INVARIANT I1 TEST. Config genomes (L1, scored 0..w_success = 55) and code
+    /// patches (L3, scored 0..100 on tests/tsc/build/diff size) are different
+    /// quantities. Both used to ratchet the one `main`, so the first code patch
+    /// to advance put ~96 on it and no config genome could ever beat that again:
+    /// config evolution froze for good, silently, while every code patch
+    /// "out-scored the incumbent" by beating a number on another scale.
+    #[test]
+    fn code_patches_and_config_genomes_ratchet_separate_lineages() {
+        crate::rsi::test_support::with_temp_cinderpaw_home(|_root| {
+            bootstrap().expect("bootstrap");
+            let cfg_a = lineage_commit("cfg-a", 40.0, "parametric");
+            assert!(ratchet_attempt(&cfg_a).expect("cfg-a").advanced);
+
+            let code = lineage_commit("code-a", 96.0, "code_patch");
+            let r = ratchet_attempt(&code).expect("code-a");
+            assert!(r.advanced, "the first code patch starts its own lineage");
+            assert_eq!(r.prior_score, None, "never compared with a config score");
+
+            let cfg_b = lineage_commit("cfg-b", 45.0, "parametric");
+            let r = ratchet_attempt(&cfg_b).expect("cfg-b");
+            assert!(r.advanced, "config evolution continues against its own bar");
+            assert_eq!(r.prior_score, Some(40.0));
+
+            assert_eq!(branch_tip("main").as_deref(), Some(cfg_b.as_str()));
+            assert_eq!(branch_tip(CODE_LINEAGE).as_deref(), Some(code.as_str()));
+
+            // The code lineage records: a lower composite than the last
+            // record still lands (it was judged against its base upstream),
+            // and it never touches `main`.
+            let code_b = lineage_commit("code-b", 90.0, "code_patch");
+            let r = ratchet_attempt(&code_b).expect("code-b");
+            assert!(r.advanced, "code-main records every patch that reaches it");
+            assert_eq!(r.prior_score, Some(96.0));
+            assert_eq!(branch_tip(CODE_LINEAGE).as_deref(), Some(code_b.as_str()));
+            assert_eq!(branch_tip("main").as_deref(), Some(cfg_b.as_str()), "main untouched");
+        });
+    }
+
+    /// The saturation that silenced L3: after a green one-liner (99.95) the
+    /// absolute bar refused every later patch. Recording never saturates.
+    #[test]
+    fn the_code_lineage_does_not_saturate_after_a_perfect_patch() {
+        crate::rsi::test_support::with_temp_cinderpaw_home(|_root| {
+            bootstrap().expect("bootstrap");
+            let first = lineage_commit("code-first", 99.95, "code_patch");
+            assert!(ratchet_attempt(&first).expect("first").advanced);
+            let second = lineage_commit("code-second", 97.5, "code_patch");
+            assert!(ratchet_attempt(&second).expect("second").advanced);
+            // A config genome is still held to its own strict bar.
+            let cfg = lineage_commit("cfg-a", 40.0, "parametric");
+            assert!(ratchet_attempt(&cfg).expect("cfg").advanced);
+            let cfg_worse = lineage_commit("cfg-b", 39.0, "parametric");
+            assert!(!ratchet_attempt(&cfg_worse).expect("cfg-b").advanced);
+        });
+    }
+
+    /// An install that ran code-RSI before the lineages were split has a code
+    /// patch sitting on `main`. The config lineage must recover its own last
+    /// champion from the ratchet audit chain rather than stay frozen behind it.
+    #[test]
+    fn a_code_patch_left_on_main_does_not_block_config_evolution() {
+        crate::rsi::test_support::with_temp_cinderpaw_home(|_root| {
+            bootstrap().expect("bootstrap");
+            let cfg_a = lineage_commit("cfg-a", 40.0, "parametric");
+            assert!(ratchet_attempt(&cfg_a).expect("cfg-a").advanced);
+
+            // The old ratchet moved main onto a code patch.
+            let code = lineage_commit("code-a", 96.0, "code_patch");
+            let repo = open().expect("open");
+            repo.find_branch("main", BranchType::Local)
+                .expect("main")
+                .into_reference()
+                .set_target(Oid::from_str(&code).unwrap(), "legacy shared ratchet")
+                .expect("move main");
+            append_ratchet_audit("main_tip", Some(&cfg_a), &code, "advanced: legacy shared ratchet")
+                .expect("audit");
+
+            let cfg_b = lineage_commit("cfg-b", 45.0, "parametric");
+            let r = ratchet_attempt(&cfg_b).expect("cfg-b");
+            assert!(r.advanced, "compared with the last CONFIG champion, not the code patch");
+            assert_eq!(r.prior_score, Some(40.0));
+
+            let code_b = lineage_commit("code-b", 90.0, "code_patch");
+            let r = ratchet_attempt(&code_b).expect("code-b");
+            assert!(r.advanced, "the code lineage records");
+            assert_eq!(r.prior_score, Some(96.0), "and still finds its own last record");
+        });
+    }
+
+    /// The status the UI shows as "main tip" is the champion, not the newest
+    /// candidate branch `log(1)` happens to return.
+    #[test]
+    fn main_tip_is_the_champion_not_the_newest_candidate() {
+        crate::rsi::test_support::with_temp_cinderpaw_home(|_root| {
+            bootstrap().expect("bootstrap");
+            let champ = lineage_commit("cfg-champ", 40.0, "parametric");
+            assert!(ratchet_attempt(&champ).expect("champ").advanced);
+            // Newer, and refused: git time has one-second resolution.
+            std::thread::sleep(std::time::Duration::from_millis(1100));
+            let loser = lineage_commit("cfg-loser", 10.0, "parametric");
+            assert!(!ratchet_attempt(&loser).expect("loser").advanced);
+
+            assert_eq!(main_tip().expect("main_tip"), Some((champ, Some(40.0))));
         });
     }
 }

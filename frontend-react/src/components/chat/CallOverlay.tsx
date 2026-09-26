@@ -77,6 +77,27 @@ export function compactCallTranscript(text: string, maxChars = 280): string {
   return completeTail ? `… ${completeTail}` : '…';
 }
 
+/**
+ * The agent's last line, under what it heard.
+ *
+ * Added for Jev's confirmations ("Opening YouTube."), and every engine shows
+ * it: on a Gemini call it is the whole spoken answer, and a long one grew the
+ * stage past the window, the sphere pushed up and the hang-up button scrolled
+ * out of reach. Three lines, like the transcript above it; the full answer is
+ * in the conversation, and in the label for a screen reader.
+ */
+export function CallAnswer({ text }: { text: string }) {
+  return (
+    <p
+      data-testid="call-answer"
+      aria-label={text}
+      className="line-clamp-3 max-w-md overflow-hidden wrap-break-word text-sm text-text-secondary"
+    >
+      {text}
+    </p>
+  );
+}
+
 /** The transcript itself is synchronous; only the newly appended vendor piece
  * gets a short entrance, so motion never becomes another queue. */
 export function CallTranscript({
@@ -812,7 +833,7 @@ export function CallOverlay({
             // because the hook is where the raw frames are.
             speaking={phase === 'listening' && youSpeaking}
           />
-          {said && <p className="max-w-md text-sm text-text-secondary">{said}</p>}
+          {said && phase !== 'ready' && <CallAnswer text={said} />}
           {/* Said out loud on screen when nothing was said out loud in audio. */}
           {notice && <p className="text-sm text-(--warning)">{notice}</p>}
           {/* A question the agent is waiting on. It used to render only in the

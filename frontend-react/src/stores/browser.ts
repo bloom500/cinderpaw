@@ -34,11 +34,25 @@ export const SEARCH_ENGINES: Record<string, { label: string; url: string }> = {
 };
 const ENGINE_KEY = 'cinderpaw.browserSearchEngine';
 
-/** An address as typed: a URL, a bare domain, or words for the search engine. */
+/**
+ * Schemes that name themselves without "//". Passed through so the host can
+ * refuse the ones it does not open (javascript:, file:) instead of searching.
+ */
+const BARE_SCHEMES = /^(about|data|blob|file|mailto|tel|javascript|view-source):/i;
+
+/**
+ * An address as typed: a URL, a bare domain, or words for the search engine.
+ *
+ * Any "word:" at the start used to count as a scheme, so "localhost:3000"
+ * went through raw and the host searched DuckDuckGo for it, and "Re: meeting"
+ * was refused as a "re:" link. A local server is plain http, like every
+ * browser assumes for it.
+ */
 export function toAddress(text: string, engine: string): string {
   const t = text.trim();
-  if (/^[a-z][a-z0-9+.-]*:/i.test(t)) return t;
-  if (/^[^\s]+\.[^\s]+$/.test(t) || /^localhost(:\d+)?(\/|$)/.test(t)) return `https://${t.replace(/^https?:\/\//, '')}`;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t) || BARE_SCHEMES.test(t)) return t;
+  if (/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i.test(t)) return `http://${t}`;
+  if (/^[^\s]+\.[^\s]+$/.test(t)) return `https://${t}`;
   return `${(SEARCH_ENGINES[engine] ?? SEARCH_ENGINES.duckduckgo!).url}${encodeURIComponent(t)}`;
 }
 
@@ -73,7 +87,7 @@ interface BrowserStore {
   covered: number;
   cover: (delta: 1 | -1) => void;
   open: (address: string) => Promise<void>;
-  go: (op: 'back' | 'forward' | 'reload' | 'home') => Promise<void>;
+  go: (op: 'back' | 'forward' | 'reload' | 'home' | 'stop') => Promise<void>;
   newTab: () => Promise<void>;
   switchTab: (id: number) => Promise<void>;
   closeTab: (id: number) => Promise<void>;
@@ -131,7 +145,7 @@ export const useBrowser = create<BrowserStore>((set, get) => ({
   open: async (address) => {
     const text = address.trim();
     if (!text) return;
-    set({ error: null, loading: true, panelOpen: true });
+    set({ error: null, notice: null, loading: true, panelOpen: true });
     try {
       const res = await tauri.browser.ui('open', { url: toAddress(text, get().engine) });
       const url = typeof res.url === 'string' ? res.url : text;
@@ -192,15 +206,28 @@ export const useBrowser = create<BrowserStore>((set, get) => ({
 // Module-level, like the download store: the host can report a page before the
 // panel has ever been mounted. A failed listen (tests, a plain browser) is not
 // an error worth surfacing.
-void listen<{ active: number | null; tabs: BrowserTab[] }>('browser://state', (e) => {
-  useBrowser.setState(fromState(e.payload));
-}).catch(() => {});
+/**
+ * What the host says the tabs are now. Another page in front (a link
+ * followed, a tab switched) clears what was said about the last one: nothing
+ * else cleared the notice, so "No article on this page to read." sat under
+ * the toolbar for the rest of the session, over every page.
+ */
+export function applyHostState(st: { active: number | null; tabs: BrowserTab[] }): void {
+  const next = fromState(st);
+  const now = useBrowser.getState();
+  const moved = next.url !== now.url || next.active !== now.active;
+  useBrowser.setState(moved ? { ...next, error: null, notice: null } : next);
+}
+void listen<{ active: number | null; tabs: BrowserTab[] }>('browser://state', (e) => applyHostState(e.payload)).catch(() => {});
 // A download. A PDF or Word file goes to Artifacts, and `artifact: true`
 // arrives once the agent has CONFIRMED it is there; anything else, and a
 // document the agent refused (`reason`), is a file the person is asked where
 // to put, with the reason on screen first.
-void listen<{ name: string; dest?: string; artifact?: boolean; error?: string; reason?: string | null }>('browser://download', (e) => {
-  const { name, dest, artifact, error, reason } = e.payload;
+void listen<{ name: string; started?: boolean; dest?: string; artifact?: boolean; error?: string; reason?: string | null }>('browser://download', (e) => {
+  const { name, started, dest, artifact, error, reason } = e.payload;
+  // The click that starts a download changes nothing on the page; without
+  // this, a large file was minutes of nothing until it landed.
+  if (started) { useBrowser.setState({ notice: `Downloading ${name}…` }); return; }
   const log = (entry: { dest?: string; artifact?: boolean; error?: string }) =>
     useBrowser.setState((st) => ({ downloads: [{ name, at: Date.now(), ...entry }, ...st.downloads].slice(0, 50) }));
   if (error) {

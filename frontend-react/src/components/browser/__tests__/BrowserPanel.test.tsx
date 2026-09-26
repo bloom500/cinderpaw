@@ -32,7 +32,7 @@ vi.mock('@/lib/tauri', async (orig) => {
 
 import { BrowserPanel } from '../BrowserPanel';
 import { toAddress } from '@/stores/browser';
-import { useBrowser } from '@/stores/browser';
+import { applyHostState, useBrowser } from '@/stores/browser';
 import { tauri } from '@/lib/tauri';
 
 const ui = tauri.browser.ui as unknown as ReturnType<typeof vi.fn>;
@@ -144,12 +144,40 @@ describe('wide mode', () => {
   });
 });
 
+describe('what the panel says about a page', () => {
+  it('goes when another page is in front, and stays while the same one is', () => {
+    useBrowser.setState({ active: 1, url: 'https://example.ro/a', notice: 'No article on this page to read.', error: null });
+    applyHostState({ active: 1, tabs: [{ id: 1, title: 'A', url: 'https://example.ro/a', loading: false, canBack: false, canForward: false, blocked: 0 }] });
+    expect(useBrowser.getState().notice).toBe('No article on this page to read.');
+    applyHostState({ active: 1, tabs: [{ id: 1, title: 'B', url: 'https://example.ro/b', loading: true, canBack: true, canForward: false, blocked: 0 }] });
+    expect(useBrowser.getState().notice).toBeNull();
+    expect(useBrowser.getState().url).toBe('https://example.ro/b');
+  });
+
+  it('a failed back is forgotten once a link on the page is followed', () => {
+    useBrowser.setState({ active: 1, url: 'https://example.ro/a', error: 'browser: nothing to go back to', notice: null });
+    applyHostState({ active: 1, tabs: [{ id: 1, title: 'C', url: 'https://example.ro/c', loading: true, canBack: true, canForward: false, blocked: 0 }] });
+    expect(useBrowser.getState().error).toBeNull();
+  });
+});
+
 describe('toAddress', () => {
   it('keeps a URL, completes a domain, and searches words with the chosen engine', () => {
     expect(toAddress('https://a.b/c', 'duckduckgo')).toBe('https://a.b/c');
     expect(toAddress('wikipedia.org', 'duckduckgo')).toBe('https://wikipedia.org');
     expect(toAddress('formular rev 3', 'brave')).toBe('https://search.brave.com/search?q=formular%20rev%203');
     expect(toAddress('cum fac o cerere', 'nope')).toBe('https://duckduckgo.com/?q=cum%20fac%20o%20cerere');
+  });
+
+  it('opens a local server instead of searching for it, and searches what only looks like a scheme', () => {
+    expect(toAddress('localhost:3000', 'duckduckgo')).toBe('http://localhost:3000');
+    expect(toAddress('localhost:5173/app', 'duckduckgo')).toBe('http://localhost:5173/app');
+    expect(toAddress('127.0.0.1:8080', 'duckduckgo')).toBe('http://127.0.0.1:8080');
+    expect(toAddress('example.com:8443/x', 'duckduckgo')).toBe('https://example.com:8443/x');
+    expect(toAddress('Re: meeting notes', 'brave')).toBe('https://search.brave.com/search?q=Re%3A%20meeting%20notes');
+    expect(toAddress('about:blank', 'duckduckgo')).toBe('about:blank');
+    // Refused by the host, not quietly searched.
+    expect(toAddress('javascript:alert(1)', 'duckduckgo')).toBe('javascript:alert(1)');
   });
 });
 
@@ -219,5 +247,89 @@ describe('the promise on the start page', () => {
     act(() => { useBrowser.setState({ url: 'https://wikipedia.org/' }); });
     await act(async () => { await emitTauri('browser://key', { key: '=', shift: false }); });
     expect(screen.getByText('110%')).toBeInTheDocument();
+  });
+});
+
+describe('the keys and controls every browser has', () => {
+  const tab = (id: number, url: string, over: Partial<{ loading: boolean }> = {}) => ({ id, title: `T${id}`, url, loading: false, canBack: true, canForward: true, blocked: 0, ...over });
+  const three = () => useBrowser.setState({ tabs: [tab(1, 'https://a.ro/'), tab(2, 'https://b.ro/'), tab(3, 'https://c.ro/')], active: 1, url: 'https://a.ro/' });
+
+  it('Ctrl+Tab and Ctrl+Shift+Tab move between tabs, wrapping around', () => {
+    three();
+    render(<BrowserPanel />);
+    fireEvent.keyDown(window, { key: 'Tab', ctrlKey: true });
+    expect(ui).toHaveBeenCalledWith('switch_tab', { id: 2 });
+    fireEvent.keyDown(window, { key: 'Tab', ctrlKey: true, shiftKey: true });
+    expect(ui).toHaveBeenCalledWith('switch_tab', { id: 3 });
+  });
+
+  it('Ctrl+2 goes to the second tab and Ctrl+9 to the last', () => {
+    three();
+    render(<BrowserPanel />);
+    fireEvent.keyDown(window, { key: '2', ctrlKey: true });
+    expect(ui).toHaveBeenCalledWith('switch_tab', { id: 2 });
+    fireEvent.keyDown(window, { key: '9', ctrlKey: true });
+    expect(ui).toHaveBeenCalledWith('switch_tab', { id: 3 });
+  });
+
+  it('Ctrl+R and F5 reload, Alt+arrows go back and forward', () => {
+    three();
+    render(<BrowserPanel />);
+    fireEvent.keyDown(window, { key: 'r', ctrlKey: true });
+    fireEvent.keyDown(window, { key: 'F5' });
+    expect(ui.mock.calls.filter((c) => c[0] === 'reload')).toHaveLength(2);
+    fireEvent.keyDown(window, { key: 'ArrowLeft', altKey: true });
+    fireEvent.keyDown(window, { key: 'ArrowRight', altKey: true });
+    expect(ui.mock.calls.some((c) => c[0] === 'back')).toBe(true);
+    expect(ui.mock.calls.some((c) => c[0] === 'forward')).toBe(true);
+  });
+
+  it('the reload button stops a page that is still loading', () => {
+    useBrowser.setState({ tabs: [tab(1, 'https://a.ro/', { loading: true })], active: 1, url: 'https://a.ro/', loading: true });
+    render(<BrowserPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop loading' }));
+    expect(ui.mock.calls.some((c) => c[0] === 'stop')).toBe(true);
+  });
+
+  it('the wheel button closes a tab', () => {
+    three();
+    render(<BrowserPanel />);
+    const second = screen.getAllByRole('tab')[1]!;
+    fireEvent(second, new MouseEvent('auxclick', { bubbles: true, button: 1 }));
+    expect(ui).toHaveBeenCalledWith('close_tab', { id: 2 });
+  });
+
+  it('says when a page is not encrypted', () => {
+    useBrowser.setState({ tabs: [tab(1, 'http://example.ro/')], active: 1, url: 'http://example.ro/' });
+    render(<BrowserPanel />);
+    expect(screen.getByRole('img', { name: 'Not secure' })).toBeInTheDocument();
+  });
+});
+
+describe('isSecure', () => {
+  it('https and this machine are secure, plain http elsewhere is not', async () => {
+    const { isSecure } = await import('@/lib/browserHistory');
+    expect(isSecure('https://a.ro/')).toBe(true);
+    expect(isSecure('http://localhost:3000/')).toBe(true);
+    expect(isSecure('http://example.ro/')).toBe(false);
+  });
+});
+
+describe('history', () => {
+  it('Ctrl+H lists visited pages, newest first, searchable, and opens one', async () => {
+    const { HISTORY_KEY } = await import('@/lib/browserHistory');
+    localStorage.setItem(HISTORY_KEY, JSON.stringify([
+      { url: 'https://old.ro/', title: 'Old page', visits: 1, lastAt: 1, picks: {} },
+      { url: 'https://news.ro/', title: 'News', visits: 3, lastAt: 5, picks: {} },
+    ]));
+    render(<BrowserPanel />);
+    fireEvent.keyDown(window, { key: 'h', ctrlKey: true });
+    const rows = screen.getAllByRole('button', { name: /News|Old page/ });
+    expect(rows[0]).toHaveTextContent('News');
+    fireEvent.change(screen.getByLabelText('Search history'), { target: { value: 'old' } });
+    expect(screen.queryByRole('button', { name: /News/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Old page/ }));
+    await waitFor(() => expect(ui).toHaveBeenCalledWith('open', { url: 'https://old.ro/' }));
+    localStorage.removeItem(HISTORY_KEY);
   });
 });

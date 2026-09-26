@@ -385,7 +385,7 @@ function TokenBudgetToggle() {
  * backend, which persists the choice and restarts the sidecar so the tool
  * (de)registers — the agent will only "find" computer_use while this is ON.
  */
-function DesktopControlToggle() {
+export function DesktopControlToggle() {
   const settings = useSettings((s) => s.settings);
   const setDesktopControl = useSettings((s) => s.setDesktopControl);
   const setDesktopControlYolo = useSettings((s) => s.setDesktopControlYolo);
@@ -393,6 +393,9 @@ function DesktopControlToggle() {
   const [yoloBusy, setYoloBusy] = useState(false);
   const enabled = settings?.desktop_control_enabled ?? false;
   const yolo = settings?.desktop_control_yolo ?? false;
+  // Every system presses buttons by name now; macOS and Linux each need one
+  // thing from the person, and the row says which.
+  const windows = navigator.userAgent.includes('Windows');
 
   const toggle = async () => {
     if (busy || !settings) return;
@@ -432,7 +435,7 @@ function DesktopControlToggle() {
           <p className="text-xs text-text-muted mt-0.5">
             Let the agent read and operate native apps through the OS
             accessibility tree (the <span className="font-mono">computer_use</span> tool).
-            Off by default.
+            {windows ? ' Off by default.' : ' Off by default. macOS asks for the Accessibility permission the first time; Linux needs xdotool for keys and windows.'}
           </p>
         </div>
         <button

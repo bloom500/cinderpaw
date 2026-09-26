@@ -1,6 +1,6 @@
 /**
  * computer_use — drive native desktop applications through the OS accessibility
- * tree (UIA on Windows, AX on macOS via the Rust host).
+ * tree (UIA on Windows, AX on macOS, AT-SPI on Linux, via the Rust host).
  *
  * This is STRUCTURAL control: the agent reads element trees and acts on named
  * elements through their accessibility patterns. No screenshots, no OCR, no
@@ -65,6 +65,9 @@ const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
   "perform_action",
   "launch",
 ]);
+
+/** Elements listed by id in a `find_elements` result; the rest are counted. */
+const FIND_LIST_CAP = 60;
 
 /** Default tree depth when the caller omits it. Clamped again in the host. */
 const DEFAULT_DEPTH = 4;
@@ -200,7 +203,13 @@ export function createComputerUseTool(): Tool {
         "SHARED-PID WINDOWS: one process can own several windows (Win11 explorer.exe owns the " +
         "Taskbar AND File Explorer windows under one pid). Pass `window_title` (a substring from " +
         "`list_windows`) to `get_tree`/`find_elements` to pick the right window; without it the " +
-        "tool skips the Taskbar/desktop and uses the first real window.",
+        "tool skips the Taskbar/desktop and uses the first real window. " +
+        "MACOS AND LINUX: everything above works, through the AX tree (macOS) and AT-SPI (Linux), with " +
+        "the same role names. There, perform_action takes 'press', 'toggle' and 'focus' (not expand/collapse), " +
+        "automation_id is empty on macOS, and an id whose element changed is refused with element_not_found: " +
+        "find it again. A Linux app that publishes no tree (a Qt app without QT_LINUX_ACCESSIBILITY_ALWAYS_ON) " +
+        "is driven with keys ({Tab}, {Enter}, shortcuts) sent to the element get_focused returns. In key specs " +
+        "`ctrl` is the platform's shortcut key (Command on a Mac); `control` is the Control key itself.",
       permissions: [],
       networkAccess: false,
     },
@@ -264,12 +273,23 @@ export function createComputerUseTool(): Tool {
         type: "object",
         description:
           "Element filter for 'find_elements': { role?, name?, automation_id?, " +
-          "value_contains? }. All provided fields must match.",
+          "value_contains?, under_role? }. All provided fields must match. " +
+          "On a browser page, under_role 'Main,Document' searches the page only, " +
+          "without the browser's own tabs and toolbar buttons.",
         required: false,
         schema: {
           type: "object",
           properties: {
-            role: { type: "string", description: "Exact role, e.g. 'Button', 'Edit'." },
+            role: {
+              type: "string",
+              description: "Exact role, e.g. 'Button', 'Edit', or several comma-separated: 'Button,Hyperlink,ListItem'.",
+            },
+            under_role: {
+              type: "string",
+              description:
+                "Search only inside the first element of this role, e.g. 'Document' (a browser's page) or " +
+                "'Main,Document' (the page's main content, tried in order). Absent or not found: the whole window.",
+            },
             name: { type: "string", description: "Substring of the element name." },
             automation_id: { type: "string", description: "Substring of the automation id." },
             value_contains: { type: "string", description: "Substring of the element value." },
@@ -484,7 +504,25 @@ function summarize(action: Action, data: unknown): string {
     return `Value: ${(data as any).value}`;
   }
   if ((action === "find_elements") && Array.isArray(data)) {
-    return `Found ${data.length} element(s).`;
+    // The ids ARE the result: the model only ever reads `content`, and this
+    // used to be the count alone, so every element found could not be
+    // clicked. It either guessed an id or fell back to a full `get_tree`.
+    // Values arrive redacted from the host for secure fields.
+    const clip = (v: unknown, n: number) => {
+      const t = String(v ?? "").replace(/\s+/g, " ").trim();
+      return t.length > n ? `${t.slice(0, n)}…` : t;
+    };
+    const shown = data.slice(0, FIND_LIST_CAP).map((e: any) => {
+      const value = clip(e?.value, 40);
+      const flags = [e?.is_enabled === false ? "disabled" : "", e?.is_offscreen ? "offscreen" : ""].filter(Boolean).join(", ");
+      return `  ${e?.id}  ${e?.role ?? "element"} "${clip(e?.name, 80)}"${value ? ` value="${value}"` : ""}${flags ? ` (${flags})` : ""}`;
+    });
+    const more = data.length > shown.length
+      ? `\n  … and ${data.length - shown.length} more: narrow the query (role, name) to see them.`
+      : "";
+    return data.length === 0
+      ? "Found 0 elements."
+      : `Found ${data.length} element(s):\n${shown.join("\n")}${more}`;
   }
   if (action === "click" || action === "type" || action === "send_keys" || action === "perform_action") {
     return `${action} succeeded.`;

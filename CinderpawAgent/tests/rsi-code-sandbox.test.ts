@@ -109,6 +109,13 @@ describe("evaluateCodePatch — lifecycle over a fake exec", () => {
     ]);
   });
 
+  test("patch null measures the unpatched base: same steps, nothing applied", async () => {
+    const { exec, calls } = fakeExec({});
+    const r = await evaluateCodePatch({ patch: null, baseCommit: "abc123" }, opts(exec, calls));
+    expect(r.ok && r.measurements.changedLines).toBe(0);
+    expect(calls).toEqual(["worktree_add", "isolation:tests,tsc,build", "worktree_remove"]);
+  });
+
   test("no isolation backend → refused before any worktree exists", async () => {
     const { exec, calls } = fakeExec({});
     const r = await evaluateCodePatch(genome, { repoRoot: "C:/fake/repo", exec });

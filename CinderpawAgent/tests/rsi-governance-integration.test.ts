@@ -51,14 +51,23 @@ function freshDir(): string {
 
 const T0 = 1_751_600_000_000;
 
+/** `n` dream episodes: each an accepted L1 candidate row plus the summary
+ *  row the Dream Cycle writes (L6 counts its evidence in episodes). */
 function entries(n: number, aggregate = 0.5): JournalEntry[] {
-  return Array.from({ length: n }, (_, i) => ({
+  return Array.from({ length: n }, (_, i): JournalEntry[] => {
+    const candidate = candidateRow(i, aggregate);
+    return [candidate, { ...candidate, cycleId: `c-${i}-summary`, timestamp: T0 + 2 * i + 1, experimented: null, result: null }];
+  }).flat();
+}
+
+function candidateRow(i: number, aggregate: number): JournalEntry {
+  return {
     cycleId: `c-${i}`,
-    timestamp: T0 + i,
+    timestamp: T0 + 2 * i,
     durationMin: 1,
     observed: [],
     hypothesized: [],
-    experimented: null,
+    experimented: { candidateId: `g-${i}`, change: "", layer: "L1" },
     result: {
       fitnessVector: { accuracy: 0.5, latency: 0.1, cost: 0.1, toolSuccess: 0.5, hallucination: 0.1, userSatisfaction: 0.5 },
       aggregate,
@@ -68,7 +77,7 @@ function entries(n: number, aggregate = 0.5): JournalEntry[] {
     },
     decided: { action: "accept" as const, reason: "x" },
     budgetRemaining: { wallClockMin: 1, tokens: 1, cpuPct: 1, ramMb: 1, diskMb: 1 },
-  }));
+  };
 }
 
 // ── ensureGenesisPolicy ────────────────────────────────────────────────────
@@ -222,7 +231,7 @@ describe("verified-evidence floor (G-INV-4, §9 row 4)", () => {
   test("defaultReadWindowVerified counts the rows of excluded files", () => {
     const dir = freshDir();
     const now = Date.UTC(2026, 6, 8, 12, 0, 0);
-    // Good file yesterday (2 rows), tampered file today (3 rows).
+    // Good file yesterday (2 episodes = 4 rows), tampered file today (3 = 6).
     const good = join(dir, journalFilename(new Date(now - 86_400_000)));
     for (const e of entries(2)) appendJournal(good, e);
     const bad = join(dir, journalFilename(new Date(now)));
@@ -233,15 +242,15 @@ describe("verified-evidence floor (G-INV-4, §9 row 4)", () => {
     writeFileSync(bad, [JSON.stringify(t), ...lines.slice(1)].join("\n") + "\n", "utf8");
 
     const res = defaultReadWindowVerified(0, now, { dir });
-    expect(res.entries).toHaveLength(2);
-    expect(res.excludedRows).toBe(3);
+    expect(res.entries).toHaveLength(4);
+    expect(res.excludedRows).toBe(6);
   });
 
   test("L6 refuses to settle when ≥ half the window is unverified", () => {
     const meta = new MetaEvolution({
       dir: freshDir(),
       now: () => T0,
-      readWindowVerified: () => ({ entries: entries(6), excludedRows: 6 }),
+      readWindowVerified: () => ({ entries: entries(6), excludedRows: 12 }),
       seedSource: () => 7,
     });
     const ev = meta.evolve();

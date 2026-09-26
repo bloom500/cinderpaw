@@ -68,6 +68,31 @@ export interface FractalBenchmarkOptions {
 /** Minimal shape of the legacy engine we fall back to (RecallEngine). */
 export interface RecallFallback {
   recall(query: string, sessionId: string): RecallResult;
+  /**
+   * The facts + knowledge-graph part of the legacy block, unwrapped. The tree
+   * only replaces the EPISODIC part of recall, so this is put in front of its
+   * hits (see `recall`). Optional: a fallback without it keeps the old shape.
+   */
+  knownFacts?(query: string, sessionId: string): string;
+}
+
+const MEMORY_OPEN = "[Memory context]\n";
+const MEMORY_CLOSE = "\n[End memory context]";
+
+/**
+ * Put what the agent knows about the user in front of the tree's hits, inside
+ * the one memory block the prompt expects. Either side may be empty.
+ */
+function withKnownFacts(result: RecallResult, known: string): RecallResult {
+  if (!known) return result;
+  const body =
+    result.context.startsWith(MEMORY_OPEN) && result.context.endsWith(MEMORY_CLOSE)
+      ? result.context.slice(MEMORY_OPEN.length, -MEMORY_CLOSE.length)
+      : result.context;
+  return {
+    ...result,
+    context: `${MEMORY_OPEN}${[known, body].filter((b) => b).join("\n\n")}${MEMORY_CLOSE}`,
+  };
 }
 
 /**
@@ -253,7 +278,11 @@ export class FractalMemory {
   #cappedLeaves(): Leaf[] {
     const all = this.#loadLeaves();
     if (this.#maxLeaves && all.length > this.#maxLeaves) {
-      return all.slice(0, this.#maxLeaves);
+      // The NEWEST rows (`loadLeaves` is oldest-first). This used to keep the
+      // first `maxLeaves`, which was harmless for a dev benchmark and wrong the
+      // day the cap became the default on every cloud primary: the tree was the
+      // first 200 memories the user ever wrote, for good.
+      return all.slice(-this.#maxLeaves);
     }
     return all;
   }
@@ -276,15 +305,28 @@ export class FractalMemory {
   /** Leaves covered by the currently loaded/built tree (0 when none). */
   get treeLeafCount(): number {
     if (!this.#tree) return 0;
-    // Covered memories, not tree leaves: a collapsed group of fifteen is
-    // fifteen memories the tree answers for. Counting survivors here made a
-    // corpus with 20% duplicates look 20% stale on every boot.
-    if (this.#collapse) {
-      let n = 0;
-      for (const c of this.#collapse.hitCount.values()) n += c;
-      return n;
+    return this.#coveredIn(this.#cappedLeaves()) + this.#graftedSinceRebuild;
+  }
+
+  /**
+   * How many of `leaves` the tree answers for: the leaf itself is in the tree,
+   * or it is an identical copy of one that is. Covered memories, not tree
+   * leaves: a collapsed group of fifteen is fifteen memories the tree answers
+   * for, so a corpus with 20% duplicates does not look 20% stale.
+   *
+   * Measured against the TREE's own leaf ids. It used to add up the collapse
+   * groups, and `init()` builds those from the corpus as it is NOW — so a tree
+   * loaded at boot always covered 100% of whatever the corpus had become, and
+   * `rebuildIfStale` (which only runs at boot) never rebuilt it again.
+   */
+  #coveredIn(leaves: Leaf[]): number {
+    if (!this.#tree) return 0;
+    const inTree = new Set(this.#tree.leafIds);
+    let n = 0;
+    for (const l of leaves) {
+      if (inTree.has(l.id) || inTree.has(this.#survivorOf.get(l.id) ?? l.id)) n++;
     }
-    return this.#tree.leafIds.length;
+    return n;
   }
 
   /** Every leaf id that says the same thing as `leafId`, itself included. */
@@ -422,22 +464,29 @@ export class FractalMemory {
    * summary cost on every boot when the loaded tree is already fresh.
    */
   async rebuildIfStale(growthRatio = 1.2, shrinkRatio = 0.9): Promise<boolean> {
-    // Grafted leaves are IN the tree but were never clustered by a build, so
-    // they do not count as coverage for staleness. Subtracting them keeps this
-    // check meaning exactly what it meant before grafting existed: how much of
-    // the corpus a real build has actually organised.
-    const covered = Math.max(0, this.treeLeafCount - this.#graftedSinceRebuild);
+    // Grafted leaves are IN the tree but were never clustered by a build, and
+    // they are not corpus rows, so `#coveredIn` never counts them: coverage
+    // means exactly what it meant before grafting existed — how much of the
+    // corpus a real build has actually organised.
+    const leaves = this.#cappedLeaves();
+    const covered = this.#coveredIn(leaves);
     if (covered > 0) {
-      const corpus = this.#cappedLeaves().length;
+      const corpus = leaves.length;
       // Growth: the tree misses new memories until enough accumulate to be
-      // worth the rebuild's summarisation cost.
+      // worth the rebuild's summarisation cost. With a cap, the window sliding
+      // onto newer memories reads as growth too — the new ones are uncovered.
       const grew = corpus >= covered * growthRatio;
       // Shrink: the tree still indexes memories that no longer exist. The
       // check used to be growth-only, so `corpus < covered` satisfied the
       // "fresh" branch and the tree was never rebuilt again no matter how
       // much was deleted — the one direction where staying stale means
-      // holding on to what the user asked to be forgotten.
-      const shrank = corpus <= covered * shrinkRatio;
+      // holding on to what the user asked to be forgotten. Counted on the
+      // tree's own ids (reactive grafts excluded), so new memories arriving
+      // at the same time cannot hide the deletions.
+      const present = new Set(leaves.map((l) => l.id));
+      const clustered = (this.#tree?.leafIds ?? []).filter((id) => id < UPSERT_LEAF_ID_BASE);
+      const vanished = clustered.filter((id) => !present.has(id)).length;
+      const shrank = clustered.length > 0 && vanished >= clustered.length * (1 - shrinkRatio);
       if (!grew && !shrank) {
         this.#log?.(`fractal: tree fresh (${covered} covered, ${corpus} corpus); skip rebuild`);
         return false;
@@ -484,7 +533,10 @@ export class FractalMemory {
         // focuses on the active region. Only on the semantic path, never on the
         // FTS5 fallback below.
         this.#emit({ kind: "recall", hits: result.semanticFacts });
-        return result;
+        // The tree answers for past conversations only. Returning its block
+        // on its own dropped the user's facts from every turn the moment a
+        // tree existed — replace, where the contract above says augment.
+        return withKnownFacts(result, this.#fallback.knownFacts?.(query, sessionId) ?? "");
       } catch (e) {
         this.#log?.(`fractal: recall fell back to FTS5: ${String(e)}`);
       }
@@ -658,10 +710,13 @@ export class FractalMemory {
   //      the existing leaf + emit `seed`. The tree's cluster topology is
   //      unchanged; the leaf's hit_count / last_seen_at are updated via
   //      the side-channel #provenance map.
-  //   2. New leaf → add to the in-memory pending set, persist the
-  //      embedding through the optional `persistEmbeddings` hook, and
-  //      emit `grow`. The next `rebuild()` will pick the leaf up via
-  //      `loadLeaves()` (the source of truth) and cluster it.
+  //   2. New leaf → add to the in-memory pending set, write it to the
+  //      durable leaf store, graft it into the live tree, and emit `grow`.
+  //      It is NOT clustered by the next `rebuild()`: `loadLeaves()` is
+  //      episodic rows only, and these ids live above UPSERT_LEAF_ID_BASE.
+  //      The graft lasts until the next rebuild or restart; after that the
+  //      fact is still in every turn through the known-facts block
+  //      (`RecallFallback.knownFacts`), just not on the semantic path.
   //
   // Idempotency: the dedup key is `sha256(text + first_seen_at)`. Calling
   // upsertLeaf twice with the same `(text, first_seen_at)` returns the

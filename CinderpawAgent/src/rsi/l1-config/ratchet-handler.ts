@@ -72,6 +72,11 @@ export interface RatchetDeps {
    *  Optional: absent → `userSatisfaction` stays the neutral 0.5. Observed
    *  + journaled only — never an input to the promotion decision. */
   readRecentAudit?: () => import("../l2-adapt/personal-fitness.ts").AuditEntryLike[];
+  /** The current champion's per-task outcomes, carried over from the run
+   *  that crowned it (persisted in champion.json). Seeds the gate baseline so
+   *  a fresh engine — every dream episode is one — does not wave its first
+   *  candidate through. Absent only before the first ratchet ever. */
+  championOutcomes?: readonly EvalOutcome[];
 }
 
 export class RatchetHandler {
@@ -84,15 +89,17 @@ export class RatchetHandler {
      *  production it is always supplied. */
     private readonly pop?: PopulationManager,
   ) {
+    if (deps.championOutcomes && deps.championOutcomes.length > 0) {
+      this.lastChampionOutcomes = deps.championOutcomes;
+    }
     bus.on("EvalComplete", (e) => this.onEvalComplete(e));
   }
 
   /** Per-task outcomes of the current champion — the baseline the
-   *  confidence gate pairs the next candidate against. Set only when a
-   *  candidate actually advances main (becomes the champion). Undefined
-   *  until the first ratchet: the first candidate has no baseline and so
-   *  bypasses the gate. Not persisted across restarts in v1 — a fresh
-   *  process re-bootstraps its baseline on the first ratchet. */
+   *  confidence gate pairs the next candidate against. Seeded from
+   *  `deps.championOutcomes` (the persisted champion), then replaced each
+   *  time a candidate advances main. Undefined only before the first
+   *  ratchet ever: that candidate has no baseline and bypasses the gate. */
   private lastChampionOutcomes?: readonly EvalOutcome[];
 
   private async onEvalComplete(event: RsiEvent): Promise<void> {
@@ -145,6 +152,10 @@ export class RatchetHandler {
       // This candidate is the new champion — its outcomes become the
       // baseline the next candidate's confidence gate pairs against.
       if (outcomes) this.lastChampionOutcomes = outcomes;
+      // And it is what the user's agent now runs, so extinction must not
+      // remove it from the breeding population. The Hall of Fame only ever
+      // held the best RAW score — often a lucky run the gate rejected.
+      if (this.pop?.get(genomeId)) this.pop.induct(genomeId);
       await this.bus.emit({
         type: "RatchetAdvanced",
         genomeId,
@@ -154,6 +165,8 @@ export class RatchetHandler {
         // Carried through for the recalcitrance tracker:
         // improvement_difficulty = tokenCost / (score − previousBest).
         tokenCost,
+        // The new baseline, so the host can persist it with the champion.
+        ...(outcomes ? { outcomes } : {}),
       });
       return;
     }

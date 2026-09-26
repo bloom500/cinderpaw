@@ -93,9 +93,16 @@ describe('executeOnDesktop with desktop control off (the default)', () => {
   });
 
   it('a refusal is a sentence for the person, never the host\'s env-var line', async () => {
-    const { executeOnDesktop, DESKTOP_CONTROL_OFF } = await import('../jev');
-    await expect(executeOnDesktop({ action: 'open_app', name: 'Spotify', path: 'C:/apps/Spotify.lnk', confidence: 1 })).rejects.toThrow(DESKTOP_CONTROL_OFF);
-    await expect(executeOnDesktop({ action: 'scroll', dy: 700, confidence: 1 })).rejects.toThrow(DESKTOP_CONTROL_OFF);
+    // On Windows, where the switch exists (jsdom's own agent is not Windows).
+    const real = navigator.userAgent;
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, get: () => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' });
+    try {
+      const { executeOnDesktop, DESKTOP_CONTROL_OFF } = await import('../jev');
+      await expect(executeOnDesktop({ action: 'open_app', name: 'Spotify', path: 'C:/apps/Spotify.lnk', confidence: 1 })).rejects.toThrow(DESKTOP_CONTROL_OFF);
+      await expect(executeOnDesktop({ action: 'scroll', dy: 700, confidence: 1 })).rejects.toThrow(DESKTOP_CONTROL_OFF);
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', { configurable: true, get: () => real });
+    }
   });
 });
 
@@ -184,3 +191,74 @@ describe('an open window of the app asked for', () => {
     expect(windowOfApp('Brave', w('ai.exe'))).toBe(false);
   });
 });
+
+describe('scrolling on the desktop', () => {
+  it('sends the keys to the page, not to the search box that has the focus', async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const sent: { elementId: string; keys: string }[] = [];
+    vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === 'get_focused_element') return { id: '42:7', role: 'Edit', name: 'Search', is_offscreen: false, is_enabled: true };
+      if (cmd === 'find_elements') return [{ id: '42:1', role: 'Document', name: 'jazz - YouTube', is_offscreen: false, is_enabled: true }];
+      if (cmd === 'send_keys') { sent.push(args as { elementId: string; keys: string }); return null; }
+      throw new Error(`unexpected ${cmd}`);
+    });
+    try {
+      const { executeOnDesktop, resetTarget } = await import('../jev');
+      resetTarget();
+      await executeOnDesktop({ action: 'scroll', dy: 700, confidence: 1 });
+      expect(sent).toEqual([{ elementId: '42:1', keys: '{pagedown}' }]);
+    } finally {
+      vi.mocked(invoke).mockImplementation(async () => { throw 'desktop control is disabled. Set CINDERPAW_ENABLE_DESKTOP_CONTROL=true to enable it.'; });
+    }
+  });
+});
+
+describe('desktop commands on macOS and Linux', () => {
+  it('a press in an app with no accessibility tree says what to say instead', async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    vi.mocked(invoke).mockImplementation(async () => { throw 'desktop control: okular has not published an accessibility tree. GTK and Chromium apps do; a Qt (KDE) app needs QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1'; });
+    try {
+      const { executeOnDesktop, DESKTOP_NO_TREE } = await import('../jev');
+      await expect(executeOnDesktop({ action: 'click', target: 'the send button', confidence: 1 })).rejects.toThrow(DESKTOP_NO_TREE);
+    } finally {
+      vi.mocked(invoke).mockImplementation(async () => { throw 'desktop control is disabled. Set CINDERPAW_ENABLE_DESKTOP_CONTROL=true to enable it.'; });
+    }
+  });
+
+  it('dictation types the words, braces escaped, into the window in front', async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const sent: unknown[] = [];
+    vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === 'get_focused_element') return { id: '7:1', role: 'Window', name: 'Notes', is_offscreen: false, is_enabled: true };
+      if (cmd === 'send_keys') { sent.push(args); return null; }
+      throw new Error(`unexpected ${cmd}`);
+    });
+    try {
+      const { executeOnDesktop, resetTarget } = await import('../jev');
+      resetTarget();
+      await executeOnDesktop({ action: 'type_text', text: 'hi {there}', confidence: 1 });
+      expect(sent).toEqual([{ elementId: '7:1', keys: 'hi {{there}}' }]);
+    } finally {
+      vi.mocked(invoke).mockImplementation(async () => { throw 'desktop control is disabled. Set CINDERPAW_ENABLE_DESKTOP_CONTROL=true to enable it.'; });
+    }
+  });
+});
+
+describe('type_text is planned from the dictated words', () => {
+  it('takes the payload candidate, not the command word', async () => {
+    const { toPlan, textCandidates } = await import('../jev');
+    const c = textCandidates('type see you tomorrow');
+    const key = Object.entries(c).find(([, v]) => v === 'see you tomorrow')![0];
+    expect(toPlan('type see you tomorrow', { action: { type: 'choice', choice: 'type_text', confidence: 0.9 }, text: { type: 'choice', choice: key, confidence: 0.8 } }, c))
+      .toEqual({ action: 'type_text', text: 'see you tomorrow', confidence: 0.8 });
+  });
+});
+
+describe('stop and hang up are two actions', () => {
+  it('"stop" is a stop and "hang up" a hang-up, each with its confidence', () => {
+    const c = textCandidates('stop');
+    expect(toPlan('stop', { action: choice('stop') }, c)).toEqual({ action: 'stop', confidence: 0.9 });
+    expect(toPlan('hang up', { action: choice('hang_up', 0.8) }, textCandidates('hang up'))).toEqual({ action: 'hang_up', confidence: 0.8 });
+  });
+});
+

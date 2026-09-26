@@ -24,6 +24,8 @@ import type { EvalSpec } from "../src/rsi/infra/eval-spec.ts";
 import type { EvalOutcome } from "../src/rsi/infra/eval-worker.ts";
 import { ModuleLifecycle, STALE_CANDIDATE_MS } from "../src/rsi/l4-modules/module-lifecycle.ts";
 import { ModuleRegistry } from "../src/rsi/l4-modules/module-registry.ts";
+import { spawnModuleHost } from "../src/rsi/l4-modules/module-host-client.ts";
+import { hostProcessCell } from "./_module-cell.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "modules");
 const MOD_ID = "mod-retrieval-fixture-01";
@@ -108,6 +110,7 @@ function harness(opts: { frozen?: boolean } = {}) {
     envelopesDir,
     governanceDir,
     journalPath: () => journalPath,
+    spawn: (o) => spawnModuleHost({ ...o, cell: hostProcessCell }),
   });
   return { lifecycle, registry, modulesDir, envelopesDir, governanceDir, journalPath };
 }

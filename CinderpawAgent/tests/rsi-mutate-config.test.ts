@@ -86,4 +86,25 @@ describe("RSI mutateConfig", () => {
       }
     }
   });
+
+  test("a categorical mutation always changes the value (a clone is not a candidate)", () => {
+    // The mutated field used to be resampled uniformly over the whole pool,
+    // the parent's own value included: one systemPromptId draw in four, one
+    // birth in eight, was the parent again. It cost a full eval, and a lucky
+    // re-measurement of the SAME live agent could ratchet as an improvement
+    // (the champion record then says `sameAppliedAsPrevious: true`).
+    const parent = { ...PARENT, systemPromptId: 2 };
+    let x = 0.31;
+    const rng = () => (x = (x * 9301 + 49297) % 233280) / 233280;
+    let categorical = 0;
+    for (let i = 0; i < 400; i++) {
+      const { child, field } = mutateConfig(parent, grammar({ rng }));
+      if (field !== "systemPromptId") continue;
+      categorical += 1;
+      expect(child.systemPromptId).not.toBe(parent.systemPromptId);
+      expect(child.systemPromptId).toBeGreaterThanOrEqual(0);
+      expect(child.systemPromptId).toBeLessThan(5);
+    }
+    expect(categorical).toBeGreaterThan(50);
+  });
 });

@@ -14,7 +14,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 }));
 
 const state = (over: Partial<CallPillState> = {}): CallPillState => ({
-  phase: 'listening', heard: '', said: '', muted: false, canMute: true, ask: null, ...over,
+  phase: 'listening', heard: '', said: '', muted: false, canMute: true, ask: null, working: null, ...over,
 });
 
 describe('CallPill', () => {
@@ -41,6 +41,18 @@ describe('CallPill', () => {
     expect(emit).toHaveBeenCalledWith('call-pill://end');
     fireEvent.click(screen.getByRole('status'));
     expect(emit).toHaveBeenCalledWith('call-pill://open');
+  });
+
+  it('names the tool at work while a call is parked, and gives way to Cinder speaking', () => {
+    render(<CallPill />);
+    act(() => push?.({ payload: state({ said: 'One moment.', working: 'weather in Cluj' }) }));
+    expect(screen.getByText('Working')).toBeInTheDocument();
+    expect(screen.getByText('weather in Cluj')).toBeInTheDocument();
+    act(() => push?.({ payload: state({ phase: 'speaking', said: 'It is sunny.', working: 'weather in Cluj' }) }));
+    expect(screen.getByText('Cinder is speaking')).toBeInTheDocument();
+    expect(screen.getByText('It is sunny.')).toBeInTheDocument();
+    act(() => push?.({ payload: state({ said: 'It is sunny.' }) }));
+    expect(screen.getByText('Listening')).toBeInTheDocument();
   });
 
   it('says why mute is unavailable instead of going quiet', () => {

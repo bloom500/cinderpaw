@@ -10,11 +10,11 @@
  * ranks genomes by replaying this suite.
  *
  * These ship embedded (a TS array) rather than as loose JSON because bun
- * `--compile` does not bundle data files. Users/operators can still
- * extend the suite at runtime by dropping JSON specs in
- * `~/.cinderpaw/eval/tier1` / `~/.cinderpaw/eval/tier2` (see `loadTierSpecs`);
- * the production `getSpecs` concatenates embedded defaults with whatever
- * is found on disk.
+ * `--compile` does not bundle data files. They are the WHOLE Tier 1/2
+ * suite in production: `loadTierSpecs` can read JSON specs from
+ * `~/.cinderpaw/eval/tier1` / `tier2`, but no production `getSpecs` is given
+ * a `loadDiskSpecs`, so files dropped there are not run. (This comment used
+ * to say they were.)
  *
  * Authoring rule: keep answers unambiguous and case/whitespace-robust,
  * because `fact_lookup` is a normalised substring match. Prefer asking

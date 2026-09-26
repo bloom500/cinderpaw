@@ -4,10 +4,10 @@
  * SELF-CONTAINED BY DESIGN: this file is embedded into the sidecar binary
  * as a text import (`module-host-client.ts`), written out to a temp file
  * at spawn time and run under a real Bun interpreter — so it may import
- * NOTHING from the rest of the runtime (node: builtins only). The lexical
- * wall runs parent-side before this process is ever spawned
- * (`module-wall.ts` — single enforcement point; the host trusts its
- * spawner, which is runtime code).
+ * NOTHING from the rest of the runtime (node: builtins only). It runs
+ * inside an isolation cell (Docker: `/host` and `/module` read-only, no
+ * network); the lexical wall (`module-wall.ts`) runs parent-side first as
+ * a filter. The host trusts its spawner, which is runtime code.
  *
  * Protocol: JSON lines over stdin/stdout — the transport discipline
  * already proven by the sidecar itself and desktop_control.

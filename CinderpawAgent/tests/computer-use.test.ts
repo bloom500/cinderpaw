@@ -406,3 +406,41 @@ describe("the confirmation names the element, not its id", () => {
     expect(describeElement("1:2")).toBe('the Button "Play"');
   });
 });
+
+describe("find_elements tells the model what it found", () => {
+  it("lists each element by id, role and name, since the model reads only the content", async () => {
+    const tool = createComputerUseTool();
+    const { ctx } = makeCtx({
+      onRequest: () => [
+        { id: "2288:42.1", role: "Button", name: "Send", value: "", automation_id: "", actions: ["press"], is_enabled: true, is_offscreen: false },
+        { id: "2288:42.2", role: "Edit", name: "Password", value: "[REDACTED]", automation_id: "", actions: [], is_enabled: false, is_offscreen: true },
+      ],
+    });
+    const r = await tool.execute({ action: "find_elements", pid: 2288, query: {} }, ctx);
+    expect(r.ok).toBe(true);
+    expect(r.content).toContain('2288:42.1  Button "Send"');
+    expect(r.content).toContain('2288:42.2  Edit "Password" value="[REDACTED]" (disabled, offscreen)');
+  });
+
+  it("caps a long result and says how many more there are", async () => {
+    const tool = createComputerUseTool();
+    const many = Array.from({ length: 75 }, (_, i) => ({ id: `1:${i}`, role: "ListItem", name: `row ${i}`, value: "", automation_id: "", actions: [], is_enabled: true, is_offscreen: false }));
+    const { ctx } = makeCtx({ onRequest: () => many });
+    const r = await tool.execute({ action: "find_elements", pid: 1, query: {} }, ctx);
+    expect(r.content).toContain("Found 75 element(s):");
+    expect(r.content).toContain('1:59  ListItem "row 59"');
+    expect(r.content).not.toContain('1:60  ListItem');
+    expect(r.content).toContain("and 15 more");
+  });
+});
+
+describe("find_elements can be scoped to the page", () => {
+  it("passes under_role and a list of roles through to the host", async () => {
+    const tool = createComputerUseTool();
+    let sent: Record<string, unknown> = {};
+    const { ctx } = makeCtx({ onRequest: (_a, params) => { sent = params; return []; } });
+    await tool.execute({ action: "find_elements", pid: 7, query: { role: "Button,Hyperlink", under_role: "Main,Document" } }, ctx);
+    expect(sent.query).toEqual({ role: "Button,Hyperlink", under_role: "Main,Document" });
+    expect(JSON.stringify(tool.parameters)).toContain("under_role");
+  });
+});

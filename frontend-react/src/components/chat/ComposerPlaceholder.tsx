@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { useReducedMotion } from 'framer-motion';
 
 /**
  * What the empty composer says: things this agent can actually do.
@@ -8,9 +8,13 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
  * real requests (a PDF, a form, a call) is the cheapest onboarding there is: it
  * costs no screen and no click, and nobody has to open Settings to find out.
  *
- * The look is from the HextaUI AI chat input (letters blur in, one after another),
- * rebuilt on this app's framer-motion rather than adding `motion`, which is the
- * same library a second time. With reduced motion it shows one example and stays.
+ * The look is from the HextaUI AI chat input (letters blur in, one after another,
+ * and blur out in reverse). The letters are CSS animations with a delay each
+ * (`.composer-letter` in globals.css): the browser runs them off the main
+ * thread. They were framer-motion values driven from script, a style write per
+ * letter per frame whenever the composer sat empty, 450 of them in 1.5 s on the
+ * home screen (25 Sep), under every click made meanwhile. With reduced motion
+ * it shows one example and stays.
  */
 export const COMPOSER_EXAMPLES = [
   'Make me a short contract as a PDF',
@@ -22,47 +26,47 @@ export const COMPOSER_EXAMPLES = [
 ];
 
 const INTERVAL_MS = 3_200;
+/** How long the letters take to leave: the last one starts after this many letters' worth of delay. */
+const OUT_STAGGER_MS = 10;
+const OUT_MS = 180;
 
 export function ComposerPlaceholder({ active, fallback }: { active: boolean; fallback: string }) {
   const reduced = useReducedMotion();
   const [index, setIndex] = useState(0);
+  const [leaving, setLeaving] = useState(false);
 
   useEffect(() => {
     if (!active || reduced) return;
-    const id = setInterval(() => setIndex((i) => (i + 1) % COMPOSER_EXAMPLES.length), INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [active, reduced]);
+    let next: number | undefined;
+    const id = setInterval(() => {
+      setLeaving(true);
+      const text = COMPOSER_EXAMPLES[index] ?? '';
+      next = window.setTimeout(() => {
+        setLeaving(false);
+        setIndex((i) => (i + 1) % COMPOSER_EXAMPLES.length);
+      }, OUT_MS + text.length * OUT_STAGGER_MS);
+    }, INTERVAL_MS);
+    return () => { clearInterval(id); window.clearTimeout(next); };
+  }, [active, reduced, index]);
 
   // Focused, or reduced motion: a plain, still line.
   if (!active || reduced) {
     return <span className="truncate text-text-muted">{active ? COMPOSER_EXAMPLES[0] : fallback}</span>;
   }
 
-  const text = COMPOSER_EXAMPLES[index]!;
+  const letters = Array.from(COMPOSER_EXAMPLES[index]!);
   return (
-    <AnimatePresence mode="wait">
-      <motion.span
-        key={index}
-        className="block truncate text-text-muted"
-        initial="hidden"
-        animate="shown"
-        exit="gone"
-        variants={{ shown: { transition: { staggerChildren: 0.022 } }, gone: { transition: { staggerChildren: 0.01, staggerDirection: -1 } } }}
-      >
-        {Array.from(text).map((ch, i) => (
-          <motion.span
-            key={i}
-            className="inline-block"
-            variants={{
-              hidden: { opacity: 0, filter: 'blur(8px)', y: 6 },
-              shown: { opacity: 1, filter: 'blur(0px)', y: 0, transition: { duration: 0.28 } },
-              gone: { opacity: 0, filter: 'blur(8px)', y: -6, transition: { duration: 0.18 } },
-            }}
-          >
-            {ch === ' ' ? ' ' : ch}
-          </motion.span>
-        ))}
-      </motion.span>
-    </AnimatePresence>
+    // Keyed on the example: a new line is new elements, so the animations start over.
+    <span key={index} className="block truncate text-text-muted">
+      {letters.map((ch, i) => (
+        <span
+          key={i}
+          className={leaving ? 'composer-letter composer-letter-out' : 'composer-letter'}
+          style={{ animationDelay: `${leaving ? (letters.length - 1 - i) * OUT_STAGGER_MS : i * 22}ms` }}
+        >
+          {ch === ' ' ? '\u00a0' : ch}
+        </span>
+      ))}
+    </span>
   );
 }

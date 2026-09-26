@@ -191,7 +191,7 @@ const NEW_WINDOW_SCRIPT: &str = "(() => {   const here = (u) => { try { const ur
 /// the key rides the one channel a page has: its own address fragment, which
 /// `watch_active_url` reads and puts back. Only the listed keys, so a page
 /// cannot forge anything worse than "close me".
-const KEY_SCRIPT: &str = "(() => { addEventListener('keydown', (e) => { if (!e.isTrusted || !(e.ctrlKey || e.metaKey) || e.altKey) return; const k = e.key.toLowerCase(); if (!['=', '+', '-', '0', 't', 'w', 'l', 'f'].includes(k)) return; e.preventDefault(); e.stopPropagation(); try { history.replaceState(history.state, '', location.pathname + location.search + '#cp-key=' + encodeURIComponent(k) + '&s=' + (e.shiftKey ? 1 : 0) + '&h=' + encodeURIComponent(location.hash.slice(1))); } catch {} }, true); })()";
+const KEY_SCRIPT: &str = "(() => { addEventListener('keydown', (e) => { if (!e.isTrusted || !(e.ctrlKey || e.metaKey) || e.altKey) return; const k = e.key.toLowerCase(); if (!['=', '+', '-', '0', 't', 'w', 'l', 'f', 'd', 'h', 'j', 'tab', '1', '2', '3', '4', '5', '6', '7', '8', '9'].includes(k)) return; e.preventDefault(); e.stopPropagation(); try { history.replaceState(history.state, '', location.pathname + location.search + '#cp-key=' + encodeURIComponent(k) + '&s=' + (e.shiftKey ? 1 : 0) + '&h=' + encodeURIComponent(location.hash.slice(1))); } catch {} }, true); })()";
 
 /// When the agent last acted in the page (ms since the epoch, the page's clock
 /// too). A person's touch after this hands the page to them.
@@ -743,6 +743,9 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
                         .unwrap_or_else(|| url.path_segments().and_then(|mut s| s.next_back()).unwrap_or("download").into());
                     let dir = downloads_dir();
                     let _ = std::fs::create_dir_all(&dir);
+                    // Said now, not only when it lands: a large file took
+                    // minutes with nothing on screen after the click.
+                    let _ = wv.app_handle().emit("browser://download", json!({ "name": name.to_string_lossy(), "started": true }));
                     *destination = dir.join(format!("{}-{}", uuid::Uuid::new_v4().simple(), name.to_string_lossy()));
                 }
                 DownloadEvent::Finished { url, path, success } => {
@@ -751,7 +754,10 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
                             on_downloaded(wv.app_handle(), &url, &path);
                         }
                     } else {
-                        let _ = wv.app_handle().emit("browser://download", json!({ "name": url.as_str(), "error": "the download failed" }));
+                        // The file's name, not the whole address: that one can
+                        // carry a signed query string a screen should not show.
+                        let name = url.path_segments().and_then(|mut s| s.next_back()).filter(|n| !n.is_empty()).unwrap_or("the file");
+                        let _ = wv.app_handle().emit("browser://download", json!({ "name": name, "error": "the download failed" }));
                     }
                 }
                 // The enum is non-exhaustive: a kind Tauri adds later is allowed through.
@@ -1260,6 +1266,23 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
         "reload" => {
             let wv = open_page(&app)?;
             wv.eval("location.reload()").map_err(|e| e.to_string())?;
+            Ok(json!({ "ok": true }))
+        }
+        // Stop a page that is still loading: the Reload button turns into
+        // this while it spins, as in every browser. A stopped load may never
+        // report Finished, so the tab stops saying it is loading here.
+        "stop" => {
+            let wv = open_page(&app)?;
+            wv.eval("window.stop()").map_err(|e| e.to_string())?;
+            {
+                let mut t = tabs().lock();
+                let active = t.active;
+                if let Some(tab) = t.list.iter_mut().find(|x| Some(x.id) == active) {
+                    tab.loading = false;
+                }
+            }
+            LOADING.store(tabs().lock().list.iter().any(|t| t.loading), Ordering::SeqCst);
+            emit_state(&app);
             Ok(json!({ "ok": true }))
         }
         // Find in page. The matches are painted with the CSS Custom Highlight

@@ -732,6 +732,22 @@ impl Session {
         self.token = mint_token(&self.key, &self.secret, identity, &self.room, 60 * 60);
         self.token.clone()
     }
+
+    /// Why this chain can no longer take a call, if it cannot: its server or
+    /// its agent has exited.
+    ///
+    /// A worker that crashed left its chain in the slot looking warm, so every
+    /// call after it joined a fresh room that no agent was ever dispatched to,
+    /// "listening" to nobody, until three quiet minutes let the idle timer
+    /// take the corpse down.
+    pub fn dead(&mut self) -> Option<String> {
+        for (what, child) in [("voice server", self.server.as_mut()), ("voice agent", self.agent.as_mut())] {
+            if let Some(Ok(Some(status))) = child.map(|c| c.try_wait()) {
+                return Some(format!("the {what} exited ({status})"));
+            }
+        }
+        None
+    }
 }
 
 impl Drop for Session {
@@ -1300,6 +1316,44 @@ pub async fn start(
 mod tests {
     use super::*;
     use std::sync::atomic::Ordering;
+
+    /// A chain is dead when either process is: the crash that left one in the
+    /// slot looking warm is the case this exists for.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_chain_says_it_is_dead_once_a_process_exits() {
+        let spawn = |secs: &str| Command::new("sleep").arg(secs).kill_on_drop(true).spawn().expect("sleep");
+        let mut s = Session {
+            server: Some(spawn("30")),
+            agent: Some(spawn("0")),
+            key: String::new(),
+            secret: String::new(),
+            url: String::new(),
+            token: String::new(),
+            room: String::new(),
+            mode: String::new(),
+            spec: String::new(),
+        };
+        // Both alive is only true until the agent's `sleep 0` has gone.
+        let mut why = None;
+        for _ in 0..100 {
+            why = s.dead();
+            if why.is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(why.as_deref().is_some_and(|w| w.contains("voice agent")), "{why:?}");
+
+        // A live pair is not dead.
+        s.agent = Some(spawn("30"));
+        assert_eq!(s.dead(), None);
+
+        // Out before the drop: `Drop` removes the real `server.pid`, which is
+        // not a test's to touch. `kill_on_drop` ends the two sleeps.
+        s.server.take();
+        s.agent.take();
+    }
 
     /// The shape this replaced, kept because it is the reason the gate exists.
     ///

@@ -153,7 +153,7 @@ import { ActivityMonitor } from "./rsi/l1-config/activity-monitor.ts";
 import { resolveDreamConfig, dreamCloudGate } from "./rsi/l1-config/dream-config.ts";
 import { episodeStartOptions, episodeBudgetCaps } from "./rsi/l1-config/episode-options.ts";
 import { MetaEvolution } from "./rsi/l6-meta/meta-evolution.ts";
-import { effectiveGates, loadPolicy } from "./rsi/l5-gov/governance.ts";
+import { effectiveGates, layerFrozen, loadPolicy } from "./rsi/l5-gov/governance.ts";
 import { ensureGenesisPolicy, GovernanceLifecycle } from "./rsi/l5-gov/governance-lifecycle.ts";
 import {
   mapGenomeToAgentConfig,
@@ -974,14 +974,14 @@ export async function boot(transportOverride?: Transport) {
   // L4 (§1.1): the search routes through the retrieval_strategy seam — a
   // promoted module replaces the ranking; with none promoted the builtin
   // fast-path calls FractalMemory.query directly (no process boundary).
-  const retrievalSeam = liveSeamAdapter(
-    "retrieval_strategy",
-    async (_method, params) => {
-      const p = params as { query: string; k: number };
-      return hitsToItems(await fractalMemory.query(p.query, p.k));
-    },
-    log,
-  );
+  // One builtin, two users: the live seam below and the L4 paired eval's
+  // incumbent (`seamBuiltins` on the RsiSidecar). Without the second, every
+  // retrieval module was compared against no memory at all.
+  const retrievalBuiltin = async (_method: string, params: unknown): Promise<unknown> => {
+    const p = params as { query: string; k: number };
+    return hitsToItems(await fractalMemory.query(p.query, p.k));
+  };
+  const retrievalSeam = liveSeamAdapter("retrieval_strategy", retrievalBuiltin, log);
   // Utility ledger (competence plan §3.3): which leaves were shown to which
   // session, closed with the run's verdict in `concludeRun`. The ranking
   // knob is 0, so this changes nothing a user sees; it collects the
@@ -2071,7 +2071,9 @@ export async function boot(transportOverride?: Transport) {
     codeRsiBusy = true;
     try {
       const { proposeCodePatch } = await import("./rsi/l3-code/code-proposer.ts");
-      const { makeCodeStageAdapters, runCodeCandidate } = await import("./rsi/l3-code/code-rsi.ts");
+      const { makeCodeStageAdapters, runCodeCandidate, MAX_PENDING_CODE_PATCHES } = await import(
+        "./rsi/l3-code/code-rsi.ts"
+      );
       const { bunExec } = await import("./rsi/l3-code/code-sandbox.ts");
       const { attemptsFromEpisodes, defaultAttemptLedgerPath, mergeAttempts, readAttempts } =
         await import("./rsi/l3-code/experiment-selector.ts");
@@ -2079,6 +2081,16 @@ export async function boot(transportOverride?: Transport) {
       const rsiDir = require("node:path").join(repoRoot, "CinderpawAgent", "src", "rsi");
       const ledgerPath = defaultAttemptLedgerPath();
       const { store, questions, sendCodePatches, recordReceipt, conditionOf } = await codePatchGate();
+      // Checked before the proposal, not after: a round that stops here is
+      // not an experiment, and recording it as one would teach the selector
+      // that the file it picked had been refused.
+      const waiting = store.list().filter((p) => p.status === "pending").length;
+      if (waiting >= MAX_PENDING_CODE_PATCHES) {
+        const reason = `${waiting} patches are waiting for your review. New ones are proposed once you approve or reject some of them.`;
+        log(`code-rsi: ${reason}`);
+        sendCodePatches({ at: Date.now(), target: "", verdict: "queue full", reason });
+        return;
+      }
 
       // Tokens the proposer spent this round: the observed cost the
       // self-model scores its `expectedCost` against.
@@ -2200,7 +2212,7 @@ export async function boot(transportOverride?: Transport) {
       const action = result.decided?.action ?? "halt";
       const prediction = genome.proposal.prediction;
       // The observation is the runner's, never the model's: accepted is the
-      // contract's verdict, effect is the ratchet's two numbers, cost is what
+      // contract's verdict, effect is candidate minus base, cost is what
       // the proposer call actually billed. The failure class is only filled
       // when the reason says so plainly; a guess here would poison the count.
       const reason = result.decided?.reason ?? "no reason";
@@ -2214,9 +2226,9 @@ export async function boot(transportOverride?: Transport) {
         failureClass:
           action === "accept"
             ? null
-            : /ratchet declined|scored/.test(reason)
+            : /ratchet declined|scored|unpatched base|no usable/.test(reason)
               ? ("unmeasured" as const)
-              : /suite|tsc|build|SEARCH|policy|wall/.test(reason)
+              : /worse than the base|suite|tsc|build|SEARCH|policy|wall/.test(reason)
                 ? ("wrong_proposal" as const)
                 : null,
       };
@@ -2266,6 +2278,12 @@ export async function boot(transportOverride?: Transport) {
     metaParams: () => metaEvolution.current(),
     // L5: policy gates tighten the promotion gate further (§7).
     policyGates: () => effectiveGates(governancePolicy()),
+    // L5: `cinderpaw governance freeze l1` stops new episodes (UI and Dream
+    // Cycle alike). Genesis above leaves it unfrozen on a fresh install.
+    l1Frozen: () => layerFrozen("l1"),
+    // L4 §5: the incumbent a retrieval module is paired against IS the live
+    // ranking. `planner` needs none here — the sidecar binds its own builtin.
+    seamBuiltins: { retrieval_strategy: retrievalBuiltin },
     onIdle: (...args: Parameters<typeof dreamCycle.onEpisodeEnd>) => {
       dreamCycle.onEpisodeEnd(...args);
       void maybeCodeRsiRound();

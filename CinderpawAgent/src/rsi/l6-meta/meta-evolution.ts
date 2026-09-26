@@ -15,7 +15,8 @@
  * while, the loop is epoch-based: `evolve()` first settles the pending
  * candidate (accept if its journal-window fitness strictly beats the
  * recorded baseline, else revert), then proposes + deploys the next
- * candidate. No synchronous eval suite — the evaluator IS the journal.
+ * candidate; after a revert it first re-measures the restored genome over
+ * a fresh window. No synchronous eval suite — the evaluator IS the journal.
  *
  * Fitness (aggregate, BRSI L6): more accepted candidates + higher mean
  * aggregate score + fewer halts across the cycles observed under the
@@ -192,8 +193,9 @@ function effectiveBounds(
 
 // ── Fitness ────────────────────────────────────────────────────────────────
 
-/** Minimum journal cycles observed under a genome before it can be
- *  scored. Below this, evolve() refuses — no mutation without evidence. */
+/** Minimum dream EPISODES observed under a genome before it can be
+ *  scored (counted by their summary rows, not by journal rows). Below
+ *  this, evolve() refuses — no mutation without evidence. */
 export const MIN_META_CYCLES = 5;
 
 /** Acceptance margin: a candidate must beat its baseline by MORE than
@@ -208,8 +210,10 @@ export const META_ACCEPT_MARGIN = 0.02;
 export interface MetaFitness {
   /** Aggregate in [0, 1]. */
   score: number;
-  /** Cycles the score was computed over. */
+  /** Dream episodes the score was computed over. */
   cycles: number;
+  /** The rates below are PER EPISODE, so an episode that ratchets twice
+   *  counts twice and they can exceed 1 (haltRate is capped at 1). */
   acceptRate: number;
   meanAggregate: number;
   haltRate: number;
@@ -247,14 +251,35 @@ export interface MetaFitness {
  * progress, and that IS a failure, distinct from declining a bad candidate
  * (which is a `reject`, not a `halt`, and costs nothing here).
  *
- * All reported components live in [0, 1] and `score` is clamped to it.
+ * The unit is the dream EPISODE. The window holds one summary row per
+ * episode (Dream Cycle: no `experimented`, no `result`) and one row per
+ * candidate (Contract FSM). Rates used to be per row, so a lower
+ * `dream_batch`, a knob L6 sets itself, raised the score with no
+ * improvement at all, and one episode at the default batch (up to 41 rows)
+ * was enough "cycles" to settle a generation. Per episode, the batch size is
+ * no longer the denominator.
+ * ponytail: per episode still favours big batches a little (more tries per
+ * episode); the fair unit is ratchets per token spent, which needs the
+ * summary row to record the tokens it spent (today only the remainder).
+ *
+ * Only L1 rows count. L3 code rows and L4 module rows share the journal, but
+ * nothing in the meta-genome steers how they are made.
+ *
+ * `score` is clamped to [0, 1]; the rates are per episode and are not.
  */
 export function metaFitness(entries: readonly JournalEntry[]): MetaFitness | null {
-  if (entries.length < MIN_META_CYCLES) return null;
-  const n = entries.length;
-  const accepted = entries.filter((e) => e.decided.action === "accept");
-  const halts = entries.filter((e) => e.decided.action === "halt").length;
-  const scored = entries.filter((e) => e.result != null);
+  const episodes = entries.filter((e) => e.experimented === null);
+  if (episodes.length < MIN_META_CYCLES) return null;
+  const n = episodes.length;
+  const candidates = entries.filter((e) => e.experimented?.layer === "L1");
+  // Only a row that names a candidate can be an accept. The summary row's
+  // "accept" restates that episode's candidate rows. Counted again (with no
+  // evaluation of its own, so as reckless) every successful ratchet scored
+  // one sound accept plus one reckless one, netting zero: L6 could not tell
+  // an engine that improves from one that does not.
+  const accepted = candidates.filter((e) => e.decided.action === "accept");
+  const halts = [...episodes, ...candidates].filter((e) => e.decided.action === "halt").length;
+  const scored = candidates.filter((e) => e.result != null);
   const meanAggregate =
     scored.length === 0
       ? 0
@@ -270,7 +295,7 @@ export function metaFitness(entries: readonly JournalEntry[]): MetaFitness | nul
   const acceptRate = accepted.length / n;
   const soundAcceptRate = sound / n;
   const recklessAcceptRate = reckless / n;
-  const haltRate = halts / n;
+  const haltRate = Math.min(1, halts / n);
   const score = clamp(
     0.4 * soundAcceptRate + 0.4 * meanAggregate + 0.2 * (1 - haltRate) - 0.4 * recklessAcceptRate,
     [0, 1],
@@ -460,9 +485,10 @@ export class MetaEvolution {
   }
 
   /** One meta-ratchet epoch: settle the pending candidate (accept iff
-   *  its window fitness strictly beats the baseline, else revert), then
-   *  propose + deploy the next mutated candidate. Refuses without
-   *  MIN_META_CYCLES of journal evidence under the current genome. */
+   *  its window fitness beats the baseline by the margin, else revert),
+   *  then propose + deploy the next mutated candidate. A revert ends the
+   *  epoch without proposing (see the reject branch). Refuses without
+   *  MIN_META_CYCLES episodes of journal evidence under the current genome. */
   evolve(): MetaResultPayload {
     const pol = this.policy?.();
     if (pol?.frozen.l6) {
@@ -510,6 +536,7 @@ export class MetaEvolution {
           null,
           this.state.genome,
         );
+        const restored = this.state.baseline.generation;
         this.state = {
           ...this.state,
           generation: this.state.generation + 1,
@@ -518,6 +545,28 @@ export class MetaEvolution {
           baseline: null,
         };
         this.append("rollback", championScore, "auto-revert after rejected candidate", null, this.state.genome);
+        // Stop here: no proposal on top of a reject. The baseline's score came
+        // from an older window, and later windows ratchet less (the champion
+        // gets harder to beat), so measuring every new candidate against it
+        // drifts toward rejecting everything. The next evolve() re-measures
+        // the restored genome over a fresh window, settles it as a bootstrap
+        // and proposes from that. Cost: one window per rejected generation.
+        const unsaved = this.commitEpoch(
+          before,
+          `rejected → reverted to generation ${restored}, re-measuring it before the next proposal`,
+        );
+        if (unsaved) return unsaved;
+        return {
+          ok: true,
+          settled,
+          previousFitness: fitness,
+          generation: this.state.generation,
+          genome: this.state.genome,
+          pendingCandidate: false,
+          note:
+            "The candidate did not beat its baseline and was reverted. The next evolve measures the " +
+            "restored genome over fresh dream episodes before it proposes again.",
+        };
       }
     }
 
@@ -534,17 +583,8 @@ export class MetaEvolution {
       baseline: { generation: championGen, genome: champion, score: championScore },
     };
     this.append("proposed", null, `candidate over generation ${championGen} (${settled})`, seed, child, diff);
-    const unsaved = this.saveOrRestore(before);
+    const unsaved = this.commitEpoch(before, `${settled} → proposed generation ${this.state.generation} (${diff})`);
     if (unsaved) return unsaved;
-    // G-INV-5: one chained governance-audit row per evolve() epoch.
-    appendGovernanceAudit(this.governanceDir, {
-      timestamp: this.now(),
-      source: "l6",
-      event: "evolve",
-      refId: `gen-${this.state.generation}`,
-      summary: `${settled} → proposed generation ${this.state.generation} (${diff})`,
-    });
-    this.log(`meta-evolution: ${settled} → proposed generation ${this.state.generation} (${diff})`);
     return {
       ok: true,
       settled,
@@ -667,6 +707,22 @@ export class MetaEvolution {
    *  but not on disk is lost on the next restart without a word, so the
    *  running engine and its state file must never disagree. The history
    *  already holds this epoch's rows; one more row says it was cancelled. */
+  /** Save the epoch, then its one chained governance-audit row (G-INV-5)
+   *  and log line. Returns the refusal when the state could not be saved. */
+  private commitEpoch(before: MetaState, summary: string): MetaResultPayload | null {
+    const unsaved = this.saveOrRestore(before);
+    if (unsaved) return unsaved;
+    appendGovernanceAudit(this.governanceDir, {
+      timestamp: this.now(),
+      source: "l6",
+      event: "evolve",
+      refId: `gen-${this.state.generation}`,
+      summary,
+    });
+    this.log(`meta-evolution: ${summary}`);
+    return null;
+  }
+
   private saveOrRestore(before: MetaState): MetaResultPayload | null {
     const error = this.persist(this.state);
     if (error === null) return null;

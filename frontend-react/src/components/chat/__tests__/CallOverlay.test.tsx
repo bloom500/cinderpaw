@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { CallTranscript, ProviderToggle, chooseSpeechEngine, compactCallTranscript, keyOwner, shownS2sProvider, voiceAnswerFor } from '../CallOverlay';
+import { CallAnswer, CallTranscript, ProviderToggle, chooseSpeechEngine, compactCallTranscript, keyOwner, shownS2sProvider, voiceAnswerFor } from '../CallOverlay';
 import type { TtsProviderInfo } from '@/lib/tauri';
 
 describe('compactCallTranscript', () => {
@@ -42,6 +42,16 @@ describe('CallTranscript', () => {
     expect(transcript).toHaveClass('line-clamp-3', 'overflow-hidden');
     expect(transcript).toHaveAttribute('aria-label', text);
     expect(transcript.textContent?.length).toBeLessThanOrEqual(282);
+  });
+});
+
+describe('CallAnswer', () => {
+  it('bounds a long spoken answer to three lines so the call controls stay on screen', () => {
+    const text = `Here is what I found. ${'A long sentence about the results. '.repeat(60)}`;
+    render(<CallAnswer text={text} />);
+    const answer = screen.getByTestId('call-answer');
+    expect(answer).toHaveClass('line-clamp-3', 'overflow-hidden');
+    expect(answer).toHaveAttribute('aria-label', text);
   });
 });
 

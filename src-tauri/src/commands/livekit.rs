@@ -228,6 +228,26 @@ pub struct LiveKitCall {
     pub warm: bool,
 }
 
+/// Take the parked chain out of the slot if its server or agent has died.
+///
+/// Without this a crashed voice worker left a chain that looked warm: every
+/// call joined a new room that no agent was dispatched to, and the warmup
+/// refused to touch the slot, until three quiet minutes let the idle timer
+/// take it down. Dropped outside the lock, like the idle teardown does.
+fn drop_dead_chain(state: &AppState) {
+    let dead = {
+        let mut slot = state.livekit_call.lock();
+        match slot.as_mut().and_then(|s| s.dead()) {
+            Some(why) => {
+                tracing::warn!("livekit: the parked voice chain is dead ({why}); the next call boots a new one");
+                slot.take()
+            }
+            None => None,
+        }
+    };
+    drop(dead);
+}
+
 /// Start the local call, or join the one whose machinery is already up.
 ///
 /// Errors are messages meant for a person, with one exception worth knowing:
@@ -267,6 +287,7 @@ pub(crate) async fn start_livekit_call(
 ) -> Result<LiveKitCall, String> {
     GENERATION.fetch_add(1, Ordering::SeqCst);
     cinderpaw_core::live::bridge::set_chat_session(session_id);
+    drop_dead_chain(&state);
 
     let wanted = cinderpaw_core::livekit::session_spec(
         provider.as_deref(),
@@ -389,6 +410,8 @@ pub(crate) async fn warm_livekit(
     stt_provider: Option<String>,
     stt_language: Option<String>,
 ) -> Result<(), String> {
+    // A dead chain is not a call, and it would keep this warmup out forever.
+    drop_dead_chain(&state);
     // Never touch a chain that already exists. It may be a live call, and a
     // warmup is not entitled to end one.
     if state.livekit_call.lock().is_some() {

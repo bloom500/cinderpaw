@@ -57,6 +57,43 @@ export const BROWSER_KEYS: Record<string, KeyCommand> = {
   devtools: { keys: '{f12}', means: 'open the developer tools' },
 };
 
+/**
+ * The system this app runs on, from the webview's user agent. Anything that
+ * is not recognisably macOS or Linux is Windows: the tests' jsdom, too.
+ */
+export type Platform = 'windows' | 'mac' | 'linux';
+export function platform(ua: string = typeof navigator === 'undefined' ? '' : navigator.userAgent): Platform {
+  if (/Macintosh|Mac OS X/.test(ua)) return 'mac';
+  if (/X11|Linux x86_64|Linux aarch64|Wayland/.test(ua)) return 'linux';
+  return 'windows';
+}
+
+/**
+ * Where a browser's keys differ on a Mac. The host reads `ctrl` as Command
+ * there, which is right for most of them (Cmd+T, Cmd+W, Cmd+L); these are the
+ * ones where it is not. Ctrl+Tab in particular is Control+Tab on a Mac:
+ * as Cmd+Tab it would switch applications, not tabs.
+ */
+const MAC_BROWSER: Record<string, string> = {
+  next_tab: '{control+tab}',
+  previous_tab: '{control+shift+tab}',
+  reload: '{cmd+r}',
+  hard_reload: '{cmd+shift+r}',
+  back: '{cmd+[}',
+  forward: '{cmd+]}',
+  home: '{cmd+shift+h}',
+  history: '{cmd+y}',
+  downloads: '{cmd+alt+l}',
+  fullscreen: '{control+cmd+f}',
+  devtools: '{cmd+alt+i}',
+};
+
+/** A browser's keys on the given system. */
+export function browserKeys(os: Platform = platform()): Record<string, KeyCommand> {
+  if (os !== 'mac') return BROWSER_KEYS;
+  return Object.fromEntries(Object.entries(BROWSER_KEYS).map(([k, v]) => [k, MAC_BROWSER[k] ? { ...v, keys: MAC_BROWSER[k]! } : v]));
+}
+
 /** Keys any Windows application answers to, when the window in front is not a browser. */
 export const WINDOWS_KEYS: Record<string, KeyCommand> = {
   select_all: BROWSER_KEYS.select_all,
@@ -92,6 +129,68 @@ export const WINDOWS_KEYS: Record<string, KeyCommand> = {
   zoom_in: BROWSER_KEYS.zoom_in,
   zoom_out: BROWSER_KEYS.zoom_out,
 };
+
+/**
+ * Keys any macOS application answers to. `ctrl` is Command there (the host's
+ * reading), `control` the Control key itself.
+ */
+export const MAC_KEYS: Record<string, KeyCommand> = {
+  select_all: BROWSER_KEYS.select_all,
+  copy: BROWSER_KEYS.copy,
+  paste: BROWSER_KEYS.paste,
+  cut: { keys: '{cmd+x}', means: 'cut the selection' },
+  undo: BROWSER_KEYS.undo,
+  redo: { keys: '{cmd+shift+z}', means: 'redo' },
+  save: { keys: '{cmd+s}', means: 'save' },
+  save_as: { keys: '{cmd+shift+s}', means: 'save as / save a copy' },
+  open: { keys: '{cmd+o}', means: 'open a file' },
+  new: { keys: '{cmd+n}', means: 'new file / new document / new window' },
+  find: { keys: '{cmd+f}', means: 'find' },
+  print: { keys: '{cmd+p}', means: 'print' },
+  close_window: { keys: '{cmd+w}', means: 'close this window' },
+  quit_app: { keys: '{cmd+q}', means: 'quit the app' },
+  close_tab: { keys: '{cmd+w}', means: 'close this tab or document' },
+  escape: BROWSER_KEYS.escape,
+  enter: { keys: '{enter}', means: 'press enter / confirm / OK' },
+  tab: { keys: '{tab}', means: 'press tab / move to the next field' },
+  delete: { keys: '{backspace}', means: 'delete the selection' },
+  minimize: { keys: '{cmd+m}', means: 'minimize the window' },
+  hide_app: { keys: '{cmd+h}', means: 'hide this app' },
+  fullscreen: { keys: '{control+cmd+f}', means: 'full screen / maximize the window' },
+  switch_app: { keys: '{cmd+tab}', means: 'switch to the previous app' },
+  next_window: { keys: '{cmd+`}', means: 'switch to the next window of this app' },
+  spotlight: { keys: '{cmd+space}', means: 'open Spotlight search' },
+  settings: { keys: '{cmd+,}', means: 'open the settings / preferences of this app' },
+  lock: { keys: '{control+cmd+q}', means: 'lock the computer' },
+  screenshot: { keys: '{cmd+shift+4}', means: 'take a screenshot of part of the screen' },
+  screenshot_full: { keys: '{cmd+shift+3}', means: 'take a screenshot of the whole screen' },
+  emoji: { keys: '{control+cmd+space}', means: 'open the emoji picker' },
+  force_quit: { keys: '{cmd+alt+esc}', means: 'force quit an app that is not responding' },
+  zoom_in: BROWSER_KEYS.zoom_in,
+  zoom_out: BROWSER_KEYS.zoom_out,
+};
+
+/**
+ * Keys any Linux application answers to. The window keys are GNOME's and
+ * KDE's shared defaults; a desktop that rebinds them answers to its own.
+ */
+export const LINUX_KEYS: Record<string, KeyCommand> = {
+  ...Object.fromEntries(Object.entries(WINDOWS_KEYS).filter(([k]) => !['maximize', 'minimize', 'snap_left', 'snap_right', 'show_desktop', 'task_view', 'file_explorer', 'settings', 'screenshot', 'emoji', 'clipboard_history', 'redo'].includes(k))),
+  redo: { keys: '{ctrl+shift+z}', means: 'redo' },
+  maximize: { keys: '{win+up}', means: 'maximize the window' },
+  minimize: { keys: '{win+h}', means: 'minimize the window' },
+  snap_left: { keys: '{win+left}', means: 'snap the window to the left half of the screen' },
+  snap_right: { keys: '{win+right}', means: 'snap the window to the right half of the screen' },
+  switch_app: { keys: '{alt+tab}', means: 'switch to the previous app' },
+  overview: { keys: '{win}', means: 'show all windows and the app search (activities)' },
+  screenshot: { keys: '{print}', means: 'take a screenshot' },
+  emoji: { keys: '{ctrl+.}', means: 'open the emoji picker' },
+};
+
+/** Keys any application answers to, on the given system. */
+export function appKeys(os: Platform = platform()): Record<string, KeyCommand> {
+  return os === 'mac' ? MAC_KEYS : os === 'linux' ? LINUX_KEYS : WINDOWS_KEYS;
+}
 
 export const SITE_KEYS: SiteKeys[] = [
   {
@@ -307,7 +406,7 @@ export const SITE_KEYS: SiteKeys[] = [
   },
 ];
 
-const BROWSER_TITLE = /brave|chrome|chromium|edge|firefox|opera|vivaldi|arc/i;
+const BROWSER_TITLE = /brave|chrome|chromium|edge|firefox|opera|vivaldi|arc|safari/i;
 
 /**
  * The keys the window in front answers to, from its title. A browser gets
@@ -315,10 +414,12 @@ const BROWSER_TITLE = /brave|chrome|chromium|edge|firefox|opera|vivaldi|arc/i;
  * else gets the keys every Windows program shares. Site keys win on a
  * conflict because they are the more specific claim.
  */
-export function keysFor(title: string): { site: string | null; commands: Record<string, KeyCommand> } {
+export function keysFor(title: string, os: Platform = platform()): { site: string | null; commands: Record<string, KeyCommand> } {
   const site = SITE_KEYS.find((s) => s.match.test(title));
   const browser = BROWSER_TITLE.test(title);
-  if (site && browser) return { site: site.id, commands: { ...BROWSER_KEYS, ...site.commands } };
-  if (site) return { site: site.id, commands: { ...WINDOWS_KEYS, ...site.commands } };
-  return { site: null, commands: browser ? BROWSER_KEYS : WINDOWS_KEYS };
+  const b = browserKeys(os);
+  const app = appKeys(os);
+  if (site && browser) return { site: site.id, commands: { ...b, ...site.commands } };
+  if (site) return { site: site.id, commands: { ...app, ...site.commands } };
+  return { site: null, commands: browser ? b : app };
 }

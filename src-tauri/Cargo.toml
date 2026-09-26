@@ -195,6 +195,13 @@ windows = { version = "0.58", features = [
   "Win32_UI_WindowsAndMessaging",
 ] }
 
+# AT-SPI, the accessibility tree Linux apps publish on D-Bus: desktop control
+# finds and presses named elements through it (desktop_control_atspi.rs). The
+# same zbus the single-instance plugin already builds, so nothing new is
+# downloaded or compiled.
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+zbus = "5"
+
 [dev-dependencies]
 tempfile = "3"
 

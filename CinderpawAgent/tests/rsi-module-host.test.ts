@@ -14,6 +14,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { wallCheck } from "../src/rsi/l4-modules/module-wall.ts";
 import { spawnModuleHost, HOST_PROTOCOL } from "../src/rsi/l4-modules/module-host-client.ts";
+import { hostProcessCell as cell } from "./_module-cell.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "modules");
 const LIMITS = { timeoutMs: 5_000, maxRssMb: 512 };
@@ -71,6 +72,7 @@ describe("wallCheck (spec §4)", () => {
 describe("module host e2e (spec §4)", () => {
   test("hello (protocol byte) + request/response round-trip", async () => {
     const res = await spawnModuleHost({
+      cell,
       moduleDir: join(FIXTURES, "good-retrieval"),
       limits: LIMITS,
       seed: 42,
@@ -93,6 +95,7 @@ describe("module host e2e (spec §4)", () => {
   test("seeded RNG: same seed → identical score, different seed → different", async () => {
     const score = async (seed: number): Promise<number> => {
       const res = await spawnModuleHost({
+        cell,
         moduleDir: join(FIXTURES, "good-retrieval"),
         limits: LIMITS,
         seed,
@@ -111,6 +114,7 @@ describe("module host e2e (spec §4)", () => {
 
   test("unknown method → ok:false with named error, host stays alive", async () => {
     const res = await spawnModuleHost({
+      cell,
       moduleDir: join(FIXTURES, "good-retrieval"),
       limits: LIMITS,
       seed: 1,
@@ -126,6 +130,7 @@ describe("module host e2e (spec §4)", () => {
 
   test("sleep past timeoutMs → timed-out reply; 3 consecutive → host killed (AC3)", async () => {
     const res = await spawnModuleHost({
+      cell,
       moduleDir: join(FIXTURES, "sleepy"),
       limits: { timeoutMs: 300, maxRssMb: 512 },
       seed: 1,
@@ -148,6 +153,7 @@ describe("module host e2e (spec §4)", () => {
 
   test("stopping the host mid-request settles the pending request as failure", async () => {
     const res = await spawnModuleHost({
+      cell,
       moduleDir: join(FIXTURES, "sleepy"),
       limits: { timeoutMs: 20_000, maxRssMb: 512 },
       seed: 1,
@@ -172,7 +178,7 @@ describe("module host e2e (spec §4)", () => {
       "utf8",
     );
     writeFileSync(join(dir, "module.ts"), `import { readFileSync } from "node:fs";\nexport default {};`, "utf8");
-    const res = await spawnModuleHost({ moduleDir: dir, limits: LIMITS });
+    const res = await spawnModuleHost({ moduleDir: dir, limits: LIMITS, cell });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.reason).toContain("lexical wall");
   }, 30_000);
@@ -180,4 +186,52 @@ describe("module host e2e (spec §4)", () => {
   test("protocol constant is 1 (bump = deliberate §12.2 act)", () => {
     expect(HOST_PROTOCOL).toBe(1);
   });
+});
+
+describe("the cell is the boundary, not the wall", () => {
+  test("the wall is a filter: the checkpoint's bypass passes it", () => {
+    // The 26 Sep checkpoint's example. Nothing lexical names fetch or
+    // process, so the wall lets it through; only a cell can stop it
+    // (tests/rsi-module-cell.test.ts runs it in one).
+    const bypass = [
+      "const g = globalThis;",
+      'const net = g["fe" + "tch"];',
+      'const env = g["pro" + "cess"]?.env;',
+      "const F = (() => {}).constructor;",
+      'export default { retrieve(p) { return F("return 1")(); } };',
+    ].join("\n");
+    expect(wallCheck(bypass)).toEqual({ ok: true });
+  });
+
+  test("no cell on this machine → refused, nothing runs, and the reason says why", async () => {
+    const started: string[] = [];
+    const noDocker = {
+      ...cell,
+      available: async () => ({ ok: false as const, reason: "Docker is installed but not running. Start Docker Desktop, then the loop will resume on its own." }),
+      command: (spec: Parameters<typeof cell.command>[0]) => (started.push(spec.name), cell.command(spec)),
+    };
+    const res = await spawnModuleHost({ moduleDir: join(FIXTURES, "good-retrieval"), limits: LIMITS, cell: noDocker });
+    expect(res).toEqual({ ok: false, reason: expect.stringContaining("Start Docker Desktop"), unavailable: true });
+    expect(started).toEqual([]);
+
+    const noImage = { ...cell, prepare: async () => ({ ok: false as const, reason: "Could not download oven/bun" }) };
+    const res2 = await spawnModuleHost({ moduleDir: join(FIXTURES, "good-retrieval"), limits: LIMITS, cell: noImage });
+    expect(res2).toEqual({ ok: false, reason: "Could not download oven/bun", unavailable: true });
+  });
+
+  test("a cell that fails to start says why: its last stderr line is in the reason", async () => {
+    const broken = {
+      ...cell,
+      command: () => ({
+        argv: [process.execPath, "-e", 'console.error("docker: invalid mount config"); process.exit(125)'],
+        env: { PATH: process.env["PATH"] ?? "", BUN_BE_BUN: "1" },
+      }),
+    };
+    const res = await spawnModuleHost({ moduleDir: join(FIXTURES, "good-retrieval"), limits: LIMITS, cell: broken });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.reason).toContain("invalid mount config");
+      expect(res.unavailable).toBeUndefined(); // the cell exists; this start failed
+    }
+  }, 30_000);
 });

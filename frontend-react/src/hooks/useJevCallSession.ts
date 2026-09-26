@@ -5,7 +5,7 @@ import { useBrowser } from '@/stores/browser';
 import { useSpeechPlayer } from './useSpeechPlayer';
 import { saveVoiceBlobToDisk, transcribeVoiceBlob } from './useSendMessage';
 import { rms, isVoiced, TRAIL_SILENCE_MS, MAX_UTTERANCE_MS, NO_SPEECH_TIMEOUT_MS } from '@/lib/vad';
-import { decide, execute, installedApps, interpretReply, resetTarget, splitSteps, DESKTOP_CONTROL_OFF, MIN_CONFIDENCE, MIN_CLICK_ACTION_CONFIDENCE } from '@/lib/jev';
+import { decide, execute, installedApps, interpretReply, resetTarget, splitSteps, DESKTOP_CONTROL_OFF, DESKTOP_NO_TREE, MIN_CONFIDENCE, MIN_CLICK_ACTION_CONFIDENCE } from '@/lib/jev';
 import { chime } from '@/lib/audio';
 import { forSpeech, isLikelyHallucination } from '@/lib/speechText';
 import { ensureSttModel } from '@/lib/voiceModel';
@@ -38,7 +38,9 @@ const MIN_COMMAND_VOICED_MS = 120;
  * is off..."). The chime has to tell the two apart before any voice does.
  */
 export function toneFor(line: string): 'ok' | 'fail' {
-  return !line || /^(Opening|Searching|Switching)\b/.test(line) ? 'ok' : 'fail';
+  // "3 matches for pricing." is `find` succeeding: it chimed as a failure,
+  // was spoken as one, and ended the rest of a chain that was going fine.
+  return !line || /^(Opening|Searching|Switching)\b|^\d+ match(es)? for /.test(line) ? 'ok' : 'fail';
 }
 
 /**
@@ -64,7 +66,7 @@ function transcriptionFault(e: unknown): string {
  */
 function spokenFailure(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
-  return msg === DESKTOP_CONTROL_OFF || / is in front, and I never control /.test(msg) ? msg : 'That did not work.';
+  return msg === DESKTOP_CONTROL_OFF || msg === DESKTOP_NO_TREE || / is in front, and I never control /.test(msg) ? msg : 'That did not work.';
 }
 
 /** A Jev request that failed, in words for the person; the codes are the host's (`jev_decide`). */
@@ -328,18 +330,23 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
       }
       const plan = r.plan;
       console.info(`[jev] ${steps.length > 1 ? `step ${i + 1}/${steps.length} ` : ''}${plan.action} conf=${plan.confidence.toFixed(2)} in ${r.ms}ms${r.desktop ? ' on the desktop' : ' in the app'}`);
+      if (plan.action === 'hang_up') {
+        hangUpRef.current();
+        return;
+      }
       if (plan.action === 'stop') {
-        // "Stop" while Cinder is working means stop Cinder: it may be typing
-        // into the wrong window, and the voice is the only brake the person
-        // has with the app parked. Ending the call left it going. The call
-        // stays; a second "stop" ends it.
+        // "Stop" is the brake on what Cinder was handed: it may be typing into
+        // the wrong window, and the voice is the only brake the person has
+        // with the app parked. It never ends the call; "hang up" does. With
+        // Cinder idle, a second "stop" used to hang up, which the person using
+        // it never knew and did not want (25 Sep).
         if (agentBusy.current) {
           agentStopped.current = true;
           await requestCinderpawStop(useChat.getState().sessionId).catch(() => {});
           await speak('Stopped Cinder.', 'ok');
-          return;
+        } else {
+          await speak('Cinder is not working on anything.', 'ok');
         }
-        hangUpRef.current();
         return;
       }
       // One floor per action, checked once: with two gates in a row, a click
@@ -400,8 +407,17 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
   const begin = useCallback(async () => {
     setNotice(null);
     setPhase('connecting');
+    // A hang-up while the microphone is being asked for (a permission prompt
+    // takes as long as the person does) bumps this; the call stays ended.
+    // Without it the microphone arrived afterwards and the loop started: the
+    // call came back on screen, listening, after the person had ended it.
+    const asked = generation.current;
     try {
       const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      if (generation.current !== asked) {
+        s.getTracks().forEach((t) => t.stop());
+        return;
+      }
       const c = new AudioContext();
       const a = c.createAnalyser();
       a.fftSize = 1024;
@@ -410,7 +426,13 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
       ctx.current = c;
       analyser.current = a;
     } catch (e) {
-      setNotice(`Microphone: ${String(e)}`);
+      if (generation.current !== asked) return;
+      const name = e instanceof DOMException ? e.name : '';
+      setNotice(
+        name === 'NotAllowedError' ? 'The microphone was refused. Allow it for Cinderpaw in your system settings.'
+          : name === 'NotFoundError' ? 'No microphone was found. Plug one in and try again.'
+            : `Microphone: ${String(e)}`,
+      );
       setPhase('ready');
       return;
     }

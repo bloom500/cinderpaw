@@ -15,7 +15,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RsiSidecar } from "../src/rsi/sidecar.ts";
@@ -26,6 +26,8 @@ import { ActivityMonitor } from "../src/rsi/l1-config/activity-monitor.ts";
 import { createDreamCycle } from "../src/rsi/l1-config/dream-cycle.ts";
 import type { DreamConfig } from "../src/rsi/l1-config/dream-config.ts";
 import type { OutboundEvent } from "../src/types.ts";
+import { layerFrozen } from "../src/rsi/l5-gov/governance.ts";
+import { ensureGenesisPolicy, GovernanceLifecycle } from "../src/rsi/l5-gov/governance-lifecycle.ts";
 
 class FakeRouter implements InvokeRouter {
   complete() {
@@ -202,5 +204,69 @@ describe("Dream Cycle — end-to-end wiring", () => {
     expect(rec.ratchets as number).toBeGreaterThanOrEqual(1);
     const ended = events.find((e) => e.type === "dream_cycle" && e.phase === "ended") as { ratchets?: number };
     expect(ended.ratchets).toBe(rec.ratchets);
+  });
+});
+
+// A refusal after the wake pulse would leave the mascot dreaming and the toast
+// up, re-announced on every poll, for an episode that never runs.
+describe("Dream Cycle — L5 frozen.l1", () => {
+  test("no wake pulse, no episode, no journal row; a user dream says why on screen", async () => {
+    const home = mkdtempSync(join(tmpdir(), "cinderpaw-dream-frozen-"));
+    const govDir = join(home, "governance");
+    ensureGenesisPolicy(govDir);
+    expect(new GovernanceLifecycle({ dir: govDir }).freeze(["l1"], "test", "operator").ok).toBe(true);
+    const telemetryPath = join(home, "dream.jsonl");
+    const journal = join(home, "journal.jsonl");
+    const events: OutboundEvent[] = [];
+    const logs: string[] = [];
+    const bridge = new FakeBridge();
+    const activityMonitor = new ActivityMonitor({ errorWindowMs: CONFIG.errorWindowMs });
+    activityMonitor.recordActivity(Date.now() - 10_000); // idle now
+
+    const dreamCycle = createDreamCycle({
+      send: (e) => events.push(e),
+      telemetryPath,
+      journalPath: () => journal,
+      activityMonitor,
+      config: CONFIG,
+      log: (m) => logs.push(m),
+    });
+    const sidecar = new RsiSidecar({
+      bridge,
+      db: openDatabase(":memory:"),
+      router: new FakeRouter(),
+      send: (e) => events.push(e as OutboundEvent),
+      championPath: join(home, "champion.json"),
+      championTreePath: join(home, "tree.json"),
+      l1Frozen: () => layerFrozen("l1", govDir),
+      onIdle: dreamCycle.onEpisodeEnd,
+    });
+    const scheduler = dreamCycle.arm(sidecar, {
+      goal: "t",
+      maxIterations: 1,
+      maxTotalTokens: 1_000,
+    } as Parameters<typeof dreamCycle.arm>[1]);
+
+    try {
+      await scheduler.tick(); // idle trigger fires, L1 is frozen
+      expect(sidecar.isRunning()).toBe(false);
+      expect(events.filter((e) => e.type === "dream_cycle")).toHaveLength(0);
+      expect(events.filter((e) => e.type === "error")).toHaveLength(0);
+      expect(logs.some((m) => m.includes("frozen.l1"))).toBe(true);
+
+      scheduler.requestUserDream(); // the user asked: the answer goes on screen
+      await scheduler.tick();
+      expect(sidecar.isRunning()).toBe(false);
+      expect(events.filter((e) => e.type === "dream_cycle")).toHaveLength(0);
+      const errs = events.filter((e) => e.type === "error") as Array<{ message: string }>;
+      expect(errs).toHaveLength(1);
+      expect(errs[0]!.message).toContain("frozen.l1");
+
+      expect(existsSync(telemetryPath)).toBe(false);
+      expect(existsSync(journal)).toBe(false);
+    } finally {
+      scheduler.shutdown();
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

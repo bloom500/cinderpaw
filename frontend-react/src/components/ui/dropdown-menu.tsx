@@ -4,7 +4,31 @@ import { Check, ChevronRight, Circle } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
-const DropdownMenu = DropdownMenuPrimitive.Root
+/**
+ * True inside an overlay that closes on a click outside it: a dialog, the
+ * search overlay. Set by those overlays, read by DropdownMenu below.
+ */
+export const MenuInOverlay = React.createContext(false)
+
+/**
+ * Not modal on the page, modal inside an overlay, unless a caller says so.
+ *
+ * On the page, a modal menu locked scroll by restyling <body>
+ * (react-remove-scroll), and every open and close restyled the whole
+ * document: the model picker took 200 ms from click to paint with the CPU
+ * slowed four times (26 Sep). Non-modal, a click outside closes the menu AND
+ * reaches what it was on, the way GitHub and Linear menus do: "New" opens
+ * while the model picker closes, a row opens its chat. Every destructive
+ * action behind a menu asks first (checked in Chromium, 26 Sep).
+ *
+ * Inside an overlay that one click would also land on the overlay's backdrop
+ * and close it: a "…" menu in Search dismissed took the search and its query
+ * with it. There the first click only closes the menu, as before.
+ */
+function DropdownMenu({ modal, ...props }: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Root>) {
+  const inOverlay = React.useContext(MenuInOverlay)
+  return <DropdownMenuPrimitive.Root modal={modal ?? inOverlay} {...props} />
+}
 
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
 

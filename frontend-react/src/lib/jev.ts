@@ -77,13 +77,26 @@ export const ACTIONS: Record<string, { what: string; not_for?: string; examples:
     not_for: 'Playback (media), pressing or acting on something the page shows, like a button, a video or an email (click), moving in the browser (navigate)',
     examples: ['turn on captions', 'full screen', 'play faster', 'compose a new email', 'rename the file', 'new folder', 'save', 'zoom in'],
   },
+  type_text: {
+    what: 'Type words the user dictates into the window or field in front, as if typed on the keyboard',
+    not_for: 'Searching the web (web_search), finding on the page (find), or a message for the assistant itself',
+    examples: ['type hello world', 'write see you tomorrow', 'type my email is ana at example dot com', 'scrie mulțumesc frumos'],
+  },
+  // Two actions, because people mean two things: "stop" is the brake on what
+  // Cinder was handed; it ended the call instead whenever Cinder was idle,
+  // which the person using it did not know it could (25 Sep).
   stop: {
-    what: 'Tell the assistant to stop listening, hang up, or end the call',
-    examples: ['stop', 'that is all', 'hang up', 'end the call'],
+    what: 'Stop the task the assistant handed to Cinder (Cinderpaw\'s agent) and is still running: the brake on work in progress',
+    not_for: 'Ending the call (hang_up); pausing a video or a song (media)',
+    examples: ['stop', 'stop that', 'cancel', 'never mind', 'stop Cinder', 'oprește'],
+  },
+  hang_up: {
+    what: 'End the voice call with the assistant',
+    examples: ['hang up', 'end the call', 'that is all, bye', 'goodbye', 'închide apelul'],
   },
   none: {
     what: 'Not one of the commands above: a question, a conversation, a task of several steps, a request for something the list does not have (a file, a summary, a message to someone, typing text)',
-    examples: ['what is the weather', 'can you still hear me', 'summarise this page', 'write a reply saying yes', 'find me a cheaper flight', 'type my address in the form'],
+    examples: ['what is the weather', 'can you still hear me', 'summarise this page', 'write a reply saying yes', 'find me a cheaper flight', 'fill in the whole form for me'],
   },
 };
 
@@ -233,7 +246,7 @@ export function questions(cands: Record<string, string>, shortcuts?: Record<stri
     },
     text: {
       type: 'choice',
-      instructions: 'Assume the user wants some text searched or found. `candidates` holds possible payloads cut from the utterance. Which candidate is exactly the payload, with no command words (like "search for", "find", "on youtube")?',
+      instructions: 'Assume the user wants some text searched, found or typed. `candidates` holds possible payloads cut from the utterance. Which candidate is exactly the payload, with no command words (like "search for", "find", "on youtube", "type", "write")?',
       criteria: cands,
     },
     scroll_dir: {
@@ -308,7 +321,9 @@ export type Plan =
   | { action: 'reader'; confidence: number }
   | { action: 'media'; op: 'play_pause' | 'next' | 'previous' | 'volume_up' | 'volume_down' | 'mute'; keys?: string; confidence: number }
   | { action: 'shortcut'; keys: string; means: string; confidence: number }
+  | { action: 'type_text'; text: string; confidence: number }
   | { action: 'stop'; confidence: number }
+  | { action: 'hang_up'; confidence: number }
   | { action: 'none'; confidence: number };
 
 /** Like, save and share act on what is already open ("like this video"); the others on an item named in a list. */
@@ -413,8 +428,14 @@ export function toPlan(utterance: string, ans: Answers, cands: Record<string, st
       const cmd = shortcuts?.[key];
       return cmd ? { action, keys: cmd.keys, means: cmd.means, confidence: Math.min(conf, c) } : { action: 'none', confidence: conf };
     }
+    case 'type_text': {
+      const [tkey, ct] = pick('text');
+      const text = cands[tkey];
+      return text ? { action, text, confidence: Math.min(conf, ct) } : { action: 'none', confidence: conf };
+    }
     case 'reader': return { action, confidence: conf };
     case 'stop': return { action, confidence: conf };
+    case 'hang_up': return { action, confidence: conf };
     default: return { action: 'none', confidence: conf };
   }
 }
@@ -639,6 +660,12 @@ interface DesktopElement { id: string; role: string; name: string; is_offscreen:
 
 /** The one refusal a person can act on; it is spoken, so it is a sentence, not a log line. */
 export const DESKTOP_CONTROL_OFF = 'Desktop control is off. Turn it on in Settings to use commands outside Cinderpaw.';
+/**
+ * An app that publishes no accessibility tree (a Qt app on Linux without the
+ * switch, a Linux session with no accessibility bus): its buttons cannot be
+ * found by name, and its keys still work.
+ */
+export const DESKTOP_NO_TREE = 'This app does not show me its buttons. Say the keys instead, like tab and enter.';
 
 /**
  * A host error, worded for the person. The host's own line names an
@@ -647,6 +674,11 @@ export const DESKTOP_CONTROL_OFF = 'Desktop control is off. Turn it on in Settin
  */
 function desktopError(e: unknown): Error {
   const msg = String(e);
+  // The host's refusal names packages and environment variables; this names
+  // what to say instead.
+  if (/has not published an accessibility tree|accessibility bus \(AT-SPI\) is not available/.test(msg)) return new Error(DESKTOP_NO_TREE);
+  if (/Accessibility/.test(msg) && /macOS/.test(msg)) return new Error('macOS has not allowed Cinderpaw to control the computer. Turn it on in System Settings, Privacy and Security, Accessibility.');
+  if (/xdotool is not installed/.test(msg)) return new Error('Install xdotool to let me use the keyboard and windows on Linux.');
   if (msg.includes('disabled')) return new Error(DESKTOP_CONTROL_OFF);
   // A terminal or a password manager in front: the host will not touch it,
   // by design. Said so, with what to do; "That did not work" said nothing.
@@ -796,7 +828,10 @@ export async function executeOnDesktop(plan: Plan): Promise<string> {
         : Math.abs(plan.dy) <= 300 ? (plan.dy < 0 ? '{up}{up}{up}' : '{down}{down}{down}')
           : Math.abs(plan.dy) >= 2000 ? (plan.dy < 0 ? '{pageup}{pageup}{pageup}' : '{pagedown}{pagedown}{pagedown}')
             : (plan.dy < 0 ? '{pageup}' : '{pagedown}');
-      await keys(spec);
+      // To the page, not to whatever has the focus: after "search youtube
+      // for jazz" that is the search box, where Page Down and the arrows
+      // move a caret and the page never moved. Same road as a site's keys.
+      await siteKeys(spec);
       return '';
     }
     case 'navigate': {
@@ -824,6 +859,9 @@ export async function executeOnDesktop(plan: Plan): Promise<string> {
       return done ? '' : `I opened it, but could not find a ${plan.verb} button.`;
     }
     case 'shortcut': await siteKeys(plan.keys); return '';
+    // Dictation: the words as keystrokes, into whatever has the focus. Braces
+    // are doubled: the host reads "{...}" as a key name.
+    case 'type_text': await keys(plan.text.replace(/[{}]/g, (c) => c + c)); return '';
     case 'media': {
       // The site's own key first (Shift+N on YouTube). Failing that, "next"
       // and "previous" press the player's button when the window has one;
@@ -863,7 +901,7 @@ export async function execute(plan: Plan, desktop?: boolean): Promise<string> {
   // executeOnDesktop). An application opens on the desktop wherever the call
   // is. `desktop` is what `decide` saw, so a plan runs where it was made.
   const onDesktop = desktop ?? (await outOfSight());
-  if (onDesktop || target.system || plan.action === 'open_app') return executeOnDesktop(plan);
+  if (onDesktop || target.system || plan.action === 'open_app' || plan.action === 'type_text') return executeOnDesktop(plan);
   const b = useBrowser.getState();
   const ui = tauri.browser.ui;
   switch (plan.action) {
@@ -880,7 +918,7 @@ export async function execute(plan: Plan, desktop?: boolean): Promise<string> {
     case 'find': {
       b.setPanel(true);
       const r = (await ui('find', { query: plan.query })) as { total?: number };
-      return r?.total ? `${r.total} matches for ${plan.query}.` : `Nothing on this page says ${plan.query}.`;
+      return r?.total ? `${r.total} ${r.total === 1 ? 'match' : 'matches'} for ${plan.query}.` : `Nothing on this page says ${plan.query}.`;
     }
     case 'navigate': {
       b.setPanel(true);

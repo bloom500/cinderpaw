@@ -257,7 +257,8 @@ export class PopulationManager {
    * Choose the genomes an extinction event should cull (PLAN.md
    * "Extinction"). Kills `killFraction` (default 0.8) of the live
    * *candidate* pool — the alive genomes that are neither in the Hall of
-   * Fame (which already contains main / best-all-time) nor among the top
+   * Fame (best-all-time, plus every ratcheted champion — the ratchet handler
+   * inducts those, or main could be culled) nor among the top
    * `eliteCount` (default 1) candidates by shared fitness. The
    * lowest-shared-fitness candidates die first; an unevaluated genome
    * (null shared fitness) is treated as the weakest, so the most

@@ -85,12 +85,16 @@ export function CallPill() {
   const status = fault ? fault :
     ask ? 'Cinder is asking'
       : phase === 'speaking' ? 'Cinder is speaking'
-        : phase === 'thinking' ? 'Thinking'
-          : phase === 'reconnecting' ? 'Reconnecting'
-            : phase === 'connecting' ? 'Connecting'
-              : s?.muted ? 'Muted' : 'Listening';
-  const line = s?.said || s?.heard || '';
-  const yours = Boolean(s && !s.said && s.heard);
+        : s?.working ? 'Working'
+          : phase === 'thinking' ? 'Thinking'
+            : phase === 'reconnecting' ? 'Reconnecting'
+              : phase === 'connecting' ? 'Connecting'
+                : s?.muted ? 'Muted' : 'Listening';
+  // A running tool names itself over the last line, except while Cinder is
+  // talking: then the words are the thing to read.
+  const working = phase !== 'speaking' && !ask ? s?.working ?? null : null;
+  const line = working || s?.said || s?.heard || '';
+  const yours = Boolean(s && !working && !s.said && s.heard);
   const btn = 'flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-bg-hover';
 
   return (

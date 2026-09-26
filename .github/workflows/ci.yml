@@ -180,6 +180,10 @@ jobs:
             features: ""
           - os: windows-latest
             features: "--features cinderpaw/piper,cinderpaw/kokoro"
+          # Desktop control has a macOS backend (osascript) that nothing else
+          # compiles or runs; see the live step below.
+          - os: macos-latest
+            features: ""
 
     steps:
       - name: Checkout
@@ -225,6 +229,22 @@ jobs:
 
       - name: cargo test
         run: cargo test --workspace ${{ matrix.features }}
+
+      # Real keys into a real window, and real buttons pressed by name: xev and
+      # zenity under Xvfb on Linux (with a D-Bus session, where the AT-SPI
+      # accessibility bus starts on demand), TextEdit on the macOS runner. The
+      # unit tests prove the translation; these prove the keystrokes arrive and
+      # the right button is pressed (desktop_control_unix.rs, `live`). One test
+      # at a time: they all want the focus.
+      - name: Desktop control, live (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y xvfb xdotool x11-utils dbus at-spi2-core zenity
+          dbus-run-session -- xvfb-run -a cargo test -p cinderpaw ${{ matrix.features }} desktop_control -- --include-ignored --test-threads=1
+
+      - name: Desktop control, live (macOS)
+        if: runner.os == 'macOS'
+        run: cargo test -p cinderpaw desktop_control -- --include-ignored --test-threads=1
 
   # The headless/server build (`cargo build -p cinderpaw-cli --no-default-features`)
   # compiles the cfg(not(feature = "inference")) stubs that no other job

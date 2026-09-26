@@ -29,6 +29,8 @@ const h = vi.hoisted(() => {
   };
   return {
     calls, state, handlers, win,
+    /** What the tool listener reports; a test sets it before rendering. */
+    activity: [] as { tool: string; subject: string; status: string }[],
     holdPillOpen() { holdPill = true; return () => { holdPill = false; pillOpened(); }; },
     invoke: async (cmd: string) => {
       calls.push(cmd);
@@ -41,8 +43,10 @@ vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => h.win }));
 vi.mock('@tauri-apps/api/event', () => ({ emit: vi.fn(async () => {}), listen: vi.fn(async () => () => {}) }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (cmd: string) => h.invoke(cmd) }));
 vi.mock('@tauri-apps/api/webviewWindow', () => ({ WebviewWindow: { getByLabel: async () => null } }));
+vi.mock('@/hooks/useLiveToolActivity', () => ({ useLiveToolActivity: () => h.activity }));
 
 import { useCallPill, parked } from '../callPill';
+import { emit } from '@tauri-apps/api/event';
 
 const call = (phase: CallPhase) => ({ phase, heard: '', interrupt: () => {}, hangUp: () => {} });
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
@@ -115,5 +119,36 @@ describe('parking a call in the pill', () => {
     await flush();
     expect(h.calls).not.toContain('show');
     expect(parked.current).toBe(false);
+  });
+  it('a call that ends while its pill is being built takes the pill with it', async () => {
+    const hook = renderHook(({ phase }) => useCallPill(call(phase)), { initialProps: { phase: 'listening' as CallPhase } });
+    await flush();
+    const release = h.holdPillOpen();
+    let parking!: Promise<void>;
+    act(() => { parking = h.handlers.close!({ preventDefault() {} }); });
+    await flush();
+    // The vendor ends the call mid-build: the cleanup finds no pill to close yet.
+    hook.rerender({ phase: 'idle' });
+    await flush();
+    h.calls.length = 0;
+    release();
+    await act(async () => { await parking; });
+    expect(h.calls).toContain('call_pill_close');
+    expect(h.state.visible).toBe(true);
+  });
+  it('sends the running tool to the pill, and nothing once it is done', async () => {
+    h.activity = [
+      { tool: 'web_search', subject: 'weather in Cluj', status: 'done' },
+      { tool: 'fetch_page', subject: '', status: 'running' },
+    ];
+    const hook = renderHook(({ phase }) => useCallPill(call(phase)), { initialProps: { phase: 'thinking' as CallPhase } });
+    await flush();
+    const sent = () => vi.mocked(emit).mock.calls.filter(([e]) => e === 'call-pill://state').map(([, p]) => p as { working: string | null });
+    expect(sent().at(-1)?.working).toBe('fetch page');
+    h.activity = [{ tool: 'fetch_page', subject: '', status: 'done' }];
+    hook.rerender({ phase: 'thinking' });
+    await flush();
+    expect(sent().at(-1)?.working).toBeNull();
+    h.activity = [];
   });
 });

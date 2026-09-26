@@ -19,6 +19,10 @@ import { join } from "node:path";
 import { ModuleRegistry } from "../src/rsi/l4-modules/module-registry.ts";
 import { SeamAdapter } from "../src/rsi/l4-modules/seam-adapter.ts";
 import { spawnModuleHost, type SpawnResult } from "../src/rsi/l4-modules/module-host-client.ts";
+import { hostProcessCell } from "./_module-cell.ts";
+
+/** The real spawn, in the tests-only host-process cell. */
+const spawnInTestCell: typeof spawnModuleHost = (o) => spawnModuleHost({ ...o, cell: hostProcessCell });
 
 const FIXTURES = join(import.meta.dir, "fixtures", "modules");
 
@@ -37,6 +41,7 @@ function harness(opts: {
   moduleDir?: string;
   limits?: { timeoutMs: number; maxRssMb: number };
   spawn?: typeof spawnModuleHost;
+  now?: () => number;
 } = {}) {
   const dir = freshDir();
   const gov = freshDir();
@@ -55,7 +60,8 @@ function harness(opts: {
     },
     moduleDirFor: () => opts.moduleDir ?? join(FIXTURES, "good-retrieval"),
     limits: opts.limits ?? { timeoutMs: 5_000, maxRssMb: 512 },
-    spawn: opts.spawn,
+    spawn: opts.spawn ?? spawnInTestCell,
+    ...(opts.now ? { now: opts.now } : {}),
   });
   return { adapter, registry, gov, builtinCalls };
 }
@@ -65,7 +71,7 @@ describe("SeamAdapter (spec §1/§6/§8)", () => {
     let spawns = 0;
     const spy: typeof spawnModuleHost = async (o) => {
       spawns++;
-      return spawnModuleHost(o);
+      return spawnInTestCell(o);
     };
     const { adapter, builtinCalls } = harness({ spawn: spy });
     const out = await adapter.invoke("retrieve", { query: "q", k: 1, sessionId: "s" });
@@ -129,6 +135,31 @@ describe("SeamAdapter (spec §1/§6/§8)", () => {
     expect(registry.activeFor("retrieval_strategy")).toBe("builtin");
     expect(readFileSync(join(gov, "governance_audit.jsonl"), "utf8")).toContain("module_quarantined");
   }, 30_000);
+
+  test("no cell on the machine (Docker stopped) → builtin, no strike, retried after a minute", async () => {
+    // A good module must not be quarantined because Docker is not running.
+    let t = 1_000_000;
+    let spawns = 0;
+    const noCell: typeof spawnModuleHost = async () => (
+      spawns++, { ok: false, reason: "Docker is installed but not running.", unavailable: true }
+    );
+    const { adapter, registry, gov, builtinCalls } = harness({
+      active: "mod-retrieval-fixture-01",
+      spawn: noCell,
+      now: () => t,
+    });
+    for (let i = 0; i < 5; i++) await adapter.invoke("retrieve", { query: "q", k: 1, sessionId: "s" });
+    expect(builtinCalls.length).toBe(5);
+    expect(spawns).toBe(1); // not a Docker probe per request
+    expect(registry.activeFor("retrieval_strategy")).toBe("mod-retrieval-fixture-01");
+    const audit = join(gov, "governance_audit.jsonl");
+    expect(existsSync(audit) ? readFileSync(audit, "utf8") : "").not.toContain("module_quarantined");
+
+    t += 61_000;
+    await adapter.invoke("retrieve", { query: "q", k: 1, sessionId: "s" });
+    expect(spawns).toBe(2);
+    expect(registry.activeFor("retrieval_strategy")).toBe("mod-retrieval-fixture-01");
+  });
 
   test("onQuarantine fires once with the module id (desktop toast surface)", async () => {
     const dir = freshDir();
