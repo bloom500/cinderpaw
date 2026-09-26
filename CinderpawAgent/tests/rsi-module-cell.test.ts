@@ -54,8 +54,13 @@ describe("DockerIsolation as a module cell, over a fake exec", () => {
         `type=bind,source=${join("tmp", "h")},target=/host,readonly`,
         `type=bind,source=${join("mods", "m1")},target=/module,readonly`,
       ]);
-      // The cell's environment is exactly the -e pairs.
-      expect(argv.filter((_, i) => argv[i - 1] === "-e")).toEqual(["CINDERPAW_MODULE_SEED=7"]);
+      // The cell's environment is exactly the -e pairs: a writable HOME for
+      // bun's cache, then what the caller gave.
+      expect(argv.filter((_, i) => argv[i - 1] === "-e")).toEqual(["HOME=/tmp", "CINDERPAW_MODULE_SEED=7"]);
+      // On Linux and macOS the cell runs as the owner of the mounted files.
+      expect(argv.includes("--user") ? flag("--user") : undefined).toBe(
+        process.getuid ? `${process.getuid()}:${process.getgid!()}` : undefined,
+      );
       expect(argv.slice(-4)).toEqual(["oven/bun:test-slim", "bun", "/host/host.ts", "/module"]);
       // The docker CLI's own environment is the allowlist, not ours.
       expect(env["CINDERPAW_CELL_SENTINEL"]).toBeUndefined();

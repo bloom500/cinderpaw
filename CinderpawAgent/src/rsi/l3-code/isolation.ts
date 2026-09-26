@@ -320,6 +320,14 @@ export class DockerIsolation implements IsolationBackend, ModuleCell {
         "--cpus", String(L.cpus),
         "--pids-limit", String(L.pids),
         "--label", "cinderpaw=module-host",
+        // Bind mounts keep host ownership, and root with every capability
+        // dropped cannot read a 0700 dir it does not own (mkdtemp makes
+        // exactly those): "CouldntReadCurrentDirectory" on the Linux CI
+        // runner, 26 Sep. So run as the owner. Docker Desktop on Windows
+        // maps ownership itself, and Windows has no uid.
+        ...(process.getuid && process.getgid ? ["--user", `${process.getuid()}:${process.getgid()}`] : []),
+        // bun keeps a cache under $HOME, and the root is read-only.
+        "-e", "HOME=/tmp",
         "--mount", `type=bind,source=${dirname(spec.hostScript)},target=/host,readonly`,
         "--mount", `type=bind,source=${spec.moduleDir},target=/module,readonly`,
         "--workdir", "/module",
