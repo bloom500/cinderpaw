@@ -63,6 +63,11 @@ const DENYLIST_BASENAMES: &[&str] = &[
     "hash-chain.ts",
     "event-bus.ts",
     "provenance.ts",
+    // The scorer's input mapping, the gate's thresholds + baseline wiring,
+    // and the baseline on disk. Mirror of the TS list.
+    "adapters.ts",
+    "sidecar.ts",
+    "champion.ts",
     // The layers that govern L3, and the recursion hook (proposer +
     // selector). Mirror of the TS list; see its comment for the why.
     "governance.ts",

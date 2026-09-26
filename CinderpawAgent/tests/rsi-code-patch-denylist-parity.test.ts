@@ -74,6 +74,17 @@ describe("code-patch denylist — TS and Rust parity", () => {
     }
   });
 
+  test("the files that feed the scorer and hold the gate's baseline are protected", () => {
+    // Left out when the measurement chain was listed: `adapters.ts` maps the
+    // EvalOutcome[] onto the Rust scorer's input (drop the failed ones and the
+    // score is perfect), `sidecar.ts` composes the confidence-gate thresholds,
+    // and `champion.ts` persists the per-task baseline the gate pairs against.
+    for (const file of ["adapters.ts", "sidecar.ts", "champion.ts"]) {
+      expect(DEFAULT_CODE_PATCH_POLICY.denylistBasenames).toContain(file);
+      expect(rustDenylist()).toContain(file);
+    }
+  });
+
   test("the wall still protects the decision chain it started with", () => {
     for (const file of [
       "code-genome.ts",

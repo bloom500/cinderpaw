@@ -398,6 +398,12 @@ export const DEFAULT_CODE_PATCH_POLICY: CodePatchPolicy = {
     "hash-chain.ts", // I4 tamper-evidence
     "event-bus.ts", // I15 runtime assert
     "provenance.ts", // I12 acyclic lineage
+    // Missed when the chain above was listed: the scorer's input mapping, the
+    // composition root that sets the gate's thresholds and seeds its
+    // baseline, and the file that persists that baseline with the champion.
+    "adapters.ts", // EvalOutcome[] → the Rust scorer's input
+    "sidecar.ts", // I6 thresholds + baseline wiring
+    "champion.ts", // the gate baseline on disk
     // The layers that GOVERN L3. Astra's 12 Sep audit proved governance.ts,
     // governance-lifecycle.ts and meta-evolution.ts were legal targets: the
     // layer being governed could patch its governor and the layer above it.
