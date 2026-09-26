@@ -183,7 +183,13 @@ export class RecallEngine {
   ): { text: string; count: number } {
     if (!query.trim()) return { text: "", count: 0 };
 
-    let hits = this.#episodic.search(query, this.#config.maxEpisodic * 2);
+    // Left out in the query, not only afterwards: the current session's own
+    // turns share the question's words and would otherwise take the slots.
+    let hits = this.#episodic.search(
+      query,
+      this.#config.maxEpisodic * 2,
+      this.#config.excludeCurrentSession ? currentSessionId : undefined,
+    );
 
     if (this.#config.excludeCurrentSession) {
       hits = hits.filter((e) => e.sessionId !== currentSessionId);

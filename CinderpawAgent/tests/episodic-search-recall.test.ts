@@ -144,3 +144,17 @@ describe("EpisodicMemory.search — excluding the session that is asking", () =>
     db.close();
   });
 });
+
+describe("RecallEngine — a long current session does not hide the past", () => {
+  test("the past answer is recalled even when the current session matches more", () => {
+    const { db, episodic } = fixture();
+    const semantic = new SemanticMemory(db.raw);
+    episodic.record("past", "user", "the invoice number for acme is 4471");
+    for (let i = 0; i < 12; i++) episodic.record("now", "user", `acme invoice question ${i}`);
+
+    const result = new RecallEngine(episodic, semantic).recall("acme invoice", "now");
+    expect(result.context).toContain("4471");
+    expect(result.episodicHits).toBe(1);
+    db.close();
+  });
+});
