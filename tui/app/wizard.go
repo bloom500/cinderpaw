@@ -576,7 +576,7 @@ var CloudProviders = []CloudProvider{
 	{ID: "groq", Name: "Groq", DefaultModel: "llama-3.1-70b-versatile", BaseURL: ""},
 	{ID: "mistral", Name: "Mistral AI", DefaultModel: "mistral-large-latest", BaseURL: ""},
 	{ID: "deepseek", Name: "DeepSeek", DefaultModel: "deepseek-chat", BaseURL: ""},
-	{ID: "openrouter", Name: "OpenRouter", DefaultModel: "openai/gpt-4o", BaseURL: ""},
+	{ID: "openrouter", Name: "OpenRouter", DefaultModel: "z-ai/glm-5.3-flash", BaseURL: ""},
 	{ID: "kimi", Name: "Kimi (Moonshot AI)", DefaultModel: "moonshot-v1-8k", BaseURL: ""},
 	{ID: "glm", Name: "GLM (Zhipu)", DefaultModel: "glm-4-plus", BaseURL: ""},
 }

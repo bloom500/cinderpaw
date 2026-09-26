@@ -385,9 +385,12 @@ pub async fn connectors_set_enabled(
 pub struct WhatsappQr {
     /// Raw pairing payload (what the QR encodes).
     pub qr: String,
-    /// Terminal-style half-block ASCII rendering of the QR, scannable when
-    /// shown in a monospace block.
+    /// Terminal-style half-block ASCII rendering of the QR. Does not scan
+    /// reliably on screen (seen 25 Sep): show `svg` when there is one.
     pub ascii: String,
+    /// The QR as an SVG picture, square modules on white. None from files an
+    /// older engine wrote.
+    pub svg: Option<String>,
     /// When the sidecar wrote this code (Unix ms). Baileys rotates the QR
     /// every ~20s — the UI derives a countdown from this.
     pub ts: f64,
@@ -401,6 +404,8 @@ pub fn connectors_whatsapp_qr() -> Option<WhatsappQr> {
         ts: f64,
         qr: String,
         ascii: String,
+        #[serde(default)]
+        svg: Option<String>,
     }
     let raw = std::fs::read_to_string(paths::cinderpaw_dir().join("whatsapp-qr.json")).ok()?;
     let f: QrFile = serde_json::from_str(&raw).ok()?;
@@ -414,7 +419,7 @@ pub fn connectors_whatsapp_qr() -> Option<WhatsappQr> {
     if now_ms - f.ts > 120_000.0 {
         return None;
     }
-    Some(WhatsappQr { qr: f.qr, ascii: f.ascii, ts: f.ts })
+    Some(WhatsappQr { qr: f.qr, ascii: f.ascii, svg: f.svg, ts: f.ts })
 }
 
 #[tauri::command]

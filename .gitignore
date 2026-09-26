@@ -140,6 +140,7 @@ vendor/
 # with nothing pointing at .gitignore. Each vendored source dir is re-included
 # by name, so adding one stays a decision someone made on purpose.
 !CinderpawAgent/src/vendor/
+!src-tauri/vendor/
 !CinderpawAgent/src/artifacts/vendor/
 # Mozilla Readability, compiled into the host by `include_str!`: without it a
 # clean clone (CI, the release build) cannot compile `src-tauri` at all.

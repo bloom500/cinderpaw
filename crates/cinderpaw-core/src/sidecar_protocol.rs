@@ -36,6 +36,8 @@ pub const INBOUND_TYPES: &[&str] = &[
     "cowork_history", "cowork_team_op",
     // Everything the workspace panel does — see `artifact_op` in types.ts.
     "artifact_op",
+    // The Desktop's "Forget" on a memory (src-tauri commands/cinderpaw.rs).
+    "memory_forget",
 ];
 
 pub const OUTBOUND_TYPES: &[&str] = &[

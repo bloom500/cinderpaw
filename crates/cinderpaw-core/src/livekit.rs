@@ -83,13 +83,21 @@ fn free_port() -> Result<u16, String> {
 
 fn pick_ports() -> Result<Ports, String> {
     let http = free_port()?;
-    let rtc_tcp = free_port()?;
+    // Each probe releases its port, so Windows can hand the same one straight
+    // back (seen 25 Sep: http == rtc_tcp == 63070). Ask again until it differs.
+    let mut rtc_tcp = free_port()?;
+    while rtc_tcp == http {
+        rtc_tcp = free_port()?;
+    }
     // The media range is derived rather than probed: LiveKit wants a
     // contiguous span, and asking the OS for eleven adjacent free ports is a
     // bigger race than the one above rather than a smaller one. High offset to
     // stay clear of both chosen ports.
     let base = 40_000 + (http % 20_000);
-    let worker = free_port()?;
+    let mut worker = free_port()?;
+    while worker == http || worker == rtc_tcp {
+        worker = free_port()?;
+    }
     Ok(Ports { http, rtc_tcp, rtc_udp: (base, base + 10), worker })
 }
 

@@ -1979,7 +1979,8 @@ export class AgentLoop {
           parsed.toolCalls.map((call) =>
             this.#registry.call(call.name, call.args, sessionId, {
               ...(toolSignal ? { signal: toolSignal } : {}),
-              onProgress: ctx.emit,
+              // With the message id, or the chat endpoint drops it (it filters by id).
+              onProgress: (e) => ctx.emit({ ...e, id: messageId }),
             }),
           ),
         );
@@ -2021,7 +2022,7 @@ export class AgentLoop {
         const toolSignal = this.#sessionToolSignals.get(sessionId)?.signal;
         const result = await this.#registry.call(call.name, call.args, sessionId, {
           ...(toolSignal ? { signal: toolSignal } : {}),
-          onProgress: ctx.emit,
+          onProgress: (e) => ctx.emit({ ...e, id: messageId }),
         });
         ctx.emit({ type: "tool_done", id: messageId, tool: call.name, result, traceId, sessionId });
 

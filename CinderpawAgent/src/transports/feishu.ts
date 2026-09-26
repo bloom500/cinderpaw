@@ -395,6 +395,7 @@ export class FeishuConnector implements LiveConnector {
     if (openId === this.#appId) return;
     if (this.#chats.size > 0 && !this.#chats.has(chatId)) return;
 
+    ctx.onSender?.(openId, openId);
     if (!this.#allow.has(openId)) {
       ctx.log(`feishu: ignored message from non-allowlisted ${openId}`);
       return;

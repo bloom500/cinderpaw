@@ -22,6 +22,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::common::{api_port, palette, port_in_use, Palette};
+use crate::footprint;
+
+const PS_URL: &str = "https://raw.githubusercontent.com/bloom500/cinderpaw/main/scripts/install.ps1";
 
 const ONE_LINER: &str =
     "curl -fsSL https://raw.githubusercontent.com/bloom500/cinderpaw/main/scripts/install.sh | bash";
@@ -31,6 +34,9 @@ const ONE_LINER: &str =
 pub enum Kind {
     /// `npm i -g feral-agent` — the binary sits under node_modules.
     Npm,
+    /// The one-command install (spec 2026-09-24): binaries in ~/.cinderpaw/bin,
+    /// plus the autostart, PATH and shortcut footprint.rs knows how to remove.
+    Folder,
     /// Built by scripts/install.sh: binaries in ~/.local/bin, checkout in
     /// ~/src/feral. `script` is the installer that can redo it (it git-pulls
     /// and rebuilds, so it doubles as the updater).
@@ -61,10 +67,19 @@ fn classify(exe: &Path) -> Option<Kind> {
     None
 }
 
+fn is_folder_install(exe: &Path, data: &Path) -> bool {
+    exe.parent() == Some(data.join("bin").as_path())
+}
+
 pub fn detect() -> Kind {
     let exe = std::env::current_exe().and_then(|p| p.canonicalize()).unwrap_or_default();
     if let Some(kind) = classify(&exe) {
         return kind;
+    }
+    let data = cinderpaw_core::paths::cinderpaw_dir();
+    let data = data.canonicalize().unwrap_or(data);
+    if is_folder_install(&exe, &data) {
+        return Kind::Folder;
     }
     // Sitting inside a checkout means this is `target/release/cinderpaw-cli`, i.e.
     // a build tree. Bail before anything below can offer to delete it.
@@ -121,6 +136,19 @@ pub fn update() -> i32 {
             eprintln!("cinderpaw: `update` is handled by the npm launcher, not this binary.");
             eprintln!("       run:  npm install -g cinderpaw-agent@latest");
             1
+        }
+        // The one-liner IS the updater: it replaces the binaries and restarts
+        // the engine (self-install). On Windows it renames the running .exe
+        // aside first, which Windows allows where overwriting is refused.
+        Kind::Folder => {
+            let status = if cfg!(windows) {
+                std::process::Command::new("powershell")
+                    .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &format!("irm {PS_URL} | iex")])
+                    .status()
+            } else {
+                std::process::Command::new("bash").args(["-c", ONE_LINER]).status()
+            };
+            status.map(|s| s.code().unwrap_or(1)).unwrap_or(1)
         }
         Kind::Dev { tree } => {
             eprintln!("{WARN}cinderpaw: this is a build from {}, not an install.{RESET}", show(&tree));
@@ -238,6 +266,13 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
             }
         }
         Kind::Npm => manual.push("npm uninstall -g cinderpaw-agent"),
+        // Without --purge only the programs go; settings, memory and keys
+        // stay so a reinstall resumes. --purge adds the whole folder below.
+        Kind::Folder => {
+            if !purge {
+                targets.push(data.join("bin"));
+            }
+        }
         // The package was called `feral` before the rename, and this machine
         // may still be holding that one — naming only the new package would
         // print a command that reports "not installed" and leaves the install
@@ -283,11 +318,19 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
     for m in &manual {
         println!("    {WARN}run yourself{RESET}  {TEXT}{m}{RESET}");
     }
+    if kind == Kind::Folder {
+        println!("    {FAIL}remove{RESET}        {TEXT}start at login, the PATH entry, the Cinderpaw shortcut{RESET}");
+        if purge {
+            println!("    {FAIL}remove{RESET}        {TEXT}saved AI keys in the keychain{RESET}");
+        }
+    }
     if purge {
         println!(
             "\n    {FAIL}{BOLD}--purge{RESET}{FAIL}: removes the profile directory, including settings, memory and models.{RESET}"
         );
-        println!("    {WARN}OS key-store credentials are retained; remove those separately if needed.{RESET}");
+        if kind != Kind::Folder {
+            println!("    {WARN}OS key-store credentials are retained; remove those separately if needed.{RESET}");
+        }
     } else {
         println!(
             "\n    {OK}kept{RESET}          {TEXT}{}{RESET}  {DIM}{META}{}{RESET}",
@@ -308,9 +351,27 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
         crate::admin::gateway_stop();
     }
 
+    if kind == Kind::Folder {
+        if let Some(h) = home() {
+            for what in footprint::remove(&h) {
+                println!("  {OK}removed{RESET} {DIM}{META}{what}{RESET}");
+            }
+        }
+        if purge {
+            for p in cinderpaw_core::byok::provider_catalog() {
+                let _ = cinderpaw_core::byok::remove_provider(&p.id);
+            }
+            println!("  {OK}removed{RESET} {DIM}{META}saved AI keys from the keychain{RESET}");
+        }
+    }
+
     let mut failed = 0;
     for t in &targets {
-        let removed = if t.is_dir() { std::fs::remove_dir_all(t) } else { std::fs::remove_file(t) };
+        #[cfg(windows)]
+        if kind == Kind::Folder {
+            park_running_exe(t);
+        }
+        let removed = if t.is_dir() { remove_dir_retrying(t, 30) } else { std::fs::remove_file(t) };
         match removed {
             Ok(()) => println!("  {OK}removed{RESET} {DIM}{META}{}{RESET}", show(t)),
             Err(e) => {
@@ -321,6 +382,15 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
     }
     if strip_path_line() {
         println!("  {OK}removed{RESET} {DIM}{META}the PATH line from ~/.bashrc{RESET}");
+    }
+    // The agent's working folder holds what it made for the person: never
+    // deleted, and not left behind empty either (seen 26 Sep: an empty
+    // ~/Cinderpaw after --purge). remove_dir only takes an empty folder.
+    let docs = cinderpaw_core::cinderpaw_agent::agent_documents_path();
+    if std::fs::remove_dir(&docs).is_ok() {
+        println!("  {OK}removed{RESET} {DIM}{META}{} (it was empty){RESET}", show(&docs));
+    } else if docs.exists() {
+        println!("\n  {OK}kept{RESET} {TEXT}{}{RESET} — the files Cinderpaw made for you.", show(&docs));
     }
 
     if !manual.is_empty() {
@@ -340,6 +410,208 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
         return 1;
     }
     0
+}
+
+// ── one-command install (spec 2026-09-24 §3) ─────────────────────────────
+
+pub fn page_url() -> String {
+    format!("{}/", crate::common::base_url())
+}
+
+fn url_with_code(base: &str, code: &str) -> String {
+    format!("{base}#code={code}")
+}
+
+fn open_error(status: u16) -> String {
+    if status == 404 {
+        "The Cinderpaw desktop app is using this computer's Cinderpaw port. Close the desktop app, then open Cinderpaw again.".into()
+    } else {
+        format!("Cinderpaw couldn't open its page. Run `cinderpaw open` again. (code {status})")
+    }
+}
+
+/// The page URL with a fresh one-time code (spec §4.2): the browser trades it
+/// for a cookie and never sees the bearer token.
+fn signed_in_url() -> Result<String, String> {
+    let token = crate::common::read_token().ok_or("Cinderpaw is running but its key file is missing. Run `cinderpaw open` again.")?;
+    let url = format!("{}/web/code", crate::common::base_url());
+    let resp = crate::admin::block_on(async {
+        reqwest::Client::new().post(&url).bearer_auth(&token).send().await
+    })
+    .map_err(|e| format!("Cinderpaw couldn't open its page: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(open_error(resp.status().as_u16()));
+    }
+    let body: serde_json::Value = crate::admin::block_on(resp.json()).map_err(|e| e.to_string())?;
+    let code = body["code"].as_str().ok_or("Cinderpaw sent an empty sign-in code.")?;
+    Ok(url_with_code(&page_url(), code))
+}
+
+fn last_line(opened: bool, url: &str) -> String {
+    if opened {
+        "All set! Your browser just opened. You can close this window.".into()
+    } else {
+        format!("All set! Open this in your browser: {url}")
+    }
+}
+
+/// Is the thing on our port a Cinderpaw that answers with our token?
+fn is_ours() -> bool {
+    crate::common::read_token()
+        .map(|t| crate::admin::block_on(crate::admin::fetch_json(&t, "/runtime/status")).is_ok())
+        .unwrap_or(false)
+}
+
+/// Engine up and ours, or a sentence saying why not. `restart` = the install
+/// just replaced the binaries, so a running engine is the OLD build.
+fn ensure_engine(restart: bool) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let port = api_port();
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let quiet = |args: &[&str]| {
+        Command::new(&exe)
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if port_in_use(port) {
+        if !is_ours() {
+            return Err(format!(
+                "Something else on this computer is using port {port}, which Cinderpaw needs. Close it and try again."
+            ));
+        }
+        if !restart {
+            return Ok(());
+        }
+        quiet(&["stop"]);
+    }
+    let home = home().ok_or("I couldn't find your home folder.")?;
+    if !footprint::start_with_service(&home) {
+        quiet(&["gateway", "start"]);
+    }
+    for _ in 0..60 {
+        if port_in_use(port) {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    Err(format!(
+        "Cinderpaw didn't start. Run the same command again. If it still fails, send us this file: {}",
+        cinderpaw_core::paths::cinderpaw_dir().join("gateway.log").display()
+    ))
+}
+
+fn launch_browser(url: &str) -> bool {
+    use std::process::{Command, Stdio};
+    if std::env::var_os("CINDERPAW_NO_BROWSER").is_some() {
+        return false;
+    }
+    let mut cmd = if cfg!(windows) {
+        let mut c = Command::new("rundll32");
+        c.args(["url.dll,FileProtocolHandler", url]);
+        c
+    } else if cfg!(target_os = "macos") {
+        let mut c = Command::new("open");
+        c.arg(url);
+        c
+    } else {
+        // Without a display, xdg-open falls back to a text browser that takes
+        // over the terminal. Say the URL instead.
+        if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
+            return false;
+        }
+        let mut c = Command::new("xdg-open");
+        c.arg(url);
+        c
+    };
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Run by install.sh / install.ps1 right after unpacking into ~/.cinderpaw/bin.
+/// Prints the last two of the three lines a stranger sees.
+pub fn self_install() -> i32 {
+    let (Some(home), Ok(exe)) = (home(), std::env::current_exe()) else {
+        eprintln!("I couldn't find your home folder.");
+        return 1;
+    };
+    let bin = exe.parent().map(Path::to_path_buf).unwrap_or_default();
+    for step in footprint::install(&home, &bin) {
+        if let Err(msg) = step {
+            println!("{msg}");
+        }
+    }
+    print!("Starting... ");
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+    if let Err(msg) = ensure_engine(true) {
+        println!();
+        eprintln!("{msg}");
+        return 1;
+    }
+    println!("✓");
+    let url = match signed_in_url() {
+        Ok(u) => u,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return 1;
+        }
+    };
+    println!("{}", last_line(launch_browser(&url), &url));
+    0
+}
+
+/// What the Cinderpaw shortcut runs. Slice 2 adds the one-time code here.
+pub fn open() -> i32 {
+    if let Err(msg) = ensure_engine(false) {
+        eprintln!("{msg}");
+        return 1;
+    }
+    let url = match signed_in_url() {
+        Ok(u) => u,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return 1;
+        }
+    };
+    if !launch_browser(&url) {
+        println!("Open this in your browser: {url}");
+    }
+    0
+}
+
+/// A just-stopped sidecar can hold its database for a few more seconds.
+fn remove_dir_retrying(dir: &Path, secs: u32) -> std::io::Result<()> {
+    let mut last = Ok(());
+    for _ in 0..=secs {
+        last = std::fs::remove_dir_all(dir);
+        if last.is_ok() || !dir.exists() {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+    last
+}
+
+/// Windows will not delete the .exe running this command, but it will rename
+/// it. Park it in %TEMP% so the folder can go now, in this process, with the
+/// outcome on screen. (A detached helper that deleted after we exited never
+/// ran on the CI runner, and its failure would reach nobody.)
+#[cfg(windows)]
+fn park_running_exe(dir: &Path) {
+    if let Ok(exe) = std::env::current_exe() {
+        if exe.starts_with(dir) {
+            let parked = std::env::temp_dir().join(format!("cinderpaw-uninstalled-{}.exe", std::process::id()));
+            let _ = std::fs::rename(&exe, parked);
+        }
+    }
 }
 
 fn confirm(prompt: &str) -> bool {
@@ -439,6 +711,58 @@ mod tests {
         );
         // A user-edited variant is not ours to touch.
         assert!(without_path_line("export PATH=\"$HOME/.local/bin:$PATH\"\n").is_none());
+    }
+
+    #[test]
+    fn the_one_folder_layout_is_recognised() {
+        let data = Path::new("/home/ana/.cinderpaw");
+        assert!(is_folder_install(Path::new("/home/ana/.cinderpaw/bin/cinderpaw"), data));
+        assert!(!is_folder_install(Path::new("/home/ana/.local/bin/cinderpaw"), data));
+        assert!(!is_folder_install(Path::new("/home/ana/.cinderpaw/cinderpaw"), data));
+    }
+
+    /// The sidecar can hold files for a few seconds after the gateway stops;
+    /// one failed attempt must not leave ~/.cinderpaw behind.
+    #[cfg(windows)]
+    #[test]
+    fn removal_waits_out_a_file_still_held_open() {
+        let dir = std::env::temp_dir().join(format!("cp-held-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("agent")).unwrap();
+        // Opened the way SQLite opens its database: read/write sharing, no
+        // FILE_SHARE_DELETE, so nobody can delete it while it is held.
+        use std::os::windows::fs::OpenOptionsExt;
+        let held = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .share_mode(0x1 | 0x2)
+            .open(dir.join("agent/cinderpaw.db"))
+            .unwrap();
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            drop(held);
+        });
+        let removed = remove_dir_retrying(&dir, 10);
+        releaser.join().unwrap();
+        assert!(removed.is_ok(), "{removed:?}");
+        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn the_code_rides_in_the_fragment_never_the_query() {
+        assert_eq!(url_with_code("http://127.0.0.1:11435/", "ab12"), "http://127.0.0.1:11435/#code=ab12");
+    }
+
+    #[test]
+    fn a_page_less_engine_on_our_port_is_named_not_opened() {
+        // 404 on /web/code = something Cinderpaw-shaped with no page: the Desktop app.
+        assert_eq!(open_error(404), "The Cinderpaw desktop app is using this computer's Cinderpaw port. Close the desktop app, then open Cinderpaw again.");
+        assert!(open_error(500).starts_with("Cinderpaw couldn't open its page."));
+    }
+
+    #[test]
+    fn the_last_line_never_claims_a_browser_that_did_not_open() {
+        assert_eq!(last_line(true, "http://127.0.0.1:11435/"), "All set! Your browser just opened. You can close this window.");
+        assert_eq!(last_line(false, "http://127.0.0.1:11435/"), "All set! Open this in your browser: http://127.0.0.1:11435/");
     }
 
     #[test]

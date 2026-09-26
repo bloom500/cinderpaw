@@ -176,7 +176,8 @@ test("a first-time connector starts with no allowlist, and is TOLD it answers no
   );
   expect(res.ok).toBe(true);
   expect(res.content).toContain("answers NOBODY");
-  expect(res.content).toContain("allowlist:");
+  // Nobody knows their own Discord user id: the way in is to message the bot.
+  expect(res.content).toContain("connectors_pair");
 });
 
 test("a connector with someone on the list gets no scary warning", async () => {
@@ -253,4 +254,91 @@ test("no step routes a secret anywhere but this chat", async () => {
       expect(step).not.toMatch(/\.env\b|environment variable|connectors\.json/i);
     }
   }
+});
+
+test("turning WhatsApp on starts pairing when no phone is linked, and says where the code is", async () => {
+  // Before 25 Sep nothing called pairWhatsApp: an enabled, unlinked WhatsApp
+  // stayed idle forever and no surface could link a phone on a fresh machine.
+  for (const linked of [false, true]) {
+    writeFileSync(file, JSON.stringify({ connectors: [] }), "utf8");
+    let pairs = 0;
+    const tool = createConnectorsManageTool(
+      { reload: async () => {}, pairWhatsApp: async () => (++pairs, true) },
+      { isLinked: () => linked, hasWhatsApp: () => true },
+    );
+    const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true }, ctx);
+    expect(pairs).toBe(linked ? 0 : 1);
+    if (!linked) expect(res.content).toContain("Linked devices");
+  }
+});
+
+function asking(answer: string, asked: string[] = []) {
+  return {
+    sessionId: "chat",
+    askUser: {
+      ask: async (qs: Array<{ question: string }>) => {
+        asked.push(qs[0]!.question);
+        return [{ question: qs[0]!.question, selected: [answer] }];
+      },
+      cancel: () => {},
+    },
+  } as never;
+}
+
+test("without the WhatsApp library it asks first, downloads on yes, then pairs", async () => {
+  writeFileSync(file, JSON.stringify({ connectors: [] }), "utf8");
+  let have = false;
+  let pairs = 0;
+  const asked: string[] = [];
+  const tool = createConnectorsManageTool(
+    { reload: async () => {}, pairWhatsApp: async () => (++pairs, true) },
+    { isLinked: () => false, hasWhatsApp: () => have, installWhatsApp: async () => void (have = true) },
+  );
+  const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true }, asking("Download", asked));
+  expect(asked[0]).toContain("download");
+  expect(have).toBe(true);
+  expect(pairs).toBe(1);
+  expect(res.content).toContain("Linked devices");
+});
+
+test("'Not now', a failed download, or a chat that cannot ask: nothing is saved", async () => {
+  const cases = [
+    { ctx: asking("Not now"), install: async () => {}, says: "chose not to" },
+    { ctx: asking("Download"), install: async () => { throw new Error("ENOTFOUND registry.npmjs.org"); }, says: "internet connection" },
+    { ctx: {} as never, install: async () => {}, says: "cannot ask" },
+  ];
+  for (const c of cases) {
+    writeFileSync(file, JSON.stringify({ connectors: [] }), "utf8");
+    let pairs = 0;
+    const tool = createConnectorsManageTool(
+      { reload: async () => {}, pairWhatsApp: async () => (++pairs, true) },
+      { isLinked: () => false, hasWhatsApp: () => false, installWhatsApp: c.install },
+    );
+    const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true }, c.ctx);
+    expect(res.content).toContain(c.says);
+    expect(pairs).toBe(0);
+    expect(JSON.parse(readFileSync(file, "utf8")).connectors).toEqual([]);
+  }
+});
+
+test("unlink takes the phone off and turns WhatsApp off; a pause says it is still linked", async () => {
+  writeFileSync(file, JSON.stringify({ connectors: [{ id: "whatsapp", enabled: true }] }), "utf8");
+  for (const cleared of [true, false]) {
+    let unlinks = 0;
+    const tool = createConnectorsManageTool(
+      { reload: async () => {}, unlinkWhatsApp: async () => (++unlinks, cleared) },
+      { isLinked: () => true, hasWhatsApp: () => true },
+    );
+    const res = await tool.execute({ action: "unlink", id: "whatsapp" }, ctx);
+    expect(unlinks).toBe(1);
+    expect(res.content).toContain(cleared ? "is unlinked" : "Log out");
+    expect(JSON.parse(readFileSync(file, "utf8")).connectors[0].enabled).toBe(false);
+  }
+
+  const paused = createConnectorsManageTool({ reload: async () => {} }, { isLinked: () => true, hasWhatsApp: () => true });
+  const res = await paused.execute({ action: "configure", id: "whatsapp", enabled: false }, ctx);
+  expect(res.content).toContain("PAUSED, not unlinked");
+
+  const discord = await paused.execute({ action: "unlink", id: "discord" }, ctx);
+  expect(discord.ok).toBe(false);
 });

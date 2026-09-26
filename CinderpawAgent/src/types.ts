@@ -149,6 +149,8 @@ export interface ToolProgressEvent extends ToolProgressPayload {
   type: "tool_progress";
   sessionId: string;
   tool: string;
+  /** The chat message the tool runs for; /runtime/chat forwards only its own. */
+  id?: string;
 }
 
 /** Context handed to a tool when it executes. */
@@ -1479,7 +1481,7 @@ export interface InboundMessage {
    *
    * Absent (connectors, TUI) leaves whatever brief that surface already set.
    */
-  surface?: "voice" | "text";
+  surface?: "voice" | "text" | "web";
   /** The built-in browser's page, when one is on screen (desktop only). */
   browserPage?: { url?: string; title?: string } | null;
   // set_model fields (all present when type === "set_model")
@@ -1562,6 +1564,13 @@ export interface AskUserQuestion {
    * because each covers the other's blind spot.
    */
   forceEscalate?: boolean;
+  /**
+   * A secret the person types into a password card (request_secret, spec
+   * 2026-09-24 §6.2). Only a surface that renders cards (the local web page)
+   * is ever sent one; the page saves the value straight to the engine and
+   * answers "Saved" or "Cancel", so the value never reaches the agent.
+   */
+  secret?: { connector: string; field: string };
 }
 
 export interface AskUserAnswer {
@@ -1613,7 +1622,7 @@ export type OutboundEvent =
    *  Without it the cowork panel could show that a teammate was working but
    *  never what they were doing - the tool events carried no owner. */
   | { type: "tool_start"; id: string; tool: string; args: Record<string, unknown>; traceId: string; sessionId?: string }
-  | { type: "tool_progress"; sessionId: string; tool: string; stage: string; progress: number | null; message: string; data?: unknown; traceId?: string }
+  | { type: "tool_progress"; sessionId: string; tool: string; stage: string; progress: number | null; message: string; data?: unknown; traceId?: string; id?: string }
   | { type: "tool_done"; id: string; tool: string; result: unknown; traceId?: string; sessionId?: string }
   | { type: "proactive"; content: string; traceId?: string }
   | { type: "model_set"; provider: string; model: string }

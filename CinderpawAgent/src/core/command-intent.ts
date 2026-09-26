@@ -215,3 +215,35 @@ export function intentSummary(sessionId: string): Array<[string, number]> {
 export function clearIntents(sessionId: string): void {
   COUNTS.delete(sessionId);
 }
+
+/** Package-manager verbs that put software on (or take it off) the machine. */
+const INSTALL_VERBS = new Set([
+  "install", "i", "add", "ci", "update", "upgrade", "up", "uninstall", "remove", "rm", "un",
+  "get", "sync", "purge", "reinstall", "-s", "-syu",
+]);
+
+/**
+ * Does this command install or remove software?
+ *
+ * A package manager by name is not enough: `npm test`, `cargo build` and
+ * `bun run` are everyday work, and asking about each would teach people to
+ * click yes without reading. The verb decides. A shell payload is read
+ * through, like classifyCommand, and so is `python -m pip install`.
+ * ponytail: verb list, not a parser per manager; `npx some-pkg` is not caught.
+ */
+export function installsSoftware(argv: string[]): boolean {
+  const tokens = argv.filter((t) => typeof t === "string" && t.length > 0);
+  if (tokens.length === 0) return false;
+  const { stem, rest } = realFirstToken(tokens);
+  if (SHELLS.has(stem)) {
+    const flag = rest.findIndex((t) => /^([-/])c(ommand)?$/i.test(t));
+    const payload = flag >= 0 ? rest.slice(flag + 1).join(" ") : "";
+    return segments(payload).some((part) => installsSoftware(part.split(/\s+/)));
+  }
+  if ((stem === "python" || stem === "python3" || stem === "py") && rest[0] === "-m") return installsSoftware(rest.slice(1));
+  if (stem === "install-module" || stem === "install-package") return true;
+  if (LOOKUP.get(stem) !== "package") return false;
+  if (stem === "yarn" && rest.length === 0) return true; // bare `yarn` installs
+  const verb = rest.find((t) => !t.startsWith("--"))?.toLowerCase();
+  return verb !== undefined && INSTALL_VERBS.has(verb);
+}

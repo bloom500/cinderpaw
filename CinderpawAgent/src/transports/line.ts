@@ -207,6 +207,7 @@ export class LineConnector implements LiveConnector {
   async #handle(to: string, userId: string, text: string, messageId: string): Promise<void> {
     const ctx = this.#ctx;
     if (!ctx) return;
+    ctx.onSender?.(userId, userId);
     if (!this.#allow.has(userId)) {
       ctx.log(`line: ignored message from non-allowlisted ${userId}`);
       return;

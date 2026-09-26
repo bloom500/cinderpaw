@@ -481,7 +481,9 @@ pub fn provider_catalog() -> Vec<ProviderCatalogEntry> {
             name: "OpenRouter".into(),
             provider: Provider::Openrouter,
             default_base_url: Provider::Openrouter.default_base_url().to_string(),
-            default_model: "openai/gpt-4o".into(),
+            // Cheap and proven with our tool loop. gpt-4o spent a $1 key in a few
+            // dozen messages (~16k tokens of prompt + tools each; seen 26 Sep).
+            default_model: "z-ai/glm-5.3-flash".into(),
             console_url: Some("https://openrouter.ai/keys".into()),
             key_format: Some("sk-or-".into()),
             key_format_hint: Some("Begins with sk-or-…".into()),
@@ -1305,7 +1307,7 @@ mod tests {
             "openrouter",
             ProviderConfig { enabled: true, api_key: "sk-or-x".into(), base_url: None, default_model: None },
         );
-        assert_eq!(settings.get_provider("openrouter").unwrap().default_model.as_deref(), Some("openai/gpt-4o"));
+        assert_eq!(settings.get_provider("openrouter").unwrap().default_model.as_deref(), Some("z-ai/glm-5.3-flash"));
 
         // A model the person chose is kept, whitespace and all trimmed.
         settings.update_provider(

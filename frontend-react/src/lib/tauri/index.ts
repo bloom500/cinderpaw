@@ -251,7 +251,8 @@ export interface ConnectorView {
 }
 export interface WhatsappQr {
   qr: string;     // raw pairing payload
-  ascii: string;  // terminal-style QR art, scannable in a monospace block
+  ascii: string;  // terminal-style QR art (does not scan reliably on screen)
+  svg: string | null; // the scannable picture; null from an older engine
   ts: number;     // Unix ms when the sidecar wrote this code (rotates ~20s)
 }
 

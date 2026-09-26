@@ -589,6 +589,13 @@ pub async fn spawn(
 
     // Channel: commands → stdin writer task.
     let (tx, rx) = mpsc::channel::<String>(64);
+    // First thing on the pipe: the connector rows with their secrets, read out
+    // of the vault. Boot moved those secrets out of connectors.json, and the
+    // sidecar cannot read the keychain, so without this every connector
+    // started with no token after any restart (seen 25 Sep: "telegram: enabled
+    // but no bot token"). The sidecar waits for this before its first reload.
+    let rows = crate::connectors::resolved_connector_configs();
+    let _ = tx.try_send(serde_json::json!({ "type": "connectors_reload", "connectors": rows }).to_string());
     *runtime.cinderpaw_agent_tx.lock() = Some(tx);
 
     // The stdout reader borrows the sender from `runtime.cinderpaw_agent_tx` at the
@@ -1172,12 +1179,17 @@ fn refresh_spawn_binary(extra_bin_dirs: &[PathBuf], repo_root: &str) -> Result<(
 /// `~/Documents/Cinderpaw` (or `~/Cinderpaw` where there is no Documents),
 /// created on first use: the agent's working folder when the desktop app runs it.
 pub fn agent_documents_dir() -> std::path::PathBuf {
-    let base = dirs::document_dir()
-        .or_else(dirs::home_dir)
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let dir = base.join("Cinderpaw");
+    let dir = agent_documents_path();
     let _ = std::fs::create_dir_all(&dir);
     dir
+}
+
+/// Where `agent_documents_dir` lives, without creating it (uninstall asks).
+pub fn agent_documents_path() -> std::path::PathBuf {
+    dirs::document_dir()
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("Cinderpaw")
 }
 
 /// Reverse-apply a patch from the real source repo — the Rust mirror of the

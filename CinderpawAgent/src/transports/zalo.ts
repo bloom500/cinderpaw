@@ -245,6 +245,7 @@ export class ZaloConnector implements LiveConnector {
     if (userId === this.#selfId) return;
     if (this.#chats.size > 0 && !this.#chats.has(chatId)) return;
 
+    ctx.onSender?.(userId, userId);
     if (!this.#allow.has(userId)) {
       ctx.log(`zalo: ignored message from non-allowlisted ${userId}`);
       return;

@@ -269,6 +269,7 @@ export class TeamsConnector implements LiveConnector {
     const ctx = this.#ctx;
     if (!ctx) return;
     const aad = a.from?.aadObjectId ?? "";
+    ctx.onSender?.(userId, userId);
     if (!this.#allow.has(userId) && !(aad && this.#allow.has(aad))) {
       ctx.log(`msteams: ignored a message from non-allowlisted ${userId}${aad ? ` (aadObjectId ${aad})` : ""}`);
       return;

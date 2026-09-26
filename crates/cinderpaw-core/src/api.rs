@@ -51,6 +51,10 @@ pub struct ApiState {
     /// subscribes to the observability bus. `manager`/`token` above stay as
     /// convenience handles the pre-Slice-3 handlers already read.
     pub runtime: Arc<RuntimeState>,
+    /// The local web page and its browser sessions. `Some` only when the CLI
+    /// registered page assets (`web::register`) before boot; the Desktop app
+    /// has `None` and serves no page and accepts no cookies.
+    pub web: Option<Arc<crate::web::WebUi>>,
 }
 
 pub fn router(state: ApiState) -> Router {
@@ -63,7 +67,18 @@ pub fn router(state: ApiState) -> Router {
         .allow_methods(tower_http::cors::Any)
         .allow_headers(tower_http::cors::Any);
 
+
     Router::new()
+        // The local page and the code-for-cookie trade: `require_token` lets
+        // these through only when this host serves the page (PUBLIC_WEB),
+        // because they ARE how a browser gets authenticated. `/web/code`
+        // checks the bearer itself, so a cookie can never mint more codes.
+        .route("/", get(web_index))
+        .route("/app.js", get(web_js))
+        .route("/app.css", get(web_css))
+        .route("/web/session", post(web_session))
+        .route("/web/code", post(web_code))
+        .route("/web/me", get(web_me))
         // Ollama-compatible
         .route("/api/tags", get(api_tags))
         .route("/api/show", post(api_show))
@@ -90,6 +105,7 @@ pub fn router(state: ApiState) -> Router {
         // teammate's request expired there unseen.
         .route("/runtime/cowork/team", get(runtime_cowork_team))
         .route("/runtime/cowork/approval", post(runtime_cowork_approval))
+        .route("/runtime/chat/stop", post(runtime_chat_stop))
         .route(
             "/runtime/connectors",
             get(runtime_connectors_list).post(runtime_connectors_save),
@@ -211,6 +227,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/runtime/setup/ack", post(runtime_setup_ack))
         .route("/runtime/providers/catalog", get(runtime_providers_catalog))
         .route("/runtime/connectors/catalog", get(runtime_connectors_catalog))
+        .route("/runtime/connectors/whatsapp/qr", get(runtime_whatsapp_qr))
         // Auth runs before any handler. `from_fn_with_state` hands the token
         // to the middleware so it can compare in constant time.
         .layer(middleware::from_fn_with_state(state.clone(), require_token))
@@ -256,6 +273,8 @@ async fn api_stability_header(req: Request<axum::body::Body>, next: Next) -> Res
     response
 }
 
+const PUBLIC_WEB: [&str; 5] = ["/", "/app.js", "/app.css", "/web/session", "/web/code"];
+
 /// Reject any request without a valid bearer token. CORS preflight
 /// (`OPTIONS`) is allowed through so browsers can negotiate before the real
 /// request carries the `Authorization` header.
@@ -267,6 +286,11 @@ async fn require_token(
     if req.method() == axum::http::Method::OPTIONS {
         return next.run(req).await;
     }
+    // Only a host that serves the page opens these; everywhere else they stay
+    // behind the token like any path, so a probe learns nothing new.
+    if state.web.is_some() && PUBLIC_WEB.contains(&req.uri().path()) {
+        return next.run(req).await;
+    }
     let presented = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -275,10 +299,93 @@ async fn require_token(
         .map(str::trim)
         .unwrap_or("");
     if constant_time_eq(presented.as_bytes(), state.token.as_bytes()) {
-        next.run(req).await
-    } else {
-        (StatusCode::UNAUTHORIZED, "missing or invalid bearer token").into_response()
+        return next.run(req).await;
     }
+    // A browser session from the local page (spec §4.2). Only when this host
+    // serves the page, and only from our own address.
+    if let Some(web) = state.web.clone() {
+        // Owned copies in their own block: a borrow of `req` (whose Body is
+        // not Sync) living across the awaits below makes this future !Send.
+        let (cookie, host, origin, method) = {
+            let owned = |n: header::HeaderName| req.headers().get(n).and_then(|v| v.to_str().ok()).map(str::to_string);
+            (owned(header::COOKIE), owned(header::HOST), owned(header::ORIGIN), req.method().as_str().to_string())
+        };
+        if let Some(id) = cookie.as_deref().and_then(crate::web::cookie_value).map(str::to_string) {
+            let port = state.runtime.api_port_actual.load(std::sync::atomic::Ordering::SeqCst);
+            if !crate::web::same_origin(&method, host.as_deref(), origin.as_deref(), port) {
+                return (StatusCode::FORBIDDEN, "wrong origin").into_response();
+            }
+            match web.check(&id, crate::web::unix_now()) {
+                crate::web::Session::Valid => return next.run(req).await,
+                crate::web::Session::Renewed => {
+                    let mut resp = next.run(req).await;
+                    if let Ok(v) = HeaderValue::from_str(&crate::web::session_cookie(&id)) {
+                        resp.headers_mut().append(header::SET_COOKIE, v);
+                    }
+                    return resp;
+                }
+                crate::web::Session::Invalid => {}
+            }
+        }
+    }
+    (StatusCode::UNAUTHORIZED, "missing or invalid bearer token").into_response()
+}
+
+fn web_ui(state: &ApiState) -> Result<&Arc<crate::web::WebUi>, Response> {
+    state.web.as_ref().ok_or_else(|| StatusCode::NOT_FOUND.into_response())
+}
+
+async fn web_index(State(state): State<ApiState>) -> Response {
+    match web_ui(&state) {
+        Ok(w) => ([(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-store")], w.assets.index_html).into_response(),
+        Err(r) => r,
+    }
+}
+async fn web_js(State(state): State<ApiState>) -> Response {
+    match web_ui(&state) {
+        Ok(w) => ([(header::CONTENT_TYPE, "text/javascript; charset=utf-8"), (header::CACHE_CONTROL, "no-cache")], w.assets.app_js).into_response(),
+        Err(r) => r,
+    }
+}
+async fn web_css(State(state): State<ApiState>) -> Response {
+    match web_ui(&state) {
+        Ok(w) => ([(header::CONTENT_TYPE, "text/css; charset=utf-8"), (header::CACHE_CONTROL, "no-cache")], w.assets.app_css).into_response(),
+        Err(r) => r,
+    }
+}
+
+fn bearer_ok(state: &ApiState, headers: &axum::http::HeaderMap) -> bool {
+    let presented = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer ")).map(str::trim).unwrap_or("");
+    constant_time_eq(presented.as_bytes(), state.token.as_bytes())
+}
+
+async fn web_code(State(state): State<ApiState>, headers: axum::http::HeaderMap) -> Response {
+    let w = match web_ui(&state) { Ok(w) => w, Err(r) => return r };
+    if !bearer_ok(&state, &headers) {
+        return (StatusCode::UNAUTHORIZED, "missing or invalid bearer token").into_response();
+    }
+    Json(json!({ "code": w.issue_code(crate::web::unix_now()) })).into_response()
+}
+
+#[derive(serde::Deserialize)]
+struct CodeBody { code: String }
+
+async fn web_session(State(state): State<ApiState>, headers: axum::http::HeaderMap, Json(body): Json<CodeBody>) -> Response {
+    let w = match web_ui(&state) { Ok(w) => w, Err(r) => return r };
+    let port = state.runtime.api_port_actual.load(std::sync::atomic::Ordering::SeqCst);
+    let h = |n| headers.get(n).and_then(|v: &HeaderValue| v.to_str().ok());
+    if !crate::web::same_origin("POST", h(header::HOST), h(header::ORIGIN), port) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    match w.redeem(&body.code, crate::web::unix_now()) {
+        Some(id) => ([(header::SET_COOKIE, crate::web::session_cookie(&id))], Json(json!({ "ok": true }))).into_response(),
+        None => (StatusCode::UNAUTHORIZED, "code already used or expired").into_response(),
+    }
+}
+
+async fn web_me() -> Json<Value> {
+    Json(json!({ "ok": true }))
 }
 
 /// Length-independent byte comparison. Localhost timing attacks are a stretch,
@@ -1711,6 +1818,30 @@ async fn runtime_cowork_approval(
     };
     let payload =
         json!({ "type": "cowork_approval_resolve", "id": request_id, "approvalAction": action });
+    if tx.send(payload.to_string()).await.is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "sidecar stopped accepting messages")
+            .into_response();
+    }
+    Json(json!({ "ok": true })).into_response()
+}
+
+/// `POST /runtime/chat/stop` — body: {session_id}. The local page's Stop
+/// button: the same `{"type":"stop"}` line the desktop's Stop and a voice
+/// call send, scoped to that one conversation. The turn then ends on its own
+/// stream with `stopped`. Seen live 25 Sep: without it the page could only
+/// watch an agent run shell commands it had not been asked to run.
+async fn runtime_chat_stop(State(state): State<ApiState>, body: Option<Json<Value>>) -> Response {
+    let session_id = body
+        .as_ref()
+        .and_then(|Json(v)| v.get("session_id").and_then(|x| x.as_str()))
+        .unwrap_or("chat")
+        .to_string();
+    let tx = { state.runtime.cinderpaw_agent_tx.lock().as_ref().cloned() };
+    let Some(tx) = tx else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "cinderpaw-agent sidecar is not running")
+            .into_response();
+    };
+    let payload = json!({ "type": "stop", "sessionId": session_id });
     if tx.send(payload.to_string()).await.is_err() {
         return (StatusCode::SERVICE_UNAVAILABLE, "sidecar stopped accepting messages")
             .into_response();
@@ -3789,6 +3920,51 @@ pub async fn runtime_providers_catalog() -> Response {
 pub async fn runtime_connectors_catalog() -> Response {
     let body = connector_catalog::connectors_catalog();
     catalog_response(connector_catalog::CONNECTORS_CATALOG_VERSION, body)
+}
+
+/// `GET /runtime/connectors/whatsapp/qr` — the pairing code waiting to be
+/// scanned, or `null`. The sidecar mirrors each fresh code to
+/// `whatsapp-qr.json` and deletes it once a phone is linked, so the local page
+/// can show it: a person there has no terminal to scan from. A file older than
+/// two minutes is a pairing that died, not one in progress. Same reading as
+/// the desktop's `connectors_whatsapp_qr`.
+pub async fn runtime_whatsapp_qr() -> Response {
+    Json(whatsapp_qr_at(&crate::paths::cinderpaw_dir().join("whatsapp-qr.json"), now_ms())).into_response()
+}
+
+fn now_ms() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as f64)
+        .unwrap_or(0.0)
+}
+
+fn whatsapp_qr_at(path: &std::path::Path, now: f64) -> Option<serde_json::Value> {
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    let ts = v.get("ts")?.as_f64()?;
+    if now - ts > 120_000.0 {
+        return None;
+    }
+    // `svg` is the scannable picture (the half-block text is for terminals);
+    // absent from files an older engine wrote.
+    let svg = v.get("svg").and_then(|x| x.as_str());
+    Some(json!({ "qr": v.get("qr")?.as_str()?, "ascii": v.get("ascii")?.as_str()?, "svg": svg, "ts": ts }))
+}
+
+#[cfg(test)]
+mod whatsapp_qr_tests {
+    use super::whatsapp_qr_at;
+
+    #[test]
+    fn a_fresh_code_is_served_a_stale_or_missing_one_is_null() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("whatsapp-qr.json");
+        assert!(whatsapp_qr_at(&f, 1_000.0).is_none(), "no file = linked or never started");
+        std::fs::write(&f, r#"{"ts":1000,"qr":"2@abc","ascii":"XX","svg":"<svg/>"}"#).unwrap();
+        assert_eq!(whatsapp_qr_at(&f, 5_000.0).unwrap()["qr"], "2@abc");
+        assert_eq!(whatsapp_qr_at(&f, 5_000.0).unwrap()["svg"], "<svg/>");
+        assert!(whatsapp_qr_at(&f, 1_000.0 + 120_001.0).is_none(), "a dead pairing is not shown");
+    }
 }
 
 /// Common response shape for both catalog endpoints. The header carries

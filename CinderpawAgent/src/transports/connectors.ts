@@ -15,10 +15,11 @@
 
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { readFile, writeFile, unlink } from "node:fs/promises";
+import { readFile, writeFile, unlink, rm } from "node:fs/promises";
 // Sync twins, deliberately: `isLinked` is called from `start()` before anything
 // is awaited, and from a static context that has no async seam to hide a read in.
 import { existsSync, readFileSync } from "node:fs";
+import { whatsappBundlePath, whatsappDownloaded } from "./whatsapp-install.ts";
 import { cfgPath, cinderpawHome } from "../config.ts";
 import {
   Client,
@@ -33,6 +34,7 @@ import { SocketModeClient } from "@slack/socket-mode";
 import { WebClient } from "@slack/web-api";
 import type { WASocket, WAMessage } from "@whiskeysockets/baileys";
 import qrcode from "qrcode-terminal";
+import { qrSvg } from "./qr-svg.ts";
 import type { OutboundEvent, SkillMeta } from "../types.ts";
 import type { LeadDesk } from "../core/lead-desk.ts";
 import {
@@ -543,7 +545,14 @@ export async function runAgent(
   images?: string[],
   runs?: { hooks: ConnectorRunHooks; surface: RunSurface; target: string },
 ): Promise<{ reply: string; markDelivered: () => void }> {
+  let failure = "";
   const emit = (event: OutboundEvent) => {
+    if (event.type === "error") failure = event.message;
+    // A failed turn's reason rides only on this event; the chat gets a plain
+    // "something went wrong". Unlogged, the reason reached nobody (26 Sep,
+    // WhatsApp "Not finished" with an empty log).
+    if (event.type === "error") process.stderr.write(`[connector] ${sessionId}: turn failed: ${event.message}
+`);
     if (!onActivity) return;
     if (event.type === "tool_start") {
       const a = activityFor(event.tool);
@@ -585,7 +594,7 @@ export async function runAgent(
     // other surface gets it too — see the note beside the `done` event.
     // The verdict goes to the PERSON, not just into the row. A failed check
     // that only a database knows about is the same silence we started with.
-    const reply = [run.text, verdict].filter(Boolean).join("\n\n");
+    const reply = (run.outcome === "no_answer" && keyTrouble(failure)) || [run.text, verdict].filter(Boolean).join("\n\n");
     // Durable before it is spoken. Anything that goes wrong between here and
     // the caller's `markDelivered()` leaves the report on disk for the next
     // boot, rather than only in the memory of a process that may be dying.
@@ -596,6 +605,23 @@ export async function runAgent(
     reply: await agent.handle(sessionId, text, messageId, emit, undefined, images),
     markDelivered: () => {},
   };
+}
+
+/**
+ * A dead or spent AI key, said so that whoever set the agent up knows what to
+ * fix. Every retry fails the same way, and "something went wrong on my side"
+ * sent the owner hunting (seen live 26 Sep: OpenRouter's 403 "Key limit
+ * exceeded" on WhatsApp). Worded for any reader: a public-mode customer sees it
+ * too. Null for anything else, which keeps the plain apology.
+ */
+export function keyTrouble(detail: string): string | null {
+  if (/\b402\b|insufficient (credits|funds|balance)|key limit|spend(ing)? limit|credit limit/i.test(detail)) {
+    return "I can't answer right now: the AI key behind me is out of credit or hit its spending limit. Whoever set me up can add credit or raise the limit where the key was made.";
+  }
+  if (/\b401\b|invalid api key|incorrect api key|unauthori[sz]ed/i.test(detail)) {
+    return "I can't answer right now: the AI key behind me stopped working. Whoever set me up needs to connect a new one.";
+  }
+  return null;
 }
 
 /** Digits only — used to compare phone numbers across formats. */
@@ -685,10 +711,11 @@ export class DiscordConnector {
   readonly #log: Log;
   readonly #ask: ChannelAskRouter | null;
   readonly #profileId: string | null;
+  readonly #onSender: ((id: string, name: string) => void) | null;
   readonly #runs: ConnectorRunHooks | null;
   #client: Client | null = null;
 
-  constructor(opts: { token: string; allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; ask?: ChannelAskRouter; profileId?: string; runs?: ConnectorRunHooks }) {
+  constructor(opts: { token: string; allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; ask?: ChannelAskRouter; profileId?: string; runs?: ConnectorRunHooks; onSender?: (id: string, name: string) => void }) {
     this.#token = opts.token;
     this.#allow = new Set(opts.allowlist.map((s) => s.trim()).filter(Boolean));
     this.#channels = new Set(opts.channels.map((s) => s.trim()).filter(Boolean));
@@ -696,6 +723,7 @@ export class DiscordConnector {
     this.#log = opts.log;
     this.#ask = opts.ask ?? null;
     this.#profileId = opts.profileId ?? null;
+    this.#onSender = opts.onSender ?? null;
     this.#runs = opts.runs ?? null;
   }
 
@@ -841,6 +869,7 @@ export class DiscordConnector {
       return;
     }
 
+    this.#onSender?.(message.author.id, message.author.globalName ?? message.author.username);
     // Allowlist gate — exact user ID. Unlisted senders get no reply at all.
     if (!this.#allow.has(message.author.id)) {
       this.#log(`discord: ignored message from non-allowlisted ${message.author.id}`);
@@ -1010,11 +1039,12 @@ export class SlackConnector {
   readonly #log: Log;
   readonly #ask: ChannelAskRouter | null;
   readonly #profileId: string | null;
+  readonly #onSender: ((id: string, name: string) => void) | null;
   #socket: SocketModeClient | null = null;
   #web: WebClient | null = null;
   #botUserId = "";
 
-  constructor(opts: { appToken: string; botToken: string; allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; ask?: ChannelAskRouter; profileId?: string }) {
+  constructor(opts: { appToken: string; botToken: string; allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; ask?: ChannelAskRouter; profileId?: string; onSender?: (id: string, name: string) => void }) {
     this.#appToken = opts.appToken;
     this.#botToken = opts.botToken;
     this.#allow = new Set(opts.allowlist.map((s) => s.trim()).filter(Boolean));
@@ -1023,6 +1053,7 @@ export class SlackConnector {
     this.#log = opts.log;
     this.#ask = opts.ask ?? null;
     this.#profileId = opts.profileId ?? null;
+    this.#onSender = opts.onSender ?? null;
   }
 
   async start(): Promise<void> {
@@ -1098,6 +1129,7 @@ export class SlackConnector {
     const dedicated = this.#channels.has(channel);
     if (!isIM && !mentioned && !dedicated) return;
 
+    this.#onSender?.(user, user);
     if (!this.#allow.has(user)) {
       this.#log(`slack: ignored message from non-allowlisted ${user}`);
       return;
@@ -1213,9 +1245,21 @@ export function mimeForName(name: string): string {
   return MIME_BY_EXT[name.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";
 }
 
-export async function loadWhatsAppModule(): Promise<typeof import("@whiskeysockets/baileys")> {
+/** The WhatsApp library to load: a hand-installed one if set, else the one downloaded on request. */
+function whatsappEntry(): string | null {
   const entry = cfgPath("CINDERPAW_WHATSAPP_MODULE");
-  if (!entry || !isAbsolute(entry)) {
+  if (entry && isAbsolute(entry)) return entry;
+  return whatsappDownloaded() ? whatsappBundlePath() : null;
+}
+
+/** Is the WhatsApp library here? Not by default: it carries libsignal (GPL-3.0). */
+export function whatsappAvailable(): boolean {
+  return whatsappEntry() !== null;
+}
+
+export async function loadWhatsAppModule(): Promise<typeof import("@whiskeysockets/baileys")> {
+  const entry = whatsappEntry();
+  if (!entry) {
     throw new Error(
       "WhatsApp is an optional external dependency. Install @whiskeysockets/baileys@7.0.0-rc13 " +
       "and set CINDERPAW_WHATSAPP_MODULE to the absolute bundled whatsapp.js path (see CinderpawAgent/README.md).",
@@ -1236,11 +1280,20 @@ export class WhatsAppConnector {
   readonly #ownerNumber: string;
   readonly #ask: ChannelAskRouter | null;
   readonly #profileId: string | null;
+  readonly #onSender: ((id: string, name: string) => void) | null;
   #sock: WASocket | null = null;
   #wa: typeof import("@whiskeysockets/baileys") | null = null;
   #stopped = false;
+  /** Closes in a row without the connection ever opening. */
+  #closes = 0;
+  /** The socket is connected to WhatsApp right now (unlink needs that). */
+  #open = false;
+  /** Replies sent into the owner's own chat, so they are never read as the owner. */
+  readonly #sent = new Set<string>();
+  /** Dead keys being deleted; a new pairing waits for it. */
+  #forgetting: Promise<void> = Promise.resolve();
 
-  constructor(opts: { allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; mode?: ConnectorMode; desk?: LeadDesk; ask?: ChannelAskRouter; profileId?: string }) {
+  constructor(opts: { allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; mode?: ConnectorMode; desk?: LeadDesk; ask?: ChannelAskRouter; profileId?: string; onSender?: (id: string, name: string) => void }) {
     const allow = opts.allowlist.map(digits).filter(Boolean);
     this.#allow = new Set(allow);
     this.#channels = new Set(opts.channels.map((s) => s.trim()).filter(Boolean));
@@ -1250,6 +1303,7 @@ export class WhatsAppConnector {
     this.#desk = opts.desk ?? null;
     this.#ask = opts.ask ?? null;
     this.#profileId = opts.profileId ?? null;
+    this.#onSender = opts.onSender ?? null;
     this.#ownerNumber = allow[0] ?? "";
     // Wire the escalation/booking notifier: how the lead tools reach the owner.
     // Pings the first allowlisted number (the owner) in their WhatsApp. With
@@ -1299,15 +1353,17 @@ export class WhatsAppConnector {
    * Is there a phone already linked to this install?
    *
    * Baileys writes `creds.json` as soon as a socket opens, so its mere presence
-   * proves nothing — `registered` is the flag that flips only once a phone has
-   * actually scanned the code. Treating file-exists as linked would put a
-   * half-finished pairing straight back into the loop this guard exists to stop.
+   * proves nothing. A QR scan writes `me` + `account` (pair-success); only the
+   * phone-number code flow sets `registered`. Reading `registered` alone called
+   * every QR-linked phone unlinked: WhatsApp stayed idle after each restart and
+   * "unlink" never told the phone (seen live 26 Sep).
    */
   static isLinked(): boolean {
     try {
       const creds = join(cinderpawHome(), "whatsapp-auth", "creds.json");
       if (!existsSync(creds)) return false;
-      return JSON.parse(readFileSync(creds, "utf8")).registered === true;
+      const c = JSON.parse(readFileSync(creds, "utf8"));
+      return c.registered === true || (!!c.me?.id && !!c.account);
     } catch {
       // Unreadable or malformed credentials are not a link.
       return false;
@@ -1372,6 +1428,13 @@ export class WhatsAppConnector {
    * path allowed to open a socket without credentials.
    */
   async pair(): Promise<void> {
+    // Already connecting or connected: a second socket on the same account
+    // would fight the first. Turning it on and asking to pair can both land here.
+    if (this.#sock) return;
+    // A pairing starts from clean keys. Unregistered ones are a dead link or an
+    // abandoned pairing, and WhatsApp answers them with 401 instead of a QR
+    // (seen live 26 Sep after the phone removed this computer).
+    if (!WhatsAppConnector.isLinked()) this.#forgetting = WhatsAppConnector.forget();
     await this.start({ pair: true });
   }
 
@@ -1380,8 +1443,16 @@ export class WhatsAppConnector {
     this.#wa = wa;
     const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = wa;
     const authDir = join(cinderpawHome(), "whatsapp-auth");
+    await this.#forgetting;
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
-    const sock = makeWASocket({ auth: state });
+    // WhatsApp refuses a protocol version it considers too old with 405, and
+    // the one built into the library ages out. Seen live 25 Sep: every
+    // connect closed with 405 and no QR ever came. Ask for the current one;
+    // if that fails, the built-in one is still worth a try.
+    const fetchLatest = (wa as { fetchLatestWaWebVersion?: (o: object) => Promise<{ version?: [number, number, number] }> })
+      .fetchLatestWaWebVersion;
+    const latest = await fetchLatest?.({}).catch(() => null);
+    const sock = makeWASocket({ auth: state, ...(latest?.version ? { version: latest.version } : {}) });
     this.#sock = sock;
     sock.ev.on("creds.update", saveCreds);
 
@@ -1395,24 +1466,43 @@ export class WhatsAppConnector {
           // can render it — a GUI user has no terminal to scan from.
           void writeFile(
             join(cinderpawHome(), "whatsapp-qr.json"),
-            JSON.stringify({ ts: Date.now(), qr, ascii }),
+            JSON.stringify({ ts: Date.now(), qr, ascii, svg: qrSvg(qr) }),
           ).catch(() => {});
         });
       }
       if (connection === "open") {
+        this.#open = true;
+        this.#closes = 0;
         this.#log("whatsapp connector online (linked)");
         void unlink(join(cinderpawHome(), "whatsapp-qr.json")).catch(() => {});
       }
       if (connection === "close") {
+        this.#open = false;
         const code = (lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
         if (this.#stopped) return;
         if (loggedOut) {
-          this.#log("whatsapp: logged out — toggle the connector off and on to re-link.");
+          // The phone (or WhatsApp) removed this computer. Those keys never
+          // connect again, and a socket left set made pair() return early: the
+          // next "connect me" showed no QR at all (seen live 26 Sep).
+          this.#sock = null;
+          this.#forgetting = WhatsAppConnector.forget();
+          this.#log("whatsapp: the phone unlinked this computer. Turn WhatsApp on again to link it with a new code.");
+        } else if (++this.#closes >= 5) {
+          // Retrying forever hammered WhatsApp's servers and filled the log
+          // while every surface still waited for a QR (seen live 25 Sep, 405).
+          this.#sock = null;
           void unlink(join(cinderpawHome(), "whatsapp-qr.json")).catch(() => {});
+          this.#log(
+            `whatsapp: WhatsApp closed the connection ${this.#closes} times in a row (last code ${code ?? "none"}) — ` +
+              "giving up. Turn WhatsApp off and on again to retry.",
+          );
         } else {
-          this.#log("whatsapp: connection closed, reconnecting…");
-          void this.#connect().catch((e) => this.#log(`whatsapp reconnect failed: ${String(e)}`));
+          const wait = Math.min(2 ** this.#closes, 30) * 1000;
+          this.#log(`whatsapp: connection closed (code ${code ?? "none"}), reconnecting in ${wait / 1000}s…`);
+          setTimeout(() => {
+            if (!this.#stopped) void this.#connect().catch((e) => this.#log(`whatsapp reconnect failed: ${String(e)}`));
+          }, wait);
         }
       }
     });
@@ -1425,8 +1515,61 @@ export class WhatsAppConnector {
     });
   }
 
+  /**
+   * Unlink the phone for real. Stopping only closes the socket: the phone keeps
+   * listing this computer under Linked devices and the keys stay on disk
+   * (seen live 26 Sep: "deconectat cu succes" after a plain enabled:false).
+   * Logging out makes WhatsApp drop the device; then the keys go. Returns
+   * false when WhatsApp could not be reached, so the person is told to
+   * finish on the phone.
+   */
+  async unlink(): Promise<boolean> {
+    if (!this.#sock && WhatsAppConnector.isLinked()) await this.#connect().catch(() => {});
+    for (let i = 0; i < 40 && this.#sock && !this.#open; i++) await new Promise((r) => setTimeout(r, 500));
+    // Before logout, so the close it causes neither reconnects nor logs "toggle it".
+    this.#stopped = true;
+    const sock = this.#sock;
+    const cleared = this.#open && sock ? await WhatsAppConnector.#removeThisDevice(sock, this.#log) : false;
+    await this.stop();
+    await WhatsAppConnector.forget();
+    return cleared;
+  }
+
+  /**
+   * Ask WhatsApp to drop this computer from the phone's Linked devices, and
+   * wait for its answer. Baileys' logout() sends the same request but closes
+   * the socket in the same tick: the phone kept listing us after a
+   * "successful" logout (seen live 26 Sep).
+   */
+  static async #removeThisDevice(sock: WASocket, log: Log): Promise<boolean> {
+    const jid = sock.authState.creds.me?.id;
+    if (!jid) return false;
+    try {
+      await sock.query(
+        {
+          tag: "iq",
+          attrs: { to: "s.whatsapp.net", type: "set", xmlns: "md" },
+          content: [{ tag: "remove-companion-device", attrs: { jid, reason: "user_initiated" } }],
+        },
+        15_000,
+      );
+      log("whatsapp: the phone was told to remove this computer");
+      return true;
+    } catch (e) {
+      log(`whatsapp: WhatsApp did not confirm removing this computer: ${String(e).slice(0, 200)}`);
+      return false;
+    }
+  }
+
+  /** Delete the link keys and any pending QR. */
+  static async forget(): Promise<void> {
+    await rm(join(cinderpawHome(), "whatsapp-auth"), { recursive: true, force: true });
+    await unlink(join(cinderpawHome(), "whatsapp-qr.json")).catch(() => {});
+  }
+
   async stop(): Promise<void> {
     this.#stopped = true;
+    this.#open = false;
     this.#ask?.unregisterSender("whatsapp");
     try {
       this.#sock?.end(undefined);
@@ -1442,7 +1585,11 @@ export class WhatsAppConnector {
     const jid = msg.key.remoteJid ?? "";
     const isGroup = jid.endsWith("@g.us");
     const isPrivate = jid.endsWith("@s.whatsapp.net");
-    if (!isPrivate && !isGroup) return; // skip status/broadcast
+    // "Message yourself": newer WhatsApp addresses it by LID, not by number.
+    const self = this.#sock?.user;
+    const isSelfChat =
+      !!self && (jid === `${self.id.split(/[:@]/)[0]}@s.whatsapp.net` || (!!self.lid && jid === `${self.lid.split(/[:@]/)[0]}@lid`));
+    if (!isPrivate && !isGroup && !isSelfChat) return; // skip status/broadcast
 
     const m = msg.message;
     const doc = m.documentMessage ?? m.documentWithCaptionMessage?.message?.documentMessage;
@@ -1454,7 +1601,12 @@ export class WhatsAppConnector {
     // letting the owner pause/resume the assistant per conversation. We match
     // only literal command strings the bot itself never sends, so the bot's own
     // outgoing echoes can never trigger this.
-    if (msg.key.fromMe) {
+    //
+    // The exception is the owner's chat with themselves: writing to yourself is
+    // what a person does to talk to their own agent (seen live 26 Sep: "Esti
+    // aici cu mine?" went unanswered). Our own replies there are skipped by id.
+    const ownerToSelf = msg.key.fromMe && isSelfChat && !this.#sent.delete(msg.key.id ?? "");
+    if (msg.key.fromMe && !ownerToSelf) {
       this.#handleOwnerCommand(jid, text, msg);
       return;
     }
@@ -1471,8 +1623,9 @@ export class WhatsAppConnector {
     // Public ("business") mode: anyone messaging us privately (or in a
     // dedicated group) is answered, but a non-owner runs under the restricted
     // public persona profile, while an allowlisted owner keeps the full agent.
+    if (!ownerToSelf) this.#onSender?.(senderNum, msg.pushName || senderNum);
     const isPublic = this.#mode === "public";
-    const isOwner = this.#allow.has(senderNum);
+    const isOwner = ownerToSelf || this.#allow.has(senderNum);
     if (!isPublic && !isOwner) {
       this.#log(`whatsapp: ignored message from non-allowlisted ${senderNum}`);
       return;
@@ -1546,7 +1699,8 @@ export class WhatsAppConnector {
       const { reply } = await runAgent(this.#agent, sessionId, prompt, `wa-${msg.key.id}`, undefined, images);
       const parts = formatForChat(reply, WHATSAPP_MAX);
       for (const part of parts) {
-        await sock.sendMessage(jid, { text: part });
+        const sent = await sock.sendMessage(jid, { text: part });
+        if (ownerToSelf && sent?.key.id) this.#sent.add(sent.key.id);
       }
       void sock.sendMessage(jid, { react: { text: "✅", key: msg.key } }).catch(() => {});
     } catch (e) {
@@ -1666,6 +1820,7 @@ registerTransport("discord", (): LiveConnector => {
         ask: ctx.askRouter,
         ...(ctx.personaProfileId ? { profileId: ctx.personaProfileId } : {}),
         ...(ctx.runs ? { runs: ctx.runs } : {}),
+        ...(ctx.onSender ? { onSender: ctx.onSender } : {}),
       });
       await inner.start();
     },
@@ -1701,6 +1856,7 @@ registerTransport("slack", (): LiveConnector => {
         log: ctx.log,
         ask: ctx.askRouter,
         ...(ctx.personaProfileId ? { profileId: ctx.personaProfileId } : {}),
+        ...(ctx.onSender ? { onSender: ctx.onSender } : {}),
       });
       await inner.start();
     },
@@ -1744,6 +1900,7 @@ registerTransport("whatsapp", (): LiveConnector => {
         ...(ctx.leadDesk ? { desk: ctx.leadDesk } : {}),
         ask: ctx.askRouter,
         ...(ctx.personaProfileId ? { profileId: ctx.personaProfileId } : {}),
+        ...(ctx.onSender ? { onSender: ctx.onSender } : {}),
       });
       await inner.start();
     },
@@ -1760,8 +1917,12 @@ registerTransport("whatsapp", (): LiveConnector => {
     pair: async () => {
       await inner?.pair();
     },
+    unlink: async () => (inner ? inner.unlink() : false),
   } as LiveConnector;
 });
+
+/** Someone who messaged a connector: their platform id and the name they show. */
+export type Sender = { id: string; name: string };
 
 export class ConnectorManager {
   readonly #agent: AgentLike;
@@ -1785,9 +1946,24 @@ export class ConnectorManager {
   /** Config signature per running connector — the reload only restarts what
    *  actually changed. */
   readonly #keys = new Map<string, string>();
+  /** Which ids were enabled after the last reconcile; null before the first. */
+  #wasEnabled: Set<string> | null = null;
   readonly #leadDesk: LeadDesk | null;
   /** Serialize reloads so overlapping pokes can't double-start a connection. */
   #reloading: Promise<void> = Promise.resolve();
+  /**
+   * The secrets the host last sent, by connector id, read out of the vault.
+   *
+   * The host moves every connector secret out of connectors.json into the OS
+   * keychain on startup, and this process cannot read the keychain. So the
+   * file alone says "no token" for every connector on every machine that has
+   * restarted once: measured 25 Sep, a Telegram bot saved from the page came
+   * back up after a restart with "enabled but no bot token". Every read of the
+   * file fills its gaps from here.
+   */
+  #hostSecrets = new Map<string, Record<string, string>>();
+  #hostRowsSeen!: () => void;
+  readonly #hostRowsArrived = new Promise<void>((resolve) => (this.#hostRowsSeen = resolve));
   /**
    * What actually connected, by connector id.
    *
@@ -1799,6 +1975,9 @@ export class ConnectorManager {
    * so it is the place that has to write it down.
    */
   readonly #health = new Map<string, ConnectorHealth>();
+  /** The last sender each connector heard, listed or not, and who waits for the next. */
+  readonly #lastSender = new Map<string, Sender & { at: number }>();
+  readonly #senderWaits = new Set<{ connector: string; match: (id: string) => boolean; resolve: (s: Sender | null) => void }>();
 
   /**
    * Supplied by the host when durable runs are wired. Optional so the connector
@@ -1862,7 +2041,43 @@ export class ConnectorManager {
     } catch {
       rows = []; // no file yet → everything off
     }
-    await this.applyRows(rows);
+    await this.applyRows(rows.map((row) => this.#withHostSecrets(row)));
+  }
+
+  /** A value in the file wins, as on the host side (`resolve_secrets_into`). */
+  #withHostSecrets(row: ConnectorRow): ConnectorRow {
+    const fromHost = this.#hostSecrets.get(row.id);
+    if (!fromHost) return row;
+    const secrets = { ...row.secrets };
+    for (const [k, v] of Object.entries(fromHost)) if (!secrets[k]?.trim() && v.trim()) secrets[k] = v;
+    return { ...row, secrets };
+  }
+
+  /**
+   * The host's rows, secrets included. Replaces what came before, so a secret
+   * the person removed is gone here too. Reconciles through the same queue as
+   * every other reload.
+   */
+  setHostRows(rows: ConnectorRow[]): Promise<void> {
+    this.#hostSecrets = new Map(rows.map((r) => [r.id, { ...r.secrets }]));
+    this.#hostRowsSeen();
+    return this.reload();
+  }
+
+  /** Did the host send this secret? Never the value. */
+  hasHostSecret(id: string, key: string): boolean {
+    return Boolean(this.#hostSecrets.get(id)?.[key]?.trim());
+  }
+
+  /**
+   * Resolves when the host's rows arrive, or after `ms`. The host sends them
+   * as soon as it spawns this process; waiting for them before the first
+   * reload is what stops every connector from starting once with no token.
+   * The timeout keeps a host that never sends them (an older build) working
+   * as it did before.
+   */
+  hostRows(ms: number): Promise<void> {
+    return Promise.race([this.#hostRowsArrived, new Promise<void>((r) => setTimeout(r, ms))]);
   }
 
   /**
@@ -1933,6 +2148,7 @@ export class ConnectorManager {
         askRouter: this.askRouter,
         ...(profileId ? { personaProfileId: profileId } : {}),
         ...(this.#leadDesk ? { leadDesk: this.#leadDesk } : {}),
+        onSender: (senderId, name) => this.#heard(id, { id: senderId, name }),
       };
       try {
         await instance.start(ctx);
@@ -1951,7 +2167,63 @@ export class ConnectorManager {
       }
     }
 
+    // WhatsApp turned on just now, from any surface (desktop toggle, TUI,
+    // chat): that is the person asking to link a phone, so start pairing. Not
+    // at boot, where an unlinked WhatsApp stays idle on purpose. Before this,
+    // turning it on anywhere but the chat left it idle and no code ever came.
+    const turnedOn = this.#wasEnabled !== null && wanted.has("whatsapp") && !this.#wasEnabled.has("whatsapp");
+    this.#wasEnabled = new Set(wanted.keys());
+    if (turnedOn && !WhatsAppConnector.isLinked()) {
+      try {
+        await this.pairWhatsApp();
+      } catch (e) {
+        this.#log(`whatsapp: could not start pairing: ${String(e)}`);
+        this.#mark(
+          "whatsapp",
+          false,
+          whatsappAvailable()
+            ? e
+            : "WhatsApp support is not downloaded yet. Ask Cinderpaw in the chat to connect WhatsApp; it offers the download.",
+        );
+      }
+    }
+
     await this.#publishHealth();
+  }
+
+  #heard(connector: string, sender: Sender): void {
+    this.#lastSender.set(connector, { ...sender, at: Date.now() });
+    for (const w of this.#senderWaits) {
+      if (w.connector === connector && w.match(sender.id)) w.resolve(sender);
+    }
+  }
+
+  /**
+   * The next sender `connector` hears that `match` accepts, or one it heard
+   * after `since` (a person can be quicker than the tool that waits for
+   * them). null after `ms`, or when `signal` aborts.
+   */
+  nextSender(
+    connector: string,
+    match: (id: string) => boolean,
+    opts: { since: number; ms: number; signal?: AbortSignal },
+  ): Promise<Sender | null> {
+    if (opts.signal?.aborted) return Promise.resolve(null);
+    const last = this.#lastSender.get(connector);
+    if (last && last.at >= opts.since && match(last.id)) return Promise.resolve({ id: last.id, name: last.name });
+    return new Promise((resolve) => {
+      const finish = (s: Sender | null) => {
+        if (!this.#senderWaits.delete(wait)) return;
+        clearTimeout(timer);
+        opts.signal?.removeEventListener("abort", giveUp);
+        resolve(s);
+      };
+      const giveUp = () => finish(null);
+      const wait = { connector, match, resolve: finish };
+      this.#senderWaits.add(wait);
+      const timer = setTimeout(giveUp, opts.ms);
+      opts.signal?.addEventListener("abort", giveUp, { once: true });
+    });
   }
 
   /** What actually connected, for one id. */
@@ -2039,6 +2311,21 @@ export class ConnectorManager {
     await wa.pair();
     this.#health.set("whatsapp", wa.health());
     return true;
+  }
+
+  /**
+   * Take the phone off this install. A WhatsApp that is turned off has no
+   * socket, so a short-lived one logs out for it: "off" must not leave the
+   * phone linked. True when nothing stays linked on the phone.
+   */
+  async unlinkWhatsApp(): Promise<boolean> {
+    const live = this.#live.get("whatsapp") as (LiveConnector & { unlink?: () => Promise<boolean> }) | undefined;
+    if (live?.unlink && WhatsAppConnector.isLinked()) return live.unlink();
+    if (!WhatsAppConnector.isLinked()) {
+      await WhatsAppConnector.forget();
+      return true;
+    }
+    return new WhatsAppConnector({ allowlist: [], channels: [], agent: this.#agent, log: this.#log }).unlink();
   }
 
   async stopAll(): Promise<void> {

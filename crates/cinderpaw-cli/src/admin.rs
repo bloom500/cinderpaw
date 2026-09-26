@@ -277,26 +277,26 @@ pub fn gateway_start() -> i32 {
             return 1;
         }
     };
-    let mut cmd = std::process::Command::new(&exe);
-    cmd.arg("gateway")
+    // Windows: exactly NUL + the log, nothing else inherited (see
+    // spawn_detached). A plain Command would pass on whatever inheritable
+    // pipes our caller holds, and the gateway would keep them open for good.
+    #[cfg(windows)]
+    let spawned = crate::common::spawn_detached(&exe, &["gateway"], &log);
+    #[cfg(not(windows))]
+    let spawned = std::process::Command::new(&exe)
+        .arg("gateway")
         .stdin(std::process::Stdio::null())
         .stdout(log.try_clone().unwrap_or_else(|_| std::fs::File::create(&log_path).unwrap()))
-        .stderr(log);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP — no inherited console,
-        // and Ctrl+C in this shell won't propagate to the daemon.
-        cmd.creation_flags(0x0000_0008 | 0x0000_0200);
-    }
-    let child = match cmd.spawn() {
-        Ok(c) => c,
+        .stderr(log)
+        .spawn()
+        .map(|c| c.id());
+    let pid = match spawned {
+        Ok(pid) => pid,
         Err(e) => {
             eprintln!("cinderpaw: failed to start gateway: {e}");
             return 1;
         }
     };
-    let pid = child.id();
     let _ = std::fs::write(cinderpaw_file("gateway.pid"), pid.to_string());
 
     for i in 0..40 {

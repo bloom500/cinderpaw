@@ -323,6 +323,8 @@ it from the voice settings in the app.
 | `CINDERPAW_DREAMS_ENABLED` | `boot.ts` | Whether the idle dream loop starts. |
 | `CINDERPAW_GOOGLE_CLIENT_ID` | `google.rs`, build time | OAuth client id for "Send to Google Docs", baked in at compile time. Absent in a self-built app: the button then asks for the person's own client file. |
 | `CINDERPAW_GOOGLE_CLIENT_SECRET` | `google.rs`, build time | The matching client secret. Same absence rule. |
+| `CINDERPAW_NO_BROWSER` | `install.rs` (CLI) | When set, the installer and `cinderpaw open` print the page address instead of opening a browser (CI, SSH). |
+| `CINDERPAW_PATH_TOUCH` | `footprint.rs` (Windows install) | Never holds a value: deleting it is how the installer tells Windows the user PATH changed. |
 
 ## 4. Footnotes
 
@@ -439,9 +441,11 @@ CINDERPAW_MISSION_DEADLINE_MS
 CINDERPAW_MODEL
 CINDERPAW_MODEL_WAIT_MS
 CINDERPAW_MODULE_SEED
+CINDERPAW_NO_BROWSER
 CINDERPAW_NO_COLOR
 CINDERPAW_OLLAMA_NUM_CTX
 CINDERPAW_OPENROUTER_PROVIDER
+CINDERPAW_PATH_TOUCH
 CINDERPAW_PERMISSION_MODE
 CINDERPAW_PII_REDACTION
 CINDERPAW_PROACTIVE_ENABLED

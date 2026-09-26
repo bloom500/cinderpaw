@@ -12,7 +12,7 @@ import { resolve, join, delimiter } from "node:path";
 import { mkdirSync, readFileSync } from "node:fs";
 import { atomicWriteFileSync } from "./atomic-write.ts";
 import { homedir } from "node:os";
-import { openDatabase } from "./db.ts";
+import { openDatabase, waitForWriterLock } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
 import { dispatchMessage } from "./dispatch.ts";
 import { agentProfileDirs, benchmarkRunId, cfgBool, cfgInt, cfgList, cfgPath, cinderpawHome, defaultDbPath, readEnv, scratchRoot, searxngOrigin } from "./config.ts";
@@ -118,6 +118,8 @@ import { registerCoworkRosterTools } from "./tools/builtin/cowork.ts";
 import { createCoworkCreateTool } from "./tools/builtin/cowork-create.ts";
 import { createTokenUsageTool } from "./tools/builtin/token-usage.ts";
 import { createConnectorsManageTool } from "./tools/builtin/connectors-manage.ts";
+import { createRequestSecretTool } from "./tools/builtin/request-secret.ts";
+import { createConnectorsPairTool, pairDepsFrom } from "./tools/builtin/connectors-pair.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
 import { HookRegistry } from "./core/hook-registry.ts";
@@ -429,6 +431,9 @@ function buildTransport(kind: AppConfig["transport"]): Transport {
  */
 export async function boot(transportOverride?: Transport) {
   const config = loadConfig();
+  // A predecessor still shutting down (stop, then start) holds the lock for a
+  // while; wait for it rather than failing five times and giving up.
+  await waitForWriterLock(config.dbPath, 60_000);
   const db = openDatabase(config.dbPath);
   // Durable state for unattended runs. Created here, next to the database,
   // because the boot-time resume pass below needs it before anything else can
@@ -2449,6 +2454,12 @@ export async function boot(transportOverride?: Transport) {
   // to Discord/Slack/WhatsApp on user request. Writes ~/.cinderpaw/connectors.json
   // (the one deliberate exception to the deny wall) and hot-reloads the manager.
   registry.register(createConnectorsManageTool(connectors));
+  // The secure field for connector secrets (spec 2026-09-24 §6.2): only the
+  // local web page can show it; everywhere else it says unsupported_surface.
+  registry.register(createRequestSecretTool());
+  // "Is that you?" (spec §6.4): the person messages their new bot, and the page
+  // asks whether that was them, instead of asking for a user id.
+  registry.register(createConnectorsPairTool(pairDepsFrom(connectors)));
   // artifact_send hands an artifact back through a connector, so it is the one
   // artifact tool that cannot be registered with the other six above: the
   // connectors do not exist yet at that point in boot.
@@ -2786,7 +2797,13 @@ export async function boot(transportOverride?: Transport) {
     // that connector's sender is only registered once the client has logged in.
     // Chaining on the reload promise waits for the real signal instead of
     // guessing with a timer.
-    void connectors.reload().then(() => resumeInterrupted());
+    //
+    // Under a host, the first reload waits for the host's rows: the host keeps
+    // connector secrets in the OS keychain and sends them right after spawn,
+    // and reading the file alone started every connector once with no token.
+    // In-process (transportOverride) there is no host to wait for.
+    const hostRows = transportOverride ? Promise.resolve() : connectors.hostRows(5_000);
+    void hostRows.then(() => connectors.reload()).then(() => resumeInterrupted());
     // One round on demand, for a headless test of the code-RSI path; the
     // product's trigger is the Dreams cycle.
     if (cfgBool("CINDERPAW_CODE_RSI_ROUND_ON_READY")) void maybeCodeRsiRound();

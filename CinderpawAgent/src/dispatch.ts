@@ -56,6 +56,7 @@ import { routerInfer } from "./memory/fractal/summarize.ts";
 import { parseResponse } from "./core/agent-loop.ts";
 import { BrainStack } from "./brain/brain-stack.ts";
 import { rebuildDerivedBrain } from "./brain/brain-config.ts";
+import { markCardSurface } from "./core/card-surface.ts";
 
 /**
  * Diagnostics go to stderr; stdout is reserved for the transport protocol.
@@ -163,9 +164,11 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         // Reading connectors.json ourselves stopped being enough the moment
         // the migration emptied that file of credentials: every connector on
         // the machine would have come back up blank. The file path stays as
-        // the fallback for a host that has not been updated.
+        // the fallback for a host that has not been updated. Kept, not only
+        // applied: the agent's own connectors_manage edits re-read the file,
+        // and without these they restarted every connector with no token.
         const rows = (msg as { connectors?: unknown }).connectors;
-        if (Array.isArray(rows)) void connectors.applyRows(rows as never);
+        if (Array.isArray(rows)) void connectors.setHostRows(rows as never);
         else void connectors.reload();
         break;
       }
@@ -1700,9 +1703,12 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         // description cannot say "right now". Composed with the voice brief
         // rather than replacing it: a call made from the browser is both.
         const browserBrief = browserSurfaceBrief(msg.browserPage);
+        // The local web page can show a password card; nothing else can.
+        // Per message, because the terminal and the page share the session.
+        markCardSurface(sessionId, msg.surface === "web");
         if (msg.surface === "voice") {
           agent.setSessionSurface(sessionId, [VOICE_SURFACE_BRIEF, browserBrief].filter(Boolean).join("\n\n"), { spoken: true });
-        } else if (msg.surface === "text") {
+        } else if (msg.surface === "text" || msg.surface === "web") {
           // Explicitly typed → drop the spoken brief. Only the desktop sends this
           // field, so a connector's own brief is never touched here.
           agent.setSessionSurface(sessionId, browserBrief);

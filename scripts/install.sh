@@ -1,21 +1,20 @@
 #!/usr/bin/env bash
 #
-# Cinderpaw universal installer — one command, OS auto-detected:
+# Cinderpaw installer. The one command from cinderpaw.dev/app:
 #
 #   curl -fsSL https://raw.githubusercontent.com/bloom500/cinderpaw/main/scripts/install.sh | bash
 #
-# What it picks per platform:
-#   Linux + display        → latest .deb / .rpm desktop app (apt/dnf)
-#   Linux headless (VPS)   → builds the `cinderpaw` CLI + gateway from source
-#                            (no llama.cpp / GPU toolchain needed)
-#   macOS                  → latest .dmg, mounted and copied to /Applications,
-#                            quarantine flag cleared
-#   Windows                → not this script; see the PowerShell one-liner in
-#                            the README (or run this under WSL for the CLI)
+# Default: download the prebuilt Cinderpaw for this computer into ~/.cinderpaw/bin,
+# check its SHA-256, then let `cinderpaw self-install` set up start-at-login,
+# PATH and the Cinderpaw shortcut, start it and open the browser. No sudo.
+# Running it again updates Cinderpaw and changes nothing else.
 #
-# Flags (pass after `bash -s --`):
-#   --desktop    force the desktop install on Linux
-#   --headless   force the from-source CLI install on Linux
+# Developer paths (flags after `bash -s --`):
+#   --from-source  build the CLI from a git checkout (Rust + Bun + Go). Alias: --headless
+#   --desktop      install the desktop app (.deb/.rpm/.dmg)
+#
+# Knobs (env): CINDERPAW_VERSION (a cinderpaw-agent-v* tag), CINDERPAW_DOWNLOAD_BASE
+# (a URL folder holding the archives + SHA256SUMS, for CI), CINDERPAW_HOME.
 #
 set -euo pipefail
 
@@ -25,25 +24,122 @@ set -euo pipefail
 # installer that runs a stranger's code on a trusted machine.
 REPO="bloom500/cinderpaw"
 API="https://api.github.com/repos/${REPO}/releases/latest"
+MSG_OFFLINE="I couldn't download Cinderpaw. Check your internet and run the same command again."
+MSG_UNSUPPORTED="Cinderpaw doesn't run on this computer yet. It needs Windows 10+, macOS 12+ or a 64-bit Linux."
+MSG_CANT_START="Cinderpaw downloaded, but it can't start on this Linux: the system is missing a piece, or is older than Ubuntu 22.04 / Debian 12. Please send this line to github.com/bloom500/cinderpaw/issues :"
 
 say()  { printf '\033[1;32m[cinderpaw]\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31m[cinderpaw]\033[0m %s\n' "$*" >&2; exit 1; }
+plain_fail() { printf '%s\n' "$*" >&2; exit 1; }
 
-MODE="auto"
-for arg in "$@"; do
-  case "$arg" in
-    --desktop)  MODE="desktop" ;;
-    --headless) MODE="headless" ;;
-    *) fail "unknown flag: $arg (use --desktop or --headless)" ;;
+# uname -s, uname -m -> release asset name, or empty when unsupported.
+asset_for() {
+  case "$1/$2" in
+    Linux/x86_64)  echo "cinderpaw-linux-x64.tar.gz" ;;
+    Darwin/arm64)  echo "cinderpaw-macos-arm64.tar.gz" ;;
+    Darwin/x86_64) echo "cinderpaw-macos-x64.tar.gz" ;;
+    *)             echo "" ;;
   esac
-done
+}
 
-command -v curl >/dev/null || fail "curl is required"
+# `ldd --version` first line -> true when glibc >= 2.35 (the ubuntu-22.04 build floor).
+glibc_ok() {
+  case "$1" in *musl*) return 1 ;; esac
+  local v; v="$(printf '%s' "$1" | grep -oE '[0-9]+\.[0-9]+$' || true)"
+  [ -n "$v" ] || return 1
+  local major="${v%%.*}" minor="${v#*.}"
+  [ "$major" -gt 2 ] || { [ "$major" -eq 2 ] && [ "$minor" -ge 35 ]; }
+}
+
+# SHA256SUMS text, file name -> its hash, or empty.
+sum_for() {
+  printf '%s\n' "$1" | awk -v f="$2" '$2 == f || $2 == "*"f { print $1; exit }'
+}
+
+sha256_of() {
+  if command -v sha256sum >/dev/null; then sha256sum "$1" | awk '{print $1}'
+  else shasum -a 256 "$1" | awk '{print $1}'; fi
+}
+
+# Newest CLI release tag. The desktop owns "latest", so list and pick ours.
+cli_tag() {
+  curl -fsL --connect-timeout 20 "https://api.github.com/repos/${REPO}/releases?per_page=30" \
+    | grep -oE '"tag_name": *"cinderpaw-agent-v[^"]+"' | head -1 | sed -E 's/.*"(cinderpaw-agent-v[^"]+)"/\1/'
+}
+
+install_prebuilt() {
+  # tmp is global on purpose: the EXIT trap reads it after this function returns.
+  local os arch asset base sums want got home bin tag=""
+  if [ -z "${CINDERPAW_DOWNLOAD_BASE:-}" ]; then
+    tag="${CINDERPAW_VERSION:-}"
+    [ -n "$tag" ] || tag="$(cli_tag || true)"
+    if [ -z "$tag" ]; then
+      # No cinderpaw-agent-v* release is published yet, so do what this
+      # one-liner did before it: the desktop app, or the CLI from source on a
+      # server. Stops applying on its own the day the first CLI release exists.
+      curl -fsL --connect-timeout 20 -o /dev/null "$API" || plain_fail "$MSG_OFFLINE"
+      install_legacy
+      return
+    fi
+  fi
+  os="$(uname -s)"; arch="$(uname -m)"
+  asset="$(asset_for "$os" "$arch")"
+  [ -n "$asset" ] || plain_fail "$MSG_UNSUPPORTED"
+  if [ "$os" = "Linux" ]; then
+    glibc_ok "$(ldd --version 2>&1 | head -1 || true)" || plain_fail "$MSG_UNSUPPORTED"
+  fi
+  if [ "$os" = "Darwin" ]; then
+    local mac; mac="$(sw_vers -productVersion 2>/dev/null || echo 0)"
+    [ "${mac%%.*}" -ge 12 ] 2>/dev/null || plain_fail "$MSG_UNSUPPORTED"
+  fi
+  command -v curl >/dev/null || plain_fail "$MSG_OFFLINE"
+
+  printf 'Downloading Cinderpaw... '
+  if [ -n "${CINDERPAW_DOWNLOAD_BASE:-}" ]; then
+    base="$CINDERPAW_DOWNLOAD_BASE"
+  else
+    base="https://github.com/${REPO}/releases/download/${tag}"
+  fi
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  curl -fsL --connect-timeout 20 -o "$tmp/$asset" "$base/$asset" || { echo; plain_fail "$MSG_OFFLINE"; }
+  sums="$(curl -fsL --connect-timeout 20 "$base/SHA256SUMS")" || { echo; plain_fail "$MSG_OFFLINE"; }
+  want="$(sum_for "$sums" "$asset")"
+  got="$(sha256_of "$tmp/$asset")"
+  if [ -z "$want" ] || [ "$want" != "$got" ]; then
+    echo; plain_fail "The download was damaged. Run the same command again."
+  fi
+
+  home="${CINDERPAW_HOME:-$HOME/.cinderpaw}"
+  bin="$home/bin"
+  mkdir -p "$tmp/x" "$bin"
+  # Private: on a keychain-less Linux (VPS, container) connector tokens and the
+  # WhatsApp link keys live in plain files here, and some distros still make
+  # home folders world-readable.
+  chmod 700 "$home"
+  tar -xzf "$tmp/$asset" -C "$tmp/x"
+  # Unlink-then-copy: a running engine keeps its old inode, the new file takes the name.
+  for f in cinderpaw cinderpaw-agent cinderpaw-tui; do
+    rm -f "$bin/$f"
+    cp "$tmp/x/$f" "$bin/$f"
+    chmod 0755 "$bin/$f"
+  done
+  echo "✓"
+  # A binary the loader rejects (old glibc, a missing library) must say so in
+  # words, not leave the loader's message as the last line the person sees.
+  if ! err="$("$bin/cinderpaw" --version 2>&1 >/dev/null)"; then
+    plain_fail "$MSG_CANT_START $err"
+  fi
+  # </dev/null: under `curl | bash`, stdin is the rest of this script.
+  "$bin/cinderpaw" self-install </dev/null
+}
+
 
 # Resolve a release asset URL by filename pattern (no jq dependency).
 asset_url() {
   curl -fsSL "$API" | sed -n 's/.*"browser_download_url": "\([^"]*'"$1"'\)".*/\1/p' | head -1
 }
+
 
 # ── macOS ────────────────────────────────────────────────────────────────────
 install_macos() {
@@ -262,25 +358,45 @@ Run this once as root, then re-run the installer as this user:
   say "  3. systemd service:      see docs/HEADLESS.md"
 }
 
+# What the one-liner installed before the prebuilt download existed.
+install_legacy() {
+  case "$(uname -s)" in
+    Darwin) install_macos ;;
+    Linux)
+      if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
+        say "display detected → desktop install (use --from-source to override)"
+        install_linux_desktop
+      else
+        say "no display detected → building the CLI from source (use --desktop to override)"
+        install_linux_headless
+      fi ;;
+    *) plain_fail "$MSG_UNSUPPORTED" ;;
+  esac
+}
+
 # ── Dispatch ─────────────────────────────────────────────────────────────────
-case "$(uname -s)" in
-  Darwin)
-    install_macos
-    ;;
-  Linux)
-    if [ "$MODE" = "desktop" ]; then
-      install_linux_desktop
-    elif [ "$MODE" = "headless" ]; then
-      install_linux_headless
-    elif [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
-      say "display detected → desktop install (use --headless to override)"
-      install_linux_desktop
-    else
-      say "no display detected → headless CLI install (use --desktop to override)"
-      install_linux_headless
-    fi
-    ;;
-  *)
-    fail "unsupported OS: $(uname -s). On Windows, use the PowerShell one-liner in the README."
-    ;;
+MODE="prebuilt"
+for arg in "$@"; do
+  case "$arg" in
+    --desktop)                MODE="desktop" ;;
+    --from-source|--headless) MODE="source" ;;
+    *) fail "unknown flag: $arg (use --from-source or --desktop)" ;;
+  esac
+done
+
+# Sourced by scripts/install.test.sh: define the functions, run nothing.
+if [ -n "${CINDERPAW_INSTALL_LIB:-}" ]; then return 0 2>/dev/null || exit 0; fi
+
+case "$MODE" in
+  prebuilt) install_prebuilt ;;
+  source)
+    [ "$(uname -s)" = "Linux" ] || fail "--from-source is Linux-only; on macOS use the one-line install."
+    install_linux_headless ;;
+  desktop)
+    command -v curl >/dev/null || fail "curl is required"
+    case "$(uname -s)" in
+      Darwin) install_macos ;;
+      Linux)  install_linux_desktop ;;
+      *)      fail "unsupported OS: $(uname -s)" ;;
+    esac ;;
 esac

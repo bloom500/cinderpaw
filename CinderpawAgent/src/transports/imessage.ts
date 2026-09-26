@@ -234,6 +234,7 @@ export class ImessageConnector implements LiveConnector {
 
     const ctx = this.#ctx;
     if (!ctx) return;
+    ctx.onSender?.(sender, sender);
     if (!this.#allow.has(sender)) {
       ctx.log(`imessage: ignored a message from non-allowlisted ${sender} (chat ${chatId})`);
       return;

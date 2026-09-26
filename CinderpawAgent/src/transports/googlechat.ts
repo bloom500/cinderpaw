@@ -370,6 +370,7 @@ export class GoogleChatConnector implements LiveConnector {
     const ctx = this.#ctx;
     if (!ctx) return;
     const email = msg.sender?.email?.toLowerCase() ?? "";
+    ctx.onSender?.(userId.toLowerCase(), userId.toLowerCase());
     if (!this.#allow.has(userId.toLowerCase()) && !(email && this.#allow.has(email))) {
       ctx.log(`googlechat: ignored a message from non-allowlisted ${userId}${email ? ` (${email})` : ""}`);
       return;

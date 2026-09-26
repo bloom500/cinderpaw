@@ -145,6 +145,7 @@ export class SynologyChatConnector implements LiveConnector {
     }
     const ctx = this.#ctx;
     if (!ctx) return;
+    ctx.onSender?.(userId, userId);
     if (!this.#allow.has(userId)) {
       ctx.log(`synology-chat: ignored a message from non-allowlisted user ${userId} (${p.get("username") ?? "?"})`);
       return;

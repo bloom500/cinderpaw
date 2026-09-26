@@ -292,6 +292,7 @@ export class MatrixConnector implements LiveConnector {
   async #handle(roomId: string, sender: string, text: string, eventId: string): Promise<void> {
     const ctx = this.#ctx;
     if (!ctx) return;
+    ctx.onSender?.(sender, sender);
     if (!this.#allow.has(sender)) {
       ctx.log(`matrix: ignored message from non-allowlisted ${sender}`);
       return;

@@ -22,7 +22,9 @@ import { readFile, mkdir } from "node:fs/promises";
 import { atomicWriteFile } from "../../atomic-write.ts";
 import { dirname } from "node:path";
 import type { Tool, ToolManifest } from "../../types.ts";
-import { configPath, type ConnectorRow } from "../../transports/connectors.ts";
+import { configPath, WhatsAppConnector, whatsappAvailable, type ConnectorRow } from "../../transports/connectors.ts";
+import { installWhatsApp } from "../../transports/whatsapp-install.ts";
+import { sessionHasCards } from "../../core/card-surface.ts";
 
 /**
  * What each supported connector needs to come alive, and how a person
@@ -45,6 +47,9 @@ interface CatalogEntry {
   note: string;
   consoleUrl?: string;
   steps?: string[];
+  /** Needs a public web address pointing at this machine (a tunnel or a
+   *  server): the platform calls us, and a home computer has no such address. */
+  advanced?: true;
 }
 
 /** Exported for `tests/connector-catalog-transports.test.ts`: what the agent
@@ -55,13 +60,15 @@ export const CATALOG: Record<string, CatalogEntry> = {
     note: "Bot token from the Discord Developer Portal (Bot → Reset Token). The bot must be invited to the server with the Message Content intent enabled.",
     consoleUrl: "https://discord.com/developers/applications",
     steps: [
-      "Open https://discord.com/developers/applications and sign in with your Discord account.",
-      "Click 'New Application', give it a name (this is what the bot will be called), and accept the terms.",
-      "Open the 'Bot' tab in the left sidebar.",
-      "Under 'Privileged Gateway Intents', turn ON 'Message Content Intent' and save. Without it the bot can see that messages exist but not what they say.",
-      "Click 'Reset Token', confirm, then 'Copy'. Discord shows this token exactly once — if you navigate away you have to reset it again.",
-      "Paste the token in this chat. It goes straight to your OS keychain and is redacted from memory.",
-      "Then open 'OAuth2' → 'URL Generator', tick 'bot', tick the 'Send Messages' and 'Read Message History' permissions, open the generated URL, and pick your server.",
+      "Open https://discord.com/developers/applications and sign in.",
+      "Click New Application. Type a name for your bot. Tick the box and click Create.",
+      "On the left, click Bot.",
+      "Find Message Content Intent and turn it on. Click Save. Without it, I can't read what you write.",
+      "Click Reset Token, then Yes, then Copy. Discord shows it just once.",
+      "Paste the token in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
+      "Now bring the bot to your server. On the left, click OAuth2. Scroll to the URL Generator. Tick bot. Then tick Send Messages and Read Message History.",
+      "Open the link at the bottom. Pick your server and click the button to add it.",
+      "Last, send your bot a message. I will ask you: is that you?",
     ],
   },
   slack: {
@@ -69,21 +76,23 @@ export const CATALOG: Record<string, CatalogEntry> = {
     note: "Socket-mode app token (xapp-…) + bot token (xoxb-…) from api.slack.com/apps.",
     consoleUrl: "https://api.slack.com/apps",
     steps: [
-      "Open https://api.slack.com/apps and click 'Create New App' → 'From scratch'. Name it and pick your workspace.",
-      "Open 'Socket Mode' and turn it on. Slack asks for a token name; any name works. Copy the app-level token it gives you — it starts with 'xapp-'.",
-      "Open 'OAuth & Permissions' → 'Bot Token Scopes' and add: chat:write, im:history, app_mentions:read.",
-      "Scroll up on the same page and click 'Install to Workspace', then approve.",
-      "Copy the 'Bot User OAuth Token' — it starts with 'xoxb-'.",
-      "Paste both tokens in this chat. They go to your OS keychain and are redacted from memory.",
+      "Open https://api.slack.com/apps. Click Create New App, then From scratch. Give it a name and pick your team.",
+      "On the left, click Socket Mode and turn it on. Give the token any name. Copy the token. It starts with xapp.",
+      "On the left, click OAuth & Permissions. Find Bot Token Scopes. Add these three: chat:write, im:history and app_mentions:read.",
+      "Go to the top of that page. Click Install, then Allow.",
+      "Copy the Bot User OAuth Token. It starts with xoxb.",
+      "Paste both tokens in this chat. I keep them in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
+      "Last, send your bot a message. I will ask you: is that you?",
     ],
   },
   whatsapp: {
     secrets: [],
     note: "No secrets — pairing is QR-based. Enable it, then the user scans the QR code shown in the Cinderpaw app (Connectors page or TUI).",
     steps: [
-      "There is nothing to copy and no token to fetch — WhatsApp pairs by QR code.",
-      "Say the word and I'll enable it, then open the Connectors page in the Cinderpaw app.",
-      "Scan the QR code there with WhatsApp on your phone: Settings → Linked devices → Link a device.",
+      "WhatsApp needs no token. You link it with your phone.",
+      "Say the word and I will turn it on. The first time, I ask to download what WhatsApp needs.",
+      "A square code then shows up right here, under our chat. In the desktop app it is on the Connectors page. In the terminal chat, type /connectors qr.",
+      "On your phone, open WhatsApp. Tap Settings, then Linked devices, then Link a device. Point the camera at the square.",
     ],
   },
   // Every other transport the sidecar can run. Without an entry the agent
@@ -95,11 +104,12 @@ export const CATALOG: Record<string, CatalogEntry> = {
     note: "Bot token from @BotFather. Allowlist holds numeric Telegram user ids; a group is answered only when its chat id is in channels.",
     consoleUrl: "https://t.me/BotFather",
     steps: [
-      "Open https://t.me/BotFather in Telegram and press Start.",
-      "Send /newbot, then a display name, then a username ending in 'bot'.",
-      "BotFather replies with a token like 123456:ABC-... Copy it. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
-      "Your own numeric user id goes in the allowlist: message @userinfobot in Telegram and it replies with it.",
-      "For a group, add the bot to the group and send me the group's chat id for channels; in a private chat nothing else is needed.",
+      "Open https://t.me/BotFather in Telegram and tap Start.",
+      "Send /newbot. Then send a name for your bot. Then send a short name that ends in bot.",
+      "BotFather sends you a token. It looks like 123456:ABC. Copy it.",
+      "Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
+      "Last, send your bot a message. I will ask you: is that you?",
+      "Want me in a group too? Add the bot to the group, then ask me.",
     ],
   },
   matrix: {
@@ -107,11 +117,11 @@ export const CATALOG: Record<string, CatalogEntry> = {
     note: "Homeserver URL and the bot account's access token. Allowlist holds full user ids like @name:matrix.org.",
     consoleUrl: "https://app.element.io",
     steps: [
-      "Make a separate Matrix account for me (not your own), for example at https://app.element.io.",
-      "Signed in as that account in Element: Settings, Help & About, Advanced, Access Token. Copy it.",
-      "The homeserver is the address the account lives on, e.g. https://matrix.org.",
-      "Send me both. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
-      "Your own full id (@you:server) goes in the allowlist; invite my account to the rooms you want me in.",
+      "Make a new Matrix account just for me, not your own. You can make one at https://app.element.io.",
+      "Sign in to Element as that new account. Open Settings, then Help & About, then Advanced. Copy the Access Token.",
+      "Your home server is the web address your account lives on, like https://matrix.org.",
+      "Send me both. Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
+      "Last, invite my account to a room and send me a message there. I will ask you: is that you?",
     ],
   },
   mattermost: {
@@ -122,7 +132,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
       "Personal access tokens must be enabled by the server admin (System Console, Integrations). See https://developers.mattermost.com/integrate/reference/personal-access-token/.",
       "Signed in as the account I should speak as: Profile, Security, Personal Access Tokens, Create Token. Copy the token.",
       "The URL is the address you open Mattermost at, e.g. https://chat.example.com.",
-      "Send me both. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Send me both. Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
     ],
   },
   signal: {
@@ -155,7 +165,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
       "Open https://open.feishu.cn/app (Lark: open.larksuite.com/app) and create a custom app.",
       "Turn on its bot capability and give it permission to read and send messages.",
       "Under Credentials, copy the App ID and App Secret.",
-      "Send me both. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Send me both. Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Publish the app version so it can be added to chats.",
     ],
   },
@@ -166,7 +176,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
     steps: [
       "Make a separate Nextcloud user for me on your server.",
       "Signed in as that user: Settings, Security, Devices & sessions, create an app password. See https://docs.nextcloud.com/server/latest/user_manual/en/session_management.html.",
-      "Send me the server address, that user's name, and the app password. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Send me the server address, that user's name, and the app password. Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Add that user to the Talk conversations you want me in, and put your own user name in the allowlist.",
     ],
   },
@@ -176,7 +186,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
     consoleUrl: "https://nostr.how",
     steps: [
       "Make a NEW key pair for me with any Nostr client (see https://nostr.how). Never give me your own private key.",
-      "Copy that new private key (nsec... or hex). Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Copy that new private key (nsec... or hex). Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Send the relays to use, comma-separated, e.g. wss://relay.damus.io,wss://nos.lol.",
       "Your own public key goes in the allowlist; I answer direct messages from it.",
     ],
@@ -188,7 +198,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
     steps: [
       "Make a separate Twitch account for me, and register an app at https://dev.twitch.tv/console/apps.",
       "Signed in as my account, get a user access token for that app with the chat:read and chat:edit scopes.",
-      "Send me the token. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Send me the token. Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Tell me which channels to join, and put your own Twitch login in the allowlist.",
     ],
   },
@@ -199,7 +209,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
     steps: [
       "Open https://bot.zaloplatforms.com/ and sign in with Zalo.",
       "Create a bot and copy its token.",
-      "Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Put your own Zalo user id in the allowlist.",
     ],
   },
@@ -227,7 +237,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
     steps: [
       "You need a running Urbit ship, your own or one hosted by Tlon (https://tlon.io).",
       "Send me its name, the ~sampel-palnet form, and the URL where Landscape opens in your browser.",
-      "In the ship's dojo type +code and copy what it prints. That is the access code, NOT the master ticket, and it is the one thing here you must never paste anywhere else. Paste it in this chat; it goes to your OS keychain and is redacted from memory.",
+      "In the ship's dojo type +code and copy what it prints. That is the access code, NOT the master ticket, and it is the one thing here you must never paste anywhere else. Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Put the ships allowed to DM me in the allowlist, ~sampel-palnet form. A DM from a ship nobody listed arrives as an invite and I leave it unanswered, so a stranger cannot open a conversation.",
       "Say honestly what happens when you enable it: written against Urbit's documented channel protocol, never run against a real ship. A wrong code shows up as a login failure the moment you enable, not later.",
     ],
@@ -248,6 +258,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
   // address the platform must reach, because without one they connect and
   // stay silent, which reads as broken rather than as unconfigured.
   line: {
+    advanced: true,
     secrets: ["LINE_CHANNEL_ACCESS_TOKEN", "LINE_CHANNEL_SECRET"],
     note: "Channel access token and channel secret of a Messaging API channel. Inbound arrives on the webhook path /connectors/line.",
     consoleUrl: "https://developers.line.biz/console/",
@@ -255,11 +266,12 @@ export const CATALOG: Record<string, CatalogEntry> = {
       "Open https://developers.line.biz/console/ and create a provider, then a Messaging API channel.",
       "In the channel's Messaging API tab, issue a long-lived channel access token and copy it.",
       "In the Basic settings tab, copy the channel secret.",
-      "Send it to me in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Send it to me in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Then set the channel's Webhook URL to your public address + /connectors/line and turn 'Use webhook' on. This one is INBOUND-ONLY over a webhook: the platform has to reach your machine, so it needs a public HTTPS address pointing at Cinderpaw (a tunnel or a reverse proxy). Without that it connects and never hears anything.",
     ],
   },
   sms: {
+    advanced: true,
     secrets: ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER", "TWILIO_WEBHOOK_URL"],
     note: "Twilio account SID, auth token, the number messages are sent from, and the exact public URL you configured on that number (the signature is computed over it).",
     consoleUrl: "https://console.twilio.com",
@@ -271,17 +283,19 @@ export const CATALOG: Record<string, CatalogEntry> = {
     ],
   },
   "synology-chat": {
+    advanced: true,
     secrets: ["SYNOLOGY_CHAT_WEBHOOK_URL", "SYNOLOGY_CHAT_TOKEN"],
     note: "The NAS's incoming-webhook URL (we POST to it) and the outgoing-webhook token (it POSTs to us).",
     consoleUrl: "https://www.synology.com/en-global/dsm/feature/chat",
     steps: [
       "In Synology Chat on your NAS (what it is: https://www.synology.com/en-global/dsm/feature/chat), open the profile menu, Integration, and create an Incoming Webhook. Copy the URL it gives you.",
       "In the same place create an Outgoing Webhook pointing at your public address + /connectors/synology-chat, and copy its token.",
-      "Send me both. Send it to me in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Send me both. Send it to me in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "This one is INBOUND-ONLY over a webhook: the platform has to reach your machine, so it needs a public HTTPS address pointing at Cinderpaw (a tunnel or a reverse proxy). Without that it connects and never hears anything.",
     ],
   },
   googlechat: {
+    advanced: true,
     secrets: ["GOOGLE_CHAT_PROJECT_NUMBER", "GOOGLE_CHAT_SERVICE_ACCOUNT"],
     note: "The Google Cloud project number and a service-account key JSON. Inbound requests are verified by the signed token Google sends.",
     consoleUrl: "https://console.cloud.google.com/apis/library/chat.googleapis.com",
@@ -289,11 +303,12 @@ export const CATALOG: Record<string, CatalogEntry> = {
       "Open https://console.cloud.google.com/apis/library/chat.googleapis.com and enable the Google Chat API in a project.",
       "In the Chat API's Configuration tab, create the app and set Connection settings to 'HTTP endpoint URL' = your public address + /connectors/googlechat.",
       "Copy the project NUMBER from the project's dashboard (the number, not the id).",
-      "Create a service account in that project, add a JSON key, and send me the whole JSON plus the project number. Send it to me in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Create a service account in that project, add a JSON key, and send me the whole JSON plus the project number. Send it to me in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "This one is INBOUND-ONLY over a webhook: the platform has to reach your machine, so it needs a public HTTPS address pointing at Cinderpaw (a tunnel or a reverse proxy). Without that it connects and never hears anything.",
     ],
   },
   msteams: {
+    advanced: true,
     secrets: ["MSTEAMS_APP_ID", "MSTEAMS_APP_PASSWORD"],
     note: "Bot Framework app id and password (client secret); MSTEAMS_TENANT_ID as well for a single-tenant bot.",
     consoleUrl: "https://dev.botframework.com",
@@ -301,18 +316,78 @@ export const CATALOG: Record<string, CatalogEntry> = {
       "Register a bot at https://dev.botframework.com (or an Azure Bot resource) and copy its Microsoft App ID.",
       "Create a client secret for that app registration and copy its value; it is shown once.",
       "Set the bot's messaging endpoint to your public address + /connectors/msteams.",
-      "Send me the app id and the secret, and the tenant id too if the bot is single-tenant. Send it to me in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Send me the app id and the secret, and the tenant id too if the bot is single-tenant. Send it to me in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "This one is INBOUND-ONLY over a webhook: the platform has to reach your machine, so it needs a public HTTPS address pointing at Cinderpaw (a tunnel or a reverse proxy). Without that it connects and never hears anything.",
     ],
   },
 };
 
-const redact = (row: ConnectorRow | undefined, id: string) => ({
+/** Connectors connectors_pair can let someone into by hearing their first message
+ *  (their transports report senders, see `ConnectorContext.onSender`), with the
+ *  name the person knows them by. */
+export const PAIRABLE: Record<string, string> = {
+  discord: "Discord",
+  telegram: "Telegram",
+  slack: "Slack",
+  whatsapp: "WhatsApp",
+  matrix: "Matrix",
+  mattermost: "Mattermost",
+  signal: "Signal",
+  irc: "IRC",
+  feishu: "Feishu",
+  "nextcloud-talk": "Nextcloud Talk",
+  nostr: "Nostr",
+  twitch: "Twitch",
+  zalo: "Zalo",
+  imessage: "iMessage",
+  tlon: "Tlon",
+  zalouser: "Zalo",
+  line: "LINE",
+  sms: "SMS",
+  "synology-chat": "Synology Chat",
+  googlechat: "Google Chat",
+  msteams: "Microsoft Teams",
+};
+
+/** Sentences that ask for a secret in the chat, or describe what happens to one pasted there. */
+const ASKS_FOR_PASTE = /in this chat|^send me |private file on this computer|secure box instead/i;
+
+/**
+ * The steps as this chat should hear them. Where the page can show a secure
+ * field, every "paste it here" becomes "call request_secret": seen live, an
+ * agent with the paste sentence still in front of it used it the moment the
+ * field was declined, and a token typed into the chat reaches the AI service.
+ */
+export function stepsFor(id: string, cards: boolean): string[] {
+  const entry = CATALOG[id];
+  const steps = entry?.steps ?? [];
+  if (!cards || !entry) return steps;
+  const fields = entry.secrets.join(" and ");
+  return steps.map((step) => {
+    const sentences = step.split(/(?<=[.!?;])\s+/);
+    const kept = sentences.filter((x) => !ASKS_FOR_PASTE.test(x));
+    if (kept.length === sentences.length) return step;
+    const ask = `Then call request_secret for ${fields}. It opens a secure box on this page. Never ask for these in the chat.`;
+    return [...kept, ask].join(" ");
+  });
+}
+
+/**
+ * Secrets the host holds in the keychain, which connectors.json no longer
+ * shows once the host has moved them there. Set when the tool is built.
+ * ponytail: module-level, one manager per process.
+ */
+let hostHas: (id: string, key: string) => boolean = () => false;
+
+const has = (row: ConnectorRow | undefined, id: string, k: string) =>
+  Boolean(row?.secrets?.[k]?.trim() || (id === "discord" && row?.token?.trim()) || hostHas(id, k));
+
+const redact = (row: ConnectorRow | undefined, id: string, cards = false) => ({
   id,
   enabled: row?.enabled ?? false,
   configured: CATALOG[id]!.secrets.map((k) => ({
     secret: k,
-    present: Boolean(row?.secrets?.[k]?.trim() || (id === "discord" && row?.token?.trim())),
+    present: has(row, id, k),
   })),
   allowlist: row?.allowlist ?? [],
   channels: row?.channels ?? [],
@@ -320,10 +395,26 @@ const redact = (row: ConnectorRow | undefined, id: string) => ({
   requires: CATALOG[id]!.secrets,
   note: CATALOG[id]!.note,
   ...(CATALOG[id]!.consoleUrl ? { consoleUrl: CATALOG[id]!.consoleUrl } : {}),
-  ...(CATALOG[id]!.steps ? { steps: CATALOG[id]!.steps } : {}),
+  ...(CATALOG[id]!.steps ? { steps: stepsFor(id, cards) } : {}),
+  ...(id === "whatsapp" && !whatsappAvailable() ? { download_first: WHATSAPP_DOWNLOAD } : {}),
+  ...(CATALOG[id]!.advanced ? { advanced: true, advice: ADVANCED } : {}),
 });
 
-async function readRows(): Promise<ConnectorRow[]> {
+/** The line for a connector a home computer cannot receive on its own. */
+const ADVANCED =
+  "This one needs some technical setup: a public web address that reaches this computer. " +
+  "Say so plainly, and offer Discord or Telegram first; they work right away.";
+
+/** Said instead of an error: seen live 25 Sep, the raw "optional external
+ *  dependency" error sent the agent searching the person's folders for it. */
+const WHATSAPP_DOWNLOAD =
+  "WhatsApp needs a one-time download of its library (about 50 MB) before it can be turned on. " +
+  "configure with enabled:true asks the person first. Never look for or install the library yourself.";
+
+const DOWNLOAD = "Download";
+const NOT_NOW = "Not now";
+
+export async function readRows(): Promise<ConnectorRow[]> {
   try {
     const parsed = JSON.parse(await readFile(configPath(), "utf8")) as {
       connectors?: ConnectorRow[];
@@ -334,9 +425,35 @@ async function readRows(): Promise<ConnectorRow[]> {
   }
 }
 
+async function writeRows(rows: ConnectorRow[]): Promise<void> {
+  const file = configPath();
+  await mkdir(dirname(file), { recursive: true });
+  await atomicWriteFile(file, JSON.stringify({ connectors: rows }, null, 2));
+}
+
+/** Add one person to a connector's allowlist, keeping everyone already on it. */
+export async function allowSender(id: string, userId: string): Promise<void> {
+  const rows = await readRows();
+  const row: ConnectorRow = rows.find((r) => r.id === id) ?? { id };
+  const allow = row.allowlist ?? [];
+  if (!allow.includes(userId)) row.allowlist = [...allow, userId];
+  await writeRows([...rows.filter((r) => r.id !== id), row]);
+}
+
+/** Is this secret stored for this connector? Never returns the value. */
+export async function secretPresent(connector: string, field: string): Promise<boolean> {
+  const row = (await readRows()).find((r) => r.id === connector);
+  return redact(row, connector).configured.some((c) => c.secret === field && c.present);
+}
+
 export function createConnectorsManageTool(
-  manager: { reload(): Promise<void> },
+  manager: { reload(): Promise<void>; hasHostSecret?(id: string, key: string): boolean; pairWhatsApp?(): Promise<boolean>; unlinkWhatsApp?(): Promise<boolean> },
+  deps: { isLinked?: () => boolean; hasWhatsApp?: () => boolean; installWhatsApp?: () => Promise<void> } = {},
 ): Tool {
+  if (manager.hasHostSecret) hostHas = (id, key) => manager.hasHostSecret!(id, key);
+  const isLinked = deps.isLinked ?? WhatsAppConnector.isLinked;
+  const hasWhatsApp = deps.hasWhatsApp ?? whatsappAvailable;
+  const install = deps.installWhatsApp ?? installWhatsApp;
   const manifest: ToolManifest = {
     name: "connectors_manage",
     description:
@@ -345,15 +462,18 @@ export function createConnectorsManageTool(
       "bot: if the user asks you to set up a different bot, this tool changes " +
       "you instead, and the usual result is that you go silent. Use action " +
       "'list' to see what's supported and what each needs; 'configure' with an " +
-      "id (and secrets/allowlist if required) to connect or disconnect. Changes " +
+      "id (and secrets/allowlist if required) to connect or pause; 'unlink' with id " +
+      "whatsapp when the person wants their phone disconnected. Changes " +
       "apply immediately. Secrets are stored, never echoed. " +
       "When a user asks how to connect you to something, call 'list' FIRST and " +
-      "walk them through the returned 'steps' verbatim — they are checked " +
+      "walk them through the returned 'steps' verbatim, except that wherever a step says to paste or send a secret you call request_secret first (it shows a secure field when the chat can) and only fall back to the paste if it returns unsupported_surface — they are checked " +
       "against the real console and your own recollection of these portals is " +
       "probably out of date. Give the steps a few at a time, wait at the one " +
       "that says to paste a token, and never invent a step that isn't there.",
     permissions: [],
     networkAccess: false,
+    // The WhatsApp download can outrun the 60 s default on a slow line.
+    timeoutMs: 5 * 60_000,
   };
 
   return {
@@ -361,7 +481,7 @@ export function createConnectorsManageTool(
     parameters: {
       action: {
         type: "string",
-        description: "'list' or 'configure'.",
+        description: "'list', 'configure', or 'unlink' (WhatsApp only: takes this computer off the phone's Linked devices and deletes the link).",
         required: true,
       },
       id: {
@@ -398,7 +518,7 @@ export function createConnectorsManageTool(
         schema: { type: "array", items: { type: "string" } },
       },
     },
-    async execute(args) {
+    async execute(args, ctx) {
       const action = typeof args.action === "string" ? args.action : "";
 
       if (action === "list") {
@@ -406,15 +526,15 @@ export function createConnectorsManageTool(
         return {
           ok: true,
           content: JSON.stringify(
-            Object.keys(CATALOG).map((id) => redact(rows.find((r) => r.id === id), id)),
+            Object.keys(CATALOG).map((id) => redact(rows.find((r) => r.id === id), id, sessionHasCards(ctx?.sessionId ?? ""))),
             null,
             2,
           ),
         };
       }
 
-      if (action !== "configure") {
-        return { ok: false, content: "action must be 'list' or 'configure'.", error: "bad_args" };
+      if (action !== "configure" && action !== "unlink") {
+        return { ok: false, content: "action must be 'list', 'configure' or 'unlink'.", error: "bad_args" };
       }
       const id = typeof args.id === "string" ? args.id.trim().toLowerCase() : "";
       if (!CATALOG[id]) {
@@ -425,6 +545,73 @@ export function createConnectorsManageTool(
         };
       }
 
+      if (action === "unlink") {
+        if (id !== "whatsapp") {
+          return {
+            ok: false,
+            content: `Only WhatsApp is linked to a phone. To stop ${id}, use configure with enabled:false.`,
+            error: "bad_args",
+          };
+        }
+        const cleared = (await manager.unlinkWhatsApp?.()) ?? false;
+        const rows = await readRows();
+        const row: ConnectorRow = rows.find((r) => r.id === id) ?? { id };
+        row.enabled = false;
+        await writeRows([...rows.filter((r) => r.id !== id), row]);
+        await manager.reload();
+        return {
+          ok: true,
+          content: cleared
+            ? "WhatsApp is unlinked: the phone no longer lists this computer under Linked devices, and the link is deleted here. Tell the person it is done."
+            : "WhatsApp is off and the link is deleted from this computer, but WhatsApp could not be reached to take this device off the phone. " +
+              "Tell the person to finish on the phone: WhatsApp, Settings, Linked devices, tap this computer, Log out.",
+        };
+      }
+
+      if (id === "whatsapp" && args.enabled === true && !hasWhatsApp()) {
+        // Downloaded on request, never shipped: the library carries libsignal
+        // (GPL-3.0). The person says yes on a card, not the model on its own.
+        if (!ctx?.askUser) {
+          return {
+            ok: false,
+            content: "WhatsApp needs a one-time download, and this chat cannot ask for permission. Ask the person to set it up from the Cinderpaw page.",
+            error: "needs_download",
+          };
+        }
+        let answer: string | undefined;
+        try {
+          const [a] = await ctx.askUser.ask(
+            [
+              {
+                question: "WhatsApp needs a one-time download (about 50 MB) before I can connect to it. Download it now?",
+                header: "WhatsApp",
+                options: [
+                  { label: DOWNLOAD, description: "About half a minute. It stays on this computer." },
+                  { label: NOT_NOW, description: "Nothing changes." },
+                ],
+                multiSelect: false,
+              },
+            ],
+            ctx.sessionId,
+          );
+          answer = a?.selected?.[0];
+        } catch {
+          answer = undefined;
+        }
+        if (answer !== DOWNLOAD) {
+          return { ok: true, content: "The person chose not to download WhatsApp support now. Nothing was changed. Say that is fine." };
+        }
+        ctx.progress?.({ stage: "download", progress: null, message: "Downloading WhatsApp support. About half a minute." });
+        try {
+          await install();
+        } catch (e) {
+          return {
+            ok: false,
+            content: `The WhatsApp download did not finish (${String(e).slice(0, 200)}). Tell the person to check the internet connection and try again. Do not install it another way.`,
+            error: "download_failed",
+          };
+        }
+      }
       const rows = await readRows();
       const row: ConnectorRow = rows.find((r) => r.id === id) ?? { id };
       if (typeof args.enabled === "boolean") row.enabled = args.enabled;
@@ -469,15 +656,15 @@ export function createConnectorsManageTool(
         row.channels = (args.channels as unknown[]).filter((x): x is string => typeof x === "string");
       }
 
-      const next = [...rows.filter((r) => r.id !== id), row];
-      const file = configPath();
-      await mkdir(dirname(file), { recursive: true });
-      await atomicWriteFile(file, JSON.stringify({ connectors: next }, null, 2));
+      await writeRows([...rows.filter((r) => r.id !== id), row]);
       await manager.reload();
+      // An enabled WhatsApp with no phone linked stays idle on purpose (no QR
+      // nobody asked for). Turning it on here IS the asking, and before this
+      // nothing called pair at all: no surface could link a phone on a fresh
+      // machine.
+      const pairing = id === "whatsapp" && row.enabled === true && !isLinked() && (await manager.pairWhatsApp?.()) === true;
 
-      const missing = CATALOG[id]!.secrets.filter(
-        (k) => !row.secrets?.[k]?.trim() && !(id === "discord" && row.token?.trim()),
-      );
+      const missing = CATALOG[id]!.secrets.filter((k) => !has(row, id, k));
       const state = redact(row, id);
       // An enabled connector with nobody on the allowlist is the failure this
       // whole file now guards against, and refusing it outright is not an
@@ -489,14 +676,25 @@ export function createConnectorsManageTool(
       const hint =
         row.enabled && missing.length > 0
           ? ` Still missing secrets: ${missing.join(", ")} — the connector stays offline until provided.`
-          : deaf
-            ? ` WARNING: ${id} is online but its allowlist is EMPTY, which means it ` +
-              `answers NOBODY — not "everyone". Ask the user for their ${id} user id ` +
-              `and call configure again with allowlist:["<their id>"], or the bot will ` +
-              `look connected and silently ignore every message, including theirs.`
-            : id === "whatsapp" && row.enabled
-              ? " WhatsApp pairs via QR — tell the user to scan the code in the Cinderpaw app (Connectors page or TUI)."
-              : "";
+          : pairing
+            // Before the allowlist: nobody can message a WhatsApp that has no phone yet.
+            ? " A QR code is on its way. On the Cinderpaw page it shows up under the chat by itself; in the desktop app it is on the Connectors page; in the terminal chat: /connectors qr. " +
+              "Tell the user: on your phone open WhatsApp, then Settings, Linked devices, Link a device, and point the camera at the code."
+            : deaf
+              ? ` WARNING: ${id} is online but its allowlist is EMPTY, which means it ` +
+                `answers NOBODY — not "everyone". ` +
+                (PAIRABLE[id]
+                  ? `Tell the user to send the bot a direct message now, then call connectors_pair ` +
+                    `with id "${id}": it asks them "Is that you?" and lets them in, no user id needed.`
+                  : `Ask the user for their ${id} user id and call configure again with ` +
+                    `allowlist:["<their id>"], or the bot will look connected and silently ignore ` +
+                    `every message, including theirs.`)
+              : id === "whatsapp" && row.enabled
+                ? " WhatsApp pairs via QR — tell the user to scan the code in the Cinderpaw app (Connectors page or TUI)."
+                : id === "whatsapp" && isLinked()
+                  ? " WhatsApp is PAUSED, not unlinked: the phone still lists this computer under Linked devices. " +
+                    "Do not say it is disconnected. If the person wanted it disconnected, call action 'unlink' with id whatsapp."
+                  : "";
       return {
         ok: true,
         content: `Saved and reloaded.${hint}\n${JSON.stringify(state, null, 2)}`,
