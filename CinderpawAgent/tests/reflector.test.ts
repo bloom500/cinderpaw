@@ -85,6 +85,26 @@ describe("Reflector.run", () => {
     db.close();
   });
 
+  test("a week the model wrote in its own format is still folded", async () => {
+    const old = NOW - 9 * DAY;
+    const week = weekPeriod(old);
+    const [start, end] = week.split("..");
+    const { db, store, reflector } = rig(`=== CARD ===\nx\n=== DIGESTS ===\n- \`${start} to ${end}\` | Lisbon, 800 EUR.`);
+    add(store, old, "Flight to Lisbon, 800 EUR");
+    expect(await reflector.run()).toBe(true);
+    expect(store.digests("").map((d) => [d.period, d.text])).toEqual([[week, "Lisbon, 800 EUR."]]);
+    db.close();
+  });
+
+  test("no digest for a pending week keeps the card and says so on the Memory page", async () => {
+    const { db, store, reflector } = rig("=== CARD ===\nnew card\n=== DIGESTS ===\n");
+    add(store, NOW - 9 * DAY, "old");
+    expect(await reflector.run()).toBe(false);
+    expect(store.card("")?.text).toBe("new card");
+    expect(reflector.health.lastError).toContain("weekly");
+    db.close();
+  });
+
   test("the 4 h cooldown holds after a run", async () => {
     const { db, store, reflector, setNow } = rig("=== CARD ===\nx\n=== DIGESTS ===\n");
     for (let i = 0; i < 20; i++) add(store, NOW - i * 1000, `n${i}`);

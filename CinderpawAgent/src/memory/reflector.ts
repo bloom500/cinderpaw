@@ -130,15 +130,23 @@ export class Reflector {
     const newCard = out.card.slice(0, CARD_MAX_CHARS).trim();
     if (!newCard) return this.#fail("the model wrote no card");
     store.setCard("", newCard, now);
+    // The week is found by the first date on the line, so "2026-09-14 to
+    // 2026-09-20" or a backticked period still counts; an invented week does not.
+    let folded = 0;
     for (const l of out.digests.split("\n")) {
       const bar = l.indexOf("|");
       if (bar < 0) continue;
-      const period = l.slice(0, bar).trim().replace(/^[-*•]\s*/, "");
+      const first = l.slice(0, bar).match(/\d{4}-\d{2}-\d{2}/)?.[0];
+      const period = first ? weekPeriod(Date.parse(first)) : "";
       const text = l.slice(bar + 1).trim();
       const ns = weeks.get(period);
       if (!ns || !text) continue;
       store.addDigest("", period, text, ns.map((n) => n.id), now);
+      folded++;
     }
+    // ponytail: a model that never writes digests is retried every 4 h (the
+    // cooldown caps the cost); the reason is on the Memory page, not only here.
+    if (weeks.size > 0 && folded === 0) return this.#fail("the model wrote the card but no weekly digest");
     this.#health = { lastOkAt: now, failures: 0, lastError: null };
     this.#d.log?.(`memory: reflected (${fresh.length} new notes, ${weeks.size} week(s) to digest)`);
     return true;
