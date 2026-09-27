@@ -768,18 +768,51 @@ def turn(pb, axis, degrees):
     pb.rotation_quaternion = local.to_quaternion()
 
 
+# The six poses the app needs. Each is a list of (bone, world axis, degrees) turns from rest.
+# Signs: about X, + tips a bone forward (toward the viewer), - back; about Y, - swings a right
+# limb out and up, + in across the body (mirror for the left).
+POSES = {
+    "idle": [("head", "Y", 3), ("upper_arm.R", "Y", -6), ("upper_arm.L", "Y", 6), ("tail.2", "Z", 10)],
+    "wave": [("upper_arm.R", "Y", -55), ("forearm.R", "Y", -45), ("forearm.R", "X", -40), ("head", "Y", 8),
+             ("horn.R", "Y", -12), ("horn.L", "Y", 12), ("tail.2", "X", -20)],
+    "thinking": [("upper_arm.R", "X", -55), ("upper_arm.R", "Y", 20), ("forearm.R", "X", -70),
+                 ("head", "Y", -10), ("head", "X", -6), ("upper_arm.L", "X", -15)],
+    "working": [("upper_arm.R", "X", -55), ("upper_arm.L", "X", -55), ("forearm.R", "X", -25),
+                ("forearm.L", "X", -25), ("head", "X", 12), ("chest", "X", 4)],
+    "sleeping": [("head", "X", 18), ("head", "Y", 12), ("chest", "X", 8), ("horn.R", "Y", 10),
+                 ("horn.L", "Y", -10), ("upper_arm.R", "Y", 4), ("upper_arm.L", "Y", -4), ("tail.3", "X", 25)],
+    "celebrate": [("upper_arm.R", "Y", -70), ("upper_arm.L", "Y", 70), ("forearm.R", "Y", -50),
+                  ("forearm.L", "Y", 50), ("upper_arm.R", "X", -25), ("upper_arm.L", "X", -25),
+                  ("head", "X", -8), ("horn.R", "Y", -10), ("horn.L", "Y", 10), ("tail.2", "X", -25)],
+}
+
+
+def apply_pose(rig, name):
+    rest(rig)
+    for bone, axis, deg in POSES[name]:
+        pb = rig.pose.bones[bone]
+        before = pb.rotation_quaternion.copy() if pb.rotation_mode == "QUATERNION" else None
+        turn(pb, axis, deg)
+        if before is not None:                   # several turns on one bone add up
+            pb.rotation_quaternion = pb.rotation_quaternion @ before
+
+
+def store_poses(rig):
+    """Keep each pose in the .blend as an action with one key, so it can be picked in Blender."""
+    rig.animation_data_create()
+    for name in POSES:
+        act = bpy.data.actions.new(f"pose.{name}")
+        act.use_fake_user = True
+        rig.animation_data.action = act
+        apply_pose(rig, name)
+        for pb in rig.pose.bones:
+            pb.keyframe_insert(data_path="rotation_quaternion", frame=1)
+    rig.animation_data.action = None
+    rest(rig)
+
+
 def pose_test(rig):
-    """A wave with a head tilt, a horn wiggle and a tail flick, to see the rig bend the clay."""
-    pb = rig.pose.bones
-    # the head is wider than the arm is long: a wave goes out to the side, forearm up, so the
-    # hand shows beside the head instead of disappearing behind it
-    turn(pb["upper_arm.R"], "Y", -55)
-    turn(pb["forearm.R"], "Y", -45)
-    turn(pb["forearm.R"], "X", -40)         # the hand comes forward (-Y), in front of the head's side
-    turn(pb["head"], "Y", 8)
-    turn(pb["horn.R"], "Y", -12)
-    turn(pb["horn.L"], "Y", 12)
-    turn(pb["tail.2"], "X", -20)
+    apply_pose(rig, "wave")
 
 
 def rest(rig):
@@ -838,6 +871,17 @@ def open_ready(pivot, cam):
 if __name__ == "__main__":
     scene, pivot_ob, cam_ob, floor_ob = build()
     rig_ob = build_rig(TAIL)
+    if "--poses" in ARGS:
+        os.makedirs(os.path.join(OUT, "poses"), exist_ok=True)
+        cam_ob.data.type, cam_ob.data.ortho_scale = "ORTHO", 3.8
+        pivot_ob.rotation_euler = (0, 0, math.radians(-25))
+        cam_ob.location, cam_ob.rotation_euler = (0, -10, 0), (math.radians(90), 0, 0)
+        for pose_name in POSES:
+            apply_pose(rig_ob, pose_name)
+            scene.render.filepath = os.path.join(OUT, "poses", f"{pose_name}.png")
+            bpy.ops.render.render(write_still=True)
+        rest(rig_ob)
+        store_poses(rig_ob)
     if "--pose-test" in ARGS:
         pose_test(rig_ob)
         cam_ob.data.type, cam_ob.data.ortho_scale = "ORTHO", 3.8
