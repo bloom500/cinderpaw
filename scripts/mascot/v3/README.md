@@ -9,6 +9,12 @@ saving over it; keep a hand edit with File > Save As).
 
 Needs Blender 5.2 (the SDF grid nodes that fuse the clay). About 30 seconds.
 
+The app's mascot loops (ANIMS in `build_character.py`, after the expression board) come from the
+built .blend in two steps, then land next to the renderer as `sheet.webp` + `frames.ts`:
+
+    blender --background --factory-startup --python render_frames.py     # frames/ (not committed)
+    python pack_frames.py                                                 # marks, sheet, frame index
+
 What it reads, all committed here:
 - `fit.json` - part sizes fitted to the board's outlines by `fit_board.py`
 - `logo/logo-paths.json` - the approved logo; its visor outline shapes the character's visor

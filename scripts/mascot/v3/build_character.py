@@ -529,6 +529,8 @@ def build():
     belly, _ = principled("Belly", BELLY_C, 0.58, sss=0.12)
     clay_bump(belly, belly.node_tree.nodes["Principled BSDF"], 0.04)
     conform_patch("Belly", fused, 0.0, BELLY["cz"] + LEG_LIFT, BELLY["rx"], BELLY["rz"], 0.018, belly, soft=2.5)
+    eye_shapes()
+    add_laptop()
 
     # studio: paper floor, warm key, soft fill, rim to lift the silhouette
     bpy.ops.mesh.primitive_plane_add(size=400, location=(0, 0, 0))
@@ -721,6 +723,7 @@ def build_rig(tail):
     bone("hips", (0, 0, 0.30), (0, 0, 0.70), "root")
     bone("chest", (0, 0, 0.70), (0, 0, 1.05), "hips", True)
     bone("head", (0, 0, 1.05), (0, 0, 2.70), "chest", True)
+    eb["head"].inherit_scale = "NONE"
     hp = [Vector(p) for p in (FIT["horn"]["points"] if FIT else [(0.78, 0.1, 2.38), (1.02, 0.12, 2.78), (0.97, 0.14, 2.96)])]
     ap = [Vector(p) for p in ARM]
     for side, f in (("L", -1), ("R", 1)):
@@ -732,6 +735,10 @@ def build_rig(tail):
         bone(f"upper_arm.{side}", m(ap[0]), m(elbow), "chest")
         bone(f"forearm.{side}", m(elbow), m(wrist), f"upper_arm.{side}", True)
         bone(f"hand.{side}", m(wrist), m(wrist + Vector((0.0, 0.0, -0.18))), f"forearm.{side}", True)
+        # a stretched bone (the "S" pose step: long arms, a breathing chest) must not stretch its
+        # children: the hand into an egg, the head or the arms with every breath
+        for child in ("upper_arm", "forearm", "hand"):
+            eb[f"{child}.{side}"].inherit_scale = "NONE"
         bone(f"thigh.{side}", (f * 0.35, 0, 0.42), (f * 0.36, 0, 0.16), "hips")
         bone(f"foot.{side}", (f * 0.36, 0, 0.16), (f * 0.36, -0.32, 0.08), f"thigh.{side}", True)
     tp = [Vector(p) for p in tail]
@@ -760,41 +767,161 @@ def build_rig(tail):
     return rig
 
 
-def turn(pb, axis, degrees):
-    """Rotate a pose bone about a world axis (the rig sits at the origin, unrotated)."""
-    M = pb.bone.matrix_local.to_3x3()
-    local = M.inverted() @ Matrix.Rotation(math.radians(degrees), 3, axis) @ M
-    pb.rotation_mode = "QUATERNION"
-    pb.rotation_quaternion = local.to_quaternion()
+def add_laptop():
+    """The focused pose's laptop, after the board: a Stone shell, lid open toward the character so
+    the viewer sees its back. Hidden until a ("laptop", "AT", ...) pose step places it."""
+    shell, _ = principled("Laptop", (0.69, 0.58, 0.52), 0.45)
+    lap = bpy.data.objects.new("Laptop", None)
+    bpy.context.collection.objects.link(lap)
+    W, D = 1.1, 0.75
+    for name, size, loc, tilt in (("Laptop.base", (W, D, 0.07), (0, 0, 0.035), 0),
+                                  ("Laptop.lid", (W, 0.05, 0.72), (0, -D / 2, 0.07), -12)):
+        bpy.ops.mesh.primitive_cube_add(size=1)
+        ob = bpy.context.active_object
+        ob.name, ob.scale = name, size
+        bpy.ops.object.transform_apply(scale=True)
+        if name.endswith("lid"):                 # hinge on the base's far edge, the lid stands up from it
+            for v in ob.data.vertices:
+                v.co.z += 0.36
+        ob.location, ob.rotation_euler = loc, (math.radians(tilt), 0, 0)
+        bev = ob.modifiers.new("Round", "BEVEL")
+        bev.width, bev.segments = 0.025, 4
+        ob.data.materials.append(shell)
+        for p in ob.data.polygons:
+            p.use_smooth = True
+        ob.parent = lap
+    show_laptop(False)
+    return lap
 
 
-# The six poses the app needs. Each is a list of (bone, world axis, degrees) turns from rest.
-# Signs: about X, + tips a bone forward (toward the viewer), - back; about Y, - swings a right
-# limb out and up, + in across the body (mirror for the left).
+def show_laptop(on):
+    # every piece: hiding the parent empty alone leaves its children on screen
+    for ob in bpy.data.objects:
+        if ob.name.startswith("Laptop"):
+            ob.hide_render = ob.hide_viewport = not on
+
+
+def eye_shapes():
+    """Shape keys on both eyes, in the eye's own frame (x across, z up): closed arcs like the
+    expression board, a blink line and wide open. The arcs are the oval squashed flat, widened,
+    then bent: up in the middle for happy, down for asleep."""
+    for name in ("Eye.L", "Eye.R"):
+        ob = bpy.data.objects[name]
+        if ob.data.shape_keys:
+            continue
+        basis = ob.shape_key_add(name="Basis")
+        rx, rz = EYE["rx"], EYE["rz"]
+        # (widen, squash, bend, lift out of the visor so a thin bent line is not half buried)
+        shapes = {"happy": (1.35, 0.20, 0.11, 0.015), "closed": (1.35, 0.20, -0.08, 0.015),
+                  "blink": (1.15, 0.10, 0.0, 0.01), "wide": (1.28, 1.16, 0.0, 0.0)}
+        for key, (sx, sz, bend, lift) in shapes.items():
+            kb = ob.shape_key_add(name=key, from_mix=False)
+            for v, b in zip(kb.data, basis.data):
+                x, y, z = b.co
+                u = min(1.0, abs(x) / rx)
+                v.co = (x * sx, y - lift, z * sz + bend * (1 - u * u))
+            kb.value = 0.0          # Blender 5.2 starts a new key at 1: all four stacked into giant eyes
+
+
+# The poses the app needs, after the expression board. Each is a list of steps from rest, done
+# in order on the bone as it stands at that moment (so a forearm step sees the raised upper arm):
+#   (bone, "X"/"Y"/"Z", degrees)  turn about a world axis through the bone's head
+#   (bone, "AIM", (x, y, z))      point the bone along a world direction (character faces -y,
+#                                 its left side, -x, is the one nearer the camera)
+#   (bone, "S", factor)           stretch along the bone: the arms are short beside the big head,
+#                                 so a raised arm grows, like a cartoon's, to reach past it
+#   ("body", "X"/"Z", deg) / ("body", "LOC", (x, y, z))   the whole character through the root
+#                                 bone, about the floor origin. Not the Rig object: the Armature
+#                                 modifier ignores it, so the clay stayed while the visor went.
+#   ("eyes", key, value)          an eye shape from eye_shapes()
+# A raised hand must stay outside the hood, or it vanishes inside it: from the side, the head
+# covers everything above z ~1.3 closer than x ~1.1. And from the 3/4 camera a raised NEAR (left)
+# hand lands on the orange cheek and is lost; the FAR (right) hand clears the head's outline and
+# reads against the background, which is also the side the expression board raises.
 POSES = {
     "idle": [("head", "Y", 3), ("upper_arm.R", "Y", -6), ("upper_arm.L", "Y", 6), ("tail.2", "Z", 10)],
-    "wave": [("upper_arm.R", "Y", -55), ("forearm.R", "Y", -45), ("forearm.R", "X", -40), ("head", "Y", 8),
-             ("horn.R", "Y", -12), ("horn.L", "Y", 12), ("tail.2", "X", -20)],
-    "thinking": [("upper_arm.R", "X", -55), ("upper_arm.R", "Y", 20), ("forearm.R", "X", -70),
-                 ("head", "Y", -10), ("head", "X", -6), ("upper_arm.L", "X", -15)],
-    "working": [("upper_arm.R", "X", -55), ("upper_arm.L", "X", -55), ("forearm.R", "X", -25),
-                ("forearm.L", "X", -25), ("head", "X", 12), ("chest", "X", 4)],
-    "sleeping": [("head", "X", 18), ("head", "Y", 12), ("chest", "X", 8), ("horn.R", "Y", 10),
-                 ("horn.L", "Y", -10), ("upper_arm.R", "Y", 4), ("upper_arm.L", "Y", -4), ("tail.3", "X", 25)],
-    "celebrate": [("upper_arm.R", "Y", -70), ("upper_arm.L", "Y", 70), ("forearm.R", "Y", -50),
-                  ("forearm.L", "Y", 50), ("upper_arm.R", "X", -25), ("upper_arm.L", "X", -25),
-                  ("head", "X", -8), ("horn.R", "Y", -10), ("horn.L", "Y", 10), ("tail.2", "X", -25)],
+    "happy": [("upper_arm.L", "AIM", (-0.8, -0.4, -0.1)), ("forearm.L", "AIM", (-0.6, -0.4, 0.5)),
+              ("upper_arm.R", "AIM", (0.8, -0.4, -0.1)), ("forearm.R", "AIM", (0.6, -0.4, 0.5)),
+              ("head", "Y", -5), ("eyes", "happy", 1.0), ("horn.R", "Y", -10), ("horn.L", "Y", 10), ("tail.2", "X", -25)],
+    "curious": [("head", "Y", 14), ("head", "X", -4), ("upper_arm.L", "AIM", (-0.3, -0.7, -0.5)),
+                ("forearm.L", "AIM", (0.5, -0.6, 0.3)), ("horn.R", "Y", -8), ("tail.2", "Z", 15)],
+    "thinking": [("body", "LOC", (0, 0, -0.14)), ("thigh.L", "AIM", (-0.1, -1, -0.1)), ("thigh.R", "AIM", (0.1, -1, -0.1)),
+                 ("upper_arm.L", "S", 1.3), ("forearm.L", "S", 1.3),
+                 ("upper_arm.L", "AIM", (-0.1, -0.6, -0.35)), ("forearm.L", "AIM", (0.25, -0.3, 0.45)),
+                 ("upper_arm.R", "AIM", (0.2, -0.7, -0.6)), ("head", "Y", 8), ("head", "X", -6)],
+    "surprised": [("upper_arm.R", "S", 1.4), ("forearm.R", "S", 1.4),
+                  ("upper_arm.R", "AIM", (0.75, -0.55, 0.2)), ("forearm.R", "AIM", (0.6, -0.55, 0.55)),
+                  ("upper_arm.L", "AIM", (-0.5, -0.3, -0.8)), ("head", "X", 6), ("eyes", "wide", 1.0), ("horn.R", "Y", -14), ("horn.L", "Y", 14), ("tail.2", "X", -30)],
+    "focused": [("body", "X", 75), ("body", "Z", 45), ("body", "LOC", (-0.63, 0.3, 0.45)), ("head", "AIM", (0, 0, 1)),
+                ("head", "Z", -20), ("upper_arm.L", "S", 1.3), ("upper_arm.R", "S", 1.3),
+                ("upper_arm.L", "AIM", (0.5, -0.8, -0.5)), ("upper_arm.R", "AIM", (0.8, -0.5, -0.5)),
+                ("laptop", "AT", (0.55, -0.95, 0.0, 30)),
+                ("thigh.L", "AIM", (-0.7, 0.4, 0.5)), ("thigh.R", "AIM", (-0.5, 0.7, 0.4))],
+    "sleepy": [("body", "X", 75), ("body", "Z", 45), ("body", "LOC", (-0.63, 0.3, 0.45)), ("head", "AIM", (0.25, 0, 1)),
+               ("head", "Z", -20), ("upper_arm.L", "AIM", (0.5, -0.8, -0.3)), ("upper_arm.R", "AIM", (0.8, -0.5, -0.3)),
+               ("eyes", "closed", 1.0), ("horn.R", "Y", 10), ("horn.L", "Y", -10), ("tail.3", "X", 25)],
+    "waving": [("upper_arm.R", "S", 1.5), ("forearm.R", "S", 1.5),
+               ("upper_arm.R", "AIM", (0.85, -0.3, 0.4)), ("forearm.R", "AIM", (0.8, -0.3, 0.55)),
+               ("head", "Y", 6), ("horn.R", "Y", -12), ("horn.L", "Y", 12), ("tail.2", "X", -20)],
 }
 
 
-def apply_pose(rig, name):
+def _wave(t, k=1):
+    """k smooth cycles over a loop's phase t (0..1), from -1 to 1; k whole, so the loop is seamless."""
+    return math.sin(2 * math.pi * k * t)
+
+
+def _blink(t, at=0.7, width=0.07):
+    return [("eyes", "blink", max(0.0, 1 - abs(t - at) / width))]
+
+
+# The app's loops: (pose, drawn frames, frames per second, extra steps at phase t in 0..1).
+# The extra steps run after the pose's own, so they move it rather than replace it.
+ANIMS = {
+    "idle": ("idle", 16, 8, lambda t: [("chest", "S", 1.06 + 0.06 * _wave(t)), ("horn.L", "Y", 5 * _wave(t)),
+                                       ("horn.R", "Y", -5 * _wave(t)), ("tail.2", "Z", 8 * _wave(t))] + _blink(t)),
+    "happy": ("happy", 12, 12, lambda t: [("body", "LOC", (0, 0, 0.14 * abs(_wave(t)))), ("upper_arm.L", "Y", 10 * _wave(t, 2)),
+                                          ("upper_arm.R", "Y", -10 * _wave(t, 2)), ("tail.2", "Z", 20 * _wave(t, 2))]),
+    "curious": ("curious", 16, 8, lambda t: [("head", "Y", 6 * _wave(t)), ("tail.2", "Z", 12 * _wave(t))] + _blink(t, 0.35)),
+    "thinking": ("thinking", 16, 8, lambda t: [("head", "Z", 6 * _wave(t)), ("tail.2", "Z", 10 * _wave(t))] + _blink(t, 0.8)),
+    "surprised": ("surprised", 12, 12, lambda t: [("body", "LOC", (0, 0, 0.16 * max(0.0, _wave(t)))),
+                                                  ("forearm.R", "Y", 8 * _wave(t, 3)), ("horn.L", "Y", 6 * _wave(t, 2)),
+                                                  ("horn.R", "Y", -6 * _wave(t, 2))]),
+    "focused": ("focused", 12, 12, lambda t: [("upper_arm.L", "X", 6 * max(0.0, _wave(t, 2))),
+                                              ("upper_arm.R", "X", 6 * max(0.0, -_wave(t, 2))), ("head", "X", 2 * _wave(t)),
+                                              ("tail.3", "Z", 15 * _wave(t))] + _blink(t, 0.5, 0.09)),
+    "sleepy": ("sleepy", 16, 6, lambda t: [("chest", "S", 1.06 + 0.06 * _wave(t)), ("tail.3", "Z", 8 * _wave(t))]),
+    "waving": ("waving", 12, 12, lambda t: [("forearm.R", "Y", 20 * _wave(t, 2)), ("tail.2", "Z", 12 * _wave(t))]),
+}
+
+
+def apply_pose(rig, name, extra=()):
     rest(rig)
-    for bone, axis, deg in POSES[name]:
-        pb = rig.pose.bones[bone]
-        before = pb.rotation_quaternion.copy() if pb.rotation_mode == "QUATERNION" else None
-        turn(pb, axis, deg)
-        if before is not None:                   # several turns on one bone add up
-            pb.rotation_quaternion = pb.rotation_quaternion @ before
+    for target, op, val in POSES[name] + list(extra):
+        if target == "eyes":
+            for eye in ("Eye.L", "Eye.R"):
+                bpy.data.objects[eye].data.shape_keys.key_blocks[op].value = val
+            continue
+        if target == "laptop":                   # (x, y, z on the floor, turn about z in degrees)
+            show_laptop(True)
+            lap = bpy.data.objects["Laptop"]
+            lap.location, lap.rotation_euler = val[:3], (0, 0, math.radians(val[3]))
+            continue
+        pb = rig.pose.bones["root" if target == "body" else target]
+        if op == "S":
+            pb.scale = (1, val, 1)
+            continue
+        bpy.context.view_layer.update()          # the parent's pose must be current before ours is read
+        pivot = Vector() if target == "body" else pb.matrix.translation.copy()
+        if op == "LOC":
+            M = Matrix.Translation(val)
+        elif op == "AIM":
+            now = (pb.matrix.to_3x3() @ Vector((0, 1, 0))).normalized()
+            M = now.rotation_difference(Vector(val).normalized()).to_matrix().to_4x4()
+        else:
+            M = Matrix.Rotation(math.radians(val), 4, op)
+        pb.matrix = Matrix.Translation(pivot) @ M @ Matrix.Translation(-pivot) @ pb.matrix
+    bpy.context.view_layer.update()
 
 
 def store_poses(rig):
@@ -806,13 +933,14 @@ def store_poses(rig):
         rig.animation_data.action = act
         apply_pose(rig, name)
         for pb in rig.pose.bones:
-            pb.keyframe_insert(data_path="rotation_quaternion", frame=1)
+            for path in ("location", "rotation_quaternion", "scale"):
+                pb.keyframe_insert(data_path=path, frame=1)
     rig.animation_data.action = None
     rest(rig)
 
 
 def pose_test(rig):
-    apply_pose(rig, "wave")
+    apply_pose(rig, "waving")
 
 
 def rest(rig):
@@ -820,6 +948,12 @@ def rest(rig):
         b.rotation_mode = "QUATERNION"
         b.rotation_quaternion = (1, 0, 0, 0)
         b.location = (0, 0, 0)
+        b.scale = (1, 1, 1)
+    show_laptop(False)
+    for eye in ("Eye.L", "Eye.R"):
+        keys = bpy.data.objects[eye].data.shape_keys
+        for kb in keys.key_blocks[1:] if keys else ():
+            kb.value = 0.0
 
 
 def add_references():

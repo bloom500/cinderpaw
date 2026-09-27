@@ -1,21 +1,17 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { VARIANTS, FRAME_W, FRAME_H, SHEET_COLS, type MascotState, type Frame } from './frames';
-import sheetUrl from './sheet.png';
+import { VARIANTS, FRAME_W, FRAME_H, SHEET_COLS, TICK_MS, type MascotState, type Frame } from './frames';
+import sheetUrl from './sheet.webp';
 
-const FRAME_MS = 160;
-const SPRITE_H = FRAME_H + 2; // body rows + 1px bob headroom
-// 2×: the drawn frame is 64px with the creature filling 48 of them, so on
-// screen the creature is 96px tall and the 8px margin around it, where props
-// and Z's live, is 16px. 1:1 (64) was tried first and read as "super mica";
-// keep the scale an integer or the pixel-art smears at pixel boundaries.
+// The clay character is rendered at 2x (256px frames) and drawn at 128 CSS
+// px, so it stays sharp on a high-density screen. The creature fills about
+// 100px of that; the room above its head is where the ?, ... and Zzz live.
 const DISPLAY = 128;
-const SCALE = DISPLAY / FRAME_W;
 
-// Every frame in sheet.png already carries its own props and effects (the
-// sparkles, the Z's, the magnifier), so the canvas is exactly one frame plus
-// the bob headroom. The old procedural effects layer (effects.ts) is not drawn.
+// Every frame in sheet.webp already carries its own motion and marks (the
+// breathing, the hop, the Zzz), so the canvas is exactly one frame. The old
+// procedural effects layer (effects.ts) is not drawn.
 const CANVAS_W = FRAME_W;
-const CANVAS_H = SPRITE_H;
+const CANVAS_H = FRAME_H;
 
 // One shared sheet for every instance. Frames drawn before it has loaded are
 // simply skipped; the next tick paints them.
@@ -53,14 +49,6 @@ function pickVariant(pool: Frame[][], lastIdx: number): number {
   return idx;
 }
 
-function bobOffset(state: MascotState, tick: number): number {
-  if (state === 'sleep' || state === 'stretching') return 1;
-  if (state === 'done' || state === 'running' || state === 'excited' || state === 'spawning')
-    return tick % 2 === 0 ? -1 : 0;
-  if (state === 'error' || state === 'cool') return tick % 3 === 0 ? -1 : 0;
-  return tick % 4 < 2 ? 0 : 1;
-}
-
 export function CinderpawMascot({ state, flip = false }: { state: MascotState; flip?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const reduced = usePrefersReducedMotion();
@@ -78,10 +66,9 @@ export function CinderpawMascot({ state, flip = false }: { state: MascotState; f
     }
   }, [state]);
 
-  const drawFrame = useCallback((canvas: HTMLCanvasElement, frameIdx: number, tick: number) => {
+  const drawFrame = useCallback((canvas: HTMLCanvasElement, frameIdx: number) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.imageSmoothingEnabled = false;
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
@@ -94,24 +81,23 @@ export function CinderpawMascot({ state, flip = false }: { state: MascotState; f
 
     const frames = variantRef.current;
     const frame: Frame = frames[frameIdx % frames.length] ?? 0;
-    const y0 = 1 + (reduced ? 0 : bobOffset(state, tick));
     const sx = (frame % SHEET_COLS) * FRAME_W;
     const sy = Math.floor(frame / SHEET_COLS) * FRAME_H;
-    ctx.drawImage(SHEET, sx, sy, FRAME_W, FRAME_H, 0, y0, FRAME_W, FRAME_H);
-  }, [state, reduced, flip]);
+    ctx.drawImage(SHEET, sx, sy, FRAME_W, FRAME_H, 0, 0, FRAME_W, FRAME_H);
+  }, [state, flip]); // a new state restarts its loop from the first frame
 
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
 
-    drawFrame(canvas, 0, 0);
+    drawFrame(canvas, 0);
     if (reduced) return;
 
     let tick = 0;
     const id = window.setInterval(() => {
       tick += 1;
-      drawFrame(canvas, tick, tick);
-    }, FRAME_MS);
+      drawFrame(canvas, tick);
+    }, TICK_MS);
     return () => window.clearInterval(id);
   }, [drawFrame, reduced]);
 
@@ -121,7 +107,7 @@ export function CinderpawMascot({ state, flip = false }: { state: MascotState; f
       style={{
         position: 'relative',
         width: DISPLAY,
-        height: Math.round(SPRITE_H * SCALE),
+        height: DISPLAY,
       }}
     >
       <canvas
@@ -132,9 +118,8 @@ export function CinderpawMascot({ state, flip = false }: { state: MascotState; f
           position: 'absolute',
           left: 0,
           top: 0,
-          width: Math.round(CANVAS_W * SCALE),
-          height: Math.round(CANVAS_H * SCALE),
-          imageRendering: 'pixelated',
+          width: DISPLAY,
+          height: DISPLAY,
           pointerEvents: 'none',
         }}
       />
