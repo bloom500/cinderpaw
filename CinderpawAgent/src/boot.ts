@@ -113,6 +113,7 @@ import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
 import { createRecallTool } from "./tools/builtin/recall.ts";
 import { createRememberTool, NOTE_PREFIX, POSITION_KEY } from "./tools/builtin/remember.ts";
+import { forgetMirrors } from "./memory/forget.ts";
 import { createSelfTools } from "./tools/builtin/self.ts";
 import { registerCoworkRosterTools } from "./tools/builtin/cowork.ts";
 import { createCoworkCreateTool } from "./tools/builtin/cowork-create.ts";
@@ -1039,9 +1040,7 @@ export async function boot(transportOverride?: Transport) {
       // The graph and the tree mirror only global (owner) facts; see
       // extractor.ts and reconciler.ts.
       onForget: (key, scope) => {
-        if (scope !== "") return;
-        if (memoryGraph.forgetFact(key, "has") > 0) memoryGraph.persist();
-        fractalMemory.forgetFact(key);
+        if (scope === "") forgetMirrors({ graph: memoryGraph, semantic, fractal: fractalMemory }, key);
       },
     }),
   );
@@ -2685,8 +2684,10 @@ export async function boot(transportOverride?: Transport) {
   // value on the other side.
   const ctx = {
     config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
-    // The semantic graph, for the memory page's Forget (dispatch `memory_forget`).
+    // The semantic graph, for the memory page's Forget (dispatch `memory_forget`),
+    // with the fact store it mirrors so Forget clears the fact too.
     memoryGraph,
+    semantic,
     // Agent Cowork S4 — the chat-side approval resolver (dispatch routes
     // `cowork_approval_resolve` here).
     coworkApprovals: coworkApprovalService,

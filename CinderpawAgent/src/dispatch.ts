@@ -15,6 +15,7 @@
 import { join } from "node:path";
 import type { InboundMessage, ModelTarget, Schedule, DeliveryTarget } from "./types.ts";
 import type { BootContext } from "./boot.ts";
+import { forgetEdge } from "./memory/forget.ts";
 import { cfgBool, cfgInt, cfgPath } from "./config.ts";
 import { runUnattended } from "./core/unattended.ts";
 import { withHumanReplies } from "./cowork/runtime.ts";
@@ -152,7 +153,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
     db, audit, router, localFallbackTarget, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents, artifacts, artifactExporter,
     runHooks,
     brainDerived, brainBreaker,
-    memoryGraph,
+    memoryGraph, semantic,
   } = ctx;
 
   switch (msg.type) {
@@ -944,15 +945,16 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       // The memory page's Forget: one fact (a graph edge) leaves what Cinderpaw
       // knows about the person, and the file is written at once so the page's
       // next read (Rust reads memory-graph.json directly) no longer has it.
-      // Only the edge goes; its two nodes may carry other facts.
+      // Only the edge goes; its two nodes may carry other facts. The fact the
+      // edge mirrors goes with it: deleting the edge alone left it in "Known
+      // facts" on every turn. See memory/forget.ts.
       case "memory_forget": {
         const f = msg.forget;
         if (!f?.from || !f.to) {
           transport.send({ type: "error", message: "memory_forget: missing edge" });
           break;
         }
-        const removed = memoryGraph.removeEdge(f.from, f.to, f.relation || undefined);
-        if (removed > 0) memoryGraph.persist();
+        forgetEdge({ graph: memoryGraph, semantic, fractal: fractalMemory }, f);
         break;
       }
       // Metacognition: the loop asked the user something; this is the reply.
