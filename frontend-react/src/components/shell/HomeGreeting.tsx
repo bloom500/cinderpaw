@@ -62,7 +62,7 @@ export function HomeGreeting() {
     // clears it with a few px to spare and lifts the question, which sat low.
     <div className="mb-28 flex flex-col items-center text-center select-none">
       <p className="text-base text-text-muted">{hello}</p>
-      <h1 className="mt-1 text-3xl leading-[1.2] font-semibold tracking-[-0.02em] text-text-primary">
+      <h1 className="mt-1 font-display text-3xl leading-[1.2] font-normal tracking-[-0.01em] text-text-primary">
         {line}
       </h1>
     </div>

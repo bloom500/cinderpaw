@@ -7,7 +7,8 @@
  * the palette no longer has.
  */
 import { describe, expect, test } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const CSS = readFileSync('src/styles/globals.css', 'utf8');
 const HTML = readFileSync('index.html', 'utf8');
@@ -113,5 +114,26 @@ describe('the first paint uses the same grounds', () => {
     expect(HTML).toContain(`html[data-theme="light"] { background-color: ${light}; }`);
     // No ground from the old palette survives in the first paint.
     expect(HTML).not.toMatch(/#1C1814|#FAF6F0/i);
+  });
+});
+
+describe('Young Serif', () => {
+  const faces = [...CSS.matchAll(/@font-face\s*{[^}]*}/g)].map((m) => m[0]).filter((f) => f.includes("'Young Serif'"));
+
+  test('is bundled for latin and latin-ext, from our own files', () => {
+    // latin-ext carries the Romanian letters: without it "Ștefan" would set
+    // the Ș in a fallback serif, mid-word.
+    expect(faces.length).toBe(2);
+    for (const face of faces) {
+      const url = /url\('([^']+)'\)/.exec(face)?.[1] ?? '';
+      expect(url).not.toMatch(/^https?:/);
+      expect(existsSync(resolve('src/styles', url)), url).toBe(true);
+      expect(face).toMatch(/font-weight:\s*400/);
+      expect(face).toMatch(/unicode-range:/);
+    }
+  });
+
+  test('is exposed as font-display', () => {
+    expect(CSS).toMatch(/--font-display:\s*'Young Serif'/);
   });
 });
