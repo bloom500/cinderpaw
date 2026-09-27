@@ -658,6 +658,32 @@ function migrate(db: Database): void {
   // Default 0 = every pre-existing row is the owner's, which it was.
   addColumnIfMissing(db, "episodic", "private", "INTEGER NOT NULL DEFAULT 0");
 
+  // Observational memory (27 Sep 2026): dated notes the Observer writes after a
+  // conversation, the Reflector's weekly digests of them, and the user card.
+  // `episodic` holds what was SAID; these hold what is worth remembering about
+  // it. See memory/observations.ts.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS observations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      scope TEXT NOT NULL DEFAULT '',
+      observed_at INTEGER NOT NULL,
+      ref_date TEXT,
+      priority TEXT NOT NULL DEFAULT 'med',
+      text TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'observer',
+      period TEXT,
+      digested_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_observations_scope ON observations (scope, observed_at);
+    CREATE INDEX IF NOT EXISTS idx_observations_session ON observations (session_id, observed_at);
+    CREATE TABLE IF NOT EXISTS memory_card (
+      scope TEXT PRIMARY KEY,
+      text TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+
   // Inner-thoughts log: record of every proactive thought the agent generated,
   // whether it was surfaced to the user or suppressed by mood/threshold.
   db.exec(`
