@@ -173,7 +173,7 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
   },
   fms: {
     purpose:
-      "Fractal Memory Search — a hierarchical, embeddable leaf-tree over captured conversation fragments. Captures are reactive (auto-extracted by the MemoryExtractor each turn); this subsystem owns the search side and the eviction/centroid refresh.",
+      "Fractal Memory Search — a hierarchical, embeddable leaf-tree over captured conversation fragments. Captures are reactive (auto-extracted by the MemoryExtractor each turn); this subsystem owns the search side and the tree rebuilds. Nothing is evicted automatically: a memory leaves only when the user forgets it.",
     inputs: [
       "Per-turn conversation fragments (auto-captured).",
       "Embeddings from the local embedder (CPU bge-small today).",
@@ -182,12 +182,12 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
     outputs: [
       "Ranked leaves for `recall` queries (leaf_id + text snippet + score).",
       "Centroid refresh into the active tree.",
-      "Evicted summaries into `~/.cinderpaw/fractal-evicted.jsonl`.",
+      "Forgotten facts' leaves logged to `fractal-evicted.jsonl` in the data dir (reason \"forget\").",
     ],
     safety: [
       "Read-only API — `recall` cannot write.",
       "Embedder falls back to FTS5 on missing model (no silent failure).",
-      "Cross-session dedup keeps the leaf store from accumulating near-duplicates.",
+      "Identical memories fold into one leaf, shown as (×N), at each tree rebuild; lines that differ in any number other than a timestamp stay separate.",
     ],
     promotion:
       "N/A — FMS is a pure retrieval store; there is no champion to promote. New tiers (Layer 4+) get added by configuration changes in `tree-builder.ts`, not by evolution.",
