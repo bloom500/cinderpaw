@@ -49,6 +49,8 @@ BELLY = dict(cz=0.62, rx=0.38, rz=0.40)
 LEG_LIFT = 0.0
 # a small thumb on each mitten; False gives the board's plain round hands
 THUMBS = True
+# how far the arm stands off the body below the shoulder (the armpit gap)
+ARM_OUT = 0.03      # arms are their own clay now; a hair off the body so the two never intersect
 # how much the joins of the fused clay are rounded (SDF fillet passes)
 FILLET_ITERATIONS = 20
 
@@ -214,7 +216,7 @@ def tube(name, points, radii, material, tip=True, bury=0.0):
     return ob
 
 
-def fuse_clay(parts, material, voxel=0.01):
+def fuse_clay(parts, material, voxel=0.01, name="Clay"):
     """Melt the clay parts into one surface: voxel remesh, then a volume-keeping smooth, applied."""
     dg = bpy.context.evaluated_depsgraph_get()
     bm = bmesh.new()
@@ -223,10 +225,10 @@ def fuse_clay(parts, material, voxel=0.01):
         me.transform(ob.matrix_world)
         bm.from_mesh(me)
         bpy.data.meshes.remove(me)
-    me = bpy.data.meshes.new("Clay")
+    me = bpy.data.meshes.new(name)
     bm.to_mesh(me)
     bm.free()
-    ob = bpy.data.objects.new("Clay", me)
+    ob = bpy.data.objects.new(name, me)
     bpy.context.collection.objects.link(ob)
     for part in parts:
         bpy.data.objects.remove(part, do_unlink=True)
@@ -469,6 +471,11 @@ def build():
     arm_r = [0.17, 0.16, 0.18, 0.20]
     if FIT:
         arm, arm_r = [tuple(p) for p in FIT["arm"]["points"]], FIT["arm"]["radii"]
+    # the arm touches the body only at the shoulder: below it, stand it off by ARM_OUT so the fuse
+    # leaves an armpit gap. Glued along the side, a raised arm tore the side skin with it.
+    arm = [arm[0]] + [(x + ARM_OUT * min(1.0, k / 2), y, z) for k, (x, y, z) in enumerate(arm[1:], 1)]
+    global ARM, ARM_R
+    ARM, ARM_R = arm, arm_r
     for side, flip in (("R", 1), ("L", -1)):
         m = lambda pts: [(flip * x, y, z) for x, y, z in pts]
         tube(f"Horn.{side}", m(horn), horn_r, clay, bury=0.25)
@@ -499,8 +506,13 @@ def build():
     # one piece of clay: fuse the parts so the joins are soft and no caps or rings show; visor,
     # eyes and belly stay apart so they keep their colours and the eyes can still blink
     clay_parts = [ob for ob in bpy.data.objects if ob.name.split(".")[0] in
-                  ("Hood", "Body", "Horn", "Arm", "Thumb", "Tail", "Leg", "Foot")]
+                  ("Hood", "Body", "Horn", "Tail", "Leg", "Foot")]
     fused = fuse_clay(clay_parts, clay)
+    # Arms are separate pieces rooted in the shoulder, under the hood's edge. Fused into the body,
+    # the fillet always bridged a web from arm to hip that tore into a strip when the arm lifted.
+    for side in ("L", "R"):
+        fuse_clay([bpy.data.objects[n] for n in (f"Arm.{side}", f"Thumb.{side}") if n in bpy.data.objects],
+                  clay, name=f"ArmClay.{side}")
     # cut the visor after the fuse: cut first, the voxel grid turned the lip into a staircase
     cut = visor_cutter()
     cut.location.z += LEG_LIFT
@@ -613,7 +625,7 @@ def _soft(e0, e1, x):
     return t * t * (3 - 2 * t)
 
 
-def bind_weights(ob, hp, ap, tp):
+def bind_weights(ob, hp, ap, tp, arm_r, arms=True):
     """One vertex group per bone. A vertex belongs to a horn, arm, tail or leg when it lies within
     that part's radius of its centre line, fading out just past it; the rest is head (above the
     neck) or body (chest above, hips below). Rows are normalised so every vertex sums to 1."""
@@ -629,7 +641,11 @@ def bind_weights(ob, hp, ap, tp):
         w = (1 - _soft(0.30, 0.42, d)) * _soft(2.30, 2.50, P[:, 2]) * (np.sign(P[:, 0]) == f)
         W[f"horn_tip.{side}"], W[f"horn.{side}"] = w * _soft(0.40, 0.60, t), w * (1 - _soft(0.40, 0.60, t))
         d, t = _seg(P, m(ap))
-        w = (1 - _soft(0.19, 0.28, d)) * _soft(0.05, 0.25, t) * (np.sign(P[:, 0]) == f)
+        # only the arm's own clay: within its local radius (+ a little), so the side of the body
+        # next to it stays with the chest when the arm lifts
+        cum = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(np.array([tuple(p) for p in ap]), axis=0), axis=1))])
+        r_here = np.interp(t, cum / cum[-1], arm_r)
+        w = (1 - _soft(r_here + 0.01, r_here + 0.07, d)) * _soft(0.05, 0.25, t) * (np.sign(P[:, 0]) == f) * arms
         W[f"upper_arm.{side}"] = w * (1 - _soft(0.35, 0.55, t))
         W[f"forearm.{side}"] = w * _soft(0.35, 0.55, t) * (1 - _soft(0.80, 0.95, t))
         W[f"hand.{side}"] = w * _soft(0.80, 0.95, t)
@@ -652,6 +668,30 @@ def bind_weights(ob, hp, ap, tp):
     for bone_name, w in W.items():
         vg = ob.vertex_groups.new(name=bone_name)
         q = np.round(w * 20).astype(int)            # 20 levels, one add() call per level
+        for level in range(1, 21):
+            idx = np.nonzero(q == level)[0]
+            if len(idx):
+                vg.add(idx.tolist(), level / 20, "REPLACE")
+
+
+def bind_arm(ob, side, ap):
+    """An arm piece belongs to its own bones only, split along its length; its buried root
+    follows the chest so the shoulder turns rather than slides."""
+    f = -1 if side == "L" else 1
+    n = len(ob.data.vertices)
+    P = np.empty(n * 3)
+    ob.data.vertices.foreach_get("co", P)
+    P = P.reshape(n, 3) + np.array(ob.location)
+    P[:, 2] -= LEG_LIFT
+    _, t = _seg(P, [(f * p[0], p[1], p[2]) for p in ap])
+    W = {"chest": 1 - _soft(0.0, 0.12, t)}
+    arm_w = _soft(0.0, 0.12, t)
+    W[f"upper_arm.{side}"] = arm_w * (1 - _soft(0.35, 0.55, t))
+    W[f"forearm.{side}"] = arm_w * _soft(0.35, 0.55, t) * (1 - _soft(0.80, 0.95, t))
+    W[f"hand.{side}"] = arm_w * _soft(0.80, 0.95, t)
+    for bone_name, w in W.items():
+        vg = ob.vertex_groups.new(name=bone_name)
+        q = np.round(w * 20).astype(int)
         for level in range(1, 21):
             idx = np.nonzero(q == level)[0]
             if len(idx):
@@ -682,7 +722,7 @@ def build_rig(tail):
     bone("chest", (0, 0, 0.70), (0, 0, 1.05), "hips", True)
     bone("head", (0, 0, 1.05), (0, 0, 2.70), "chest", True)
     hp = [Vector(p) for p in (FIT["horn"]["points"] if FIT else [(0.78, 0.1, 2.38), (1.02, 0.12, 2.78), (0.97, 0.14, 2.96)])]
-    ap = [Vector(p) for p in (FIT["arm"]["points"] if FIT else [(0.40, 0, 0.94), (0.66, -0.03, 0.58), (0.72, -0.04, 0.44)])]
+    ap = [Vector(p) for p in ARM]
     for side, f in (("L", -1), ("R", 1)):
         m = lambda v: Vector((f * v.x, v.y, v.z))
         mid = (hp[0] + hp[-1]) / 2
@@ -702,9 +742,12 @@ def build_rig(tail):
 
     # bind: weights computed from the parts' centre lines. Blender's bone heat failed on the fused
     # clay (too dense), leaving it unbound, so a posed rig did not move the mesh at all.
-    for name in ("Clay", "Belly"):
+    for name in ("Clay", "Belly", "ArmClay.L", "ArmClay.R"):
         ob = bpy.data.objects[name]
-        bind_weights(ob, hp, ap, tp)
+        if name.startswith("ArmClay"):
+            bind_arm(ob, name[-1], ap)
+        else:
+            bind_weights(ob, hp, ap, tp, ARM_R, arms=False)
         mod = ob.modifiers.new("Rig", "ARMATURE")
         mod.object = rig
     # visor and eyes are rigid: they follow the head bone exactly
@@ -730,9 +773,9 @@ def pose_test(rig):
     pb = rig.pose.bones
     # the head is wider than the arm is long: a wave goes out to the side, forearm up, so the
     # hand shows beside the head instead of disappearing behind it
-    turn(pb["upper_arm.R"], "Y", -65)
-    turn(pb["forearm.R"], "Y", -70)
-    turn(pb["forearm.R"], "Z", 20)
+    turn(pb["upper_arm.R"], "Y", -55)
+    turn(pb["forearm.R"], "Y", -45)
+    turn(pb["forearm.R"], "X", -40)         # the hand comes forward (-Y), in front of the head's side
     turn(pb["head"], "Y", 8)
     turn(pb["horn.R"], "Y", -12)
     turn(pb["horn.L"], "Y", 12)
