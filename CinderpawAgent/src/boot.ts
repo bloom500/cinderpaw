@@ -2735,8 +2735,9 @@ export async function boot(transportOverride?: Transport) {
     memoryGraph,
     semantic,
     // Observational memory: Forget drops the card; the Memory page lists and
-    // deletes notes (dispatch `memory_notes`).
+    // deletes notes and shows whether the writers work (dispatch `memory_notes`).
     notesStore,
+    reflector,
     // Agent Cowork S4 — the chat-side approval resolver (dispatch routes
     // `cowork_approval_resolve` here).
     coworkApprovals: coworkApprovalService,

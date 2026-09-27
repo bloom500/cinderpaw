@@ -13,7 +13,7 @@
  */
 
 import { join } from "node:path";
-import type { InboundMessage, ModelTarget, Schedule, DeliveryTarget } from "./types.ts";
+import type { InboundMessage, ModelTarget, OutboundEvent, Schedule, DeliveryTarget } from "./types.ts";
 import type { BootContext } from "./boot.ts";
 import { forgetEdge } from "./memory/forget.ts";
 import { cfgBool, cfgInt, cfgPath } from "./config.ts";
@@ -28,6 +28,8 @@ import { bannerTitle, getCurrentTask, getLastActive } from "./memory/resume.ts";
 import { getActiveWorkspaceId, getWorkspace } from "./memory/workspaces.ts";
 import type { Artifact } from "./artifacts/store.ts";
 import { activeWorkspaceId } from "./tools/builtin/artifact.ts";
+import type { ObservationStore } from "./memory/observations.ts";
+import type { MemoryHealth } from "./memory/extractor.ts";
 
 /**
  * One artifact as the panel needs it: everything except the content.
@@ -148,12 +150,44 @@ const VOICE_SURFACE_BRIEF = [
   "- If you need to show something long (code, a table, a list), say so briefly and write it in the chat instead.",
 ].join("\n");
 
+/**
+ * The Memory page's view of observational memory (owner scope only): the user
+ * card, the notes, and whether the Observer and Reflector manage to write. A
+ * delete answers with the fresh list, so the page never shows a deleted note.
+ */
+export function memoryNotesReply(
+  msg: { id?: string; notesOp?: "list" | "delete"; noteId?: number },
+  d: { notes: ObservationStore; observer: MemoryHealth; reflector: MemoryHealth },
+): Extract<OutboundEvent, { type: "memory_notes_result" }> {
+  let error: string | undefined;
+  if (msg.notesOp === "delete") {
+    const gone = typeof msg.noteId === "number" ? d.notes.delete(msg.noteId, "") : null;
+    if (!gone) error = "That note no longer exists.";
+  }
+  return {
+    type: "memory_notes_result",
+    id: msg.id ?? "",
+    ok: error === undefined,
+    ...(error ? { error } : {}),
+    card: d.notes.card("")?.text ?? null,
+    notes: d.notes.list("", 200).map((n) => ({
+      id: n.id,
+      observedAt: n.observedAt,
+      refDate: n.refDate,
+      priority: n.priority,
+      text: n.text,
+      source: n.source,
+    })),
+    health: { observer: d.observer, reflector: d.reflector },
+  };
+}
+
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
     db, audit, router, localFallbackTarget, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents, artifacts, artifactExporter,
     runHooks,
     brainDerived, brainBreaker,
-    memoryGraph, semantic, notesStore,
+    memoryGraph, semantic, notesStore, reflector,
   } = ctx;
 
   switch (msg.type) {
@@ -1449,6 +1483,15 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           log(`fractal_cluster_leaves failed: ${String(e)}`);
         }
         transport.send({ type: "fractal_cluster_leaves_result", id, leaves });
+        break;
+      }
+
+      case "memory_notes": {
+        try {
+          transport.send(memoryNotesReply(msg, { notes: notesStore, observer: extractor.health, reflector: reflector.health }));
+        } catch (e) {
+          log(`memory_notes failed: ${String(e)}`);
+        }
         break;
       }
 

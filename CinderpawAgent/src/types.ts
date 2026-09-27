@@ -1257,6 +1257,10 @@ export interface InboundMessage {
     // top-level cluster; the sidecar replies with a `fractal_cluster_leaves_result`
     // paired by `id`. Reuses the plain `id` field as the request correlator.
     | "fractal_cluster_leaves"
+    // The Memory page's notes (observational memory): list them with the user
+    // card and the writers' health, or delete one (`noteId`). Replies with one
+    // `memory_notes_result` paired by `id`.
+    | "memory_notes"
     // The workspace panel asking what exists, or for one artifact's content.
     // Replies with one `artifact_result` paired by `id`. The panel cannot read
     // the files itself: they live under ~/.cinderpaw, which the webview is
@@ -1383,6 +1387,9 @@ export interface InboundMessage {
   rsiNewConcurrency?: number;
   /** Reactive-tree drill-down payload (type === "fractal_cluster_leaves"). */
   clusterIndex?: number;
+  /** Memory page payload (type === "memory_notes"). */
+  notesOp?: "list" | "delete";
+  noteId?: number;
   /** Approval-gate payload (type === "rsi_code_patch_resolve"); the patch
    *  id rides the plain `id` field. */
   patchAction?: "approve" | "reject";
@@ -2125,6 +2132,28 @@ export type OutboundEvent =
       type: "fractal_cluster_leaves_result";
       id: string;
       leaves: { leafId: number; text: string; ts: number }[];
+    }
+  // The Memory page's view of observational memory, paired by `id` with the
+  // `memory_notes` request: the card, the notes (newest first), and whether
+  // the Observer and Reflector are managing to write, with the last reason.
+  | {
+      type: "memory_notes_result";
+      id: string;
+      ok: boolean;
+      error?: string;
+      card: string | null;
+      notes: Array<{
+        id: number;
+        observedAt: number;
+        refDate: string | null;
+        priority: string;
+        text: string;
+        source: string;
+      }>;
+      health: {
+        observer: import("./memory/extractor.ts").MemoryHealth;
+        reflector: import("./memory/extractor.ts").MemoryHealth;
+      };
     }
   // Dream Cycle lifecycle — emitted by the host when an evolutionary episode
   // starts (`phase:"started"`) and ends (`phase:"ended"`). Forwarded verbatim

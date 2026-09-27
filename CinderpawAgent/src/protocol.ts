@@ -27,7 +27,7 @@ export const INBOUND_TYPES = [
   "tool_response",
   "cron_add", "cron_remove", "cron_toggle", "cron_list",
   "desktop_control_response", "connectors_reload",
-  "fractal_benchmark", "fractal_cluster_leaves",
+  "fractal_benchmark", "fractal_cluster_leaves", "memory_notes",
   "rsi_start", "rsi_stop", "rsi_set_concurrency", "rsi_dream_now",
   "rsi_code_patches_list", "rsi_code_patch_resolve", "rsi_question_resolve",
   "memory_forget",
