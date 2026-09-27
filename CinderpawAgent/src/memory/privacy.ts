@@ -187,6 +187,17 @@ function luhnValid(digits: string): boolean {
   return sum % 10 === 0;
 }
 
+/** A CNP's 13th digit is a checksum of the first 12 (weights 279146358279,
+ *  mod 11, 10 → 1). Without it, any 13 digits with a plausible date matched,
+ *  including 3.1% of millisecond timestamps. */
+function cnpValid(cnp: string): boolean {
+  const w = "279146358279";
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += Number(cnp[i]) * Number(w[i]);
+  const check = sum % 11 === 10 ? 1 : sum % 11;
+  return check === Number(cnp[12]);
+}
+
 /**
  * Redact high-confidence PII from `input`, returning the cleaned text and what
  * was removed. Each match is replaced with `[REDACTED:<kind>]`. Order matters:
@@ -220,14 +231,19 @@ export function redactPII(input: string): RedactResult {
   // IBAN — 2-letter country, 2 check digits, 11–30 alphanumerics.
   text = text.replace(/\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b/g, () => mark("iban"));
 
-  // Romanian CNP — S YYMMDD CC NNN C (13 digits with a valid month/day).
+  // Romanian CNP — S YYMMDD CC NNN C (13 digits with a valid month/day and
+  // a valid check digit).
   text = text.replace(
     /\b[1-8]\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{6}\b/g,
-    () => mark("cnp"),
+    (m) => (cnpValid(m) ? mark("cnp") : m),
   );
 
-  // Credit card — 13–19 digits with optional space/dash separators, Luhn-valid.
-  text = text.replace(/\b\d(?:[ -]?\d){12,18}\b/g, (m) =>
+  // Credit card — 13–19 digits with optional space/dash separators, Luhn-valid,
+  // starting 2-6 (Mastercard/Mir 2, Amex/Diners/JCB 3, Visa 4, Mastercard 5,
+  // Discover/UnionPay/Maestro 6). Luhn alone passes one digit run in ten, and
+  // millisecond timestamps and Discord ids, which start with 1, were 9.6%
+  // redacted as cards.
+  text = text.replace(/\b[2-6](?:[ -]?\d){12,18}\b/g, (m) =>
     luhnValid(m.replace(/[^\d]/g, "")) ? mark("card") : m,
   );
 

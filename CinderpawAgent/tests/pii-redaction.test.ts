@@ -33,9 +33,20 @@ describe("redactPII (M-2)", () => {
   });
 
   test("redacts Romanian CNP", () => {
-    const r = redactPII("CNP 1960101223344 on file");
+    const r = redactPII("CNP 1960101223346 on file");
     expect(r.text).toContain("[REDACTED:cnp]");
     expect(r.kinds).toContain("cnp");
+  });
+
+  // 12.7% of millisecond timestamps were redacted: 9.6% passed Luhn as a card,
+  // 3.1% parsed as a CNP (S=1, a valid month and day). A saved-at time in a
+  // fact is not PII, and redacting it destroys the fact.
+  test("does NOT redact millisecond timestamps as a card or a CNP", () => {
+    for (const ts of ["1792701000037", "1790219000003"]) {
+      const r = redactPII(`last backup at ${ts}`);
+      expect(r.text).toContain(ts);
+      expect(r.redactions).toBe(0);
+    }
   });
 
   test("redacts phone numbers", () => {
