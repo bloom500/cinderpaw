@@ -11,9 +11,8 @@
  *     in the app goes solid at once and the window underneath is still
  *     transparent — a see-through frame around an opaque app.
  *  2. Someone makes `--bg-primary` translucent to match. It is also
- *     `--scene-base`, the opaque ground under a `transparent: true` window, and
- *     `--primary-foreground`, the text on brand buttons. Translucent there puts
- *     the app's words directly on the user's wallpaper.
+ *     `--scene-base`, the opaque ground under a `transparent: true` window.
+ *     Translucent there puts the app's words directly on the user's wallpaper.
  *  3. The reduced-transparency and no-backdrop-filter escapes get dropped in a
  *     refactor, and the machine that asked for less transparency, or cannot
  *     paint a blur at all, is left with unreadable panels and no way back.
@@ -119,10 +118,9 @@ describe.each(['dark', 'light'] as const)('%s palette', (theme) => {
     expect(alpha(tokens['--scene-surface'])).toBeLessThan(0.95);
   });
 
-  test('--bg-primary is fully opaque: it is also the ground and a foreground', () => {
+  test('--bg-primary is fully opaque: it is also the ground', () => {
     expect(alpha(tokens['--bg-primary'])).toBe(1);
     expect(tokens['--scene-base']).toBe('var(--bg-primary)');
-    expect(tokens['--primary-foreground']).toBe('var(--bg-primary)');
   });
 });
 
