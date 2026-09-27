@@ -2,10 +2,9 @@
  * Reconciler — Pathway 3 step 2 Task 2 + Task 3 wiring.
  *
  * The single subscriber to `after_memory_write`. Owns the response to a
- * capture event: route the payload into the FractalMemory tree (Task 3)
- * and mirror the result into the MemoryGraph (Task 4). Task 3 wired
- * `fractal.upsertLeaf(...)` for fact writes; Task 4 will additionally
- * call `graph.reconcile(treeView)` for observation writes.
+ * capture event: route a fact into the FractalMemory tree
+ * (`fractal.upsertLeaf(...)`). Observations need nothing here: they live
+ * in EpisodicMemory and reach the tree at the next rebuild.
  *
  * Lifecycle:
  *   - construct with `{ hooks, fractal, graph, embed }`
@@ -35,7 +34,8 @@ export interface ReconcilerDeps {
   hooks: HookRegistry;
   /** Tree to upsert into. Wired in Task 3: `fractal.upsertLeaf(...)`. */
   fractal: FractalMemory;
-  /** Graph to mirror. Wired in Task 4: `graph.reconcile(treeView)`. */
+  // ponytail: unread since the tree stopped being mirrored into the graph;
+  // kept so the five constructors still compile. Drop with their next edit.
   graph: MemoryGraph;
   /** Embedder — same one the sidecar uses for query/leaf text. */
   embed: EmbedInvoker;
@@ -71,42 +71,18 @@ export class Reconciler {
   }
 
   /**
-   * Handler body — Task 3 wires `fractal.upsertLeaf(...)` on the fact
-   * branch; Task 4 additionally calls `graph.reconcile(treeView)` on
-   * the observation branch so fact ↔ graph can't drift. Always
-   * resolves to `{ block: false }` because `after_memory_write` is
-   * informational, not gateable.
+   * Handler body. Only a fact moves anything. Always resolves to
+   * `{ block: false }` because `after_memory_write` is informational,
+   * not gateable.
+   *
+   * An observation used to mirror the whole tree into the graph: every
+   * episodic row read back from SQLite, then one edgeless node per row.
+   * Recall reads only edges, and the Memory page lists edgeless nodes,
+   * so each conversation fragment would have shown there as a "memory".
    */
   async #handle(payload: AfterMemoryWritePayload): Promise<{ block: false }> {
-    if (payload.kind === "fact") {
-      await this.#handleFact(payload);
-    } else {
-      await this.#handleObservation(payload);
-    }
+    if (payload.kind === "fact") await this.#handleFact(payload);
     return { block: false };
-  }
-
-  /**
-   * Observation branch — mirror the current tree view into the
-   * knowledge graph so graph nodes match the fractal tree after every
-   * observation write. Idempotent (graph.upsertNode collapses on id).
-   *
-   * The fractal tree itself doesn't change here (observations live in
-   * EpisodicMemory and are picked up by the next tree rebuild). Only
-   * the graph mirror moves on each observation.
-   */
-  async #handleObservation(payload: AfterMemoryWritePayload): Promise<void> {
-    if (payload.kind !== "observation") return;
-    try {
-      const view = this.#deps.fractal.treeView();
-      this.#deps.graph.reconcile(view);
-    } catch (e) {
-      // Reconcile failure is non-fatal — the next observation write
-      // will retry. Logging at debug keeps stdout clean in normal flow.
-      console.debug(
-        `[reconciler] graph.reconcile threw for "${payload.title ?? "(untitled)"}": ${String(e)}`,
-      );
-    }
   }
 
   /**

@@ -1,5 +1,5 @@
 /**
- * runMigration + FractalMemory.treeView + MemoryGraph.reconcile —
+ * runMigration, and the Reconciler's observation branch —
  * Pathway 3 step 2 Task 4.
  *
  * Pins the last mile of the reactive engine:
@@ -8,12 +8,8 @@
  *     exactly once (marker at `<dataDir>/fractal-migration-v1.done`).
  *     Failure-tolerant (no marker on failure → next boot retries).
  *     Idempotent (marker present → no-op).
- *   - `FractalMemory.treeView()` is a read-only snapshot of the
- *     cluster + leaf summary the graph needs.
- *   - `MemoryGraph.reconcile(view)` mirrors tree nodes/edges into
- *     the knowledge graph so fact ↔ graph can't drift.
- *   - The Reconciler's observation branch calls
- *     `graph.reconcile(fractal.treeView())` after `upsertLeaf`.
+ *   - The Reconciler's observation branch no longer mirrors the tree
+ *     into the knowledge graph (see the last describe).
  *
  * What this test guards:
  *   1. Marker is written only after all facts upsert successfully.
@@ -22,8 +18,7 @@
  *      retries.
  *   4. Empty SemanticMemory → marker still written (clean state).
  *   5. Atomic write via tmp + rename.
- *   6. Reconciler observation path calls graph.reconcile with the
- *      treeView snapshot.
+ *   6. An observation write adds no tree leaves to the graph.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -316,47 +311,26 @@ describe("runMigration", () => {
 });
 
 // ---------------------------------------------------------------------------
-// treeView + MemoryGraph.reconcile
+// The observation branch leaves the graph alone
 // ---------------------------------------------------------------------------
 
-describe("FractalMemory.treeView + MemoryGraph.reconcile", () => {
-  test("treeView returns a snapshot with clusters and leaves", () => {
-    const fm = makeFm();
-    const view = fm.treeView();
-    expect(view).toHaveProperty("clusters");
-    expect(view).toHaveProperty("leaves");
-    expect(Array.isArray(view.clusters)).toBe(true);
-    expect(Array.isArray(view.leaves)).toBe(true);
-  });
-
-  test("MemoryGraph.reconcile is idempotent on the same view", () => {
+describe("Reconciler observation path", () => {
+  // It used to mirror the whole tree into the graph on every observation: one
+  // edgeless node per episodic row, after reading every row back from SQLite.
+  // Recall reads edges only; the Memory page lists edgeless nodes, so each
+  // conversation fragment would have shown there as its own "memory".
+  test("adds no tree leaves to the knowledge graph", async () => {
     const graph = new MemoryGraph({ path: ":memory:" });
-    const view = {
-      clusters: [{ id: "c1", summary: "languages" }],
-      leaves: [{ id: "f1", summary: "ro" }],
-    };
-    graph.reconcile(view);
-    const beforeNodes = Object.keys((graph as any).snapshot().nodes).length;
-    graph.reconcile(view);
-    const afterNodes = Object.keys((graph as any).snapshot().nodes).length;
-    expect(afterNodes).toBe(beforeNodes);
-  });
-
-  test("Reconciler observation path calls graph.reconcile with treeView", async () => {
-    const graph = new MemoryGraph(":memory:");
-    const fm = makeFm();
+    const leaves: Leaf[] = [1, 2, 3].map((id) => ({
+      id,
+      text: `turn ${id}`,
+      vec: vec([1, 0, 0]),
+      ts: id,
+      sessionId: "s0",
+    }));
+    const fm = makeFm({ leaves });
     const hooks = new HookRegistry();
-    const reconciler = new Reconciler({
-      hooks,
-      fractal: fm,
-      graph,
-      embed: identityEmbed(),
-    });
-    reconciler.start();
-
-    let reconcileCalls = 0;
-    const reconcileSpy = (graph as any).reconcile.bind(graph);
-    (graph as any).reconcile = (view: any) => { reconcileCalls++; return reconcileSpy(view); };
+    new Reconciler({ hooks, fractal: fm, graph, embed: identityEmbed() }).start();
 
     await hooks.fire("after_memory_write", {
       kind: "observation",
@@ -367,6 +341,6 @@ describe("FractalMemory.treeView + MemoryGraph.reconcile", () => {
       concepts: ["ui", "theme"],
     });
 
-    expect(reconcileCalls).toBe(1);
+    expect(Object.keys(graph.snapshot().nodes)).toEqual([]);
   });
 });
