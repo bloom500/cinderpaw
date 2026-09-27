@@ -27,7 +27,7 @@
  */
 import { createHash } from "node:crypto";
 import { collapseIdentical, type CollapseResult } from "./cross-session-dedup.ts";
-import { buildTree } from "./tree-builder.ts";
+import { buildFlatTree, buildTree } from "./tree-builder.ts";
 import { appendLeaf } from "./tree-append.ts";
 import { FractalRecallEngine, dateStamp, type RecallResult, type FtsSearch } from "./fractal-recall.ts";
 import { saveTree, loadTree } from "./tree-store.ts";
@@ -431,11 +431,17 @@ export class FractalMemory {
     const collapse = collapseIdentical(leaves);
     this.#log?.(`fractal: rebuild started (${leaves.length} leaves, ${collapse.survivors.length} distinct)`);
     try {
-      tree = await buildTree(collapse.survivors, {
-        embed: this.#embed,
-        summarize: this.#summarize,
-        persistEmbeddings: (rows) => this.#persistEmbeddings?.(rows),
-      });
+      tree =
+        treeMode() === "raptor"
+          ? await buildTree(collapse.survivors, {
+              embed: this.#embed,
+              summarize: this.#summarize,
+              persistEmbeddings: (rows) => this.#persistEmbeddings?.(rows),
+            })
+          : await buildFlatTree(collapse.survivors, {
+              embed: this.#embed,
+              persistEmbeddings: (rows) => this.#persistEmbeddings?.(rows),
+            });
     } catch (e) {
       this.#log?.(`fractal: tree build failed (embeddings unavailable?): ${String(e)}`);
       return false;
@@ -461,9 +467,11 @@ export class FractalMemory {
   /**
    * Rebuild only when worthwhile: no tree yet, or the corpus has grown past
    * `growthRatio`× the tree's current coverage. Avoids re-paying the (cloud)
-   * summary cost on every boot when the loaded tree is already fresh.
+   * summary cost on every boot when the loaded tree is already fresh. A flat
+   * rebuild costs only the new rows' embeddings, so it runs at 1% growth and
+   * new memories become searchable by meaning within one idle tick.
    */
-  async rebuildIfStale(growthRatio = 1.2, shrinkRatio = 0.9): Promise<boolean> {
+  async rebuildIfStale(growthRatio = treeMode() === "raptor" ? 1.2 : 1.01, shrinkRatio = 0.9): Promise<boolean> {
     // Grafted leaves are IN the tree but were never clustered by a build, and
     // they are not corpus rows, so `#coveredIn` never counts them: coverage
     // means exactly what it meant before grafting existed — how much of the
@@ -1264,6 +1272,15 @@ function cosineSafe(a: Float32Array, b: Float32Array): number {
   let sum = 0;
   for (let i = 0; i < a.length; i++) sum += a[i]! * b[i]!;
   return sum;
+}
+
+/**
+ * `CINDERPAW_FMS_TREE`: `flat` (the default, measured 27 Sep 2026) scores every
+ * past turn directly; `raptor` is the old clustered tree, which summarises every
+ * cluster through the active model on each rebuild. Kept as a way back.
+ */
+export function treeMode(): "flat" | "raptor" {
+  return (readEnv("CINDERPAW_FMS_TREE") ?? "").trim().toLowerCase() === "raptor" ? "raptor" : "flat";
 }
 
 /** Read MERGE_THRESHOLD from env, falling back to 0.92. */

@@ -252,26 +252,14 @@ function normalizedMean(vecs: Float32Array[]): Float32Array {
 }
 
 /**
- * Build a fresh hierarchical tree from `leaves`. The output is a single
- * root `TreeNode`. Each non-leaf node carries a summary produced by
- * `summarize` over its children's text/summary strings; each leaf-level
- * node has `summary = ""` (the raw leaf text lives in `leafIds[i]`).
- *
- * Throws on empty input (caller error — there is nothing to cluster).
+ * A vector for every leaf: stored ones reused, missing or zero ones embedded
+ * in batches, normalized, and handed to `persistEmbeddings` so the next build
+ * does not pay for them again.
  */
-export async function buildTree(
+export async function embedLeaves(
   leaves: Leaf[],
-  deps: BuildTreeDeps,
-): Promise<TreeNode> {
-  const kmeans = deps.kmeans ?? defaultKmeans;
-  const summarize = deps.summarize;
-  const branch = deps.branch ?? defaultBranch();
-  const partition = deps.partition ?? defaultPartition();
-
-  if (leaves.length === 0) {
-    throw new Error("buildTree: leaves array is empty");
-  }
-
+  deps: Pick<BuildTreeDeps, "embed" | "persistEmbeddings">,
+): Promise<Map<number, Leaf>> {
   // Embed any leaf whose `vec` is missing or zero-length. In the common
   // case (snapshots loaded from SQLite) all leaves arrive pre-embedded
   // and `embed` is never called.
@@ -317,6 +305,63 @@ export async function buildTree(
       deps.persistEmbeddings?.(persistBatch);
     }
   }
+  return leafById;
+}
+
+/**
+ * Every leaf a direct child of one root: the flat arm measured on 27 Sep 2026
+ * (LongMemEval n=50, bge-m3). Session recall identical to the RAPTOR tree at
+ * every k; turn recall 2-6 points higher at k 5-20. No clustering and no
+ * summaries, so a rebuild costs the embeddings of new rows and no model call.
+ * The root carries a real centroid so `appendLeaf` can graft onto it.
+ * ponytail: every query scores every leaf; fine to ~50k leaves, sqlite-vec after.
+ */
+export async function buildFlatTree(
+  leaves: Leaf[],
+  deps: Pick<BuildTreeDeps, "embed" | "persistEmbeddings">,
+): Promise<TreeNode> {
+  if (leaves.length === 0) throw new Error("buildFlatTree: leaves array is empty");
+  const byId = await embedLeaves(leaves, deps);
+  const children: TreeNode[] = leaves.map((l) => ({
+    id: `L0-${l.id}`,
+    level: 0,
+    centroid: byId.get(l.id)!.vec,
+    summary: "",
+    children: [],
+    leafIds: [l.id],
+  }));
+  return {
+    id: "flat-root",
+    level: 1,
+    centroid: normalizedMean(children.map((c) => c.centroid)),
+    summary: "",
+    children,
+    leafIds: leaves.map((l) => l.id),
+  };
+}
+
+/**
+ * Build a fresh hierarchical tree from `leaves`. The output is a single
+ * root `TreeNode`. Each non-leaf node carries a summary produced by
+ * `summarize` over its children's text/summary strings; each leaf-level
+ * node has `summary = ""` (the raw leaf text lives in `leafIds[i]`).
+ *
+ * Throws on empty input (caller error — there is nothing to cluster).
+ */
+export async function buildTree(
+  leaves: Leaf[],
+  deps: BuildTreeDeps,
+): Promise<TreeNode> {
+  const kmeans = deps.kmeans ?? defaultKmeans;
+  const summarize = deps.summarize;
+  const branch = deps.branch ?? defaultBranch();
+  const partition = deps.partition ?? defaultPartition();
+
+  if (leaves.length === 0) {
+    throw new Error("buildTree: leaves array is empty");
+  }
+
+  const leafById = await embedLeaves(leaves, deps);
 
   // Level 0 — raw leaves wrapped as tree nodes.
   let current: TreeNode[] = leaves.map((leaf) => ({

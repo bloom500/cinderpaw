@@ -207,6 +207,7 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_FMS_DEDUP_SPAN_MS` | int | `30 * 24 * 60 * 60 * 1000` |  | Minimum age gap between two near-identical memories before the cross-session pass will collapse them. It is a floor, not a window: leaves recorded FURTHER APART than this merge, and recent ones deliberately do not, because the per-write cosine merge already handles same-session duplicates. Raise it to keep more separate copies of a fact, lower it to collapse more aggressively. The old description said "whose last touch is within this window", which is the opposite of what the code does and of what the pass is for. |
 | `CINDERPAW_FMS_MERGE_THRESHOLD` | string | `"0.92"` |  | Cosine threshold (float) above which leaves merge. |
 | `CINDERPAW_FMS_EVICTION` | string | `null` |  | Has no effect in this build: nothing runs memory eviction or the cross-session dedup, so no memory is ever evicted. Deliberately not wired: the default policy evicts a leaf not seen for 30 days with hit_count below 2, and hit_count counts how often a fact was re-stated, not recalled, so it would delete nearly every fact said once. Needs a recall-driven hit_count first. |
+| `CINDERPAW_FMS_TREE` | string | `null` |  | How memory search indexes past turns. Unset or "flat": every turn is scored directly, with no summaries and no model calls (measured 27 Sep 2026: the same session recall as the tree, 2-6 points better turn recall). "raptor": the old clustered tree, which summarises every cluster through the active model on each rebuild. |
 | `CINDERPAW_MERGE_THRESHOLD` | string | `null` |  | Deprecated alias for CINDERPAW_FMS_MERGE_THRESHOLD. Both names now feed BOTH merge paths (the per-write cosine merge and the cross-session dedup pass); until 2026-09-02 they fed one each, so setting the canonical name moved one threshold and left the other at its default, in the same process, with nothing on screen to say so. |
 | `CINDERPAW_FMS_QUERY_TOPK` | int | `20` |  | Semantic candidates the tree descent returns before re-rank. Raising it widens what recall can consider, at more cosine work per query. |
 | `CINDERPAW_FMS_QUERY_BEAM` | int | `20` |  | How many tree nodes survive at each level of the descent, and so the primary control on recall versus tail latency. At 2700 memories and branch 8 the first level holds ~338 clusters, so the default of 20 discards roughly 94% of the corpus before any single memory is scored: that is what makes the search cheap, and it is also its recall ceiling. Never applied below CINDERPAW_FMS_QUERY_TOPK, since a narrower beam would silently truncate the result rather than shrink the search. |
@@ -396,6 +397,7 @@ CINDERPAW_FALLBACK_PROVIDER
 CINDERPAW_FETCH_DOMAINS
 CINDERPAW_FMS_DEDUP_SPAN_MS
 CINDERPAW_FMS_EVICTION
+CINDERPAW_FMS_TREE
 CINDERPAW_FMS_MAX_LEAVES
 CINDERPAW_FMS_MERGE_THRESHOLD
 CINDERPAW_FMS_QUERY_BEAM

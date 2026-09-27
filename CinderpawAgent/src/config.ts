@@ -179,6 +179,8 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
     description: "Cosine threshold (float) above which leaves merge.", security: false },
   { name: "CINDERPAW_FMS_EVICTION", type: "string", default: null,
     description: "Has no effect in this build: nothing runs memory eviction or the cross-session dedup, so no memory is ever evicted. Deliberately not wired: the default policy evicts a leaf not seen for 30 days with hit_count below 2, and hit_count counts how often a fact was re-stated, not recalled, so it would delete nearly every fact said once. Needs a recall-driven hit_count first.", security: false },
+  { name: "CINDERPAW_FMS_TREE", type: "string", default: null,
+    description: "How memory search indexes past turns. Unset or \"flat\": every turn is scored directly, with no summaries and no model calls (measured 27 Sep 2026: the same session recall as the tree, 2-6 points better turn recall). \"raptor\": the old clustered tree, which summarises every cluster through the active model on each rebuild.", security: false },
   { name: "CINDERPAW_MERGE_THRESHOLD", type: "string", default: null,
     description: "Deprecated alias for CINDERPAW_FMS_MERGE_THRESHOLD. Both names now feed BOTH merge paths (the per-write cosine merge and the cross-session dedup pass); until 2026-09-02 they fed one each, so setting the canonical name moved one threshold and left the other at its default, in the same process, with nothing on screen to say so.", security: false },
   { name: "CINDERPAW_FMS_QUERY_TOPK", type: "int", default: 20,
