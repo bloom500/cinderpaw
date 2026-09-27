@@ -28,6 +28,7 @@ import { RecallEngine } from "./memory/recall.ts";
 import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
 import { ObservationStore, importLegacyNotes } from "./memory/observations.ts";
 import { buildSnapshot } from "./memory/snapshot.ts";
+import { Reflector, memoryIdleTick } from "./memory/reflector.ts";
 import { Reconciler } from "./memory/reconciler.ts";
 import { runMigration } from "./memory/fractal/migration.ts";
 import { UtilityLedger, rerankByUtility } from "./memory/fractal/utility.ts";
@@ -2026,6 +2027,18 @@ export async function boot(transportOverride?: Transport) {
   // needs the sidecar to start it — break the cycle the same way passive did).
   const dreamCfg = resolveDreamConfig(process.env);
   const activityMonitor = new ActivityMonitor({ errorWindowMs: dreamCfg.errorWindowMs });
+  // Observational memory's idle work: catch the search index up, then let the
+  // Reflector rewrite the card and weekly digests. Only while nobody is typing.
+  const reflector = new Reflector({ router, store: notesStore, semantic, log });
+  const memoryTick = setInterval(() => {
+    void memoryIdleTick({
+      busy: agent.activeSessionCount > 0,
+      idleMs: activityMonitor.idleFor(Date.now()),
+      reindex: () => fractalMemory.rebuildIfStale(),
+      reflector,
+    }).catch((e) => log(`memory: idle tick failed: ${String(e)}`));
+  }, 5 * 60_000);
+  (memoryTick as { unref?: () => void }).unref?.();
   const dreamTelemetryPath =
     readEnv("CINDERPAW_RSI_TELEMETRY") ??
     join(CINDERPAW_HOME, "rsi", "dream.jsonl");

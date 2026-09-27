@@ -462,6 +462,22 @@ export class SemanticMemory {
   }
 
   /**
+   * Keys deleted (not replaced) after `ts` in `scope`: a closed version that
+   * nothing superseded, and no current row. The Reflector is told these so a
+   * forgotten fact does not come back through the user card.
+   */
+  forgottenSince(ts: number, scope = ""): string[] {
+    const rows = this.#db
+      .query<{ key: string }, [number]>(
+        `SELECT DISTINCT h.key AS key FROM semantic_history h
+         WHERE h.valid_to > ? AND h.superseded_by IS NULL
+           AND NOT EXISTS (SELECT 1 FROM semantic s WHERE s.key = h.key)`,
+      )
+      .all(ts);
+    return rows.filter((r) => scopeOf(r.key) === scope).map((r) => stripScope(r.key));
+  }
+
+  /**
    * Render facts as a compact block for prompt injection.
    *
    * This used to be "the 30 most recently updated facts", full stop, with a
