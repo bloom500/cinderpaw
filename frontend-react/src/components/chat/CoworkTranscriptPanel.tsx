@@ -220,7 +220,7 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
           className={cn(
             'relative rounded-2xl px-3.5 py-2.5 shadow-sm',
             right
-              ? 'rounded-br-none bg-brand text-bg-primary'
+              ? 'rounded-br-none bg-brand text-brand-foreground'
               : m.failed
                 ? 'rounded-bl-none border border-error/40 bg-error/10 text-text-primary'
                 : 'rounded-bl-none border border-border-default bg-bg-surface text-text-primary',
@@ -591,7 +591,7 @@ function Composer({
           type="button"
           onClick={() => void send()}
           disabled={!text.trim() || sending}
-          className="rounded-md bg-brand px-2 py-1 text-2xs font-medium text-bg-primary
+          className="rounded-md bg-brand px-2 py-1 text-2xs font-medium text-brand-foreground
                      disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
         >
           {sending ? '…' : 'Send'}

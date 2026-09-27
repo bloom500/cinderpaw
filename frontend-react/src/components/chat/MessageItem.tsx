@@ -182,7 +182,7 @@ export const MessageItem = memo(function MessageItem({
             <div className="flex justify-end gap-2 text-xs">
               <button type="button" className="px-2 py-1 rounded-md text-text-muted hover:text-text-secondary"
                       onClick={() => setDraft(null)}>Cancel</button>
-              <button type="button" className="px-2 py-1 rounded-md bg-brand text-bg-primary disabled:opacity-40"
+              <button type="button" className="px-2 py-1 rounded-md bg-brand text-brand-foreground disabled:opacity-40"
                       disabled={!draft.trim() || draft.trim() === visibleText}
                       onClick={() => { const next = draft.trim(); setDraft(null); onEdit?.(next); }}>
                 Send

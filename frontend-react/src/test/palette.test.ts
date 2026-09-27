@@ -83,6 +83,28 @@ describe('the rebrand palette', () => {
   });
 });
 
+describe('words on the ember fill are the fill\'s own white', () => {
+  // `text-bg-primary` on `bg-brand` was cream on caramel; on the ember button
+  // it is charcoal at 2.76:1 in dark. `text-brand-foreground` is the pair.
+  test('text-brand-foreground is a class Tailwind actually generates', () => {
+    // Without the @theme colour the class compiles to nothing and the label
+    // inherits its parent's colour: charcoal on ember in the light theme.
+    expect(CSS).toMatch(/--color-brand-foreground:\s*var\(--brand-foreground\);/);
+  });
+
+  test('src/**/*.tsx', { timeout: 20_000 }, async () => {
+    const { globSync } = (await import('node:fs')) as unknown as {
+      globSync: (pattern: string) => string[];
+    };
+    const offenders = globSync('src/**/*.tsx')
+      .filter((f) => !f.includes('test'))
+      .flatMap((file) => readFileSync(file, 'utf8').split('\n')
+        .filter((line) => /(?<![\w-])bg-brand(?![\w-])/.test(line) && /(?<![\w-])text-bg-primary(?![\w-])/.test(line))
+        .map((line) => `${file}: ${line.trim()}`));
+    expect(offenders).toEqual([]);
+  });
+});
+
 describe('the first paint uses the same grounds', () => {
   test('index.html paints each theme on its --bg-primary', () => {
     const light = themeTokens('light')['--bg-primary'];

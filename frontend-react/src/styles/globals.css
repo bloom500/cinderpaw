@@ -104,6 +104,7 @@
   --color-brand: var(--brand);
   --color-brand-hover: var(--brand-hover);
   --color-brand-muted: var(--brand-muted);
+  --color-brand-foreground: var(--brand-foreground);
   --color-error: var(--error);
   --color-success: var(--success);
   --color-warning: var(--warning);

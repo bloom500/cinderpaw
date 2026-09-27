@@ -2067,7 +2067,7 @@ function RoundButton({
         // value picked to sit on black and washes out on cream.
         tone === 'danger' &&
           'border-border-default bg-bg-elevated text-(--error) hover:bg-[color-mix(in_srgb,var(--error)_12%,transparent)]',
-        tone === 'brand' && 'border-transparent bg-brand text-bg-primary hover:bg-brand-hover',
+        tone === 'brand' && 'border-transparent bg-brand text-brand-foreground hover:bg-brand-hover',
         tone === 'neutral' && 'border-border-default bg-bg-elevated text-text-secondary hover:bg-bg-hover',
         active && 'text-brand',
         disabled && 'cursor-default opacity-40 hover:bg-bg-elevated',
