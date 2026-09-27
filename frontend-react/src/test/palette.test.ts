@@ -132,6 +132,15 @@ describe('Young Serif', () => {
     }
   });
 
+  test('its @font-face sits after every @import, or the browser drops the imports', () => {
+    // An @import after any other rule is ignored. The font blocks once sat
+    // between Geist and `@import 'tailwindcss'`, and the app came up with no
+    // Tailwind at all: bare grey buttons, underlined links (27 Sep).
+    const code = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+    const beforeLastImport = code.slice(0, code.lastIndexOf('@import'));
+    expect(beforeLastImport.replace(/@import[^;]*;/g, '').trim()).toBe('');
+  });
+
   test('is exposed as font-display', () => {
     expect(CSS).toMatch(/--font-display:\s*'Young Serif'/);
   });
