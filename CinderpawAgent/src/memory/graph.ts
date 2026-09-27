@@ -234,35 +234,4 @@ export class MemoryGraph {
   snapshot(): MemoryGraphData {
     return structuredClone(this.#data);
   }
-
-  /**
-   * Pathway 3 step 2 — mirror the tree's cluster + leaf summary into
-   * the graph. Idempotent (upsertNode collapses on id). Returns the
-   * count of nodes touched so the Reconciler can log a meaningful
-   * delta on each observation write.
-   *
-   * Edges are not added here in Task 4 — Task 5 / Pathway 4 PR-C will
-   * derive cluster↔leaf edges from the tree's membership. The graph
-   * is already populated for facts by the extractor's direct addFact
-   * path (kept for belt-and-braces, see spec).
-   */
-  reconcile(view: {
-    clusters: Array<{ id: string; summary: string }>;
-    leaves: Array<{ id: number; summary: string }>;
-  }): { nodesTouched: number } {
-    let touched = 0;
-    for (const c of view.clusters) {
-      this.upsertNode(`cluster_${c.id}`, c.summary || c.id, "concept", {
-        kind: "cluster",
-      });
-      touched++;
-    }
-    for (const l of view.leaves) {
-      this.upsertNode(`leaf_${l.id}`, l.summary || `leaf-${l.id}`, "fact", {
-        kind: "leaf",
-      });
-      touched++;
-    }
-    return { nodesTouched: touched };
-  }
 }

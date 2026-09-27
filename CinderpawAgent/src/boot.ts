@@ -778,9 +778,9 @@ export async function boot(transportOverride?: Transport) {
   }
 
   // --- Reconciler (Pathway 3 step 2 Task 2 + Task 3) ---
-  // Single subscriber to `after_memory_write`. Task 3 wires
-  // `fractal.upsertLeaf(...)` for fact writes; Task 4 will additionally
-  // mirror the result into `memoryGraph.reconcile(treeView)`. Started
+  // Single subscriber to `after_memory_write`: routes fact writes into
+  // `fractal.upsertLeaf(...)`. Observations reach the tree at the next
+  // rebuild and no longer touch the graph (see reconciler.ts). Started
   // here — after `fractalMemory.init()` and after `hooks` is built —
   // so the tree is ready before the first capture event arrives.
   const reconciler = new Reconciler({
