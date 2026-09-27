@@ -161,7 +161,7 @@ interface UIStore {
 }
 
 const getSystemTheme = (): ResolvedTheme =>
-  window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 
 const resolveTheme = (t: ThemePref): ResolvedTheme =>
   t === 'system' ? getSystemTheme() : t;
@@ -174,8 +174,9 @@ export const useUI = create<UIStore>()(
     (set) => ({
       navCollapsed: false,
       toggleNav: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
-      theme: 'dark',
-      resolvedTheme: 'dark',
+      // A stranger in light mode met a dark app; the OS decides until they pick.
+      theme: 'system',
+      resolvedTheme: getSystemTheme(),
       language: 'en',
       reasoningMode: 'auto',
       enabledTools: [],

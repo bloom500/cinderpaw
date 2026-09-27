@@ -12,23 +12,18 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { startFrameLog } from './lib/frameLog';
 import './styles/globals.css';
 
-// Pre-paint theme: read persisted preference before React mounts to avoid a
-// light-then-dark flash on cold start. See spec §3.2.
+// The first frame's theme is stamped by public/cinderpaw-prepaint.js, which runs
+// before this module and follows the OS when nothing is stored. This block used
+// to stamp it a second time with a fallback of dark, so a light-mode stranger
+// saw light, dark, then light again. What stays is the cleanup: unparseable
+// persisted UI state is broken for zustand's own rehydrate too, and every boot
+// would silently lose the user's settings again. Clear it once so the next
+// start is clean.
 (() => {
   try {
-    const stored = JSON.parse(localStorage.getItem('cinderpaw-ui') || '{}');
-    const pref: string = stored?.state?.theme ?? 'dark';
-    const resolved =
-      pref === 'system'
-        ? window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-        : pref;
-    document.documentElement.setAttribute('data-theme', resolved);
+    JSON.parse(localStorage.getItem('cinderpaw-ui') || '{}');
   } catch {
-    // Unparseable persisted UI state. The theme falls back, but the value stays
-    // broken for zustand's own rehydrate too — every boot silently loses the
-    // user's settings again. Clear it once so the next start is clean.
     try { localStorage.removeItem('cinderpaw-ui'); } catch { /* storage unavailable */ }
-    document.documentElement.setAttribute('data-theme', 'dark');
   }
 })();
 

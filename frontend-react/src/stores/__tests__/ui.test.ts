@@ -69,3 +69,10 @@ describe('useUI: engines that are retired rather than deleted', () => {
     expect(merged.s2sProvider).toBe('openai');
   });
 });
+
+describe('useUI: theme default', () => {
+  it('a fresh install follows the OS', () => {
+    // The initial state, before any setTheme: what a stranger starts with.
+    expect(useUI.getInitialState().theme).toBe('system');
+  });
+});
