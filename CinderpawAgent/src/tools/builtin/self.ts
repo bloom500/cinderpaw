@@ -173,24 +173,27 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
   },
   fms: {
     purpose:
-      "Fractal Memory Search — a hierarchical, embeddable leaf-tree over captured conversation fragments. Captures are reactive (auto-extracted by the MemoryExtractor each turn); this subsystem owns the search side and the tree rebuilds. Nothing is evicted automatically: a memory leaves only when the user forgets it.",
+      "Memory, in three parts. (1) After a conversation the memory writer keeps dated notes about it (what was planned, decided, asked, recommended), next to the facts about the user. (2) A new owner conversation starts with a frozen 'What you remember' block in the system prompt: a short user card the Reflector writes while the user is idle, the recent notes grouped by day, and weekly digests. (3) Every turn, and the `recall` tool, search past turns directly by meaning (local embeddings) and by words (FTS5), with no tree and no summaries. Nothing is evicted automatically: a memory leaves only when the user forgets it.",
     inputs: [
-      "Per-turn conversation fragments (auto-captured).",
-      "Embeddings from the local embedder (CPU bge-small today).",
-      "Drift probes that decide when to re-cluster (centroid merge / split).",
+      "Each finished exchange (whole user messages, the final answer), read by the memory writer.",
+      "Embeddings from the local embedder (bge-m3), computed for new turns while the user is idle.",
+      "Idle time (10 minutes without a turn), which is when the Reflector rewrites the card and digests.",
     ],
     outputs: [
-      "Ranked leaves for `recall` queries (leaf_id + text snippet + score).",
-      "Centroid refresh into the active tree.",
+      "Dated notes and facts (Memory page lists the notes and the card, each note can be deleted).",
+      "The 'What you remember' block at the start of each owner conversation.",
+      "Ranked past turns for per-turn recall and the `recall` tool (dated snippets).",
       "Forgotten facts' leaves logged to `fractal-evicted.jsonl` in the data dir (reason \"forget\").",
     ],
     safety: [
       "Read-only API — `recall` cannot write.",
-      "Embedder falls back to FTS5 on missing model (no silent failure).",
-      "Identical memories fold into one leaf, shown as (×N), at each tree rebuild; lines that differ in any number other than a timestamp stay separate.",
+      "Guests on shared channels never get the owner's notes, and their notes never reach the owner.",
+      "Embedder falls back to FTS5 on missing model (no silent failure); writer failures are shown on the Memory page with their reason.",
+      "The Reflector never deletes a note: a digested note leaves the start-of-conversation block but stays searchable.",
+      "Identical memories fold into one leaf, shown as (×N); lines that differ in any number other than a timestamp stay separate.",
     ],
     promotion:
-      "N/A — FMS is a pure retrieval store; there is no champion to promote. New tiers (Layer 4+) get added by configuration changes in `tree-builder.ts`, not by evolution.",
+      "N/A — memory is a store, not a champion. CINDERPAW_FMS_TREE=raptor switches search back to the old clustered tree, which summarises every cluster through the active model on each rebuild.",
     rollback:
       "The full leaf store is rebuildable from the source conversation transcripts via the migration runner (`runMigration`). Destructive operations are gated by explicit user invocation of `cinderpaw setup`, never by an autonomous agent.",
     inspect: ["self_describe", "self_memory", "recall"],
