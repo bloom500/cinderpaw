@@ -5,7 +5,7 @@
  * tree.
  */
 import { describe, expect, it } from "bun:test";
-import { flatTree } from "../../scripts/longmemeval.ts";
+import { flatTree, turnRecall } from "../../scripts/longmemeval.ts";
 import { FractalRecallEngine } from "../src/memory/fractal/fractal-recall.ts";
 import { buildTree } from "../src/memory/fractal/tree-builder.ts";
 import type { Leaf } from "../src/memory/fractal/types.ts";
@@ -58,5 +58,21 @@ describe("longmemeval flat arm", () => {
     const tree = await engine(built).rankedLeafIds("q", "", 10);
     expect(flat).toHaveLength(10);
     expect(tree.length).toBeLessThanOrEqual(10);
+  });
+});
+
+describe("longmemeval turn recall", () => {
+  const solo = (id: number) => [id];
+  it("any/all over the labelled turns", () => {
+    expect(turnRecall([5, 9, 2], new Set([9, 40]), solo)).toEqual({ any: 1, all: 0 });
+    expect(turnRecall([40, 9], new Set([9, 40]), solo)).toEqual({ any: 1, all: 1 });
+    expect(turnRecall([1, 2, 3], new Set([9]), solo)).toEqual({ any: 0, all: 0 });
+  });
+  it("a ranked survivor counts for the evidence turn collapsed into it", () => {
+    const members = (id: number) => (id === 3 ? [3, 9] : [id]);
+    expect(turnRecall([3], new Set([9]), members)).toEqual({ any: 1, all: 1 });
+  });
+  it("no labelled turn scores nothing", () => {
+    expect(turnRecall([1], new Set(), solo)).toEqual({ any: 0, all: 0 });
   });
 });
