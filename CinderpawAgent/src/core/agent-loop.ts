@@ -27,6 +27,7 @@ import type { ToolRegistry } from "../tools/registry.ts";
 import { cfgInt, readEnv } from "../config.ts";
 import { SESSION_RESET_MARK, type EpisodicMemory } from "../memory/episodic.ts";
 import { memoryScope } from "../memory/semantic.ts";
+import { snapshotBudgetChars } from "../memory/snapshot.ts";
 import type { RecallResult } from "../memory/recall.ts";
 
 /**
@@ -577,6 +578,12 @@ export class AgentLoop {
     this.#notebook = store;
   }
   #notebook: { notes(scope: string): Array<{ key: string; value: string }> } | null = null;
+
+  /** What a new owner conversation already knows (memory/snapshot.ts). */
+  setMemorySnapshot(fn: (sessionId: string, budgetChars: number) => string): void {
+    this.#snapshotFor = fn;
+  }
+  #snapshotFor: ((sessionId: string, budgetChars: number) => string) | null = null;
 
   /**
    * Write side of the notebook, for the compaction safety net ONLY. Deliberately
@@ -1208,6 +1215,26 @@ export class AgentLoop {
         );
       } catch {
         // A memory-store failure must never cost the user their turn.
+      }
+    }
+
+    // The session's memory snapshot: asked for once, on its first turn, then
+    // frozen in the system prompt. Owner conversations only: a guest must not
+    // read the owner's notes, and a machine session (cron, eval, dream) starts
+    // clean on purpose. Voice is left out like recall is, see #spokenSurface.
+    if (
+      this.#snapshotFor &&
+      !memory.hasSnapshot &&
+      isReplayableSession(sessionId) &&
+      !this.#profileFor(sessionId) &&
+      memoryScope(sessionId) === "" &&
+      !isRestrictedSession(sessionId) &&
+      !this.#spokenSurface.has(sessionId)
+    ) {
+      try {
+        memory.setSnapshot(this.#snapshotFor(sessionId, snapshotBudgetChars(this.#transcriptBudget())));
+      } catch {
+        memory.setSnapshot("");
       }
     }
 

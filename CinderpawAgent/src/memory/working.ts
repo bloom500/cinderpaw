@@ -145,6 +145,13 @@ export class WorkingMemory {
    */
   #memoryContext = "";
   /**
+   * What this conversation already knows from earlier ones (memory/snapshot.ts).
+   * Set once, on the first turn, then frozen: it rides the system prompt, and a
+   * system prompt that changes mid-conversation throws away the provider's cache.
+   */
+  #snapshot = "";
+  #snapshotSet = false;
+  /**
    * Claude Code-style skill menu. Updated each turn from `msg.skillsContext`
    * (the fresh roster sent by Rust). Rendered as a system message so the LLM
    * sees a short "Available skills" list and uses the `read_skill` tool to
@@ -312,6 +319,7 @@ export class WorkingMemory {
     total += countTokens(this.#objective);
     total += countTokens(this.#surfaceBrief);
     total += countTokens(this.#memoryContext);
+    total += countTokens(this.#snapshot);
     for (const m of this.#messages) {
       total += countTokens(m.content);
     }
@@ -364,6 +372,7 @@ export class WorkingMemory {
     push("drawer", "recall", this.#recallContext);
     push("drawer", "surface_brief", this.#surfaceBrief);
     push("drawer", "memory_recall", this.#memoryContext);
+    push("drawer", "memory_snapshot", this.#snapshot);
 
     // Tool outputs are grouped by tool AND by whether #budgetToolResults has
     // already cut them. That second split is the one that answers whether
@@ -417,6 +426,21 @@ export class WorkingMemory {
    */
   setMemoryContext(context: string): void {
     this.#memoryContext = context;
+  }
+
+  /** Once per conversation; later calls are ignored (see `#snapshot`). */
+  setSnapshot(text: string): void {
+    if (this.#snapshotSet) return;
+    this.#snapshot = text.trim();
+    this.#snapshotSet = true;
+  }
+
+  get hasSnapshot(): boolean {
+    return this.#snapshotSet;
+  }
+
+  #systemContent(): string {
+    return this.#snapshot ? `${this.#system}\n\n${this.#snapshot}` : this.#system;
   }
 
   /**
@@ -537,7 +561,15 @@ export class WorkingMemory {
    * it is reading half.
    */
   setRecall(context: string, maxChars = 4000): void {
-    const trimmed = context.trim();
+    // A fact the snapshot already shows is not worth a second copy every turn.
+    const trimmed = (
+      this.#snapshot
+        ? context
+            .split("\n")
+            .filter((l) => !(l.startsWith("- ") && this.#snapshot.includes(l)))
+            .join("\n")
+        : context
+    ).trim();
     if (!trimmed) {
       this.#recallContext = "";
       return;
@@ -638,7 +670,7 @@ export class WorkingMemory {
     if (this.#memoryContext) dynamicBlocks.push(this.#memoryContext);
 
     if (dynamicBlocks.length === 0) {
-      return [{ role: "system", content: this.#system }, ...this.#messages];
+      return [{ role: "system", content: this.#systemContent() }, ...this.#messages];
     }
 
     const dynamic = dynamicBlocks.join("\n\n");
@@ -682,7 +714,7 @@ export class WorkingMemory {
       messages.push({ role: "user", content: dynamic });
     }
 
-    return [{ role: "system", content: this.#system }, ...messages];
+    return [{ role: "system", content: this.#systemContent() }, ...messages];
   }
 
   /**
@@ -779,6 +811,7 @@ export class WorkingMemory {
       countTokens(this.#objective) +
       countTokens(this.#surfaceBrief) +
       countTokens(this.#memoryContext) +
+      countTokens(this.#snapshot) +
       summaryReserve;
     const recentBudget = Math.max(0, targetTokens - fixedOverhead);
 

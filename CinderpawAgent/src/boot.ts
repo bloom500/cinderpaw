@@ -27,6 +27,7 @@ import { SemanticMemory, memoryScope, setChatOwner, speakerScope } from "./memor
 import { RecallEngine } from "./memory/recall.ts";
 import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
 import { ObservationStore, importLegacyNotes } from "./memory/observations.ts";
+import { buildSnapshot } from "./memory/snapshot.ts";
 import { Reconciler } from "./memory/reconciler.ts";
 import { runMigration } from "./memory/fractal/migration.ts";
 import { UtilityLedger, rerankByUtility } from "./memory/fractal/utility.ts";
@@ -1300,6 +1301,18 @@ export async function boot(transportOverride?: Transport) {
     user,
     hooks,
     brain,
+  );
+  // What a new owner conversation already knows, frozen into its system prompt
+  // on the first turn (memory/snapshot.ts).
+  agent.setMemorySnapshot((sessionId, budgetChars) =>
+    buildSnapshot({
+      now: Date.now(),
+      card: notesStore.card("")?.text ?? null,
+      facts: semantic.selectForPrompt("", ""),
+      notes: notesStore.recent("", { excludeSessionId: sessionId }),
+      digests: notesStore.digests(""),
+      budgetChars,
+    }),
   );
 
   // Memory Resume: persist what the user is working on so `resume_get` (the
