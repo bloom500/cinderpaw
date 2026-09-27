@@ -1,5 +1,5 @@
 /**
- * The two Node APIs the test suite uses, declared by hand.
+ * The Node APIs the test suite uses, declared by hand.
  *
  * Vitest runs in Node, but this project has no `@types/node` and does not need
  * one for anything else — a whole dependency to type two functions is a worse
@@ -8,6 +8,7 @@
  */
 declare module 'node:fs' {
   export function readFileSync(path: string, encoding: 'utf8'): string;
+  export function existsSync(path: string): boolean;
   /**
    * Node 22+. Typed as returning paths rather than Dirents because that is the
    * shape the no-options call returns, and it is the only call this suite

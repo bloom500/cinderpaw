@@ -8,7 +8,6 @@
  */
 import { describe, expect, test } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 
 const CSS = readFileSync('src/styles/globals.css', 'utf8');
 const HTML = readFileSync('index.html', 'utf8');
@@ -127,7 +126,7 @@ describe('Young Serif', () => {
     for (const face of faces) {
       const url = /url\('([^']+)'\)/.exec(face)?.[1] ?? '';
       expect(url).not.toMatch(/^https?:/);
-      expect(existsSync(resolve('src/styles', url)), url).toBe(true);
+      expect(existsSync(`src/styles/${url}`), url).toBe(true);
       expect(face).toMatch(/font-weight:\s*400/);
       expect(face).toMatch(/unicode-range:/);
     }
