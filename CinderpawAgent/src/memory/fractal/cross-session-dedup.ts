@@ -132,19 +132,25 @@ export function dedupAcrossSessions(
 export const COLLAPSE_COSINE = 0.98;
 
 /**
- * The text as it is compared: case, whitespace, ISO timestamps and long bare
- * numbers (ids, ports, epoch millis) folded away. "saved at 10:00, id 1234567"
- * and "Saved at 11:30, id 7654321" are one event that happened twice; the
- * words are what make two lines different memories.
+ * The text as it is compared: case, whitespace and timestamps (ISO, and epoch
+ * seconds or millis from 2017 to 2033) folded away. Two lines that differ only
+ * in WHEN are one event that happened twice. Every other number stays: an
+ * order number, an amount or a port is what makes two lines different
+ * memories, and folding "long numbers" as ids merged two orders into one.
  */
 export function normaliseForCollapse(text: string): string {
   return text
     .toLowerCase()
     .replace(/\d{4}-\d{2}-\d{2}[t ]\d{2}:\d{2}(:\d{2})?(\.\d+)?z?/g, "<ts>")
-    .replace(/\d{6,}/g, "<n>")
+    .replace(/\b1[5-9]\d{8}(?:\d{3})?\b/g, "<ts>")
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/** The numbers left after `normaliseForCollapse`, in order. An embedding
+ *  barely sees them ("paid 50 lei" and "paid 80 lei" sit at cosine ~0.99),
+ *  so the vector pass may only merge lines whose numbers agree. */
+const numbersOf = (norm: string): string => norm.match(/\d+/g)?.join(",") ?? "";
 
 export interface CollapseResult<T> {
   /** One leaf per group: the earliest by `ts`, then by id. */
@@ -182,13 +188,20 @@ export function collapseIdentical<T extends { id: number; text: string; ts?: num
   const sorted = [...leaves].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0) || a.id - b.id);
   const byText = new Map<string, T>();
   const survivors: T[] = [];
+  const numbersOfSurvivor = new Map<number, string>();
   const groups = new Map<number, number[]>();
   for (const leaf of sorted) {
     const norm = normaliseForCollapse(leaf.text);
+    const nums = numbersOf(norm);
     let into = byText.get(norm);
     if (!into && leaf.vec && leaf.vec.length > 0) {
       for (const s of survivors) {
-        if (s.vec && s.vec.length === leaf.vec.length && dotAny(s.vec, leaf.vec) >= thr) {
+        if (
+          s.vec &&
+          s.vec.length === leaf.vec.length &&
+          numbersOfSurvivor.get(s.id) === nums &&
+          dotAny(s.vec, leaf.vec) >= thr
+        ) {
           into = s;
           break;
         }
@@ -200,6 +213,7 @@ export function collapseIdentical<T extends { id: number; text: string; ts?: num
     }
     byText.set(norm, leaf);
     survivors.push(leaf);
+    numbersOfSurvivor.set(leaf.id, nums);
     groups.set(leaf.id, [leaf.id]);
   }
   const hitCount = new Map([...groups].map(([id, g]) => [id, g.length]));
