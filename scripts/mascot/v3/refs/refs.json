@@ -1,0 +1,20 @@
+{
+ "front": {
+  "file": "refs/front.png",
+  "size": 4.0,
+  "centre_z": 1.8,
+  "centre_h": 0.01
+ },
+ "side": {
+  "file": "refs/side.png",
+  "size": 4.0,
+  "centre_z": 1.8,
+  "centre_h": 0.0
+ },
+ "back": {
+  "file": "refs/back.png",
+  "size": 4.0,
+  "centre_z": 1.8,
+  "centre_h": 0.0
+ }
+}
