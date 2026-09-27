@@ -1,27 +1,21 @@
 /**
- * Semantic memory extractor — upgraded with claude-mem observation types.
+ * Memory writer: after a conversation, one model call writes two things.
  *
- * Two passes run asynchronously after each completed turn:
+ *   1. FACTS: durable facts about the user (name, role, preferences) as
+ *      `category | key: value` lines → SemanticMemory, typed and versioned.
  *
- *   1. FACTS pass (existing behaviour, improved prompt):
- *      Extracts durable user facts (name, role, language, preferences) as
- *      key: value lines → stored in SemanticMemory.
+ *   2. NOTES (the Observer): what a later conversation should know about this
+ *      one, one dated sentence per line → ObservationStore. The notes are what
+ *      the next conversation's "What you remember" block is built from
+ *      (memory/snapshot.ts), and what the Reflector folds into the user card
+ *      and weekly digests (memory/reflector.ts).
  *
- *   2. OBSERVATION pass (new — from claude-mem):
- *      Classifies the turn with a structured type and extracts bullet-point
- *      facts + key concepts → stored in EpisodicMemory as a typed observation
- *      entry alongside the raw transcript, tagged [obs].
+ * It reads whole user messages and the agent's final answers, from where it
+ * last stopped, and runs on the first exchange, every third one after, when
+ * the conversation goes quiet, before compaction, and at shutdown, so no
+ * exchange is left unread. It never blocks the user's turn.
  *
- * Observation types (from claude-mem ECC modes):
- *   discovery  — learning about existing system/context
- *   decision   — architectural or preference choice with rationale
- *   bugfix     — something was broken, now resolved
- *   feature    — new capability discussed or built
- *   change     — generic modification (config, docs, etc.)
- *   task       — actionable item identified
- *   preference — user preference or constraint learned
- *
- * Both passes use a minimal token budget and never block the user response.
+ * Spec: docs/superpowers/specs/2026-09-27-observational-memory-design.md
  */
 
 import type { InferenceRouter } from "../egress/inference-router.ts";
@@ -30,19 +24,142 @@ import type { EpisodicMemory } from "./episodic.ts";
 import type { ChatMessage, AfterMemoryWritePayload } from "../types.ts";
 import type { MemoryGraph } from "./graph.ts";
 import type { HookRegistry } from "../core/hook-registry.ts";
+import type { ObservationStore, NotePriority } from "./observations.ts";
 
-export type ObservationType =
-  | "discovery"
-  | "decision"
-  | "bugfix"
-  | "feature"
-  | "change"
-  | "task"
-  | "preference";
+const USER_CHARS = 4000;
+const ANSWER_CHARS = 1500;
+const WINDOW_CHARS = 12_000;
+const DUE_EXCHANGES = 3;
+const DUE_CHARS = 6000;
+const QUIET_MS = 5 * 60_000;
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-const VALID_OBS_TYPES = new Set<string>([
-  "discovery", "decision", "bugfix", "feature", "change", "task", "preference",
-]);
+/** Whether memory writing works, for the Memory page: a stranger whose small
+ *  model cannot follow the format must see why nothing is being remembered. */
+export interface MemoryHealth {
+  lastOkAt: number | null;
+  failures: number;
+  lastError: string | null;
+}
+
+export interface ParsedNote {
+  priority: NotePriority;
+  refDate: string | null;
+  text: string;
+}
+
+const PRIORITY_WORDS: Record<string, NotePriority> = { high: "high", med: "med", medium: "med", low: "low" };
+
+/** `priority | date | note` per line. A bad line is dropped, never guessed at. */
+export function parseNotes(section: string): ParsedNote[] {
+  const out: ParsedNote[] = [];
+  for (const raw of section.split("\n")) {
+    const parts = raw.trim().replace(/^[-*•]\s*/, "").split("|");
+    if (parts.length < 3) continue;
+    const priority = PRIORITY_WORDS[parts[0]!.trim().toLowerCase()];
+    const date = parts[1]!.trim();
+    const text = parts.slice(2).join("|").trim();
+    if (!priority || !text || text.length > 500) continue;
+    out.push({ priority, refDate: /^\d{4}-\d{2}(-\d{2})?$/.test(date) ? date : null, text });
+  }
+  return out;
+}
+
+/** `=== FACTS ===` and `=== NOTES ===`, in either order; no header = all facts. */
+export function parseCombined(raw: string): { facts: string; notes: string } {
+  const heads = [...raw.matchAll(/={2,}\s*(FACTS|NOTES)\s*={2,}/gi)];
+  if (heads.length === 0) return { facts: raw.trim(), notes: "" };
+  const out = { facts: "", notes: "" };
+  heads.forEach((h, i) => {
+    const end = i + 1 < heads.length ? heads[i + 1]!.index! : raw.length;
+    const body = raw.slice(h.index! + h[0].length, end).trim();
+    if (h[1]!.toUpperCase() === "FACTS") out.facts = body;
+    else out.notes = body;
+  });
+  return out;
+}
+
+/** The conversation as the Observer reads it: whole user messages (up to
+ *  4000 chars), final answers (up to 1500), newest kept under 12000. */
+export function observerTranscript(exchanges: readonly ChatMessage[]): string {
+  const lines = exchanges.map(
+    (m) => `${m.role}: ${m.content.slice(0, m.role === "user" ? USER_CHARS : ANSWER_CHARS)}`,
+  );
+  const kept: string[] = [];
+  let total = 0;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    total += lines[i]!.length + 1;
+    if (total > WINDOW_CHARS && kept.length > 0) break;
+    kept.unshift(lines[i]!);
+  }
+  return kept.join("\n");
+}
+
+function lastExchanges(conversation: ChatMessage[], n: number): ChatMessage[] {
+  let first = conversation.length;
+  for (let seen = 0; first > 0 && seen < n; ) {
+    first--;
+    if (conversation[first]!.role === "user") seen++;
+  }
+  return conversation.slice(first);
+}
+
+/**
+ * What the Observer has not read yet: everything after the last exchange it
+ * saw, found by that exchange's text rather than an index, because compaction
+ * shrinks the transcript and an index would point at the wrong turn. Not found
+ * (compacted away, or a restart) = the last three exchanges.
+ * ponytail: two identical exchanges resolve to the later one; the notes the
+ * Observer already wrote are in its prompt, which absorbs the repeat.
+ */
+export function unobserved(
+  conversation: ChatMessage[],
+  mark: { user: string; answer: string } | undefined,
+): ChatMessage[] {
+  if (mark) {
+    for (let i = conversation.length - 2; i >= 0; i--) {
+      if (
+        conversation[i]!.role === "user" &&
+        conversation[i]!.content === mark.user &&
+        conversation[i + 1]?.content === mark.answer
+      ) {
+        return conversation.slice(i + 2);
+      }
+    }
+  }
+  return lastExchanges(conversation, DUE_EXCHANGES);
+}
+
+function todayWithWeekday(now: number): string {
+  const d = new Date(now);
+  return `${d.toISOString().slice(0, 10)} (${WEEKDAYS[d.getUTCDay()]})`;
+}
+
+function observerPrompt(now: number): string {
+  return [
+    `You write the memory of a personal assistant. Today is ${todayWithWeekday(now)}.`,
+    "Read the conversation and write two sections.",
+    "",
+    "=== FACTS ===",
+    "Durable facts about the USER (identity, role, preferences, decisions, goals, commitments).",
+    "One per line: category | key: value",
+    "category is one of: fact, preference, decision, commitment, goal, event, instruction, relationship, context, learning, observation, error, artifact",
+    "Example: preference | units: metric",
+    "If none: NONE",
+    "",
+    "=== NOTES ===",
+    "What a later conversation should know about this one: plans, decisions, dates, numbers, names,",
+    "what the user asked for, and what the assistant recommended or did.",
+    "One per line: priority | date | note",
+    "priority: high (commitments, deadlines, decisions), med, or low.",
+    "date: the day the note is ABOUT as YYYY-MM-DD, or YYYY-MM, resolved against today",
+    '("next Friday" becomes a real date), or - when it is about no particular day.',
+    "Each note is one self-contained sentence with the exact numbers and names,",
+    "in the language the user wrote in. Do not repeat the notes already written.",
+    "Example: high | 2026-10-12 | Dentist moved to 12 Oct at 10:00, same clinic",
+    "If nothing is worth keeping: NONE",
+  ].join("\n");
+}
 
 /** A timer that never holds the process open on its own. */
 function sleep(ms: number): Promise<void> {
@@ -86,23 +203,31 @@ export function conversationForExtraction(turns: readonly ChatMessage[]): ChatMe
 export class MemoryExtractor {
   readonly #router: InferenceRouter;
   readonly #semantic: SemanticMemory;
-  readonly #episodic: EpisodicMemory | null;
   readonly #hooks: HookRegistry | null;
   readonly #running = new Set<string>();
-  readonly #queue: { sessionId: string; turns: ChatMessage[] }[] = [];
+  readonly #queue: { sessionId: string; turns: ChatMessage[]; force: boolean }[] = [];
   #isIdle: () => boolean = () => true;
   #processing = false;
   #graph: MemoryGraph | null = null;
+  #notes: ObservationStore | null = null;
+  #now: () => number = Date.now;
+  #quietMs = QUIET_MS;
+  /** Per session: the last exchange the Observer read (see `unobserved`). */
+  readonly #marks = new Map<string, { user: string; answer: string }>();
+  readonly #lastTurns = new Map<string, ChatMessage[]>();
+  readonly #quiet = new Map<string, ReturnType<typeof setTimeout>>();
+  #health: MemoryHealth = { lastOkAt: null, failures: 0, lastError: null };
 
   constructor(
     router: InferenceRouter,
     semantic: SemanticMemory,
-    episodic?: EpisodicMemory,
+    // ponytail: unused since notes moved to ObservationStore; kept so the
+    // constructor's callers need no change.
+    _episodic?: EpisodicMemory,
     hooks?: HookRegistry | null,
   ) {
     this.#router = router;
     this.#semantic = semantic;
-    this.#episodic = episodic ?? null;
     this.#hooks = hooks ?? null;
   }
 
@@ -114,17 +239,55 @@ export class MemoryExtractor {
     this.#graph = graph;
   }
 
+  /** Where notes go. Without a store the FACTS half still runs and notes are dropped. */
+  setObservationStore(store: ObservationStore, opts: { now?: () => number; quietMs?: number } = {}): void {
+    this.#notes = store;
+    if (opts.now) this.#now = opts.now;
+    if (opts.quietMs !== undefined) this.#quietMs = opts.quietMs;
+  }
+
+  /** Last success, consecutive failures and why, for the Memory page. */
+  get health(): MemoryHealth {
+    return { ...this.#health };
+  }
+
   extractAsync(sessionId: string, recentTurns: ChatMessage[]): void {
     if (recentTurns.length < 2) return;
-
-    const existing = this.#queue.find((item) => item.sessionId === sessionId);
-    if (existing) {
-      existing.turns = recentTurns;
-    } else {
-      this.#queue.push({ sessionId, turns: recentTurns });
-    }
-
+    this.#lastTurns.set(sessionId, recentTurns);
+    this.#enqueue(sessionId, recentTurns, false);
+    this.#armQuiet(sessionId);
     this.runPending();
+  }
+
+  /**
+   * Observe now, whatever the cadence says: before compaction summarises the
+   * exchanges away, and when a conversation has gone quiet. Without the quiet
+   * flush the second exchange of a two-exchange chat was never read.
+   */
+  observeNow(sessionId: string, turns?: ChatMessage[]): void {
+    const t = turns ?? this.#lastTurns.get(sessionId);
+    if (!t || t.length < 2) return;
+    this.#enqueue(sessionId, t, true);
+    this.runPending();
+  }
+
+  #enqueue(sessionId: string, turns: ChatMessage[], force: boolean): void {
+    // A forced item holds turns that may be about to be compacted away; a
+    // later ordinary item must not overwrite them, so it queues behind.
+    const existing = this.#queue.find((q) => q.sessionId === sessionId && !q.force);
+    if (existing && !force) existing.turns = turns;
+    else this.#queue.push({ sessionId, turns: [...turns], force });
+  }
+
+  #armQuiet(sessionId: string): void {
+    const prev = this.#quiet.get(sessionId);
+    if (prev) clearTimeout(prev);
+    const t = setTimeout(() => {
+      this.#quiet.delete(sessionId);
+      this.observeNow(sessionId);
+    }, this.#quietMs);
+    (t as { unref?: () => void }).unref?.();
+    this.#quiet.set(sessionId, t);
   }
 
   /**
@@ -136,11 +299,9 @@ export class MemoryExtractor {
    * them — a cron job, a connector reply, and above all a benchmark task,
    * where the runner sends `shutdown` seconds after the turn ends.
    *
-   * The old shutdown path closed the database and called `process.exit` with
-   * this queue still full, so the lesson from a task died with the task. On
-   * TheAgentCompany that is the whole cross-task story: the agent spends
-   * twenty-five minutes working out how a service authenticates, and the next
-   * task starts from nothing because the write never happened.
+   * Every queued item is forced: shutdown means write what is unwritten, not
+   * wait for the third exchange. The old drain applied the cadence here too,
+   * so a second exchange queued at shutdown was dropped on the way out.
    *
    * Bounded on purpose. A shutdown that hangs is worse than a lost lesson —
    * the caller kills the process anyway — so this returns when the queue is
@@ -164,7 +325,7 @@ export class MemoryExtractor {
         // completion able to hold the process open for ever, which is the
         // exact failure this budget exists to prevent.
         const done = await Promise.race([
-          this.#extract(item.sessionId, item.turns).then(() => true as const),
+          this.#extract(item.sessionId, item.turns, true).then(() => true as const),
           sleep(Math.max(0, deadline - Date.now())).then(() => false as const),
         ]);
         if (done) written++;
@@ -197,7 +358,7 @@ export class MemoryExtractor {
 
         this.#running.add(item.sessionId);
         try {
-          await this.#extract(item.sessionId, item.turns);
+          await this.#extract(item.sessionId, item.turns, item.force);
         } finally {
           this.#running.delete(item.sessionId);
         }
@@ -207,158 +368,155 @@ export class MemoryExtractor {
     }
   }
 
-  async #extract(sessionId: string, turns: ChatMessage[]): Promise<void> {
+  async #extract(sessionId: string, turns: ChatMessage[], force: boolean): Promise<void> {
     const conversation = conversationForExtraction(turns);
-    const exchanges = conversation.filter((m) => m.role === "user").length;
-    if (exchanges === 0 || !conversation.some((m) => m.role === "assistant")) return;
-
-    const shouldExtract = exchanges === 1 || exchanges % 3 === 0;
-    if (!shouldExtract) return;
-
-    // The last three exchanges: every third one is extracted, so this is each
-    // exchange once (the first twice).
-    let firstOfWindow = conversation.length;
-    for (let seen = 0; firstOfWindow > 0 && seen < 3; ) {
-      firstOfWindow--;
-      if (conversation[firstOfWindow]!.role === "user") seen++;
+    const totalExchanges = conversation.filter((m) => m.role === "user").length;
+    if (totalExchanges === 0 || !conversation.some((m) => m.role === "assistant")) return;
+    const fresh = unobserved(conversation, this.#marks.get(sessionId));
+    const freshExchanges = fresh.filter((m) => m.role === "user").length;
+    if (freshExchanges === 0) return;
+    const freshChars = fresh.reduce((n, m) => n + m.content.length, 0);
+    const due = force || totalExchanges === 1 || freshExchanges >= DUE_EXCHANGES || freshChars >= DUE_CHARS;
+    if (!due) return;
+    const ok = await this.#observe(sessionId, observerTranscript(fresh));
+    if (!ok) return; // a failed call is retried on the next turn
+    let lastUser = -1;
+    for (let i = fresh.length - 1; i >= 0; i--) {
+      if (fresh[i]!.role === "user") {
+        lastUser = i;
+        break;
+      }
     }
-    const recent = conversation.slice(firstOfWindow);
-    let transcript = recent
-      .map((m) => `${m.role}: ${m.content.slice(0, 300)}`)
-      .join("\n");
-    if (transcript.length > 2000) transcript = transcript.slice(-2000);
-
-    await this.#extractFactsAndObservation(sessionId, transcript);
+    this.#marks.set(sessionId, { user: fresh[lastUser]!.content, answer: fresh[lastUser + 1]?.content ?? "" });
   }
 
-  async #extractFactsAndObservation(sessionId: string, transcript: string): Promise<void> {
+  /**
+   * One model call; false when the call or the write failed, so the same
+   * exchanges are read again next time. Never throws: a memory write must not
+   * cost a turn, and extractAsync does not await it.
+   */
+  async #observe(sessionId: string, transcript: string): Promise<boolean> {
     const extractionSessionId = `${sessionId}__extraction`;
+    const now = this.#now();
+    let content: string;
     try {
+      const already = this.#notes?.forSession(sessionId, 10) ?? [];
+      const user = [
+        "Notes already written for this conversation:",
+        already.length > 0 ? already.map((n) => `- ${n.text}`).join("\n") : "(none)",
+        "",
+        "Conversation:",
+        transcript,
+      ].join("\n");
       const res = await this.#router.complete({
         sessionId: extractionSessionId,
         messages: [
-          {
-            role: "system",
-            content: [
-              "You are a memory extractor. Analyze the conversation turn and extract two sections:",
-              "",
-              "=== FACTS ===",
-              "Extract durable facts about the USER (identity, role, preferences, decisions, goals, commitments).",
-              "Output ONE fact per line as: category | key: value",
-              "category is one of: fact, preference, decision, commitment, goal, event, instruction, relationship, context, learning, observation, error, artifact",
-              "Example: preference | units: metric",
-              "If nothing worth extracting, output: NONE",
-              "",
-              "=== OBSERVATION ===",
-              "Classify this conversation turn and extract a structured observation.",
-              "Output format:",
-              "type: <one of: discovery|decision|bugfix|feature|change|task|preference>",
-              "title: <short title, max 60 chars>",
-              "facts:",
-              "- <fact 1>",
-              "- <fact 2>",
-              "concepts: <comma-separated keywords>",
-              "If nothing worth recording, output: SKIP",
-            ].join("\n"),
-          },
-          { role: "user", content: transcript },
+          { role: "system", content: observerPrompt(now) },
+          { role: "user", content: user },
         ],
-        maxTokens: 300,
+        maxTokens: 600,
         temperature: 0.1,
       });
-
-      const rawContent = res.content.trim();
-      const sections = parseCombined(rawContent);
-
-      // 1. Process FACTS
-      const factsText = sections.facts;
-      if (factsText && factsText.toUpperCase() !== "NONE") {
-        const graphFacts: Array<{ key: string; value: string }> = [];
-        for (const line of factsText.split("\n")) {
-          const split = splitFactLine(line);
-          if (!split) continue;
-          const fact = sanitizeFact(split.rawKey, split.rawValue);
-          if (fact) {
-            // Scoped to the speaker on a multi-party session, global
-            // everywhere else — mined facts leak the same way explicit ones
-            // do. See `memoryScope`.
-            this.#semantic.upsert(fact.key, fact.value, memoryScope(sessionId), fact.category);
-            graphFacts.push(fact);
-            // Fire after_memory_write ONCE per fact write — the
-            // Reconciler (Pathway 3 step 2) subscribes to upsert into
-            // the fractal tree. Awaited so the hook completes before
-            // the extraction loop moves on; the registry contract
-            // guarantees handlers never throw.
-            await this.#fireMemoryWrite({
-              kind: "fact",
-              sessionId,
-              ts: Date.now(),
-              key: fact.key,
-              value: fact.value,
-            });
-          }
-        }
-        // The graph has no scopes: every edge in it is rendered into every
-        // session's recall. A guest speaker's facts are scoped in
-        // SemanticMemory precisely so they never reach anyone else ("call me
-        // Alex" from one guild member must not make everyone Alex), and
-        // mirroring them here put them straight back in front of the owner
-        // and every other member. Only the owner's global facts go in.
-        if (this.#graph && graphFacts.length > 0 && memoryScope(sessionId) === "") {
-          for (const { key, value } of graphFacts) {
-            // One value per key, as in SemanticMemory: a new value replaces.
-            this.#graph.setFact(key, "has", value);
-          }
-          this.#graph.persist();
-        }
+      content = res.content.trim();
+    } catch (e) {
+      this.#fail(e instanceof Error ? e.message : String(e));
+      return false;
+    } finally {
+      try {
+        this.#router.evictSession(extractionSessionId);
+      } catch {
+        // Nothing to evict is not a reason to lose what was just written.
       }
+    }
+    try {
+      return await this.#store(sessionId, content, now);
+    } catch (e) {
+      this.#fail(e instanceof Error ? e.message : String(e));
+      return false;
+    }
+  }
 
-      // 2. Process OBSERVATION
-      const obsText = sections.observation;
-      if (obsText && obsText.toUpperCase() !== "SKIP") {
-        const obs = parseObservation(obsText);
-        if (obs) {
-          if (this.#episodic) {
-            const entry = [
-              `[obs:${obs.type}] ${obs.title}`,
-              obs.facts.map((f) => `  • ${f}`).join("\n"),
-              obs.concepts.length > 0 ? `  concepts: ${obs.concepts.join(", ")}` : "",
-            ]
-              .filter(Boolean)
-              .join("\n");
-            this.#episodic.record(sessionId, "assistant", entry);
-          }
-          // Mirror observation concepts to the knowledge graph so recall
-          // can surface them in future sessions alongside semantic facts.
-          if (this.#graph && obs.concepts.length > 0) {
-            const slug = obs.title.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 50);
-            const eventId = `event_${slug}`;
-            this.#graph.upsertNode(eventId, obs.title, "event");
-            for (const concept of obs.concepts.slice(0, 8)) {
-              if (concept.length > 0 && concept.length <= 60) {
-                const cId = concept.toLowerCase().replace(/[^a-z0-9]+/g, "_");
-                this.#graph.upsertNode(cId, concept, "concept");
-                this.#graph.addEdge(eventId, cId, obs.type);
-              }
-            }
-            this.#graph.persist();
-          }
-          // Fire after_memory_write ONCE per observation — same contract
-          // as the fact branch above.
+  async #store(sessionId: string, content: string, now: number): Promise<boolean> {
+    const sections = parseCombined(content);
+    try {
+      await this.#writeFacts(sessionId, sections.facts);
+    } catch {
+      // A fact that could not be stored must not cost the notes.
+    }
+    const notesText = sections.notes.trim();
+    if (!notesText || notesText.toUpperCase() === "NONE") {
+      this.#ok(now);
+      return true;
+    }
+    const parsed = parseNotes(notesText);
+    if (parsed.length === 0) {
+      this.#fail("the model did not write notes in the expected format");
+      return true;
+    }
+    const scope = memoryScope(sessionId);
+    for (const n of parsed) {
+      this.#notes?.add({ sessionId, scope, observedAt: now, refDate: n.refDate, priority: n.priority, text: n.text });
+      await this.#fireMemoryWrite({
+        kind: "observation",
+        sessionId,
+        ts: now,
+        obsType: n.priority,
+        title: n.text.slice(0, 80),
+        concepts: [],
+      });
+    }
+    this.#ok(now);
+    return true;
+  }
+
+  #ok(now: number): void {
+    this.#health = { lastOkAt: now, failures: 0, lastError: null };
+  }
+
+  #fail(reason: string): void {
+    this.#health = { ...this.#health, failures: this.#health.failures + 1, lastError: reason };
+  }
+
+  async #writeFacts(sessionId: string, factsText: string): Promise<void> {
+    if (factsText && factsText.toUpperCase() !== "NONE") {
+      const graphFacts: Array<{ key: string; value: string }> = [];
+      for (const line of factsText.split("\n")) {
+        const split = splitFactLine(line);
+        if (!split) continue;
+        const fact = sanitizeFact(split.rawKey, split.rawValue);
+        if (fact) {
+          // Scoped to the speaker on a multi-party session, global
+          // everywhere else — mined facts leak the same way explicit ones
+          // do. See `memoryScope`.
+          this.#semantic.upsert(fact.key, fact.value, memoryScope(sessionId), fact.category);
+          graphFacts.push(fact);
+          // Fire after_memory_write ONCE per fact write — the
+          // Reconciler (Pathway 3 step 2) subscribes to upsert into
+          // the fractal tree. Awaited so the hook completes before
+          // the extraction loop moves on; the registry contract
+          // guarantees handlers never throw.
           await this.#fireMemoryWrite({
-            kind: "observation",
+            kind: "fact",
             sessionId,
             ts: Date.now(),
-            obsType: obs.type,
-            title: obs.title,
-            concepts: [...obs.concepts],
+            key: fact.key,
+            value: fact.value,
           });
         }
       }
-    } catch {
-      // Never fatal.
-    } finally {
-      this.#router.evictSession(extractionSessionId);
+      // The graph has no scopes: every edge in it is rendered into every
+      // session's recall. A guest speaker's facts are scoped in
+      // SemanticMemory precisely so they never reach anyone else ("call me
+      // Alex" from one guild member must not make everyone Alex), and
+      // mirroring them here put them straight back in front of the owner
+      // and every other member. Only the owner's global facts go in.
+      if (this.#graph && graphFacts.length > 0 && memoryScope(sessionId) === "") {
+        for (const { key, value } of graphFacts) {
+          // One value per key, as in SemanticMemory: a new value replaces.
+          this.#graph.setFact(key, "has", value);
+        }
+        this.#graph.persist();
+      }
     }
   }
 
@@ -374,45 +532,6 @@ export class MemoryExtractor {
     if (!this.#hooks) return;
     await this.#hooks.fire("after_memory_write", payload);
   }
-}
-
-interface ParsedObservation {
-  type: ObservationType;
-  title: string;
-  facts: string[];
-  concepts: string[];
-}
-
-function parseObservation(raw: string): ParsedObservation | null {
-  const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
-
-  let type: ObservationType | null = null;
-  let title = "";
-  const facts: string[] = [];
-  const concepts: string[] = [];
-  let inFacts = false;
-
-  for (const line of lines) {
-    if (line.startsWith("type:")) {
-      const val = line.slice(5).trim().toLowerCase();
-      if (VALID_OBS_TYPES.has(val)) type = val as ObservationType;
-      inFacts = false;
-    } else if (line.startsWith("title:")) {
-      title = line.slice(6).trim().slice(0, 80);
-      inFacts = false;
-    } else if (line.startsWith("facts:")) {
-      inFacts = true;
-    } else if (line.startsWith("concepts:")) {
-      inFacts = false;
-      const val = line.slice(9).trim();
-      concepts.push(...val.split(",").map((c) => c.trim()).filter(Boolean));
-    } else if (inFacts && (line.startsWith("- ") || line.startsWith("* "))) {
-      facts.push(line.slice(2).trim());
-    }
-  }
-
-  if (!type || !title) return null;
-  return { type, title, facts, concepts };
 }
 
 /** Keys that are conversation roles / prompt scaffolding, never user facts. */
@@ -549,51 +668,4 @@ export function canonicalFactKey(key: string): string {
   if (alias) return alias;
   // `project dir` and `project_dir` must not be two different facts.
   return key.replace(/\s+/g, "_");
-}
-
-export function parseCombined(raw: string): { facts: string; observation: string } {
-  let facts = "";
-  let observation = "";
-
-  const factsRegex = /={2,}\s*FACTS\s*={2,}/i;
-  const obsRegex = /={2,}\s*OBSERVATION\s*={2,}/i;
-
-  const factsMatch = raw.match(factsRegex);
-  const obsMatch = raw.match(obsRegex);
-
-  if (factsMatch && obsMatch) {
-    const factsIdx = factsMatch.index!;
-    const obsIdx = obsMatch.index!;
-
-    if (factsIdx < obsIdx) {
-      facts = raw.slice(factsIdx + factsMatch[0].length, obsIdx);
-      observation = raw.slice(obsIdx + obsMatch[0].length);
-    } else {
-      observation = raw.slice(obsIdx + obsMatch[0].length, factsIdx);
-      facts = raw.slice(factsIdx + factsMatch[0].length);
-    }
-  } else if (factsMatch) {
-    facts = raw.slice(factsMatch.index! + factsMatch[0].length);
-  } else if (obsMatch) {
-    observation = raw.slice(obsMatch.index! + obsMatch[0].length);
-  } else {
-    // Neither header found — fallback to splitting by common headers if present
-    const lower = raw.toLowerCase();
-    const factsWordIdx = lower.indexOf("facts:");
-    const obsWordIdx = lower.indexOf("type:");
-    
-    if (factsWordIdx !== -1 && obsWordIdx !== -1) {
-      if (factsWordIdx < obsWordIdx) {
-        facts = raw.slice(factsWordIdx, obsWordIdx);
-        observation = raw.slice(obsWordIdx);
-      } else {
-        observation = raw.slice(obsWordIdx, factsWordIdx);
-        facts = raw.slice(factsWordIdx);
-      }
-    } else {
-      facts = raw;
-    }
-  }
-
-  return { facts: facts.trim(), observation: observation.trim() };
 }

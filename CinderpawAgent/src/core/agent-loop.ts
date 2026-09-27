@@ -2322,6 +2322,11 @@ export class AgentLoop {
     // the summarizer is a full extra LLM completion, which on CPU can take
     // as long as the turn itself, with nothing in the UI to explain the wait.
     const compact = async (budget: number): Promise<boolean> => {
+      // What compaction is about to summarise away gets observed first, while
+      // the whole exchange is still here to read (OpenClaw's pre-compaction flush).
+      if (memory.estimatedTokens() > budget && !isRestrictedSession(sessionId)) {
+        this.#extractor?.observeNow(sessionId, [...memory.turns]);
+      }
       // Gate the synthetic event on the same over-budget check maybeCompress
       // makes internally — without it every turn (not just ones that
       // actually compact) would emit a tool_done, inflating any caller that

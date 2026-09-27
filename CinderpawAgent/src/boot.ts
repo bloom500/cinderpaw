@@ -26,6 +26,7 @@ import { isRestrictedSession } from "./core/session-visibility.ts";
 import { SemanticMemory, memoryScope, setChatOwner, speakerScope } from "./memory/semantic.ts";
 import { RecallEngine } from "./memory/recall.ts";
 import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
+import { ObservationStore, importLegacyNotes } from "./memory/observations.ts";
 import { Reconciler } from "./memory/reconciler.ts";
 import { runMigration } from "./memory/fractal/migration.ts";
 import { UtilityLedger, rerankByUtility } from "./memory/fractal/utility.ts";
@@ -1226,6 +1227,11 @@ export async function boot(transportOverride?: Transport) {
   // behaviour).
   const extractor = new MemoryExtractor(router, semantic, episodic, hooks);
   extractor.setGraph(memoryGraph);
+  // Observational memory: the Observer's notes and the Reflector's card.
+  const notesStore = new ObservationStore(db.raw);
+  const movedNotes = importLegacyNotes(db.raw);
+  if (movedNotes > 0) log(`memory: moved ${movedNotes} old [obs:] note(s) out of the conversation table`);
+  extractor.setObservationStore(notesStore);
 
   // --- Layer 1: Agent core ---
   // Brain Stack wiring. A hand-written brain.json still wins — including

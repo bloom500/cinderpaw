@@ -3,8 +3,7 @@
  *
  * Pins the extractor-side integration with the new hook event. The
  * extractor fires once per fact line on the FACTS path and once per
- * observation on the OBSERVATION path. It does NOT fire on NONE / SKIP
- * (no junk events).
+ * note on the NOTES path. It does NOT fire on NONE (no junk events).
  *
  * The Reconciler (Task 2) is the first real subscriber. This test uses
  * a counting handler to verify the fire pattern is correct.
@@ -15,6 +14,7 @@ import { MemoryExtractor } from "../src/memory/extractor.ts";
 import { HookRegistry } from "../src/core/hook-registry.ts";
 import { SemanticMemory } from "../src/memory/semantic.ts";
 import { EpisodicMemory } from "../src/memory/episodic.ts";
+import { ObservationStore } from "../src/memory/observations.ts";
 import { openDatabase } from "../src/db.ts";
 import type { ChatMessage, InferenceRouter } from "../src/types.ts";
 import type { AfterMemoryWritePayload } from "../src/types.ts";
@@ -47,8 +47,9 @@ function makeMemory() {
   const db = openDatabase(":memory:");
   const semantic = new SemanticMemory(db.raw, () => {});
   const episodic = new EpisodicMemory(db.raw, () => {});
+  const notes = new ObservationStore(db.raw);
   const close = () => db.close();
-  return { semantic, episodic, close };
+  return { semantic, episodic, notes, close };
 }
 
 function threeAssistantTurns(content = ""): ChatMessage[] {
@@ -72,7 +73,7 @@ describe("MemoryExtractor fires after_memory_write", () => {
       return { block: false };
     });
     const router = routerStub(
-      "=== FACTS ===\nname: Alice\nlanguage: ro\n=== OBSERVATION ===\nSKIP",
+      "=== FACTS ===\nname: Alice\nlanguage: ro\n=== NOTES ===\nNONE",
     );
     const extractor = new MemoryExtractor(router, semantic, episodic, hooks);
     // Start NOT idle so extractAsync's internal runPending() does not
@@ -98,21 +99,17 @@ describe("MemoryExtractor fires after_memory_write", () => {
     }
   });
 
-  test("fires once per observation on the OBSERVATION path", async () => {
-    const { semantic, episodic, close } = makeMemory();
+  test("fires once per note on the NOTES path", async () => {
+    const { semantic, episodic, notes, close } = makeMemory();
     const hooks = new HookRegistry();
     const seen: AfterMemoryWritePayload[] = [];
     hooks.on("after_memory_write", (p) => {
       seen.push(p);
       return { block: false };
     });
-    const router = routerStub(
-      "=== FACTS ===\nNONE\n=== OBSERVATION ===\n" +
-        "type: preference\ntitle: prefers dark mode\n" +
-        "facts:\n- dark theme\n- no animations\n" +
-        "concepts: ui, theme",
-    );
+    const router = routerStub("=== FACTS ===\nNONE\n=== NOTES ===\nlow | - | prefers dark mode");
     const extractor = new MemoryExtractor(router, semantic, episodic, hooks);
+    extractor.setObservationStore(notes);
     let isIdle = false;
     extractor.setIdleChecker(() => isIdle);
 
@@ -124,9 +121,9 @@ describe("MemoryExtractor fires after_memory_write", () => {
       expect(obsEvents).toHaveLength(1);
       const ev = obsEvents[0];
       if (ev?.kind !== "observation") throw new Error("expected observation event");
-      expect(ev.obsType).toBe("preference");
+      expect(ev.obsType).toBe("low");
       expect(ev.title).toBe("prefers dark mode");
-      expect(ev.concepts).toEqual(["ui", "theme"]);
+      expect(ev.concepts).toEqual([]);
     } finally {
       close();
     }
@@ -140,7 +137,7 @@ describe("MemoryExtractor fires after_memory_write", () => {
       seen.push(p);
       return { block: false };
     });
-    const router = routerStub("=== FACTS ===\nNONE\n=== OBSERVATION ===\nSKIP");
+    const router = routerStub("=== FACTS ===\nNONE\n=== NOTES ===\nNONE");
     const extractor = new MemoryExtractor(router, semantic, episodic, hooks);
     let isIdle = false;
     extractor.setIdleChecker(() => isIdle);
@@ -161,7 +158,7 @@ describe("MemoryExtractor fires after_memory_write", () => {
     hooks.on("after_memory_write", () => {
       throw new Error("reconciler bug");
     });
-    const router = routerStub("=== FACTS ===\nname: Bob\n=== OBSERVATION ===\nSKIP");
+    const router = routerStub("=== FACTS ===\nname: Bob\n=== NOTES ===\nNONE");
     const extractor = new MemoryExtractor(router, semantic, episodic, hooks);
     let isIdle = false;
     extractor.setIdleChecker(() => isIdle);

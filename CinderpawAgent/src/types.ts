@@ -1108,8 +1108,8 @@ export interface AfterMemoryWritePayload {
   // For "fact"
   key?: string;
   value?: string;
-  // For "observation"
-  obsType?: import("./memory/extractor.ts").ObservationType;
+  // For "observation": the note's priority, and its text as the title.
+  obsType?: string;
   title?: string;
   concepts?: string[];
 }

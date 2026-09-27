@@ -13,55 +13,20 @@ import { RecallEngine } from "../src/memory/recall.ts";
 import type { Tool, ToolManifest, ToolContext, ChatMessage, OutboundEvent } from "../src/types.ts";
 
 describe("P2: parseCombined", () => {
-  it("parses well-formed output with === FACTS === and === OBSERVATION ===", () => {
-    const raw = `
-=== FACTS ===
-name: John
-role: admin
-
-=== OBSERVATION ===
-type: discovery
-title: Loaded configuration
-facts:
-- read config file
-concepts: config, tauri
-`;
-    const res = parseCombined(raw);
-    expect(res.facts).toContain("name: John");
-    expect(res.facts).toContain("role: admin");
-    expect(res.observation).toContain("type: discovery");
-    expect(res.observation).toContain("title: Loaded configuration");
+  it("parses === FACTS === and === NOTES === in either order", () => {
+    const a = parseCombined("=== FACTS ===\nname: Alice\n=== NOTES ===\nhigh | - | x");
+    expect(a).toEqual({ facts: "name: Alice", notes: "high | - | x" });
+    const b = parseCombined("== notes ==\nlow | - | y\n== facts ==\nlang: ro");
+    expect(b).toEqual({ facts: "lang: ro", notes: "low | - | y" });
   });
 
   it("handles case-insensitive headers and whitespace variations", () => {
-    const raw = `
-  ==  facts  ==
-name: John
-
-  ======  observation  ======
-type: preference
-`;
-    const res = parseCombined(raw);
-    expect(res.facts).toBe("name: John");
-    expect(res.observation).toBe("type: preference");
+    const res = parseCombined("\n  ==  facts  ==\nname: John\n\n  ======  notes  ======\nmed | - | z\n");
+    expect(res).toEqual({ facts: "name: John", notes: "med | - | z" });
   });
 
-  it("falls back to keyword-based parsing when separators are missing", () => {
-    const raw = `
-facts: name: John
-type: decision
-title: Configured DB
-`;
-    const res = parseCombined(raw);
-    expect(res.facts).toContain("facts: name: John");
-    expect(res.observation).toContain("type: decision");
-  });
-
-  it("gracefully returns full content as facts if observation is missing", () => {
-    const raw = "hello world no headers";
-    const res = parseCombined(raw);
-    expect(res.facts).toBe("hello world no headers");
-    expect(res.observation).toBe("");
+  it("returns the whole reply as facts when there is no header", () => {
+    expect(parseCombined("hello world no headers")).toEqual({ facts: "hello world no headers", notes: "" });
   });
 });
 
@@ -249,7 +214,7 @@ describe("P2: MemoryExtractor Scheduling and Gating", () => {
     const mockRouter = {
       complete: async () => {
         completeCalled++;
-        return { content: "=== FACTS ===\nname: Alice\n=== OBSERVATION ===\nSKIP" };
+        return { content: "=== FACTS ===\nname: Alice\n=== NOTES ===\nNONE" };
       },
       evictSession: () => {},
     } as unknown as InferenceRouter;
@@ -290,7 +255,7 @@ describe("P2: MemoryExtractor Scheduling and Gating", () => {
     const mockRouter = {
       complete: async () => {
         completeCalled++;
-        return { content: "=== FACTS ===\n=== OBSERVATION ===\nSKIP" };
+        return { content: "=== FACTS ===\n=== NOTES ===\nNONE" };
       },
       evictSession: () => {},
     } as unknown as InferenceRouter;
@@ -330,10 +295,15 @@ describe("P2: MemoryExtractor Scheduling and Gating", () => {
       { role: "assistant", content: "B" },
       { role: "user", content: "C" },
       { role: "assistant", content: "D" },
-    ]; // 3 assistant turns
+    ]; // 3 exchanges, 2 of them unread
     extractor.extractAsync("session-1", turns3);
     await drain();
-    expect(completeCalled).toBe(2); // Fired because assistantTurns = 3 (multiple of 3)
+    expect(completeCalled).toBe(1); // Not yet: the first exchange was already read
+
+    const turns4: ChatMessage[] = [...turns3, { role: "user", content: "E" }, { role: "assistant", content: "F" }];
+    extractor.extractAsync("session-1", turns4);
+    await drain();
+    expect(completeCalled).toBe(2); // Three unread exchanges: read them, and only them
 
     db.close();
   });
