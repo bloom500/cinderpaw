@@ -14,13 +14,15 @@ import type {
   DownloadCompleteEvent,
   DownloadErrorEvent,
   ModelLoadProgressEvent,
+  MemoryNotesLine,
 } from './events';
+import { events as agentEvents } from './events';
 
 // ── Types (mirrors Rust structs exactly — snake_case, no rename_all) ──────────
 export type { TokenEvent, StreamDoneEvent, StreamErrorEvent, StreamTruncatedEvent };
 export type { DownloadProgressEvent, DownloadCompleteEvent, DownloadErrorEvent };
 export type { ModelLoadProgressEvent };
-export type { StreamProgressEvent, RsiEngineEventLine, FractalActivityLine, DreamCycleLine } from './events';
+export type { StreamProgressEvent, RsiEngineEventLine, FractalActivityLine, DreamCycleLine, MemoryNotesLine } from './events';
 
 /**
  * One row of the voice-engine picker — mirrors `cinderpaw_core::tts::TtsEngine`.
@@ -899,6 +901,9 @@ const raw = {
   /** Memory page Forget: drop one fact (graph edge) from what the agent knows. */
   memoryForget:          (from: string, to: string, relation: string) =>
     invoke<void>('cinderpaw_memory_forget', { from, to, relation }),
+  /** Memory page notes: list, or delete one. The reply is a `memory_notes_result` event. */
+  memoryNotes:           (requestId: string, op: 'list' | 'delete', noteId?: number) =>
+    invoke<void>('cinderpaw_memory_notes', { requestId, op, noteId: noteId ?? null }),
   jevDecide:             (state: Record<string, unknown>, questions: Record<string, unknown>) =>
     invoke<{ answers: Record<string, { type: string; choice?: string; confidence?: number; noul?: number }>; usage: unknown; ms: number }>('jev_decide', { state, questions }),
   testByokProvider:      (providerId: string, apiKey: string, baseUrl?: string | null) =>
@@ -1420,6 +1425,37 @@ export const tauri = {
     addFacts: (facts: MemoryFactInput[]): Promise<number> => raw.addMemoryFacts(facts),
     /** Sprint 1.6 — Memory Resume. First-launch safe (every field null). */
     getLastTask: (): Promise<LastTaskView> => raw.getLastTask(),
+    /**
+     * Observational memory for the Memory page: the user card, the notes, and
+     * whether the Observer and Reflector manage to write. Listens for the
+     * paired reply before asking, and says why if none comes.
+     */
+    notes: (op: 'list' | 'delete', noteId?: number): Promise<MemoryNotesLine> => {
+      const requestId = `mn-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      return new Promise<MemoryNotesLine>((resolve, reject) => {
+        let unlisten: (() => void) | null = null;
+        const timer = setTimeout(() => {
+          unlisten?.();
+          reject(new Error('Cinderpaw did not answer. Is the agent running?'));
+        }, 10_000);
+        agentEvents.onMemoryNotes
+          .listen((e) => {
+            if (e.id !== requestId) return;
+            clearTimeout(timer);
+            unlisten?.();
+            resolve(e);
+          })
+          .then((un) => {
+            unlisten = un;
+            return raw.memoryNotes(requestId, op, noteId);
+          })
+          .catch((err: unknown) => {
+            clearTimeout(timer);
+            unlisten?.();
+            reject(err instanceof Error ? err : new Error(String(err)));
+          });
+      });
+    },
   },
   /** The workspace panel. Every call is fire-and-forget: the answer comes back
    *  as an `artifact_result` event carrying the same `id`. */

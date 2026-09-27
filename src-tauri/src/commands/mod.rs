@@ -126,7 +126,9 @@ mod command_count_test {
     //   registered them without moving this, so the test was red on the
     //   release branch).
     // 189 -> 190 = + cinderpaw_cowork_team (the Settings teammate list).
-    const EXPECTED_COMMAND_COUNT: usize = 190;
+    // 190 -> 191 = + cinderpaw_memory_notes (the Memory page's card, notes and
+    //   writer health; list and delete through one command).
+    const EXPECTED_COMMAND_COUNT: usize = 191;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

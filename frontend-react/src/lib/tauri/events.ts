@@ -155,6 +155,32 @@ export interface FractalClusterLeavesLine {
   leaves: { leafId: number; text: string; ts: number }[];
 }
 
+/** Whether a memory writer (the Observer or the Reflector) manages to write. */
+export interface MemoryWriterHealth {
+  lastOkAt: number | null;
+  failures: number;
+  lastError: string | null;
+}
+
+/** The Memory page's observational memory: the user card, the notes, and health. */
+export interface MemoryNotesLine {
+  type: 'memory_notes_result';
+  id: string;
+  ok: boolean;
+  error?: string;
+  card: string | null;
+  notes: Array<{
+    id: number;
+    observedAt: number;
+    refDate: string | null;
+    priority: string;
+    text: string;
+    /** `reflector` for a weekly summary, `observer` / `import` for a note. */
+    source: string;
+  }>;
+  health: { observer: MemoryWriterHealth; reflector: MemoryWriterHealth };
+}
+
 /**
  * Dream Cycle lifecycle pulse — emitted when an evolutionary episode starts
  * (`phase:"started"`) and ends (`phase:"ended"`). Drives the dream toast and
@@ -506,6 +532,25 @@ export const events = {
             (parsed as Record<string, unknown>)['type'] === 'fractal_cluster_leaves_result'
           ) {
             cb(parsed as FractalClusterLeavesLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
+  /** The sidecar's `memory_notes_result`, paired by `id` with a `memory.notes` call. */
+  onMemoryNotes: {
+    listen: (cb: (e: MemoryNotesLine) => void): Promise<UnlistenFn> =>
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'memory_notes_result'
+          ) {
+            cb(parsed as MemoryNotesLine);
           }
         } catch {
           // non-JSON sidecar lines — ignore

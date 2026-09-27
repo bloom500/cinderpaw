@@ -689,6 +689,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             cinderpaw_lora_review_resolve,
             cinderpaw_lora_train,
             cinderpaw_fractal_cluster_leaves,
+            cinderpaw_memory_notes,
             cinderpaw_set_model,
             cinderpaw_get_model_config,
             get_local_api_token,

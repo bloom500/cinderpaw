@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNotifications } from '@/stores/notifications';
 import { Brain, Layers, RefreshCw, Sparkles } from 'lucide-react';
 import { tauri } from '@/lib/tauri';
-import type { MemoryGraphNodeView, DreamEpisode } from '@/lib/tauri';
+import type { MemoryGraphNodeView, DreamEpisode, MemoryNotesLine } from '@/lib/tauri';
 import { stopReasonWords, triggerWords } from '@/lib/rsiWords';
 import { rsiState, type RsiSnapshot, type RsiPhase } from './rsiState';
 
@@ -171,6 +171,92 @@ function TierPanel({
   );
 }
 
+const PRIORITY_DOT: Record<string, string> = {
+  high: 'bg-[#e8731c]',
+  med: 'bg-[#c66a25]',
+  low: 'bg-text-muted',
+};
+
+/**
+ * What Cinderpaw carries into every new conversation: the summary the
+ * Reflector writes about the user, and the dated notes the Observer keeps.
+ * Everything here can be deleted, and when writing fails the reason is on
+ * this screen, not only in a log the person does not have open.
+ */
+function NotesPanel({
+  reply,
+  now,
+  onDelete,
+}: {
+  reply: MemoryNotesLine | null;
+  now: number;
+  onDelete: (id: number) => void;
+}) {
+  const observer = reply?.health.observer;
+  const reflector = reply?.health.reflector;
+  return (
+    <section className="rounded-lg border border-border-default bg-bg-surface/80 p-4">
+      <header className="mb-3 flex items-center gap-2">
+        <Brain size={14} className="text-brand" />
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-text-primary">
+          What Cinderpaw remembers
+        </h2>
+      </header>
+      {reply === null ? (
+        <p className="text-xs text-text-muted">Notes are not available while the agent is starting.</p>
+      ) : (
+        <>
+          <p className="whitespace-pre-line text-sm text-text-primary">
+            {reply.card ?? 'No summary yet. It is written after a few conversations, while Cinderpaw is idle.'}
+          </p>
+          <div className="mt-2 space-y-1 text-xs">
+            {observer && observer.failures > 0 ? (
+              <p className="text-error-text">Could not write notes: {observer.lastError}</p>
+            ) : observer?.lastOkAt ? (
+              <p className="text-text-muted">Last note: {formatTimeAgo(now, observer.lastOkAt)}</p>
+            ) : null}
+            {reflector && reflector.failures > 0 && (
+              <p className="text-error-text">Could not update the summary: {reflector.lastError}</p>
+            )}
+          </div>
+          {reply.notes.length === 0 ? (
+            <p className="mt-3 text-xs text-text-muted">No notes yet.</p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {reply.notes.map((n) => (
+                <li
+                  key={n.id}
+                  className="group/row flex items-start gap-3 rounded border border-border-subtle bg-bg-primary/40 px-3 py-2"
+                >
+                  <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${PRIORITY_DOT[n.priority] ?? PRIORITY_DOT.low}`} />
+                  <div className="flex-1 text-xs">
+                    <div className="flex flex-wrap items-baseline gap-x-2 text-text-muted">
+                      <span className="font-mono">{new Date(n.observedAt).toISOString().slice(0, 10)}</span>
+                      {n.refDate && <span>for {n.refDate}</span>}
+                      {n.source === 'reflector' && (
+                        <span className="rounded border border-border-default px-1 text-micro uppercase">summary</span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-text-primary">{n.text}</p>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={`Delete note: ${n.text}`}
+                    onClick={() => onDelete(n.id)}
+                    className="shrink-0 rounded-md border border-border-default px-2 py-0.5 text-micro text-text-secondary opacity-0 transition-opacity hover:border-error/60 hover:text-error-text focus-visible:opacity-100 group-hover/row:opacity-100"
+                  >
+                    Delete
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 /** Dream episode card — last N dream cycles, newest first. */
 function DreamCard({ ep, now, bestScore }: { ep: DreamEpisode; now: number; bestScore: number | null }) {
   const improve = bestScore !== null && ep.ratchets > 0;
@@ -270,6 +356,7 @@ export function factsOf(graph: { nodes: MemoryGraphNodeView[]; edges: { from: st
 
 export default function MemoryLayersPage() {
   const [nodes, setNodes] = useState<MemoryGraphNodeView[]>([]);
+  const [notesReply, setNotesReply] = useState<MemoryNotesLine | null>(null);
   const [dreamLast, setDreamLast] = useState<DreamEpisode[]>([]);
   const [bestScore, setBestScore] = useState<number | null>(null);
   // True from the first paint. Starting false made the hero announce
@@ -304,12 +391,14 @@ export default function MemoryLayersPage() {
     setLoading(true);
     setError(null);
     try {
-      const [graph, telemetry, rsi] = await Promise.all([
+      const [graph, telemetry, rsi, notesNow] = await Promise.all([
         tauri.memory.getGraph(),
         tauri.rsi.dreamTelemetry(20).catch(() => ({ episodes: 0, ratchets: 0, tokens: 0, iterations: 0, last: [] })),
         tauri.rsi.status().catch(() => null),
+        tauri.memory.notes('list').catch(() => null),
       ]);
       setNodes(factsOf(graph));
+      setNotesReply(notesNow);
       setDreamLast(telemetry.last ?? []);
       const status = (rsi as { best_score?: number } | null);
       if (status && typeof status.best_score === 'number') setBestScore(status.best_score);
@@ -349,6 +438,18 @@ export default function MemoryLayersPage() {
       run: () => { clearTimeout(timer); unhide(); },
     });
   }, [refresh]);
+
+  /** Delete one note; the reply is the fresh list, so the row cannot linger. */
+  const deleteNote = useCallback((id: number) => {
+    tauri.memory.notes('delete', id)
+      .then((r) => {
+        setNotesReply(r);
+        if (!r.ok) useNotifications.getState().push('error', 'Could not delete that note', r.error ?? '');
+      })
+      .catch((err: unknown) => {
+        useNotifications.getState().push('error', 'Could not delete that note', err instanceof Error ? err.message : String(err));
+      });
+  }, []);
 
   // Group nodes by tier (newest first).
   const tiers = useMemo(() => {
@@ -467,6 +568,9 @@ export default function MemoryLayersPage() {
             ))}
           </section>
         )}
+
+        {/* ── WHAT IT CARRIES INTO A NEW CONVERSATION ─────────────── */}
+        <NotesPanel reply={notesReply} now={now} onDelete={deleteNote} />
 
         {/* ── TIERS ─────────────────────────────────────────────── */}
         {(Object.keys(tiers) as Tier[])

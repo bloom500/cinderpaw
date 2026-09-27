@@ -364,6 +364,36 @@ pub(crate) async fn cinderpaw_memory_forget(
     Ok(())
 }
 
+/// Observational memory: list the user card and the notes Cinderpaw keeps
+/// about past conversations, or delete one. Fire-and-forget; the sidecar
+/// answers with a `memory_notes_result` line paired by `request_id`, which
+/// Rust forwards over `cinderpaw://agent-output`.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cinderpaw_memory_notes(
+    state: State<'_, AppState>,
+    request_id: String,
+    op: String,
+    note_id: Option<u32>,
+) -> Result<(), String> {
+    if op != "list" && op != "delete" {
+        return Err(format!("invalid memory notes op '{op}'"));
+    }
+    let mut msg = serde_json::json!({ "type": "memory_notes", "id": request_id, "notesOp": op });
+    if let Some(n) = note_id {
+        msg["noteId"] = serde_json::Value::from(n);
+    }
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "Cinderpaw's agent is not running. Try again in a moment.".to_string())?
+            .clone()
+    };
+    tx.send(msg.to_string()).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Metacognition — answer, refuse or dismiss a question the improvement loop
 /// asked the user. `action` is validated HERE, same as the patch gate; the
 /// answer text is required for "answer" and ignored otherwise. The sidecar
