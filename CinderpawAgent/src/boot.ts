@@ -1276,7 +1276,19 @@ export async function boot(transportOverride?: Transport) {
   const agent = new AgentLoop(
     router, registry, episodic,
     { onBudgetExhausted: config.inference.tokenBudget.onExhausted },
-    fractalMemory,
+    // The per-turn injection is how almost every memory reaches the model,
+    // and until 27 Sep the utility ledger heard only from the `recall` tool.
+    // Recorded like the tool: which leaves this session was shown.
+    // ponytail: records every hit in the block; the loop's 4000-char cut can
+    // drop the last few after a long known-facts block, which overcounts them.
+    {
+      recall: async (q: string, sid: string) => {
+        const r = await fractalMemory.recall(q, sid);
+        if (r.leafIds?.length) utility.shown(sid, r.leafIds);
+        return r;
+      },
+      noteWrite: (leaf) => fractalMemory.noteWrite(leaf),
+    },
     extractor,
     soul,
     user,

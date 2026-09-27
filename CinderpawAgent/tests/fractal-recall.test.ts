@@ -241,7 +241,7 @@ describe("FractalRecallEngine — line format carries role (fix #2)", () => {
 });
 
 describe("FractalRecallEngine — RecallResult shape", () => {
-  it("returns exactly { context, episodicHits, semanticFacts }", async () => {
+  it("returns exactly { context, episodicHits, semanticFacts, leafIds }", async () => {
     const tree = await fixtureTree();
     const engine = new FractalRecallEngine({
       tree,
@@ -251,7 +251,7 @@ describe("FractalRecallEngine — RecallResult shape", () => {
     });
     const result = await engine.recall("q", "current-session");
     expect(Object.keys(result).sort()).toEqual(
-      ["context", "episodicHits", "semanticFacts"].sort(),
+      ["context", "episodicHits", "semanticFacts", "leafIds"].sort(),
     );
     expect(typeof result.context).toBe("string");
     expect(typeof result.episodicHits).toBe("number");
@@ -328,5 +328,38 @@ describe("FractalRecallEngine — the asking session never takes semantic slots"
     });
     const ids = await engine.rankedLeafIds("where did we land", "s-now", 10);
     expect(ids.sort((a, b) => a - b)).toEqual([100, 101, 102, 103, 104]);
+  });
+});
+
+// The recall block says which leaves it showed.
+//
+// The utility ledger counts, per leaf, how many closed tasks had it in
+// context. Until 27 Sep only the `recall` tool fed it; the loop's own
+// per-turn injection, which is how almost every memory reaches the model,
+// returned text only, so the ledger counted the side road and missed the
+// main one. The ids have to come back with the block for boot to record.
+describe("fractal recall — shown leaves", () => {
+  it("returns the ids of the lines it put in the block, in block order", async () => {
+    const leaves: Leaf[] = Array.from({ length: 4 }, (_, i) => ({
+      id: i + 1,
+      text: `memory number ${i + 1}`,
+      vec: new Float32Array([1, i / 10]),
+      ts: Date.UTC(2026, 7, 1),
+      sessionId: "past",
+    }));
+    const tree = await buildTree(leaves, { summarize: async () => "s", branch: 2 });
+    const engine = new FractalRecallEngine({
+      tree,
+      embed: async (t) => t.map(() => new Float32Array([1, 0])),
+      ftsSearch: () => [],
+      leavesById: new Map(leaves.map((l) => [l.id, l])),
+    });
+
+    const { context, leafIds } = await engine.recall("what do I remember", "now");
+
+    expect(leafIds?.length).toBeGreaterThan(0);
+    const positions = leafIds!.map((id) => context.indexOf(`memory number ${id}`));
+    expect(positions.every((p) => p >= 0)).toBe(true);
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
   });
 });

@@ -140,6 +140,8 @@ export interface RecallResult {
   context: string;
   episodicHits: number;
   semanticFacts: number;
+  /** The leaves the block shows, in block order (for the utility ledger). */
+  leafIds?: number[];
 }
 
 /** One entry after merging semantic + FTS5 contributions. */
@@ -386,6 +388,6 @@ export class FractalRecallEngine {
       "[End memory context]",
     ].join("\n");
 
-    return { context, episodicHits, semanticFacts };
+    return { context, episodicHits, semanticFacts, leafIds: ranked.map((h) => h.id) };
   }
 }

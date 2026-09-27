@@ -45,6 +45,9 @@ export interface RecallResult {
   context: string;
   episodicHits: number;
   semanticFacts: number;
+  /** The leaves the block shows, in block order. Only the fractal path
+   *  sets it; the utility ledger records them as shown to the session. */
+  leafIds?: number[];
 }
 
 export class RecallEngine {
