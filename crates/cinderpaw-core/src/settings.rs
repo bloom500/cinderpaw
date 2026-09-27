@@ -97,12 +97,14 @@ pub struct Settings {
     #[serde(default)]
     pub cloud_fallback_enabled: bool,
     /// Appearance: paint the app on its own solid background instead of the
-    /// see-through window material. Off keeps the glass everyone has today.
-    #[serde(default)]
+    /// see-through window material. On by default since the Paper/Charcoal
+    /// rebrand; Glass stays one click away in Appearance.
+    #[serde(default = "default_window_solid")]
     pub window_solid: bool,
 }
 
 fn default_rsi_budget() -> Option<f64> { Some(0.0) }
+fn default_window_solid() -> bool { true }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -121,7 +123,7 @@ impl Default for Settings {
             security_acknowledged_at: None,
             active_route: None,
             cloud_fallback_enabled: false,
-            window_solid: false,
+            window_solid: true,
         }
     }
 }
@@ -242,5 +244,21 @@ mod tests {
         }"#;
         let parsed: Settings = serde_json::from_str(older).expect("older file must still load");
         assert!(!parsed.cloud_fallback_enabled);
+    }
+
+    /// Solid is the product's default look. A file written before the key
+    /// existed gets it too; a file that says `false` keeps the glass.
+    #[test]
+    fn window_solid_defaults_to_true_and_an_explicit_false_is_kept() {
+        assert!(Settings::default().window_solid);
+
+        let mut json = serde_json::to_value(Settings::default()).unwrap();
+        json.as_object_mut().unwrap().remove("window_solid");
+        let old: Settings = serde_json::from_value(json.clone()).unwrap();
+        assert!(old.window_solid);
+
+        json.as_object_mut().unwrap().insert("window_solid".into(), serde_json::Value::Bool(false));
+        let glass: Settings = serde_json::from_value(json).unwrap();
+        assert!(!glass.window_solid);
     }
 }

@@ -18,10 +18,10 @@ export function AppearanceTab() {
   const setMascotEnabled = useUI((s) => s.setMascotEnabled);
 
   // Glass is the see-through window material over the desktop; Solid paints
-  // the app on its own ground, the way the call screen already is. Both are
-  // kept so the two can be lived with side by side before one is chosen.
+  // the app on its own ground, the way the call screen already is. Solid is
+  // the default (the engine's too, in settings.rs); Glass is the option.
   const [solid, setSolid] = useState<boolean | null>(null);
-  useEffect(() => { void tauri.settings.get().then((s) => setSolid(Boolean(s.window_solid))).catch(() => setSolid(false)); }, []);
+  useEffect(() => { void tauri.settings.get().then((s) => setSolid(s.window_solid ?? true)).catch(() => setSolid(true)); }, []);
   const pickSolid = (next: boolean) => {
     const was = solid;
     setSolid(next);
@@ -79,6 +79,7 @@ export function AppearanceTab() {
               key={label}
               type="button"
               disabled={solid === null}
+              aria-pressed={solid === value}
               onClick={() => pickSolid(value)}
               className={cn(
                 'px-3 py-1.5 text-sm transition-colors',
