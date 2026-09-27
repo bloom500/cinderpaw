@@ -52,6 +52,11 @@ export interface RememberToolOptions {
    * itself is already gone.
    */
   onForget?: (key: string, scope: string) => void;
+  /**
+   * Delete the notes (memory/observations.ts) whose text contains every word,
+   * and return what went, so the model can tell the user exactly what it forgot.
+   */
+  onForgetNotes?: (words: string[], scope: string) => Array<{ text: string }>;
 }
 
 export function createRememberTool(semantic: SemanticMemory, opts: RememberToolOptions = {}): Tool {
@@ -62,7 +67,9 @@ export function createRememberTool(semantic: SemanticMemory, opts: RememberToolO
       "whenever the user says remember / note this / don't forget, or states a " +
       "stable preference worth keeping. `key` is a short stable slug (e.g. " +
       "'codename', 'home_city'); writing the same key again overwrites it. Set " +
-      "`forget: true` to delete a fact. Read facts back with the `recall` tool.\n" +
+      "`forget: true` to delete a fact. Read facts back with the `recall` tool. " +
+      "Use `forget_notes` to delete your notes about past conversations when the " +
+      "user asks you to forget something that happened.\n" +
       "A key beginning `note:` is your NOTEBOOK: unlike ordinary facts, notebook " +
       "entries are shown back to you in full at the start of every turn, so they " +
       "survive compaction and long unattended runs. On a long task, keep " +
@@ -93,6 +100,13 @@ export function createRememberTool(semantic: SemanticMemory, opts: RememberToolO
         description: "Delete the fact stored under `key` instead of writing one.",
         required: false,
       },
+      forget_notes: {
+        type: "string",
+        description:
+          "Words to forget from your notes about past conversations, e.g. 'Lisbon trip'. " +
+          "Every note containing all of these words is deleted; `key` can be any short slug.",
+        required: false,
+      },
     },
     async execute(args, ctx) {
       const key = typeof args.key === "string" ? args.key.trim() : "";
@@ -105,6 +119,19 @@ export function createRememberTool(semantic: SemanticMemory, opts: RememberToolO
       // `ctx?.` — the registry always supplies one, but a tool's execute is a
       // public boundary and a missing ctx must degrade to global, not throw.
       const scope = memoryScope(ctx?.sessionId ?? "");
+
+      if (typeof args.forget_notes === "string" && args.forget_notes.trim()) {
+        const words = args.forget_notes.trim();
+        const gone = opts.onForgetNotes?.(words.split(/\s+/), scope) ?? [];
+        return {
+          ok: true,
+          content:
+            gone.length > 0
+              ? `Forgotten from notes (${gone.length}):\n${gone.map((n) => `- ${n.text}`).join("\n")}`
+              : `No note mentioned "${words}".`,
+          data: { forgottenNotes: gone.length },
+        };
+      }
 
       if (args.forget === true) {
         semantic.delete(key, scope);

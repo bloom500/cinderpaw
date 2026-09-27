@@ -153,7 +153,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
     db, audit, router, localFallbackTarget, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents, artifacts, artifactExporter,
     runHooks,
     brainDerived, brainBreaker,
-    memoryGraph, semantic,
+    memoryGraph, semantic, notesStore,
   } = ctx;
 
   switch (msg.type) {
@@ -954,7 +954,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           transport.send({ type: "error", message: "memory_forget: missing edge" });
           break;
         }
-        forgetEdge({ graph: memoryGraph, semantic, fractal: fractalMemory }, f);
+        forgetEdge({ graph: memoryGraph, semantic, fractal: fractalMemory, notes: notesStore }, f);
         break;
       }
       // Metacognition: the loop asked the user something; this is the reply.

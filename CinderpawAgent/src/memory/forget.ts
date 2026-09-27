@@ -18,12 +18,20 @@ export interface ForgetTargets {
   graph: MemoryGraph;
   semantic: SemanticMemory;
   fractal: { forgetFact(key: string): number[] };
+  /** The user card may quote the fact; see `forgetMirrors`. */
+  notes?: { dropCard(scope: string): void };
 }
 
-/** After SemanticMemory.delete(key): clear the graph edge and the tree leaf. */
+/**
+ * After SemanticMemory.delete(key): clear the graph edge, the tree leaf, and
+ * the user card. The card is prose the Reflector wrote and may quote the fact;
+ * without it new conversations fall back to the facts, which no longer hold
+ * it, until the Reflector writes a card that leaves it out.
+ */
 export function forgetMirrors(t: ForgetTargets, key: string): void {
   if (t.graph.forgetFact(key, "has") > 0) t.graph.persist();
   t.fractal.forgetFact(key);
+  t.notes?.dropCard("");
 }
 
 /**
@@ -43,6 +51,7 @@ export function forgetEdge(t: ForgetTargets, edge: { from: string; to: string; r
     if (current && current.value.trim().toLowerCase() === value.trim().toLowerCase()) {
       t.semantic.delete(key);
       t.fractal.forgetFact(key);
+      t.notes?.dropCard("");
     }
   }
   return removed;

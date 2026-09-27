@@ -600,6 +600,11 @@ export async function boot(transportOverride?: Transport) {
   );
   const semantic = new SemanticMemory(db.raw, audit.logger);
   const recall = new RecallEngine(episodic, semantic);
+  // Observational memory: the Observer's notes and the Reflector's card
+  // (memory/observations.ts). Created here so the remember tool can reach it.
+  const notesStore = new ObservationStore(db.raw);
+  const movedNotes = importLegacyNotes(db.raw);
+  if (movedNotes > 0) log(`memory: moved ${movedNotes} old [obs:] note(s) out of the conversation table`);
 
   // --- Memory graph (moved up so tools can reference it at registry build time) ---
   const memoryGraph = new MemoryGraph();
@@ -1043,8 +1048,9 @@ export async function boot(transportOverride?: Transport) {
       // The graph and the tree mirror only global (owner) facts; see
       // extractor.ts and reconciler.ts.
       onForget: (key, scope) => {
-        if (scope === "") forgetMirrors({ graph: memoryGraph, semantic, fractal: fractalMemory }, key);
+        if (scope === "") forgetMirrors({ graph: memoryGraph, semantic, fractal: fractalMemory, notes: notesStore }, key);
       },
+      onForgetNotes: (words, scope) => notesStore.deleteMatching(scope, words),
     }),
   );
 
@@ -1229,10 +1235,6 @@ export async function boot(transportOverride?: Transport) {
   // behaviour).
   const extractor = new MemoryExtractor(router, semantic, episodic, hooks);
   extractor.setGraph(memoryGraph);
-  // Observational memory: the Observer's notes and the Reflector's card.
-  const notesStore = new ObservationStore(db.raw);
-  const movedNotes = importLegacyNotes(db.raw);
-  if (movedNotes > 0) log(`memory: moved ${movedNotes} old [obs:] note(s) out of the conversation table`);
   extractor.setObservationStore(notesStore);
 
   // --- Layer 1: Agent core ---
@@ -2732,6 +2734,9 @@ export async function boot(transportOverride?: Transport) {
     // with the fact store it mirrors so Forget clears the fact too.
     memoryGraph,
     semantic,
+    // Observational memory: Forget drops the card; the Memory page lists and
+    // deletes notes (dispatch `memory_notes`).
+    notesStore,
     // Agent Cowork S4 — the chat-side approval resolver (dispatch routes
     // `cowork_approval_resolve` here).
     coworkApprovals: coworkApprovalService,
