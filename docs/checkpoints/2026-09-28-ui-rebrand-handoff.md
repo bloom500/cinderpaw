@@ -14,7 +14,7 @@ Branch chain, each stacked on the previous:
 | `feat/ui-s1-foundation` | 0049db0 | slice 1: palette, OS theme default, Young Serif, Solid default |
 | `feat/ui-s2-brand-logos` | 096eec4 | slice 2: 41 bundled brand logos, `<BrandLogo>` |
 | `feat/ui-s3-sidebar` | 9b220c6 | slice 3: sidebar + starred chats, plus the docs and design sources |
-| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) slice 5 (5a message shapes, 5b logo head, 5c artifact card) slice 6 (6a Activity Strip, 6b helpers + chips) slice 7 (7a `show_widget` in the sidecar, 7b the seven renderers) and slice 8 (image cache, real card pictures) slice 9 (9a source chips, 9b pasted-text card, 9c drop overlay) slice 10 (10a `memory_used` in the sidecar, 10b Memory Peek) slice 11 (Home) slice 12 (Connect step) slice 13 (approval cards) and slice 14 (14a Context tab, 14b Artifact Dock, 14c follow-up chips) |
+| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) slice 5 (5a message shapes, 5b logo head, 5c artifact card) slice 6 (6a Activity Strip, 6b helpers + chips) slice 7 (7a `show_widget` in the sidecar, 7b the seven renderers) and slice 8 (image cache, real card pictures) slice 9 (9a source chips, 9b pasted-text card, 9c drop overlay) slice 10 (10a `memory_used` in the sidecar, 10b Memory Peek) slice 11 (Home) slice 12 (Connect step) slice 13 (approval cards) slice 14 (14a Context tab, 14b Artifact Dock, 14c follow-up chips) and slice 15 (15a error card, 15b Dreaming card, 15c Coworker Strip) |
 
 `claude/rebrand-spec-f87jrk` contains everything above it. Continue from there, one branch per slice.
 
@@ -56,7 +56,7 @@ light (same colour); use `hover:bg-text-primary/5`.
   appears wherever a chat menu does. Pruned once, at the first successful non-empty list read: a
   failed read also ends with an empty list, and Undo after a delete must keep the star.
 
-## Owed before merging slices 1-14
+## Owed before merging slices 1-15
 
 1. Darius looks at them in the running app (from this branch).
 2. `./scripts/verify.sh` green.
@@ -214,9 +214,29 @@ instance the app uses. A screenshot is a preview, not the "Darius sees it in the
   here (no `gdk-3.0` in the container). Slice 14 touches neither web-app nor Rust; run the full
   script on Darius's machine before merging.
 
+## Darius on the Browser (28 Sep)
+
+The Browser keeps working exactly as it does today; its look may change, its behaviour may not.
+Slice 18 (spec 12: "Browser: tabs, agent badge, page summary; voice pill; done toast") must stay
+within that: restyle and add the summary button, but keep its own panel, wide mode and navigation
+as they are. Ask him before folding it into the side panel's tabs.
+
+## Slice 15 decisions to keep (28 Sep)
+
+- Error card: `humanizeError` has a `title` per rule; the card adds "Your message is safe, nothing
+  was lost." after the message (the turn stays in the chat; Try again resends it).
+- Dreaming card: `components/layout/DreamingCard.tsx`, last thing in the sidebar, only while
+  `useDream().dreaming`. Words per stage; the bar is the stage's place among the five that fire.
+  The start toast was removed (the card replaces it); the end-of-cycle summary toast stays.
+- Coworker Strip: `lib/coworkStrip.ts` (`stripTeammates`) + `CoworkerStrip.tsx`, above the
+  transcript in ChatPage. Counts only live exchanges (`startedAt`), one card per teammate (running
+  beats an older answer). `seenAnswers`/`markSeen` in coworkTranscript, not persisted; an answer is
+  marked read when its popover closes after View answer. Same clay for every teammate for now.
+- The floating CoworkTranscriptPanel is unchanged, so an answer can show there and in the strip.
+
 ## Next
 
-Slice 15: Coworker Strip + Dreaming card + error card (spec 7.5, 6 "Error card").
+Slice 16: Settings: Team, Appearance, Memory (spec 7.2 Team, 7.4 Appearance and Memory).
 
 ## Open question: the mascot medium
 
