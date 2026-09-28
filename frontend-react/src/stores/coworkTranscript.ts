@@ -314,6 +314,9 @@ interface CoworkTranscriptStore {
    *  yet (a brand-new one). Nothing is shown while this is null. */
   activeThreadId: string | null;
   setThread: (threadId: string | null) => void;
+  /** Answers the person opened from the Coworker Strip, by exchange id. Not persisted. */
+  seenAnswers: Record<string, true>;
+  markSeen: (exchangeId: string) => void;
   ingest: (evt: CoworkEventInput) => void;
   ingestTool: (evt: { sessionId?: string; tool: string; done: boolean }) => void;
   /** Replace the transcript with one thread replayed from disk. */
@@ -327,6 +330,8 @@ export const useCoworkTranscript = create<CoworkTranscriptStore>()(
       exchanges: [],
       activeThreadId: null,
       setThread: (threadId) => set({ activeThreadId: threadId }),
+      seenAnswers: {},
+      markSeen: (id) => set((s) => ({ seenAnswers: { ...s.seenAnswers, [id]: true } })),
       ingest: (evt) =>
         set((s) => ({ exchanges: applyCoworkEvent(s.exchanges, evt, s.activeThreadId) })),
       ingestTool: (evt) => set((s) => ({ exchanges: applyCoworkToolEvent(s.exchanges, evt) })),

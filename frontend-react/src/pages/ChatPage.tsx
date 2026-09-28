@@ -28,6 +28,7 @@ import { ONBOARDING_KEY } from '@/components/agents/agentUtils';
 import { useOnboarding } from '@/stores/onboarding';
 import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
 import { CoworkTranscriptPanel } from '@/components/chat/CoworkTranscriptPanel';
+import { CoworkerStrip } from '@/components/chat/CoworkerStrip';
 import { useCinderpawSendMessage } from '@/hooks/useCinderpaw';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { readLocal } from '@/lib/utils';
@@ -295,6 +296,7 @@ export function ChatPage() {
 
       {isAgentMode && <CinderpawGlobalMount />}
       {isAgentMode && <AgentOfflineBanner />}
+      {!showAgentOnboarding && <CoworkerStrip />}
 
       {/* Positioning context for absolute children */}
       <div ref={containerRef} className="relative flex-1 overflow-hidden">
