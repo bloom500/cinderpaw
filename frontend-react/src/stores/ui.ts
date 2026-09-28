@@ -67,13 +67,13 @@ interface UIStore {
   theme: ThemePref;
   resolvedTheme: ResolvedTheme;
   language: LangPref;
-  /** Read-only, and neither persisted nor settable. The composer controls that
-   *  used to write these are gone, so the setters went with them rather than
-   *  staying as an API nothing calls. `useSendMessage` and `MessageItem` still
-   *  read them — at their defaults, which is the only value they ever had that
-   *  was right for everybody. */
+  /** Set from the composer's Tools menu, where every switch that is on also
+   *  shows as a chip, so a choice is never out of sight. Still not persisted:
+   *  each launch starts at the defaults (see `partialize`). */
   reasoningMode: ReasoningMode;
   enabledTools: ToolId[];
+  setReasoningMode: (mode: ReasoningMode) => void;
+  toggleTool: (id: ToolId) => void;
   setTheme: (t: ThemePref) => void;
   searchOpen:  boolean;
   /**
@@ -196,6 +196,12 @@ export const useUI = create<UIStore>()(
       language: 'en',
       reasoningMode: 'auto',
       enabledTools: [],
+      setReasoningMode: (reasoningMode) => set({ reasoningMode }),
+      toggleTool: (id) => set((s) => ({
+        enabledTools: s.enabledTools.includes(id)
+          ? s.enabledTools.filter((t) => t !== id)
+          : [...s.enabledTools, id],
+      })),
       setTheme: (theme) => {
         const resolved = resolveTheme(theme);
         applyTheme(resolved);
@@ -242,14 +248,14 @@ export const useUI = create<UIStore>()(
         navCollapsed: s.navCollapsed,
         starredChats: s.starredChats,
         theme: s.theme,
-        // `reasoningMode` and `enabledTools` are deliberately NOT persisted any
-        // more. The composer controls that set them are gone, so a saved value
-        // would be a setting with no way back: someone who once picked
-        // "Off: suppress thinking blocks", or ticked File Write, would carry
-        // that choice forever with nothing on screen explaining it or offering
-        // to undo it. Unpersisted, they start every launch at the defaults the
-        // app is designed around — `auto`, and an empty tool list that agent
-        // mode overrides with the agent's own tools.
+        // `reasoningMode` and `enabledTools` are deliberately NOT persisted.
+        // They were once, from composer controls that were later removed, and
+        // a saved value became a setting with no way back: someone who once
+        // picked "Off: suppress thinking blocks", or ticked File Write, carried
+        // that choice forever with nothing on screen explaining it. The Tools
+        // menu sets them again, but only for this launch; every launch starts
+        // at `auto` and an empty tool list, which agent mode overrides with the
+        // agent's own tools.
         inputMode: s.inputMode,
         mascotEnabled: s.mascotEnabled,
         sttModel: s.sttModel,

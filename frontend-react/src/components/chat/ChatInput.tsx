@@ -16,6 +16,7 @@ import { ComposerPlaceholder } from './ComposerPlaceholder';
 import { motion } from 'framer-motion';
 import { ModelPill } from './ModelPill';
 import { ContextRing } from './ContextRing';
+import { ToolsMenu } from './ToolsMenu';
 import { MascotPerch } from './mascot/MascotPerch';
 import { useMascotState } from './mascot/useMascotState';
 import { useModel } from '@/stores/model';
@@ -800,6 +801,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                 group never does. */}
             <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
               <div className="flex min-w-0 items-center gap-1">
+                {inputMode === 'chat' && <ToolsMenu />}
                 <ModelPill />
                 <span
                   className={cn(
