@@ -273,8 +273,32 @@ board (tabs All/Files/Links/Memory with counts, search, grouped rows with tiles,
 "+ Add" fills the composer (files via the dialog + `attachPaths`, "Read this page: ",
 "Remember that "). The panel-level Artifacts/Context underline tabs stay above the heading.
 
-Slice 18: Browser tabs, agent badge, page summary; voice pill; done toast. Read "Darius on
-the Browser" above first: look may change, behaviour may not.
+## Slice 18 decisions to keep (28 Sep, local, `feat/ui-s18-browser`)
+
+- Browser: the agent bar keeps floating over the toolbar (a row of its own reflowed the page on
+  every action, 17 Sep); it gained the head and Stop (`requestCinderpawStop()` with no session:
+  the browser event carries none, and Stop must stop what drives the page). No Stop while paused.
+  "Summarize this page" fills the composer with the address (opens the drawer in wide mode); the
+  summary is the reply. NOT built: a summary card inside the panel, and the head peeking over the
+  page (the page is a native view and paints over React).
+- Call pill: look only, Charcoal fixed hex in both themes, head, a breathing Flame waveform (no
+  audio level reaches the pill). useCallSession.ts untouched.
+- Done toast: a `success` toast with an `action` is drawn as the canvas's done toast. Its trigger
+  is new: an artifact `created` off screen (other chat, Telegram, call) pushes "<title> is ready"
+  with Open (panel + `router.navigate('/chat')`, router imported late; tests mock `@/router`).
+
+## Slice 19 decisions to keep (28 Sep, local, `feat/ui-s19-model-roles`)
+
+- `lib/modelRoles.ts` (types, ROLES, `resolveRole`, `sameModel`); `roles` persisted in
+  `stores/model.ts`. Defaults: Primary = the model answering now, Local = first chat model on
+  disk; Fast/Deep empty until chosen. Nothing routes on roles; Brain Stack stays the router.
+- The pill's menu is the Model Switcher; the old Local/Cloud list is behind "All models".
+  Empty roles have their own "Choose a model" / "Download a model" button: a row press never
+  leaves the chat (22 Sep complaint). Models page gained a Roles tab (`RolesTab.tsx`).
+
+Slice 20: Projects, instructions and files (spec 9). Needs Rust (projects.rs fields + file
+commands) and a way to get the instructions into Agent mode's prompt (a per-message field through
+Rust and the sidecar, which the slice 4 note says to ask Darius about). Asked 28 Sep night.
 
 ## Open question: the mascot medium
 
