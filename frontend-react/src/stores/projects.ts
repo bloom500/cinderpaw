@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { tauri, type Project } from '@/lib/tauri';
+import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
+import { tauri, type Project, type ProjectFile } from '@/lib/tauri';
 import { reportFailure } from '@/stores/notifications';
 
 export type { Project };
@@ -17,6 +18,11 @@ interface ProjectsStore {
   rename:     (id: string, name: string) => Promise<void>;
   addChat:    (projectId: string, convId: string) => Promise<void>;
   removeChat: (projectId: string, convId: string) => Promise<void>;
+  /** Spec 9: added to the system prompt of every chat in the project. */
+  setInstructions: (projectId: string, text: string) => Promise<void>;
+  /** Pick files and copy them into the project's folder. */
+  addFiles:   (projectId: string) => Promise<void>;
+  removeFile: (projectId: string, name: string) => Promise<void>;
 }
 
 export const useProjects = create<ProjectsStore>((set, get) => ({
@@ -81,6 +87,48 @@ export const useProjects = create<ProjectsStore>((set, get) => ({
     await reportFailure(`Could not remove the chat from ${project.name}`, async () => {
       await tauri.projects.save(projectId, project.name,
         project.conversation_ids.filter((id) => id !== convId));
+      await get().refresh();
+    });
+  },
+
+  setInstructions: async (projectId, text) => {
+    const project = get().list.find((p) => p.id === projectId);
+    if (!project || (project.instructions ?? '') === text) return;
+    await reportFailure(`Could not save the instructions for ${project.name}`, async () => {
+      await tauri.projects.save(projectId, project.name, project.conversation_ids, { instructions: text });
+      await get().refresh();
+    });
+  },
+
+  addFiles: async (projectId) => {
+    const project = get().list.find((p) => p.id === projectId);
+    if (!project) return;
+    const picked = await openFileDialog({ multiple: true });
+    if (!picked) return;
+    const paths = Array.isArray(picked) ? picked : [picked];
+    await reportFailure(`Could not add the file to ${project.name}`, async () => {
+      const added: ProjectFile[] = [];
+      try {
+        for (const path of paths) added.push(await tauri.projects.addFile(projectId, path));
+      } finally {
+        // The copies that made it are listed even when a later one failed, so
+        // none of them sits in the folder unknown to the agent.
+        if (added.length > 0) {
+          await tauri.projects.save(projectId, project.name, project.conversation_ids, { files: [...(project.files ?? []), ...added] });
+          await get().refresh();
+        }
+      }
+    });
+  },
+
+  removeFile: async (projectId, name) => {
+    const project = get().list.find((p) => p.id === projectId);
+    if (!project) return;
+    await reportFailure(`Could not remove ${name}`, async () => {
+      await tauri.projects.removeFile(projectId, name);
+      await tauri.projects.save(projectId, project.name, project.conversation_ids, {
+        files: (project.files ?? []).filter((f) => f.name !== name),
+      });
       await get().refresh();
     });
   },

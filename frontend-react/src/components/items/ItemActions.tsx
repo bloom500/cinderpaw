@@ -373,7 +373,7 @@ export function ProjectActions({
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         title="Delete this project?"
-        body={<>This permanently deletes <span className="text-text-primary">{project.name || 'the project'}</span> and every conversation inside it. This can&apos;t be undone.</>}
+        body={<>This permanently deletes <span className="text-text-primary">{project.name || 'the project'}</span> and every conversation inside it, with the copies of its files (your originals stay where they are). This can&apos;t be undone.</>}
         onConfirm={() => useProjects.getState().delete(project.id)}
       />
     </>

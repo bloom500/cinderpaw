@@ -1,5 +1,5 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import { Brain, File, FileCode2, FileImage, FileText, Globe, Hourglass, MoreHorizontal, Paperclip, Plus, Search, Wrench, type LucideIcon } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Brain, File, FileCode2, FileImage, FileText, Folder, Globe, Hourglass, MoreHorizontal, Paperclip, Plus, Search, Wrench, type LucideIcon } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-shell';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -9,10 +9,12 @@ import { CHAT_TOOLS, SwitchRow } from '@/components/chat/ToolsMenu';
 import { chatContext } from '@/lib/chatContext';
 import type { DisplayAttachment } from '@/lib/attachmentDisplay';
 import { siteName } from '@/lib/sources';
-import { tauri } from '@/lib/tauri';
+import { tauri, type Project } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
 import { useChat, type MemoryUsedItem } from '@/stores/chat';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
+import { useConversations } from '@/stores/conversations';
+import { useProjects } from '@/stores/projects';
 import { useUI } from '@/stores/ui';
 
 function openUrl(url: string) {
@@ -151,6 +153,66 @@ function MemoryItem({ m }: { m: MemoryUsedItem }) {
   );
 }
 
+/** A project file's tile: the same kinds as an attachment, guessed from the name. */
+function projectFileKind(name: string): DisplayAttachment['kind'] {
+  if (/\.(png|jpe?g|gif|webp|avif)$/i.test(name)) return 'image';
+  if (/\.(txt|md|csv|json|ya?ml|toml|html?|css|[jt]sx?|py|rs|go)$/i.test(name)) return 'text';
+  return 'binary';
+}
+
+/**
+ * The project this chat is filed in (spec 9): its instructions, which ride the
+ * system prompt of every chat in it, and its files, copied into its folder
+ * for the agent to open. Above the chat's own context.
+ */
+function ProjectGroup({ project }: { project: Project }) {
+  const setInstructions = useProjects((s) => s.setInstructions);
+  const addFiles = useProjects((s) => s.addFiles);
+  const removeFile = useProjects((s) => s.removeFile);
+  const [draft, setDraft] = useState(project.instructions ?? '');
+  useEffect(() => setDraft(project.instructions ?? ''), [project.id, project.instructions]);
+  const files = project.files ?? [];
+  return (
+    <Group icon={Folder} title={`Project · ${project.name}`} count={files.length} onAdd={() => void addFiles(project.id)} addLabel="Add a file to the project">
+      <div className="flex flex-col gap-2 rounded-xl border border-border-default bg-bg-elevated p-3">
+        <label htmlFor="project-instructions" className="text-xs font-medium text-text-secondary">
+          Instructions for every chat in this project
+        </label>
+        <textarea
+          id="project-instructions"
+          value={draft}
+          rows={4}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => void setInstructions(project.id, draft.trim())}
+          placeholder="For example: Answer in Romanian. Our budget is 2,000 EUR and we travel in April."
+          className="resize-y rounded-lg border border-border-subtle bg-bg-surface px-2.5 py-2 text-sm text-text-primary outline-hidden placeholder:text-text-muted focus:border-brand"
+        />
+        <p className="text-2xs text-text-muted">Cinderpaw reads these before every message in this project.</p>
+      </div>
+      {files.length > 0 ? (
+        <Rows>
+          {files.map((f) => {
+            const t = fileTile({ name: f.name, kind: projectFileKind(f.name) });
+            return (
+              <Row
+                key={f.name}
+                tile={<t.icon size={16} className={t.cls} />}
+                title={f.name}
+                sub="In this project"
+                menu={<RowMenu label={`More for ${f.name}`} items={[{ label: 'Remove from project', run: () => void removeFile(project.id, f.name), danger: true }]} />}
+              />
+            );
+          })}
+        </Rows>
+      ) : (
+        <p className="rounded-xl border border-dashed border-border-default px-3 py-3 text-xs text-text-muted">
+          No files yet. Added files are copied into the project, and Cinderpaw opens them when they matter.
+        </p>
+      )}
+    </Group>
+  );
+}
+
 type View = 'all' | 'files' | 'links' | 'memory';
 
 /**
@@ -177,6 +239,8 @@ export function ContextTab({ onCompose, onAttach }: {
   const enabledTools = useUI((s) => s.enabledTools);
   const toggleTool = useUI((s) => s.toggleTool);
   const [view, setView] = useState<View>('all');
+  const currentId = useConversations((s) => s.currentId);
+  const project = useProjects((s) => (currentId ? s.list.find((p) => p.conversation_ids.includes(currentId)) : undefined));
   const [query, setQuery] = useState('');
 
   const q = query.trim().toLowerCase();
@@ -230,6 +294,7 @@ export function ContextTab({ onCompose, onAttach }: {
 
       <ScrollArea className="flex-1">
         <div className="flex flex-col gap-5 px-4 pb-4">
+          {view === 'all' && project && <ProjectGroup project={project} />}
           {view === 'all' && nothing && !q && (
             <p className="text-sm text-text-muted">
               Nothing here yet. Files you add, pages Cinderpaw reads and memories it uses will show up here.

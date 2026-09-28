@@ -7,6 +7,9 @@ import { tauri } from '@/lib/tauri';
 import { useChat, type ChatMessage } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { useNotifications } from '@/stores/notifications';
+import { useConversations } from '@/stores/conversations';
+import { useProjects } from '@/stores/projects';
+import { projectPrompt } from '@/lib/projectPrompt';
 
 /**
  * The panel is where the store stops being a capability of the agent's and
@@ -637,5 +640,44 @@ describe('the Context tab', () => {
     expect(screen.getByText('No memory matches.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Add a memory' }));
     expect(onCompose).toHaveBeenCalledWith('Remember that ');
+  });
+});
+
+describe('a chat in a project (spec 9)', () => {
+  const TRIP = { id: 'p1', name: 'Trip', conversation_ids: ['c1'], instructions: '', files: [] };
+
+  it('shows the project above the chat, and saves the instructions when you leave the box', async () => {
+    useChat.setState({ messages: [] });
+    useConversations.setState({ currentId: 'c1' } as never);
+    useProjects.setState({ list: [TRIP] });
+    const save = vi.spyOn(tauri.projects, 'save').mockResolvedValue(undefined);
+    vi.spyOn(tauri.projects, 'list').mockResolvedValue([{ ...TRIP, instructions: 'Answer in Romanian.' }]);
+    useArtifacts.setState({ panelTab: 'context' });
+    render(<ArtifactsPanel onClose={() => {}} />);
+
+    const box = screen.getByLabelText('Instructions for every chat in this project');
+    expect(box).toHaveAttribute('placeholder', expect.stringContaining('For example'));
+    expect(screen.getByText(/No files yet/)).toBeInTheDocument();
+    fireEvent.change(box, { target: { value: 'Answer in Romanian.' } });
+    fireEvent.blur(box);
+    await waitFor(() => expect(save).toHaveBeenCalledWith('p1', 'Trip', ['c1'], { instructions: 'Answer in Romanian.' }));
+    save.mockRestore();
+  });
+
+  it('a chat outside any project shows no project', () => {
+    useConversations.setState({ currentId: 'c9' } as never);
+    useProjects.setState({ list: [TRIP] });
+    useArtifacts.setState({ panelTab: 'context' });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    expect(screen.queryByLabelText('Instructions for every chat in this project')).toBeNull();
+  });
+
+  it('Chat mode gets the same project block the engine adds', () => {
+    expect(projectPrompt(undefined)).toBe('');
+    expect(projectPrompt(TRIP)).toBe('');
+    const text = projectPrompt({ ...TRIP, instructions: 'Budget 2000 EUR.', files: [{ name: 'a.pdf', path: 'C:/p/a.pdf' }] });
+    expect(text).toContain('## Project: Trip');
+    expect(text).toContain('Budget 2000 EUR.');
+    expect(text).toContain('- a.pdf: C:/p/a.pdf');
   });
 });
