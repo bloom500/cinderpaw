@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useConversations } from '@/stores/conversations';
+import { runCommand } from '@/lib/commands';
 
 /** Close the browser panel if it is open, else the artifacts panel. True if one closed. */
 async function closeSidePanel(): Promise<boolean> {
@@ -39,23 +39,26 @@ export function useGlobalHotkeys() {
           target.tagName === 'TEXTAREA' ||
           target.isContentEditable);
 
-      // Allowed from the composer too. Ctrl+N means nothing to a text field,
-      // and the composer holds the focus almost all the time, so gating it on
-      // "not in an editable" made the shortcut dead exactly where people are.
-      if (e.key.toLowerCase() === 'n' && !e.shiftKey && !e.altKey) {
-        e.preventDefault();
-        // Called on the store, not announced as an event: from Models or
-        // Settings the chat page is not mounted yet, so nobody was listening and
-        // Ctrl+N reopened the last conversation instead of starting one.
-        useConversations.getState().newChat();
-        navigate('/chat');
-      }
+      // The palette's commands (lib/commands.ts), the same keys it shows.
+      const run = (id: string) => { e.preventDefault(); runCommand(id, navigate); };
+      const key = e.key.toLowerCase();
+
+      // Allowed from the composer too. Ctrl+N, Ctrl+Shift+A, Ctrl+B and Ctrl+M
+      // mean nothing to a text field, and the composer holds the focus almost
+      // all the time, so gating them on "not in an editable" made the
+      // shortcuts dead exactly where people are.
+      if (key === 'n' && !e.shiftKey && !e.altKey) run('new-chat');
+      // Shift required: Ctrl+A alone is select-all.
+      if (key === 'a' && e.shiftKey && !e.altKey) run('create-artifact');
+      // Except inside a document being edited (ArtifactEditor), where Ctrl+B
+      // is bold and the editor has already taken it.
+      if (key === 'b' && !e.shiftKey && !e.altKey && !e.defaultPrevented &&
+          !target?.closest?.('[contenteditable]:not([contenteditable="false"])')) run('open-browser');
+      // Ctrl only, never ⌘: ⌘M minimises the window on a Mac.
+      if (key === 'm' && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) run('switch-model');
 
       // Ctrl+, opens Settings, the convention on both Windows and macOS apps.
-      if (e.key === ',' && !inEditable) {
-        e.preventDefault();
-        navigate('/settings');
-      }
+      if (e.key === ',' && !inEditable) run('settings');
 
       if (e.key.toLowerCase() === 'k') {
         e.preventDefault();

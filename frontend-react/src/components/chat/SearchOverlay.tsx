@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, X, Folder, Globe, MessageSquarePlus, Box, Sun, Moon, Bot, MessageSquare, KeyRound, type LucideIcon } from 'lucide-react';
+import { Search, X, Folder, Globe, Sun, Moon, Bot, MessageSquare, KeyRound, type LucideIcon } from 'lucide-react';
 import { useBrowser, type BrowserTab } from '@/stores/browser';
 import { fuzzyScore } from '@/lib/browserHistory';
 import { useNavigate } from 'react-router-dom';
@@ -9,8 +9,11 @@ import { useProjects, type Project } from '@/stores/projects';
 import { tauri, type Conversation } from '@/lib/tauri';
 import { ConversationActions, ProjectActions } from '@/components/items/ItemActions';
 import { MenuInOverlay } from '@/components/ui/dropdown-menu';
-import { Kbd, MOD } from '@/components/ui/kbd';
+import { Kbd } from '@/components/ui/kbd';
 import { CATS, type Category } from '@/lib/settingsCategories';
+import { COMMANDS, type CommandSection } from '@/lib/commands';
+import { cn } from '@/lib/utils';
+import logoUrl from '@/assets/logo.svg';
 
 /**
  * One row. Two kinds, because Search is where the sidebar's conversation list
@@ -31,14 +34,17 @@ type SearchResult =
 /**
  * Something the app can DO, found by typing its name. The field that finds a
  * chat is also the fastest way to every screen, so ⌘K/Ctrl+K reaches Settings,
- * Models and the mode switch without a mouse. Actions only appear once something
- * is typed: with an empty field this stays the browse list of what you have.
+ * Models and the mode switch without a mouse. With an empty field only the six
+ * named commands show, in their sections (lib/commands.ts), above the browse
+ * list of what you have; the rest appear once something is typed.
  */
 interface PaletteAction {
   id: string;
   label: string;
   hint: string;
   icon: LucideIcon;
+  /** Set on the named commands: the heading they sit under when nothing is typed. */
+  section?: CommandSection;
   /** Extra words that should find it, never shown ("api key" finds Cloud Keys). */
   keywords?: string;
   keys?: string[];
@@ -180,12 +186,7 @@ export function SearchOverlay() {
   }, [allConvs, allProjects]);
 
   const actions: PaletteAction[] = [
-    {
-      id: 'new-chat', label: 'New chat', hint: 'Start an empty conversation', icon: MessageSquarePlus,
-      keys: [MOD, 'N'],
-      run: () => { useConversations.getState().newChat(); navigate('/chat'); },
-    },
-    { id: 'models', label: 'Models', hint: 'Download, load or pick a model', icon: Box, run: () => navigate('/models') },
+    ...COMMANDS.map((c): PaletteAction => ({ ...c, run: () => c.run(navigate) })),
     { id: 'cloud', label: 'Models: Cloud', hint: 'API keys for OpenAI, Anthropic, OpenRouter and others', icon: KeyRound,
       keywords: 'api key cloud keys provider openai anthropic openrouter byok', run: () => navigate('/models?tab=cloud') },
     resolvedTheme === 'dark'
@@ -242,7 +243,9 @@ export function SearchOverlay() {
         .slice()
         .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
         .map((conv): SearchResult => ({ kind: 'conversation', conv, snippet: null }));
-      return [...projects, ...convs];
+      // The named commands first (spec 7.5), then what you have.
+      const commands = actions.filter((a) => a.section).map((action): SearchResult => ({ kind: 'action', action }));
+      return [...commands, ...projects, ...convs];
     }
     if (!scope) return [...matchedActions(query), ...matchedTabs(query), ...results];
     // Inside a project with nothing typed yet, the answer is what the project
@@ -259,6 +262,18 @@ export function SearchOverlay() {
       (r) => r.kind === 'conversation' && scope.conversation_ids.includes(r.conv.id),
     );
   })();
+
+  // Headings only while browsing: CREATE / EXPLORE / CONFIGURE over the
+  // commands, RECENT over what you have. A typed search is one ranked list.
+  const browsing = !scope && !query.trim();
+  const groupOf = (r: SearchResult | undefined): string | null =>
+    !r ? null : r.kind === 'action' ? r.action.section ?? null : 'Recent';
+  const headingAt = (i: number): string | null => {
+    if (!browsing) return null;
+    const g = groupOf(visible[i]);
+    return g && g !== groupOf(visible[i - 1]) ? g : null;
+  };
+  const nothingYet = browsing && allConvs.length === 0 && allProjects.length === 0;
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -297,6 +312,14 @@ export function SearchOverlay() {
     await convOpen(r.conv.id);
   };
 
+  const rowKey = (r: SearchResult) =>
+    r.kind === 'action' ? `a:${r.action.id}` : r.kind === 'project' ? `p:${r.project.id}` : r.kind === 'tab' ? `t:${r.tab.id}` : `c:${r.conv.id}`;
+  const heading = (label: string) => (
+    <div role="presentation" className="px-4 pt-3 pb-1 text-2xs font-medium uppercase tracking-wider text-text-muted">
+      {label}
+    </div>
+  );
+
   return (
     <div
       role="dialog"
@@ -306,12 +329,16 @@ export function SearchOverlay() {
       onClick={closeSearch}
     >
       <MenuInOverlay.Provider value>
+      {/* One card, as on the palette board (spec 7.5): the field on top, the
+          sections under it. bg-popover, not bg-surface: the surface is 34% ink
+          and the conversation underneath read straight through (20 Sep). */}
       <div
-        className="w-full max-w-[600px] px-4"
+        className="w-full max-w-[640px] px-4"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Pill input */}
-        <div className="flex items-center gap-3 bg-popover border border-bg-hover rounded-3xl px-4 h-[52px] shadow-xl">
+        <div className="overflow-hidden rounded-2xl border border-border-default bg-popover shadow-xl">
+        <div className="p-2">
+        <div className="flex h-12 items-center gap-3 rounded-xl border border-border-default bg-bg-elevated px-3.5">
           <Search size={20} className="text-text-muted shrink-0" />
           <input
             ref={inputRef}
@@ -343,20 +370,22 @@ export function SearchOverlay() {
             aria-controls="search-results"
             aria-activedescendant={activeIdx >= 0 ? `search-result-${activeIdx}` : undefined}
             placeholder={scope ? `Search in ${scope.name}…` : 'Search chats, projects and actions…'}
-            className="flex-1 bg-transparent text-text-primary text-sm outline-hidden placeholder:text-text-muted"
+            className="flex-1 bg-transparent text-text-primary text-base outline-hidden placeholder:text-text-muted"
           />
+          <img src={logoUrl} alt="" className="h-7 w-7 shrink-0" />
           <button
+            type="button"
             onClick={closeSearch}
-            className="text-text-muted hover:text-text-secondary shrink-0"
+            className="shrink-0 rounded-md border border-border-default bg-bg-surface px-1.5 py-0.5 text-2xs text-text-muted hover:text-text-secondary"
             aria-label="Close search"
           >
-            <X size={20} />
+            Esc
           </button>
         </div>
 
         {/* Scope chip — a filter you cannot see is a filter you cannot undo. */}
         {scope && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-text-muted">
+          <div className="mt-2 flex items-center gap-2 px-1 text-xs text-text-muted">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-border-default bg-bg-surface px-2.5 py-1">
               <Folder size={12} aria-hidden />
               <span className="text-text-secondary">{scope.name}</span>
@@ -371,42 +400,44 @@ export function SearchOverlay() {
             </span>
           </div>
         )}
+        </div>
 
-        {/* Results. Always rendered: with an empty field this is the browse
-            list, and on a fresh install it is the one honest line saying so. */}
-        {(
-          <div
-            id="search-results"
-            role="listbox"
-            // bg-popover, not bg-surface: the surface is 34% ink and the conversation
-            // underneath read straight through the result list (light theme, 20 Sep).
-            className="mt-2 bg-popover border border-bg-hover rounded-2xl overflow-hidden shadow-xl max-h-[60vh] overflow-y-auto"
-          >
-            {!scope && !query.trim() && visible.length > 0 && (
-              <div className="px-4 pt-3 pb-1 text-2xs uppercase tracking-wide text-text-disabled">
-                Recent
-              </div>
-            )}
-            {visible.length === 0 ? (
-              <div className="px-4 py-6 text-center text-sm text-text-disabled">
-                {/* Name what was searched. "No matches" alone leaves the user
-                    guessing whether the thing they want is even searchable. */}
-                {scope
-                  ? (query.trim()
-                      ? `Nothing in ${scope.name} matches.`
-                      : `${scope.name} has no conversations yet.`)
-                  : query.trim()
-                    ? 'No conversations, projects or actions match.'
-                    : 'No conversations yet. Ask Cinderpaw something and it will show up here.'}
-              </div>
-            ) : (
-              visible.map((r, i) => (
+        {/* Results. Always rendered: with an empty field this is the commands
+            and the browse list, and on a fresh install it says so. */}
+        <div
+          id="search-results"
+          role="listbox"
+          className="max-h-[60vh] overflow-y-auto px-2 pb-2"
+        >
+          {visible.length === 0 ? (
+            <div className="px-4 py-6 text-center text-sm text-text-disabled">
+              {/* Name what was searched. "No matches" alone leaves the user
+                  guessing whether the thing they want is even searchable. */}
+              {scope
+                ? (query.trim()
+                    ? `Nothing in ${scope.name} matches.`
+                    : `${scope.name} has no conversations yet.`)
+                : 'No conversations, projects or actions match.'}
+            </div>
+          ) : (
+            visible.map((r, i) => {
+              const head = headingAt(i);
+              return (
+              <div key={rowKey(r)} role="presentation">
+                {head && (
+                  <>
+                    {i > 0 && <div role="presentation" className="mx-2 mt-1.5 border-t border-border-subtle" />}
+                    {heading(head)}
+                  </>
+                )}
                 <div
-                  key={r.kind === 'action' ? `a:${r.action.id}` : r.kind === 'project' ? `p:${r.project.id}` : r.kind === 'tab' ? `t:${r.tab.id}` : `c:${r.conv.id}`}
                   // Presentational so the option stays the listbox's child as
                   // far as assistive tech is concerned; the row is only layout.
                   role="presentation"
-                  className={`group flex items-center gap-1 pr-2 hover:bg-bg-hover transition-colors border-b border-bg-hover last:border-0 ${i === activeIdx ? 'bg-bg-hover' : ''}`}
+                  className={cn(
+                    'group flex items-center gap-1 rounded-xl pr-2 transition-colors',
+                    i === activeIdx ? 'bg-bg-active' : 'hover:bg-text-primary/5',
+                  )}
                 >
                 <button
                   id={`search-result-${i}`}
@@ -414,14 +445,22 @@ export function SearchOverlay() {
                   role="option"
                   aria-selected={i === activeIdx}
                   onClick={() => { void handleSelect(r); }}
-                  className="flex-1 min-w-0 text-left px-4 py-3"
+                  className="flex-1 min-w-0 text-left px-3 py-2.5"
                 >
                   {r.kind === 'action' ? (
-                    <div className="flex items-center gap-2">
-                      <r.action.icon size={14} className="shrink-0 text-text-muted" aria-hidden />
-                      <div className="min-w-0">
+                    <div className="flex items-center gap-3.5">
+                      {r.action.id === 'new-chat' ? (
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand text-brand-foreground" aria-hidden>
+                          <r.action.icon size={16} />
+                        </span>
+                      ) : (
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center text-text-secondary" aria-hidden>
+                          <r.action.icon size={20} />
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
                         <div className="text-sm font-medium text-text-primary truncate">{highlight(r.action.label, query)}</div>
-                        <div className="text-2xs text-text-disabled mt-0.5">{r.action.hint}</div>
+                        <div className="text-xs text-text-muted mt-0.5 truncate">{r.action.hint}</div>
                       </div>
                       {r.action.keys && <Kbd keys={r.action.keys} />}
                     </div>
@@ -471,10 +510,23 @@ export function SearchOverlay() {
                       ? <ConversationActions conv={r.conv} side="bottom" align="end" />
                       : null}
                 </div>
-              ))
-            )}
-          </div>
-        )}
+              </div>
+              );
+            })
+          )}
+          {/* A fresh install: the commands are there, and one honest line
+              where the chats will be. */}
+          {nothingYet && (
+            <>
+              <div role="presentation" className="mx-2 mt-1.5 border-t border-border-subtle" />
+              {heading('Recent')}
+              <div className="px-4 pb-3 pt-1 text-sm text-text-disabled">
+                No conversations yet. Ask Cinderpaw something and it will show up here.
+              </div>
+            </>
+          )}
+        </div>
+        </div>
       </div>
       </MenuInOverlay.Provider>
     </div>

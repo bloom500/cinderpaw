@@ -152,7 +152,8 @@ describe('with nothing typed', () => {
    */
   it('shows everything, projects first and newest chat first', async () => {
     setup();
-    expect(await rows()).toEqual([
+    // Under the six named commands (spec 7.5), which the next test covers.
+    expect((await rows()).slice(6)).toEqual([
       expect.stringContaining('Bloom Media'),
       expect.stringContaining('Cinderpaw'),
       expect.stringContaining('Refactor the router'),
@@ -166,6 +167,24 @@ describe('with nothing typed', () => {
     useUI.setState({ searchOpen: true } as never);
     render(<MemoryRouter><SearchOverlay /></MemoryRouter>);
     expect(await screen.findByText(/No conversations yet/i)).toBeTruthy();
+  });
+
+  it('opens on the commands in three sections, each with its key', async () => {
+    setup();
+    expect((await rows()).slice(0, 6)).toEqual([
+      expect.stringContaining('New chat'),
+      expect.stringContaining('Create artifact'),
+      expect.stringContaining('Open browser'),
+      expect.stringContaining('Search memory'),
+      expect.stringContaining('Switch model'),
+      expect.stringContaining('Settings'),
+    ]);
+    for (const h of ['Create', 'Explore', 'Configure', 'Recent']) expect(screen.getByText(h)).toBeTruthy();
+    // Enter with nothing picked runs the first one: a new chat.
+    const newChat = vi.spyOn(useConversations.getState(), 'newChat').mockImplementation(() => {});
+    await userEvent.keyboard('{Enter}');
+    expect(newChat).toHaveBeenCalledTimes(1);
+    newChat.mockRestore();
   });
 });
 
