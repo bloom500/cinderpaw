@@ -72,6 +72,9 @@ export const ALWAYS_TOOLS: readonly string[] = [
   "load_tool",
   "ask_user",
   "todo_write",
+  // The chat's widgets (facts, checklist, table, ...): an answer of any intent
+  // can want one, and a drawer round trip would make the model skip it.
+  "show_widget",
 ];
 
 /**

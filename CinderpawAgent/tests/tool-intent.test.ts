@@ -32,6 +32,8 @@ const CORE = [
   "self_status", "self_health", "self_tools", "self_subsystem", "product_info",
   "delegate_task", "cowork_team", "cowork_send", "list_tools", "load_tool", "ask_user",
   "todo_write", "cinderpaw_admin", "notebook",
+  // `show_widget` (28 Sep): the chat's widgets, core and in ALWAYS_TOOLS.
+  "show_widget",
 ];
 
 describe("classifyToolIntents", () => {

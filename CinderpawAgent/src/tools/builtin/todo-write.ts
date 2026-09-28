@@ -14,6 +14,9 @@
  *   - set       → mutate one item (status, content, or both)
  *   - remove    → delete by id
  *   - clear     → drop all items (use with care)
+ *
+ * Every change returns the whole list in `data.items` as well, so the app can
+ * draw the agent's plan as a checklist each time it moves.
  */
 
 import type { Database } from "bun:sqlite";
@@ -153,7 +156,7 @@ export function createTodoWriteTool(store: TodoStore): Tool {
           return {
             ok: true,
             content: `Added todo: [${item.status}] ${item.id}: ${item.content}`,
-            data: { item },
+            data: { item, items: store.list() },
           };
         }
         case "set": {
@@ -170,7 +173,7 @@ export function createTodoWriteTool(store: TodoStore): Tool {
           return {
             ok: true,
             content: `Updated todo: [${updated.status}] ${updated.id}: ${updated.content}`,
-            data: { item: updated },
+            data: { item: updated, items: store.list() },
           };
         }
         case "remove": {
@@ -178,7 +181,7 @@ export function createTodoWriteTool(store: TodoStore): Tool {
           if (!id) return { ok: false, content: "todo_write remove: 'id' is required.", error: "bad_args" };
           const removed = store.remove(id);
           if (!removed) return { ok: false, content: `todo_write remove: no item with id "${id}".`, error: "not_found" };
-          return { ok: true, content: `Removed todo: ${id}`, data: { id } };
+          return { ok: true, content: `Removed todo: ${id}`, data: { id, items: store.list() } };
         }
         case "clear": {
           const n = store.clear();

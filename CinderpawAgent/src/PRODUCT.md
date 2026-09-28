@@ -227,6 +227,15 @@ what the commands actually did, then every file changed with a command to undo
 it, and the agent's own words LAST. It is assembled from what the runtime
 already recorded, so it costs no model call and cannot make things up.
 
+## Widgets in the chat
+
+`show_widget` puts structured information in the chat as a widget the app
+draws: `facts` (2 to 6 label/value rows), `checklist`, `cards`, `breakdown`
+(bars), `progress`, `table` (2 to 4 columns) and `verdict` (the agent's take
+under a comparison). The agent sends data, never HTML, so a widget always
+matches the theme and cannot run code. Data that does not fit its kind is shown
+as a plain list rather than dropped.
+
 ## Keeping its place on a long task
 
 Long runs fail by forgetting, not by being wrong. Four mechanisms, each covering
@@ -241,7 +250,8 @@ what the others lose:
 - **The task list.** `todo_write` stores tasks in the database, not the
   transcript. Both the open items AND recently finished ones are shown every
   turn — the finished half is what stops work being redone after the
-  conversation that recorded it has been compacted away.
+  conversation that recorded it has been compacted away. The desktop app draws
+  the list as a checklist in the chat each time it changes.
 - **Compaction.** When the conversation outgrows its budget, older turns are
   summarized into one note carrying an exact `### Established facts` section.
   Summaries are carried forward verbatim, never re-summarized. `/compact`
