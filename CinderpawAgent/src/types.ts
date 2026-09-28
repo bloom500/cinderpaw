@@ -2163,6 +2163,10 @@ export type OutboundEvent =
         observer: import("./memory/extractor.ts").MemoryHealth;
         reflector: import("./memory/extractor.ts").MemoryHealth;
       };
+      /** Each owner fact's category (semantic.ts `FactCategory`), keyed by the
+       *  graph node id its key becomes (`graph.ts` setFact): the Memory page's
+       *  filter chips and tags. Absent from an older sidecar. */
+      categories?: Record<string, string>;
     }
   // Dream Cycle lifecycle — emitted by the host when an evolutionary episode
   // starts (`phase:"started"`) and ends (`phase:"ended"`). Forwarded verbatim

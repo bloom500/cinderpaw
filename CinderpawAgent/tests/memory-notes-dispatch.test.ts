@@ -7,6 +7,8 @@ import { describe, expect, test } from "bun:test";
 import { openDatabase } from "../src/db.ts";
 import { ObservationStore } from "../src/memory/observations.ts";
 import { memoryNotesReply } from "../src/dispatch.ts";
+import { SemanticMemory } from "../src/memory/semantic.ts";
+import { MemoryGraph } from "../src/memory/graph.ts";
 
 const health = { lastOkAt: 5, failures: 0, lastError: null };
 
@@ -49,6 +51,24 @@ describe("memory_notes", () => {
     notes.add({ sessionId: "discord:r:7", scope: "discord/7", observedAt: 2, refDate: null, priority: "low", text: "Guest" });
     const r = memoryNotesReply({ id: "q4", notesOp: "list" }, { notes, observer: health, reflector: health });
     expect(r.notes).toEqual([]);
+    db.close();
+  });
+
+  test("categories are keyed by the graph node the fact's key becomes", () => {
+    const db = openDatabase(":memory:");
+    const semantic = new SemanticMemory(db.raw, () => {});
+    semantic.upsert("favourite food", "ramen", "", "preference");
+    semantic.upsert("trip", "Japan in April", "", "goal");
+    // The page lists graph edges: the extractor mirrors each owner fact as one.
+    const graph = new MemoryGraph({ path: ":memory:" });
+    graph.setFact("favourite food", "has", "ramen");
+    const edge = graph.snapshot().edges[0]!;
+    const r = memoryNotesReply(
+      { id: "q5", notesOp: "list" },
+      { notes: new ObservationStore(db.raw), observer: health, reflector: health, semantic },
+    );
+    expect(r.categories?.[edge.from]).toBe("preference");
+    expect(r.categories?.trip).toBe("goal");
     db.close();
   });
 });

@@ -179,6 +179,9 @@ export interface MemoryNotesLine {
     source: string;
   }>;
   health: { observer: MemoryWriterHealth; reflector: MemoryWriterHealth };
+  /** Each fact's category by graph node id (the Memory page's chips and tags).
+   *  Absent from an older engine. */
+  categories?: Record<string, string>;
 }
 
 /**

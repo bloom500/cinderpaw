@@ -157,7 +157,12 @@ const VOICE_SURFACE_BRIEF = [
  */
 export function memoryNotesReply(
   msg: { id?: string; notesOp?: "list" | "delete"; noteId?: number },
-  d: { notes: ObservationStore; observer: MemoryHealth; reflector: MemoryHealth },
+  d: {
+    notes: ObservationStore;
+    observer: MemoryHealth;
+    reflector: MemoryHealth;
+    semantic?: { all(scope?: string): Array<{ key: string; category: string }> };
+  },
 ): Extract<OutboundEvent, { type: "memory_notes_result" }> {
   let error: string | undefined;
   if (msg.notesOp === "delete") {
@@ -179,6 +184,11 @@ export function memoryNotesReply(
       source: n.source,
     })),
     health: { observer: d.observer, reflector: d.reflector },
+    // The page lists graph edges, which carry no category; the fact they mirror
+    // does. Keyed the way `graph.ts` setFact names the subject node.
+    ...(d.semantic
+      ? { categories: Object.fromEntries(d.semantic.all("").map((f) => [f.key.toLowerCase().replace(/\s+/g, "_"), f.category])) }
+      : {}),
   };
 }
 
@@ -1488,7 +1498,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
 
       case "memory_notes": {
         try {
-          transport.send(memoryNotesReply(msg, { notes: notesStore, observer: extractor.health, reflector: reflector.health }));
+          transport.send(memoryNotesReply(msg, { notes: notesStore, observer: extractor.health, reflector: reflector.health, semantic }));
         } catch (e) {
           log(`memory_notes failed: ${String(e)}`);
         }
