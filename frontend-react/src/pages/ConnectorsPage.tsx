@@ -135,7 +135,7 @@ export function ConnectorsPage() {
 
 // ── One connector card: config (token + allowlist), enable, remove ───────────
 
-function ConnectorCard({
+export function ConnectorCard({
   entry,
   state,
   onChanged,

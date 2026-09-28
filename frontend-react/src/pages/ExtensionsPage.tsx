@@ -332,7 +332,7 @@ function InstalledCard({
 
 // ── Catalog card: one-click install, inline config when needed ───────────────
 
-function CatalogCard({
+export function CatalogCard({
   entry,
   installed,
   onInstalled,

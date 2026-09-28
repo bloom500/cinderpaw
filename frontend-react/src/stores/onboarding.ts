@@ -43,7 +43,7 @@ import { tauri } from '@/lib/tauri';
  * distinct wizard steps, add them here — `totalSteps`, the progress
  * dots, and the next/prev bounds all derive from this list.
  */
-const STEP_IDS = ['welcome', 'personalize', 'provider', 'showcase', 'done'] as const;
+const STEP_IDS = ['welcome', 'personalize', 'provider', 'connect', 'showcase', 'done'] as const;
 const TOTAL_STEPS: number = STEP_IDS.length;
 const FIRST_STEP: number = 0;
 const LAST_STEP: number = STEP_IDS.length - 1;
