@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import { MascotPerch } from '../MascotPerch';
 import { useUI } from '@/stores/ui';
+import { useChat } from '@/stores/chat';
 
 // The sprite is a canvas, which jsdom cannot draw. What this file is about is
 // WHICH state the perch decides to show, so the creature is replaced by a
@@ -30,6 +31,33 @@ describe('MascotPerch', () => {
     useUI.setState({ mascotEnabled: true });
   });
   afterEach(() => vi.useRealTimers());
+
+  describe('Agent Pulse', () => {
+    beforeEach(() => useChat.setState({ agentTool: null, toolCallStream: [] }));
+
+    it('says nothing at rest', () => {
+      render(<MascotPerch baseState="idle" />);
+      expect(screen.getByRole('status').textContent).toBe('');
+    });
+
+    it('names the running tool kind', () => {
+      useChat.setState({ agentTool: 'web_search' });
+      render(<MascotPerch baseState="calling" />);
+      expect(screen.getByRole('status').textContent).toBe('Searching');
+    });
+
+    it('says it is waiting while a cowork approval is owed', () => {
+      useChat.setState({
+        toolCallStream: [{
+          id: 'h1', kind: 'cowork', title: 'Send', detail: null, status: 'running',
+          startedAt: 0, endedAt: null,
+          approval: { requestId: 'r1', approvalClass: 'send', description: 'Email Ana' },
+        }],
+      });
+      render(<MascotPerch baseState="thinking" />);
+      expect(screen.getByRole('status').textContent).toBe('Waiting for approval');
+    });
+  });
 
   it('notices the pointer, and stops when it leaves', () => {
     render(<MascotPerch baseState="idle" />);

@@ -4,6 +4,8 @@ import { atRest, boundsFrom, leanDegrees, squashFor, step, type Body } from './p
 import { useUI } from '@/stores/ui';
 import type { MascotState } from './frames';
 import { useBrowser } from '@/stores/browser';
+import { useChat } from '@/stores/chat';
+import { pulseLabel } from './pulse';
 
 /**
  * What the creature does when nobody is doing anything, and what it does when
@@ -99,6 +101,12 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
    *  long as the cursor does, which is the point. */
   const [noticed, setNoticed] = useState(false);
   const [dozing, setDozing] = useState(false);
+  // Agent Pulse: read from the turn itself, not from the pose, so a poke or a
+  // drag never changes what the label says the agent is doing.
+  const agentTool = useChat((s) => s.agentTool);
+  const approvalPending = useChat((s) =>
+    s.toolCallStream.some((e) => e.kind === 'cowork' && e.approval !== undefined));
+  const label = pulseLabel(baseState, agentTool, approvalPending);
   const reactionTimer = useRef<number | null>(null);
   const pokes = useRef<{ count: number; last: number }>({ count: 0, last: 0 });
 
@@ -368,8 +376,9 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
       // The feet: the drawn frame has the creature's soles at canvas row 54 of 66
       // (8px prop margin above, 1px bob headroom), which at 2× is 110px from the
       // top of this element. -104 sinks the soles 6px into the composer's edge,
-      // so it perches on the bar instead of floating above it.
-      className="pointer-events-none absolute top-[-104px] left-5 z-10"
+      // so it perches on the bar instead of floating above it. The right-hand
+      // corner, because the left is where the greeting and the text start.
+      className="pointer-events-none absolute top-[-104px] right-5 z-10"
       // Position only. The lean and the squash go on the creature inside, so
       // the tool-call stack it carries stays upright and readable while the
       // creature itself is being swung around.
@@ -402,6 +411,18 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
             included: whatever the turn is doing, a creature being held by the
             scruff is not calmly reading a file. */}
         <CinderpawMascot state={airborne ? 'surprised' : renderState} flip={false} />
+      </span>
+      {/* Beside the feet, on the composer's edge. A live region, so a screen
+          reader hears the turn move on; hidden while it is being carried. */}
+      <span
+        role="status"
+        className="absolute right-full bottom-1 mr-1 whitespace-nowrap"
+      >
+        {label && !airborne && (
+          <span className="rounded-full border border-border-default bg-bg-elevated px-2 py-0.5 text-2xs text-text-muted">
+            {label}
+          </span>
+        )}
       </span>
       {/* The tool-call bubbles the creature used to carry are gone (17 Sep):
           the chain of thought in the reply lists the same steps, in order,
