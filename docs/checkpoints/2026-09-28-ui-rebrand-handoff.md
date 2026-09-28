@@ -14,7 +14,7 @@ Branch chain, each stacked on the previous:
 | `feat/ui-s1-foundation` | 0049db0 | slice 1: palette, OS theme default, Young Serif, Solid default |
 | `feat/ui-s2-brand-logos` | 096eec4 | slice 2: 41 bundled brand logos, `<BrandLogo>` |
 | `feat/ui-s3-sidebar` | 9b220c6 | slice 3: sidebar + starred chats, plus the docs and design sources |
-| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) slice 5 (5a message shapes, 5b logo head, 5c artifact card) slice 6 (6a Activity Strip, 6b helpers + chips) slice 7 (7a `show_widget` in the sidecar, 7b the seven renderers) and slice 8 (image cache, real card pictures) slice 9 (9a source chips, 9b pasted-text card, 9c drop overlay) slice 10 (10a `memory_used` in the sidecar, 10b Memory Peek) slice 11 (Home) and slice 12 (Connect step) |
+| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) slice 5 (5a message shapes, 5b logo head, 5c artifact card) slice 6 (6a Activity Strip, 6b helpers + chips) slice 7 (7a `show_widget` in the sidecar, 7b the seven renderers) and slice 8 (image cache, real card pictures) slice 9 (9a source chips, 9b pasted-text card, 9c drop overlay) slice 10 (10a `memory_used` in the sidecar, 10b Memory Peek) slice 11 (Home) slice 12 (Connect step) and slice 13 (approval cards) |
 
 `claude/rebrand-spec-f87jrk` contains everything above it. Continue from there, one branch per slice.
 
@@ -56,7 +56,7 @@ light (same colour); use `hover:bg-text-primary/5`.
   appears wherever a chat menu does. Pruned once, at the first successful non-empty list read: a
   failed read also ends with an empty list, and Undo after a delete must keep the star.
 
-## Owed before merging slices 1-12
+## Owed before merging slices 1-13
 
 1. Darius looks at them in the running app (from this branch).
 2. `./scripts/verify.sh` green.
@@ -180,10 +180,22 @@ instance the app uses. A screenshot is a preview, not the "Darius sees it in the
 - Google Docs is shown without a button: `google.connect()` opens consent in the Browser panel,
   which the wizard covers.
 
+## Slice 13 decisions to keep (28 Sep)
+
+- `ApprovalCard.tsx`, rendered by MessageList for `coworkTranscript` approvals whose `threadId` is
+  the `activeThreadId`. The Cowork panel no longer lists approvals (its tests moved to
+  ApprovalCard.test). `CoworkExchange.outcome` tells a denial from an expiry.
+- Only cowork approvals exist on the desktop: the app has no handler for the sidecar's `tool_request`,
+  so there is no class-less tool-approval card yet.
+- GOTCHA: `cn()` is plain tailwind-merge, which does not know the custom sizes (`text-micro`,
+  `text-2xs`, `text-display`) and drops them when a text colour follows in the same `cn()`. Put the
+  size outside `cn()` in that case (see the ApprovalCard badge), or teach `cn` with
+  `extendTailwindMerge` in its own change.
+
 ## Next
 
-Slice 13: approval cards in the chat (spec 7.5): the real escalation class from
-`cowork/approval.ts` as the badge, Deny / Approve, expiry denies and the card says so.
+Slice 14: Context tab for every chat + Artifact Dock + follow-up chips (spec 7.5). Check first what
+the right panel (ArtifactsPanel) and its tabs look like today.
 
 ## Open question: the mascot medium
 
