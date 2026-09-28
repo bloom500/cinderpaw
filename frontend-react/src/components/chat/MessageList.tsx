@@ -10,6 +10,7 @@ import { useResendTurn } from '@/hooks/useResendTurn';
 import { StreamingIndicator } from './StreamingIndicator';
 import { ApprovalCard } from './ApprovalCard';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
+import { SYSTEM_FONT, useUI } from '@/stores/ui';
 
 /**
  * The transcript, on shadcn's MessageScroller.
@@ -41,6 +42,8 @@ export function MessageList({ onFollowUp }: {
   const status = useChat((s) => s.streamStatus);
   const agentPhase = useChat((s) => s.agentPhase);
   const agentTool = useChat((s) => s.agentTool);
+  // Settings > Appearance > Chat font. Code keeps its own monospace face.
+  const chatFont = useUI((s) => s.chatFont);
 
   // Approval requests belong to the chat they were raised in, as cards in its
   // transcript (spec 7.5). Other chats' requests reach the person through the
@@ -76,7 +79,10 @@ export function MessageList({ onFollowUp }: {
           {/* 748 = the spec's 700 px reading column plus the 24 px gutters. */}
           <MessageScroller.Content
             className="max-w-[748px] mx-auto px-6 py-6 flex flex-col gap-7"
-            style={{ paddingBottom: 'calc(var(--chat-dock-h, 10rem) + 2rem)' }}
+            style={{
+              paddingBottom: 'calc(var(--chat-dock-h, 10rem) + 2rem)',
+              ...(chatFont === 'system' ? { fontFamily: SYSTEM_FONT } : {}),
+            }}
           >
             {messages.map((m, i) => (
               // A message arrives, it does not blink into existence. Keyed on

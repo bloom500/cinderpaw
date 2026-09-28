@@ -9,6 +9,10 @@ export type ToolId = 'web_search' | 'http_request' | 'file_read' | 'file_write' 
 // English only this release; the next one adds ~70 languages.
 export type LangPref = 'en';
 export type InputMode = 'chat' | 'agent';
+/** The typeface of the chat's messages (spec 7.4): the app's Geist, or the
+ *  one the computer uses everywhere else. */
+export type ChatFont = 'geist' | 'system';
+export const SYSTEM_FONT = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 /**
  * Which on-device transcription model to use, by id.
  *
@@ -96,6 +100,8 @@ interface UIStore {
   /** #24: pixel-art mascot on the typing bar. Some users want it off. */
   mascotEnabled: boolean;
   setMascotEnabled: (v: boolean) => void;
+  chatFont: ChatFont;
+  setChatFont: (f: ChatFont) => void;
   /** On-device transcription model id, from the Rust catalog. `''` until the
    *  user picks one, or when the stored one is not in this build. */
   sttModel: SttModelId;
@@ -220,6 +226,8 @@ export const useUI = create<UIStore>()(
       setInputMode: (inputMode) => set({ inputMode }),
       mascotEnabled: true,
       setMascotEnabled: (mascotEnabled) => set({ mascotEnabled }),
+      chatFont: 'geist',
+      setChatFont: (chatFont) => set({ chatFont }),
       // Empty, not 'small'. A default that names a specific model is a promise
       // about which engine is underneath, and the answer differs per build —
       // the picker resolves this against what the binary actually offers.
@@ -258,6 +266,7 @@ export const useUI = create<UIStore>()(
         // agent's own tools.
         inputMode: s.inputMode,
         mascotEnabled: s.mascotEnabled,
+        chatFont: s.chatFont,
         sttModel: s.sttModel,
         sttProvider: s.sttProvider,
         ttsProvider: s.ttsProvider,
