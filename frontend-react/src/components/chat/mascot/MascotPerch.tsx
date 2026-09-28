@@ -412,11 +412,12 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
             scruff is not calmly reading a file. */}
         <CinderpawMascot state={airborne ? 'surprised' : renderState} flip={false} />
       </span>
-      {/* Beside the feet, on the composer's edge. A live region, so a screen
-          reader hears the turn move on; hidden while it is being carried. */}
+      {/* Beside the creature, just above the composer's edge (104 px down, see
+          the class above), so it never covers the text box. A live region, so
+          a screen reader hears the turn move on; hidden while it is carried. */}
       <span
         role="status"
-        className="absolute right-full bottom-1 mr-1 whitespace-nowrap"
+        className="absolute right-full top-[76px] mr-1 whitespace-nowrap"
       >
         {label && !airborne && (
           <span className="rounded-full border border-border-default bg-bg-elevated px-2 py-0.5 text-2xs text-text-muted">
