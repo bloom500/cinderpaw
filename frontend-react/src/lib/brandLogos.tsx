@@ -20,23 +20,30 @@ const LOGOS: Record<string, string> = Object.fromEntries(
 /** Catalog ids that are the same company. */
 const SAME_AS: Record<string, string> = { zalouser: 'zalo' };
 
+/** The canvas's Connect board: a 40px raised tile with a hairline, the mark or initial centred in it. */
 export function BrandLogo({ id, name, className }: { id: string; name: string; className?: string }) {
   const key = SAME_AS[id] ?? id;
   const light = LOGOS[key];
   const dark = LOGOS[`${key}.dark`];
-  const box = cn('size-8 shrink-0 rounded object-contain', className);
+  const mark = 'size-6 object-contain';
 
-  if (!light) {
-    return (
-      <span aria-hidden className={cn(box, 'inline-flex items-center justify-center bg-bg-hover text-sm font-semibold text-text-muted')}>
-        {name.trim().charAt(0).toUpperCase() || '?'}
-      </span>
-    );
-  }
   return (
-    <>
-      <img src={light} alt="" className={cn(box, dark && 'dark:hidden')} />
-      {dark && <img src={dark} alt="" className={cn(box, 'hidden dark:block')} />}
-    </>
+    <span
+      aria-hidden
+      className={cn(
+        'inline-flex size-10 shrink-0 items-center justify-center rounded-[11px] border border-border-default bg-bg-elevated',
+        'text-[17px] font-semibold text-text-primary',
+        className,
+      )}
+    >
+      {!light ? (
+        name.trim().charAt(0).toUpperCase() || '?'
+      ) : (
+        <>
+          <img src={light} alt="" className={cn(mark, dark && 'dark:hidden')} />
+          {dark && <img src={dark} alt="" className={cn(mark, 'hidden dark:block')} />}
+        </>
+      )}
+    </span>
   );
 }
