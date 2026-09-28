@@ -38,6 +38,9 @@ export interface CoworkExchange {
   status: CoworkExchangeStatus;
   /** Approval events only: send/publish/delete/purchase/prod_change. */
   approvalClass?: string;
+  /** Approval events only, once answered: `error` status is both a refusal and
+   *  a timeout, and the card has to say which ("Timed out, so nothing was done"). */
+  outcome?: 'approved' | 'denied' | 'expired';
   at: number;
   /** Roster names, when the sidecar knew them. The panel falls back to the
    *  id, but a person should never have to read "demo-agent-atlas". */
@@ -229,7 +232,12 @@ export function applyCoworkEvent(
       break;
     default:
       // approval_approved / denied / expired: terminal state on the open ask.
-      next = { ...base, ...named, kind, threadId, status, approvalClass: base.approvalClass ?? str(evt.data.approvalClass), at };
+      next = {
+        ...base, ...named, kind, threadId, status, approvalClass: base.approvalClass ?? str(evt.data.approvalClass), at,
+        ...(evt.eventType === 'approval_approved' ? { outcome: 'approved' as const }
+          : evt.eventType === 'approval_denied' ? { outcome: 'denied' as const }
+          : evt.eventType === 'approval_expired' ? { outcome: 'expired' as const } : {}),
+      };
       break;
   }
 

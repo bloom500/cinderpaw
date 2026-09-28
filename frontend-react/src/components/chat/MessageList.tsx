@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils';
 import { MessageItem, ReplyHead } from './MessageItem';
 import { useResendTurn } from '@/hooks/useResendTurn';
 import { StreamingIndicator } from './StreamingIndicator';
+import { ApprovalCard } from './ApprovalCard';
+import { useCoworkTranscript } from '@/stores/coworkTranscript';
 
 /**
  * The transcript, on shadcn's MessageScroller.
@@ -37,6 +39,12 @@ export function MessageList() {
   const agentPhase = useChat((s) => s.agentPhase);
   const agentTool = useChat((s) => s.agentTool);
 
+  // Approval requests belong to the chat they were raised in, as cards in its
+  // transcript (spec 7.5). Other chats' requests reach the person through the
+  // app-wide CoworkApprovalDock, which leaves this chat's to this list.
+  const exchanges = useCoworkTranscript((s) => s.exchanges);
+  const activeThreadId = useCoworkTranscript((s) => s.activeThreadId);
+  const approvals = exchanges.filter((e) => e.kind === 'approval' && !!activeThreadId && e.threadId === activeThreadId);
   const last = messages[messages.length - 1];
   const hasActiveThinking = Boolean(last?.thinking && !last.thinkingComplete);
   const waitingForFirstToken = status === 'streaming' && last?.content === '' && !hasActiveThinking;
@@ -103,6 +111,7 @@ export function MessageList() {
                 />
               </MessageScroller.Item>
             ))}
+            {approvals.map((e) => <ApprovalCard key={e.id} e={e} />)}
             {waitingForFirstToken && (
               <StreamingIndicator phase={agentPhase ?? 'thinking'} tool={agentTool} icon={<ReplyHead writing />} />
             )}

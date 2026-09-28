@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   CoworkTranscriptPanel,
@@ -192,82 +192,6 @@ describe('CoworkTranscriptPanel', () => {
     } finally {
       if (original) Object.defineProperty(window, 'localStorage', original);
     }
-  });
-
-  test('an approval is a system row, with its class and who is asking', () => {
-    useCoworkTranscript.setState({
-      exchanges: [
-        exchange({
-          id: 'approval:r1',
-          kind: 'approval',
-          fromAgentId: 'demo-agent-bolt',
-          fromName: 'Bolt',
-          toAgentId: 'human',
-          requestText: 'rm -rf dist/',
-          approvalClass: 'delete',
-          status: 'running',
-          responseText: null,
-        }),
-      ],
-    });
-    render(<CoworkTranscriptPanel />);
-    expect(screen.getByText('delete')).toBeInTheDocument();
-    expect(screen.getByText(/Bolt needs your approval/)).toBeInTheDocument();
-    // WHAT is being approved, not just that something is.
-    expect(screen.getByText('rm -rf dist/')).toBeInTheDocument();
-  });
-
-  test('a pending approval is answerable from the panel that reports it', async () => {
-    useCoworkTranscript.setState({
-      exchanges: [
-        exchange({
-          id: 'approval:r7',
-          kind: 'approval',
-          fromAgentId: 'demo-agent-bolt',
-          fromName: 'Bolt',
-          toAgentId: 'human',
-          requestText: 'rm -rf dist/',
-          approvalClass: 'delete',
-          status: 'running',
-          responseText: null,
-        }),
-      ],
-    });
-    render(<CoworkTranscriptPanel />);
-    await userEvent.click(screen.getByRole('button', { name: 'Deny' }));
-    expect(tauri.cinderpawAgent.coworkApprovalResolve).toHaveBeenCalledWith('r7', false);
-    // And the buttons detach, so the decision cannot be sent twice.
-    expect(screen.queryByRole('button', { name: 'Deny' })).toBeNull();
-  });
-
-  test('a verdict that never reached the sidecar can be given again', async () => {
-    // The mascot bubble already recovers from this: the store puts the ask
-    // back. The panel kept its own `answered` flag and never heard about the
-    // failure, so it sat on "sending…" with no buttons and no error, and the
-    // teammate waited on an approval nobody could give again.
-    vi.mocked(tauri.cinderpawAgent.coworkApprovalResolve).mockRejectedValueOnce(
-      new Error('sidecar is not running'),
-    );
-    useCoworkTranscript.setState({
-      exchanges: [
-        exchange({
-          id: 'approval:r9',
-          kind: 'approval',
-          fromAgentId: 'demo-agent-bolt',
-          fromName: 'Bolt',
-          toAgentId: 'human',
-          requestText: 'rm -rf dist/',
-          approvalClass: 'delete',
-          status: 'running',
-          responseText: null,
-        }),
-      ],
-    });
-    render(<CoworkTranscriptPanel />);
-    await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
-
-    expect(await screen.findByText(/sidecar is not running/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
   });
 
   test('the stop button says so when the teammate did not stop', async () => {
@@ -499,28 +423,6 @@ describe('the panel and its bubble animate once, not three times', () => {
     expect(bubble.className).not.toMatch(/transition-transform/);
     expect(bubble.className).not.toMatch(/hover:scale-/);
     expect(bubble.className).not.toMatch(/active:scale-/);
-    localStorage.removeItem('cowork-panel-collapsed');
-  });
-
-  test('a new approval opens a collapsed panel', () => {
-    // A teammate is blocked on it and it expires in minutes; folded into the
-    // bubble it was easy to miss.
-    useCoworkTranscript.setState({ exchanges: [exchange({ id: 'msg:c1' })] });
-    localStorage.setItem('cowork-panel-collapsed', '1');
-    render(<CoworkTranscriptPanel />);
-    expect(screen.queryByTestId('cowork-transcript-panel')).not.toBeInTheDocument();
-
-    act(() => {
-      useCoworkTranscript.setState((s) => ({
-        exchanges: [
-          ...s.exchanges,
-          exchange({ id: 'approval:r9', kind: 'approval', requestText: 'Run command: rm -rf dist/' }),
-        ],
-      }));
-    });
-    expect(screen.getByTestId('cowork-transcript-panel')).toBeInTheDocument();
-    // The person's own choice is not overwritten.
-    expect(localStorage.getItem('cowork-panel-collapsed')).toBe('1');
     localStorage.removeItem('cowork-panel-collapsed');
   });
 
