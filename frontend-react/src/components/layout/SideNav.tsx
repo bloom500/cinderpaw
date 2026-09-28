@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { panelMotionEnd, panelMotionStart } from '@/lib/panelMotion';
 import {
   Plus, Search, Folder, Box, Settings, FileBox, Globe,
-  PanelLeftOpen, Loader2, FolderPlus,
+  PanelLeftOpen, Loader2, FolderPlus, Star,
   ChevronDown, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import logoUrl from '@/assets/logo.svg';
@@ -160,16 +160,28 @@ function Library({ collapsed }: { collapsed: boolean }) {
   useEffect(() => {
     void useProjects.getState().refresh();
   }, []);
+  const starredIds = useUI((s) => s.starredChats);
+  // Stars of chats deleted on an earlier launch are dropped at the first list
+  // that was really read, and only then: delete-with-undo takes a chat out of
+  // the list for a few seconds, and Undo must bring its star back with it.
+  // An empty list is skipped because a failed read also ends with `loaded` and [].
+  useEffect(() => {
+    if (loaded && list.length > 0) useUI.getState().pruneStarred(list.map((c) => c.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
   if (collapsed) return null;
 
-  const groups = groupByRecency(list ?? [], (c) => c.updated_at);
+  // A starred chat lives in STARRED only, not twice in the column.
+  const byId = new Map((list ?? []).map((c) => [c.id, c]));
+  const starred = starredIds.flatMap((id) => byId.get(id) ?? []);
+  const groups = groupByRecency((list ?? []).filter((c) => !starredIds.includes(c.id)), (c) => c.updated_at);
   const chatCount = (list ?? []).length;
 
   const rowBase = 'w-full flex items-center gap-2.5 h-8 px-3 rounded-[10px] text-sm text-left transition-colors cursor-pointer';
 
   // Chat rows are identical in the all-chats view and inside a project's
   // drill-down — one renderer, so behavior can never drift between them.
-  const renderChatRows = (items: typeof list) => (
+  const renderChatRows = (items: typeof list, withStar = false) => (
     <div className="space-y-0.5">
       {items.map((c) => (
         // The row is a container so the actions can sit beside the
@@ -214,8 +226,10 @@ function Library({ collapsed }: { collapsed: boolean }) {
             )}
           >
             {/* A chat can be generating while you are looking at another one. */}
-            {streamingIds[c.id] && (
+            {streamingIds[c.id] ? (
               <Loader2 size={12} className="shrink-0 animate-spin text-brand" aria-label="Generating" />
+            ) : withStar && (
+              <Star size={15} className="shrink-0 fill-current text-brand" aria-hidden />
             )}
             <span className="truncate">{c.title}</span>
           </button>
@@ -243,6 +257,12 @@ function Library({ collapsed }: { collapsed: boolean }) {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto scrollbar-hide pb-2">
+      {starred.length > 0 && (
+        <section>
+          <div className={LABEL}>Starred</div>
+          {renderChatRows(starred, true)}
+        </section>
+      )}
       {projects.length > 0 && (
         <div className="space-y-0.5">
           <div className={LABEL}>Projects</div>

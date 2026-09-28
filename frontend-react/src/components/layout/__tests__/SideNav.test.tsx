@@ -20,7 +20,7 @@ const mount = () => render(<MemoryRouter><SideNav /></MemoryRouter>);
 
 beforeEach(() => {
   navigate.mockReset();
-  useUI.setState({ navCollapsed: false, searchOpen: false } as never);
+  useUI.setState({ navCollapsed: false, searchOpen: false, starredChats: [] } as never);
   useConversations.setState({ list: [], currentId: null, streamingIds: {} } as never);
 });
 
@@ -132,6 +132,49 @@ describe('SideNav', () => {
     // project is this one.
     await user.click(screen.getByLabelText('More to create'));
     expect(screen.getByText('New project')).toBeTruthy();
+  });
+
+  it('starred chats get their own section, and are not listed twice', () => {
+    useUI.setState({ starredChats: ['b'] } as never);
+    useConversations.setState({ loaded: true, list: [conv('a', 1), conv('b', 2)] as never });
+    mount();
+    expect(screen.getByText('Starred')).toBeTruthy();
+    expect(screen.getAllByText('b')).toHaveLength(1);
+    expect(screen.getByText('a')).toBeTruthy();
+  });
+
+  it('no STARRED heading while nothing is starred', () => {
+    useConversations.setState({ loaded: true, list: [conv('a', 1)] as never });
+    mount();
+    expect(screen.queryByText('Starred')).toBeNull();
+  });
+
+  it('a star whose chat was deleted is dropped when the list loads', () => {
+    useUI.setState({ starredChats: ['gone', 'a'] } as never);
+    useConversations.setState({ loaded: true, list: [conv('a', 1)] as never });
+    mount();
+    expect(useUI.getState().starredChats).toEqual(['a']);
+  });
+
+  it('a failed list read keeps every star', () => {
+    // A read that throws still ends with loaded and an empty list. Pruning
+    // against that would wipe every star because the engine was slow to start.
+    useUI.setState({ starredChats: ['a', 'b'] } as never);
+    useConversations.setState({ loaded: true, list: [] as never });
+    mount();
+    expect(useUI.getState().starredChats).toEqual(['a', 'b']);
+  });
+
+  it('the row menu stars and unstars a chat', async () => {
+    const user = userEvent.setup();
+    useConversations.setState({ loaded: true, list: [conv('a', 1)] as never });
+    mount();
+    await user.click(screen.getByLabelText('Chat options'));
+    await user.click(screen.getByText('Star'));
+    expect(useUI.getState().starredChats).toEqual(['a']);
+    await user.click(screen.getByLabelText('Chat options'));
+    await user.click(screen.getByText('Unstar'));
+    expect(useUI.getState().starredChats).toEqual([]);
   });
 
   it('Search opens the overlay rather than navigating', async () => {

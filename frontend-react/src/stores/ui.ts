@@ -59,6 +59,11 @@ interface UIStore {
    *  here — the rail answers "where do I want to go" and nothing else. */
   navCollapsed: boolean;
   toggleNav: () => void;
+  /** Starred chat ids, newest star first. Per machine, like everything here. */
+  starredChats: string[];
+  toggleStar: (id: string) => void;
+  /** Drops stars whose chat no longer exists. Call only with a list that was really read. */
+  pruneStarred: (liveIds: readonly string[]) => void;
   theme: ThemePref;
   resolvedTheme: ResolvedTheme;
   language: LangPref;
@@ -174,6 +179,17 @@ export const useUI = create<UIStore>()(
     (set) => ({
       navCollapsed: false,
       toggleNav: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
+      starredChats: [],
+      toggleStar: (id) => set((s) => ({
+        starredChats: s.starredChats.includes(id)
+          ? s.starredChats.filter((x) => x !== id)
+          : [id, ...s.starredChats],
+      })),
+      pruneStarred: (liveIds) => set((s) => {
+        const live = new Set(liveIds);
+        const kept = s.starredChats.filter((id) => live.has(id));
+        return kept.length === s.starredChats.length ? {} : { starredChats: kept };
+      }),
       // A stranger in light mode met a dark app; the OS decides until they pick.
       theme: 'system',
       resolvedTheme: getSystemTheme(),
@@ -224,6 +240,7 @@ export const useUI = create<UIStore>()(
       name: 'cinderpaw-ui',
       partialize: (s) => ({
         navCollapsed: s.navCollapsed,
+        starredChats: s.starredChats,
         theme: s.theme,
         // `reasoningMode` and `enabledTools` are deliberately NOT persisted any
         // more. The composer controls that set them are gone, so a saved value
