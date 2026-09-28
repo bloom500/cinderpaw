@@ -229,12 +229,10 @@ already recorded, so it costs no model call and cannot make things up.
 
 ## Widgets in the chat
 
-`show_widget` puts structured information in the chat as a widget the app
-draws: `facts` (2 to 6 label/value rows), `checklist`, `cards`, `breakdown`
-(bars), `progress`, `table` (2 to 4 columns) and `verdict` (the agent's take
-under a comparison). The agent sends data, never HTML, so a widget always
-matches the theme and cannot run code. Data that does not fit its kind is shown
-as a plain list rather than dropped.
+`show_widget` draws data as a themed widget: `facts`, `checklist`, `cards`,
+`breakdown`, `progress`, `table`, `verdict`. Never HTML; data that does not fit
+shows as a plain list. Card pictures (named, or a linked page's preview image)
+are fetched once through the egress door and kept in `~/.cinderpaw/cache/images`.
 
 ## Keeping its place on a long task
 
@@ -250,8 +248,8 @@ what the others lose:
 - **The task list.** `todo_write` stores tasks in the database, not the
   transcript. Both the open items AND recently finished ones are shown every
   turn — the finished half is what stops work being redone after the
-  conversation that recorded it has been compacted away. The desktop app draws
-  the list as a checklist in the chat each time it changes.
+  conversation that recorded it has been compacted away. The app draws it as a
+  checklist.
 - **Compaction.** When the conversation outgrows its budget, older turns are
   summarized into one note carrying an exact `### Established facts` section.
   Summaries are carried forward verbatim, never re-summarized. `/compact`

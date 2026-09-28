@@ -41,3 +41,17 @@ describe('widgetOf', () => {
     expect(widgetOf('web_search', { ok: true, data: { kind: 'verdict', text: 'x' } })).toBeNull();
   });
 });
+
+describe('cached pictures', () => {
+  const file = '/home/ana/.cinderpaw/cache/images/' + 'a'.repeat(40) + '.jpg';
+  it("keeps a file from the profile's image cache, and no other path", () => {
+    const w = parseWidget({ kind: 'cards', items: [
+      { title: 'Kept', imageFile: file },
+      { title: 'Elsewhere', imageFile: '/home/ana/.ssh/id_rsa' },
+      { title: 'Windows', imageFile: 'C:\\Users\\ana\\.cinderpaw\\cache\\images\\' + 'b'.repeat(40) + '.png' },
+    ] });
+    const items = (w as { items: { imageFile?: string }[] }).items;
+    expect(items.map((i) => i.imageFile)).toEqual([file, undefined, 'C:\\Users\\ana\\.cinderpaw\\cache\\images\\' + 'b'.repeat(40) + '.png']);
+  });
+});
+

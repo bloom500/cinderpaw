@@ -12,7 +12,8 @@
  * what the agent meant to show and the turn does not stall on a retry.
  */
 
-import type { Tool, ToolManifest, ToolResult } from "../../types.ts";
+import type { CinderpawFetch, Tool, ToolManifest, ToolResult } from "../../types.ts";
+import { cacheImage, pagePreviewImage } from "../image-cache.ts";
 
 export const WIDGET_KINDS = ["facts", "checklist", "cards", "breakdown", "progress", "table", "verdict"] as const;
 export type WidgetKind = (typeof WIDGET_KINDS)[number];
@@ -144,6 +145,34 @@ export function fallbackLines(args: Rec): string[] {
   return lines.slice(0, 40);
 }
 
+/**
+ * Give each card (and table column) a real picture, kept in the profile.
+ *
+ * A card's picture is the `image` the agent named or, when it named none but
+ * linked a page, the preview image that page names for itself (og:image), the
+ * picture any link preview shows. Each goes through `cacheImage` (egress door,
+ * https raster only, size-capped). The app shows `imageFile`; an image that
+ * could not be kept is dropped, and the card shows its placeholder.
+ */
+export async function attachImages(widget: Rec, fetch: CinderpawFetch, dir?: string): Promise<number> {
+  let found = 0;
+  const one = async (target: Rec, page?: unknown): Promise<void> => {
+    const named = typeof target.image === "string" ? target.image : null;
+    const src = named ?? (typeof page === "string" ? await pagePreviewImage(page, fetch) : null);
+    const file = src ? await cacheImage(src, fetch, dir) : null;
+    if (file) {
+      target.image = src;
+      target.imageFile = file;
+      found += 1;
+    } else {
+      delete target.image;
+    }
+  };
+  if (widget.kind === "cards") await Promise.all((widget.items as Rec[]).map((it) => one(it, it.url)));
+  if (widget.kind === "table") await Promise.all((widget.columns as Rec[]).map((c) => one(c)));
+  return found;
+}
+
 const OBJ_ITEMS = { type: "array", items: { type: "object" } };
 
 export function createShowWidgetTool(): Tool {
@@ -152,7 +181,8 @@ export function createShowWidgetTool(): Tool {
     description:
       "Show structured information to the user as a themed widget in the chat, instead of a markdown list. " +
       "Kinds: `facts` (items: 2-6 {label, value, icon?}), `checklist` (items: {text, done, note?}), " +
-      "`cards` (items: 2-6 {title, subtitle?, image?, url?}, https only), `breakdown` (items: {label, value}, total?), " +
+      "`cards` (items: 2-6 {title, subtitle?, image?, url?}, https only; a card with a url and no image gets " +
+      "the picture that page shows in link previews, so link the real product or place page), `breakdown` (items: {label, value}, total?), " +
       "`progress` (done, total, label), `table` (columns: 2-4 {title, subtitle?, image?}, rows: {label, cells[]} " +
       "with one cell per column), `verdict` (text, one per answer: your take under a comparison). " +
       `Icons: ${WIDGET_ICONS.join(", ")}. Say in your text what the widget shows; do not repeat its contents.`,
@@ -174,10 +204,15 @@ export function createShowWidgetTool(): Tool {
       label: { type: "string", description: "progress label.", required: false },
       text: { type: "string", description: "verdict text.", required: false },
     },
-    async execute(args): Promise<ToolResult> {
+    async execute(args, ctx): Promise<ToolResult> {
       const widget = validateWidget(args);
       if (widget) {
-        return { ok: true, content: `Shown to the user as a ${widget.kind} widget.`, data: widget };
+        // `typeof`: a test double may pass a context without a fetch.
+        const pictures = typeof ctx?.fetch === "function" && (widget.kind === "cards" || widget.kind === "table")
+          ? await attachImages(widget, ctx.fetch)
+          : 0;
+        const note = pictures > 0 ? ` ${pictures} with a picture.` : "";
+        return { ok: true, content: `Shown to the user as a ${widget.kind} widget.${note}`, data: widget };
       }
       const title = str(args.title) ?? undefined;
       const lines = fallbackLines(args);

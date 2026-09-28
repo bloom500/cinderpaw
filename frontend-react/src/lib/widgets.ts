@@ -14,10 +14,10 @@ export type WidgetIcon =
 export type WidgetData =
   | { kind: 'facts'; title?: string; items: { label: string; value: string; icon?: WidgetIcon }[] }
   | { kind: 'checklist'; title?: string; items: { text: string; done: boolean; note?: string }[] }
-  | { kind: 'cards'; title?: string; items: { title: string; subtitle?: string; image?: string; url?: string }[] }
+  | { kind: 'cards'; title?: string; items: { title: string; subtitle?: string; image?: string; imageFile?: string; url?: string }[] }
   | { kind: 'breakdown'; title?: string; total?: number; items: { label: string; value: number }[] }
   | { kind: 'progress'; title?: string; done: number; total: number; label: string }
-  | { kind: 'table'; title?: string; columns: { title: string; subtitle?: string; image?: string }[]; rows: { label: string; cells: string[] }[] }
+  | { kind: 'table'; title?: string; columns: { title: string; subtitle?: string; image?: string; imageFile?: string }[]; rows: { label: string; cells: string[] }[] }
   | { kind: 'verdict'; title?: string; text: string }
   | { kind: 'list'; title?: string; lines: string[] };
 
@@ -30,6 +30,13 @@ const https = (v: unknown): string | undefined => {
   if (!s) return undefined;
   try { return new URL(s).protocol === 'https:' ? s : undefined; } catch { return undefined; }
 };
+/**
+ * A picture the sidecar kept (`image-cache.ts`): a file named by its hash in the
+ * profile's image cache, and nothing else. The asset protocol's scope says the
+ * same; this keeps a saved chat from naming any other file.
+ */
+const cached = (v: unknown): string | undefined =>
+  typeof v === 'string' && /[\\/]\.cinderpaw[\\/]cache[\\/]images[\\/][0-9a-f]{40}\.(png|jpg|gif|webp|avif)$/.test(v) ? v : undefined;
 const ICONS = new Set<string>(['calendar', 'clock', 'map-pin', 'wallet', 'users', 'star', 'check', 'info', 'file', 'link', 'tag', 'home']);
 
 /** Every string in `v`, one line per top-level item: the fallback's content. */
@@ -66,7 +73,7 @@ function strict(d: Rec): WidgetData | null {
     }
     case 'cards': {
       if (!items || items.length < 1) return null;
-      const rows = items.map((it) => ({ title: str(it.title), subtitle: str(it.subtitle), image: https(it.image), url: https(it.url) }));
+      const rows = items.map((it) => ({ title: str(it.title), subtitle: str(it.subtitle), image: https(it.image), imageFile: cached(it.imageFile), url: https(it.url) }));
       return rows.every((r) => r.title) ? { kind: 'cards', title, items: rows as { title: string }[] } : null;
     }
     case 'breakdown': {
@@ -85,7 +92,7 @@ function strict(d: Rec): WidgetData | null {
       const cols = Array.isArray(d.columns) && d.columns.every(isRec) ? (d.columns as Rec[]) : null;
       const rows = Array.isArray(d.rows) && d.rows.every(isRec) ? (d.rows as Rec[]) : null;
       if (!cols || cols.length < 2 || cols.length > 4 || !rows || rows.length < 1) return null;
-      const c = cols.map((x) => ({ title: str(x.title), subtitle: str(x.subtitle), image: https(x.image) }));
+      const c = cols.map((x) => ({ title: str(x.title), subtitle: str(x.subtitle), image: https(x.image), imageFile: cached(x.imageFile) }));
       const r = rows.map((x) => ({ label: str(x.label), cells: Array.isArray(x.cells) ? x.cells.map((v) => (typeof v === 'number' ? String(v) : v)) : null }));
       const ok = c.every((x) => x.title) && r.every((x) => x.label && x.cells && x.cells.length === cols.length && x.cells.every((v) => typeof v === 'string'));
       return ok ? { kind: 'table', title, columns: c as { title: string }[], rows: r as { label: string; cells: string[] }[] } : null;

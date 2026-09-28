@@ -2,6 +2,8 @@ import {
   Calendar, Check, Clock, FileText, Home, Info, Link, MapPin, Star, Tag, Users, Wallet,
   type LucideIcon,
 } from 'lucide-react';
+import { useState } from 'react';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-shell';
 import { cn } from '@/lib/utils';
 import type { WidgetData, WidgetIcon } from '@/lib/widgets';
@@ -32,6 +34,25 @@ function Bar({ share, className }: { share: number; className?: string }) {
   );
 }
 
+/**
+ * A picture the engine keeps in the profile (`imageFile`), or the warm
+ * placeholder: when there is none, and when it fails to load. Never a
+ * broken-image icon.
+ */
+function Picture({ file, className }: { file?: string; className?: string }) {
+  const [failed, setFailed] = useState(false);
+  if (!file || failed) return <span aria-hidden className={cn('block bg-bg-active', className)} />;
+  return (
+    <img
+      src={convertFileSrc(file)}
+      alt=""
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+      className={cn('block object-cover', className)}
+    />
+  );
+}
+
 function openLink(url: string) {
   void open(url).catch(() => window.open(url, '_blank', 'noopener,noreferrer'));
 }
@@ -39,8 +60,8 @@ function openLink(url: string) {
 /**
  * A chat widget, drawn from data (spec 7.1). Every kind in `WidgetData`,
  * including `list`, the fallback for data that did not fit its kind.
- * Card and column images are not loaded yet: they wait for the engine's
- * image cache (slice 8), so every card shows the warm placeholder.
+ * Card and column pictures are files the engine fetched and keeps
+ * (`imageFile`); the app never loads a remote image itself.
  */
 export function ChatWidget({ w }: { w: WidgetData }) {
   switch (w.kind) {
@@ -104,8 +125,7 @@ export function ChatWidget({ w }: { w: WidgetData }) {
             {w.items.map((it, i) => {
               const body = (
                 <>
-                  {/* The warm placeholder: images come through the engine's cache (slice 8). */}
-                  <span aria-hidden className="block aspect-[4/3] w-full rounded-lg bg-bg-active" />
+                  <Picture file={it.imageFile} className="aspect-[4/3] w-full rounded-lg" />
                   <span className="mt-2 block truncate text-sm font-medium text-text-primary">{it.title}</span>
                   {it.subtitle && <span className="block truncate text-2xs text-text-disabled">{it.subtitle}</span>}
                 </>
@@ -157,6 +177,7 @@ export function ChatWidget({ w }: { w: WidgetData }) {
                 <th />
                 {w.columns.map((c) => (
                   <th key={c.title} scope="col" className="px-2 pb-2 text-left align-bottom">
+                    {c.imageFile && <Picture file={c.imageFile} className="mb-2 h-16 w-24 rounded-lg" />}
                     <span className="block font-semibold text-text-primary">{c.title}</span>
                     {c.subtitle && <span className="block text-2xs font-normal text-text-disabled">{c.subtitle}</span>}
                   </th>

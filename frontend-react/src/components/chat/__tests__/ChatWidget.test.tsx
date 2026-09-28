@@ -7,7 +7,7 @@ import type { ChatMessage } from '@/stores/chat';
 import { finishActivity, startActivity } from '@/hooks/useLiveToolActivity';
 
 vi.mock('@tauri-apps/plugin-shell', () => ({ open: vi.fn(async () => {}) }));
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(async () => null) }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(async () => null), convertFileSrc: (p: string) => `asset://localhost/${p}` }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
 
 describe('ChatWidget', () => {
@@ -26,6 +26,11 @@ describe('ChatWidget', () => {
 
     rerender(<ChatWidget w={{ kind: 'breakdown', total: 2000, items: [{ label: 'Flights', value: 900 }] }} />);
     expect(screen.getByText('Total 2,000')).toBeTruthy();
+
+    rerender(<ChatWidget w={{ kind: 'cards', items: [{ title: 'Aventon', imageFile: '/p/a.jpg' }, { title: 'Ride1Up' }] }} />);
+    // The kept picture is shown from its file; the card without one has the placeholder, not a broken image.
+    expect(document.querySelectorAll('img')).toHaveLength(1);
+    expect(document.querySelector('img')?.getAttribute('src')).toBe('asset://localhost//p/a.jpg');
 
     rerender(<ChatWidget w={{ kind: 'list', title: 'Laptops', lines: ['RAM · 16 GB'] }} />);
     expect(screen.getByText('RAM · 16 GB')).toBeTruthy();
