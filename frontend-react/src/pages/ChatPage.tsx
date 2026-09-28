@@ -428,7 +428,9 @@ export function ChatPage() {
         {/* One side panel at a time, and the browser wins: when the agent is
             working in it, an artifact it saves must not cover the page. The
             artifact is still one click away in the sidebar. */}
-        {browserOpen && <BrowserPanel key="browser-panel" chat={chatColumn} />}
+        {browserOpen && (
+          <BrowserPanel key="browser-panel" chat={chatColumn} onCompose={(text) => chatInputRef.current?.setText(text)} />
+        )}
         {panelOpen && !browserOpen && (
           <ArtifactsPanel
             key="artifacts-panel"

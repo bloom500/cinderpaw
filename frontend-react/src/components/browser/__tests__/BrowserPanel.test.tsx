@@ -191,6 +191,24 @@ describe('the promise on the start page', () => {
     act(() => useBrowser.setState({ agent: { op: 'click', ref: '12', busy: true } }));
     expect(screen.getByRole('status')).toHaveTextContent('Cinderpaw clicked control 12…');
   });
+  it('Stop on the agent bar ends the run driving the page; a paused agent has none', () => {
+    const stop = vi.spyOn(tauri.cinderpawAgent, 'stop').mockResolvedValue(undefined);
+    render(<BrowserPanel />);
+    act(() => useBrowser.setState({ agent: { op: 'paused', busy: false } }));
+    expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
+    act(() => useBrowser.setState({ agent: { op: 'snapshot', busy: true } }));
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    expect(stop).toHaveBeenCalled();
+    expect(useBrowser.getState().agent).toBeNull();
+    stop.mockRestore();
+  });
+  it('Summarize this page puts the request in the composer, with the address', () => {
+    const onCompose = vi.fn();
+    render(<BrowserPanel onCompose={onCompose} />);
+    act(() => useBrowser.setState({ url: 'https://wikipedia.org/wiki/Hakone' }));
+    fireEvent.click(screen.getByLabelText('Summarize this page'));
+    expect(onCompose).toHaveBeenCalledWith(expect.stringContaining('https://wikipedia.org/wiki/Hakone'));
+  });
   it('reader view is a toggle: the article is a page of our own, and the chrome shows the original address', async () => {
     render(<BrowserPanel />);
     act(() => {
