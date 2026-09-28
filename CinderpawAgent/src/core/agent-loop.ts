@@ -47,6 +47,7 @@ export interface Recaller {
 }
 import type { MemoryExtractor } from "../memory/extractor.ts";
 import { WorkingMemory } from "../memory/working.ts";
+import { projectAddendum } from "../projects.ts";
 import { countTokens } from "./tokenizer.ts";
 import { claimedPath, unsourcedWarning, withOpenFirst } from "./unsourced.ts";
 import { daemonNotice, daemonPrompt, unkeptWriteClaims } from "./daemon.ts";
@@ -1237,6 +1238,12 @@ export class AgentLoop {
         memory.setSnapshot("");
       }
     }
+
+    // Projects (spec 9): a chat filed in a project carries its instructions and
+    // files in the system prompt, read fresh each turn so an edit applies to
+    // the next message. The owner's chats only: a connector profile speaks as
+    // its own persona.
+    if (!this.#profileFor(sessionId)) memory.setProject(projectAddendum(sessionId));
 
     // Automatic recall. The loop has always HELD a `Recaller` and never asked
     // it anything — only `noteWrite` was ever called, so memory was written
