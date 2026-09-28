@@ -14,7 +14,7 @@ Branch chain, each stacked on the previous:
 | `feat/ui-s1-foundation` | 0049db0 | slice 1: palette, OS theme default, Young Serif, Solid default |
 | `feat/ui-s2-brand-logos` | 096eec4 | slice 2: 41 bundled brand logos, `<BrandLogo>` |
 | `feat/ui-s3-sidebar` | 9b220c6 | slice 3: sidebar + starred chats, plus the docs and design sources |
-| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) slice 5 (5a message shapes, 5b logo head, 5c artifact card) slice 6 (6a Activity Strip, 6b helpers + chips) slice 7 (7a `show_widget` in the sidecar, 7b the seven renderers) and slice 8 (image cache, real card pictures) and slice 9 (9a source chips, 9b pasted-text card, 9c drop overlay) |
+| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) slice 5 (5a message shapes, 5b logo head, 5c artifact card) slice 6 (6a Activity Strip, 6b helpers + chips) slice 7 (7a `show_widget` in the sidecar, 7b the seven renderers) and slice 8 (image cache, real card pictures) slice 9 (9a source chips, 9b pasted-text card, 9c drop overlay) and slice 10 (10a `memory_used` in the sidecar, 10b Memory Peek) |
 
 `claude/rebrand-spec-f87jrk` contains everything above it. Continue from there, one branch per slice.
 
@@ -56,7 +56,7 @@ light (same colour); use `hover:bg-text-primary/5`.
   appears wherever a chat menu does. Pruned once, at the first successful non-empty list read: a
   failed read also ends with an empty list, and Undo after a delete must keep the star.
 
-## Owed before merging slices 1-9
+## Owed before merging slices 1-10
 
 1. Darius looks at them in the running app (from this branch).
 2. `./scripts/verify.sh` green.
@@ -149,10 +149,22 @@ instance the app uses. A screenshot is a preview, not the "Darius sees it in the
 - Drop: one overlay in `ChatPage` (`dropping` state); the composer's own words were removed, its
   dashed edge stays.
 
+## Slice 10 decisions to keep (28 Sep)
+
+- Sidecar: `RecallResult.used` (`MemoryUsed` in `memory/recall.ts`) lists what the injected block
+  holds; facts carry their mirrored graph edge (`#mirrorEdge`) for `memory_forget`. Filled by
+  RecallEngine and the fractal path (`knownFactsDetailed`). The loop emits `memory_used` for items
+  that survived `CINDERPAW_RECALL_INJECTION_MAX_CHARS`. `fractal-recall.test.ts` pins the key set.
+- `memory_used` is in the Rust outbound list; `memory_notes` was added to Rust's inbound list in the
+  same commit, which made `protocol_drift` green again (it was red on main since 3a30c69).
+- App: `ChatMessage.memoryUsed`, set live by `useCinderpaw` only while the chat is on screen, and
+  NOT persisted (the saved message shape has no field for it). `MemoryPeek.tsx` also lists a recall
+  tool's `facts` (no Forget: they are sentences, no edge).
+
 ## Next
 
-Slice 10: Memory Peek (spec 7.5): "N memories used" under a reply, only the memories actually put
-into that turn's context, each with Forget. Check first what the stream records about injected memory.
+Slice 11: Home (spec 5): greeting with name in Young Serif, intents with hints, the five suggestion
+chips; Settings > General "What should Cinderpaw call you?".
 
 ## Open question: the mascot medium
 
