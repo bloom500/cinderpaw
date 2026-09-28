@@ -1,7 +1,7 @@
 import { tauri } from '@/lib/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { useChat } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
@@ -64,6 +64,16 @@ export function ChatPage() {
     window.addEventListener('cinderpaw-focus-composer', focus);
     return () => window.removeEventListener('cinderpaw-focus-composer', focus);
   }, []);
+  // Another screen (Settings > Team) can open a chat with words already in the
+  // box: `navigate('/chat', { state: { compose } })`. Read once, then dropped
+  // from the history entry so Back does not type it a second time.
+  const location = useLocation();
+  useEffect(() => {
+    const compose = (location.state as { compose?: string } | null)?.compose;
+    if (!compose) return;
+    chatInputRef.current?.setText(compose);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location, navigate]);
   // Explorer's Send to > Cinderpaw: files the app was started with, and files
   // sent while it is already open, land in the composer as attachments.
   useEffect(() => {

@@ -1,6 +1,6 @@
 /**
- * Settings > Agent > Teammates: who exists, what each may touch, and a way to
- * remove one.
+ * Settings > Agent and team > Team: who exists, what each is doing, and a way
+ * to talk to, add or remove one (spec 7.2, canvas "Settings: team").
  *
  * A teammate is made from chat ("make me a teammate who..."), keeps running on
  * its own budget after that conversation, and until this list the person had
@@ -10,10 +10,14 @@
  */
 
 import { useEffect, useState } from 'react';
-import { AlertCircle, Trash2, Users } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { AlertCircle, Plus, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useCoworkTeam } from '@/stores/coworkTeam';
+import { useCoworkTranscript } from '@/stores/coworkTranscript';
+import { useConversations } from '@/stores/conversations';
 import type { CoworkTeammate } from '@/lib/tauri';
+import logoUrl from '@/assets/logo.svg';
 
 function toolsLine(t: CoworkTeammate): string {
   if (t.tools === null) return 'Every tool, including ones that write, send and run commands';
@@ -29,19 +33,32 @@ export function TeammatesSection() {
   const removed = useCoworkTeam((s) => s.removed);
   const refresh = useCoworkTeam((s) => s.refresh);
   const remove = useCoworkTeam((s) => s.remove);
+  const exchanges = useCoworkTranscript((s) => s.exchanges);
+  const navigate = useNavigate();
   const [confirm, setConfirm] = useState<CoworkTeammate | null>(null);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
+  // A new chat with the words already in the box (ChatPage reads `compose`):
+  // the person finishes the sentence, nothing is sent for them.
+  const compose = (text: string) => {
+    useConversations.getState().newChat();
+    navigate('/chat', { state: { compose: text } });
+  };
+  // What a teammate is doing right now: the request it is working on, from the
+  // live transcript. Nothing running is "Idle", never a guess.
+  const workingOn = (id: string) =>
+    exchanges.find((e) => e.toAgentId === id && e.status === 'running' && e.kind !== 'approval');
+
   return (
-    <section className="space-y-3 pt-4 border-t border-border-subtle" aria-labelledby="teammates-heading">
+    <section className="space-y-4 pt-4 border-t border-border-subtle" aria-labelledby="teammates-heading">
       <header className="space-y-1">
-        <h3 id="teammates-heading" className="text-sm font-semibold text-text-primary">
-          Teammates
+        <h3 id="teammates-heading" className="text-base font-semibold text-text-primary">
+          Team
         </h3>
-        <p className="text-xs text-text-muted">
+        <p className="text-sm text-text-muted">
           Helpers your agent can hand work to. Each keeps its own role and runs on its own budget,
           even after the chat that made it. To change one, ask in chat.
         </p>
@@ -57,40 +74,75 @@ export function TeammatesSection() {
 
       {!loaded && !error ? (
         <p className="text-xs text-text-muted">Loading…</p>
-      ) : loaded && roster.length === 0 ? (
-        <div className="rounded-md border border-border-subtle bg-bg-surface p-5 text-center">
-          <Users size={28} className="text-text-muted mx-auto mb-3" />
-          <p className="text-sm text-text-primary">No teammates yet</p>
-          <p className="text-xs text-text-muted mt-1">
-            Ask in chat, for example: "make me a teammate who reviews my pull requests".
-          </p>
-        </div>
       ) : (
-        <ul className="space-y-2">
-          {roster.map((t) => (
-            <li key={t.id} className="rounded-md border border-border-subtle bg-bg-surface p-3 flex items-start gap-3">
-              <Users size={16} className="text-text-muted mt-0.5 shrink-0" aria-hidden />
-              <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-medium text-text-primary truncate">{t.name}</h4>
-                {t.role && <p className="text-xs text-text-secondary mt-0.5">{t.role}</p>}
-                <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-                  <dt className="text-text-muted">Can use</dt>
-                  <dd className={t.tools === null ? 'text-warning' : 'text-text-secondary'}>{toolsLine(t)}</dd>
-                  <dt className="text-text-muted">Model</dt>
-                  <dd className="text-text-secondary">{t.model ?? 'Chosen per task'}</dd>
-                </dl>
-              </div>
-              <button
-                type="button"
-                onClick={() => setConfirm(t)}
-                disabled={busy}
-                aria-label={`Remove ${t.name}`}
-                className="p-1.5 rounded text-text-muted hover:text-error hover:bg-error/10 disabled:opacity-50"
-              >
-                <Trash2 size={14} />
-              </button>
-            </li>
-          ))}
+        <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          {roster.map((t) => {
+            const job = workingOn(t.id);
+            return (
+              <li key={t.id} className="flex items-center gap-3.5 rounded-2xl border border-border-default bg-bg-surface p-4">
+                <span className="flex h-13 w-13 shrink-0 items-center justify-center rounded-2xl bg-bg-active">
+                  <img src={logoUrl} alt="" className="h-10 w-10" />
+                </span>
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <h4 className="truncate text-base font-semibold text-text-primary">{t.name}</h4>
+                  {t.role && <p className="truncate text-sm text-text-muted">{t.role}</p>}
+                  {job ? (
+                    <p className="flex items-center gap-1.5 text-xs text-brand">
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand" aria-hidden />
+                      <span className="truncate">Working{job.requestText ? `: ${job.requestText}` : ''}</span>
+                    </p>
+                  ) : (
+                    <p className="text-xs text-text-muted">Idle</p>
+                  )}
+                  {/* What it may touch stays on the card: a teammate made before
+                      tools were scoped can write, send and run commands. */}
+                  <p
+                    className={`truncate text-2xs ${t.tools === null ? 'text-warning' : 'text-text-disabled'}`}
+                    title={toolsLine(t)}
+                  >
+                    Can use: {toolsLine(t)}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => compose(`Ask ${t.name} to `)}
+                    className="h-8 rounded-[10px] border border-border-default bg-bg-elevated px-3 text-sm text-text-primary hover:bg-bg-hover"
+                  >
+                    Message
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirm(t)}
+                    disabled={busy}
+                    aria-label={`Remove ${t.name}`}
+                    className="rounded-md p-1.5 text-text-muted hover:bg-error/10 hover:text-error disabled:opacity-50"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+          <li>
+            <button
+              type="button"
+              onClick={() => compose('Make me a teammate who ')}
+              className="flex h-full w-full items-center gap-3.5 rounded-2xl border-[1.5px] border-dashed border-border-default p-4 text-left text-text-muted hover:bg-text-primary/5"
+            >
+              <span className="flex h-13 w-13 shrink-0 items-center justify-center rounded-2xl border-[1.5px] border-dashed border-border-default text-brand">
+                <Plus size={20} />
+              </span>
+              <span className="space-y-0.5">
+                <span className="block text-base font-semibold text-text-primary">Add a teammate</span>
+                <span className="block text-sm">
+                  {roster.length === 0
+                    ? 'A helper with one job, like reviewing your pull requests. You describe it in chat.'
+                    : 'Give it a name and a job'}
+                </span>
+              </span>
+            </button>
+          </li>
         </ul>
       )}
 
