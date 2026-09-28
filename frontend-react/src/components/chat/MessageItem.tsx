@@ -8,6 +8,7 @@ import { parseUserAttachments, type DisplayAttachment } from '@/lib/attachmentDi
 import { Markdown } from '@/lib/markdown';
 import { AskUserCard } from './AskUserCard';
 import { MessageToolWidgets } from './MessageToolWidgets';
+import { ChatWidget } from './ChatWidget';
 import { MessageChain } from './MessageChain';
 import { MessageActions } from './MessageActions';
 import { VoiceBubble } from './VoiceBubble';
@@ -264,8 +265,15 @@ export const MessageItem = memo(function MessageItem({
   const sessionId = useChat((s) => s.sessionId);
   const allWorkers = useRlmWorkers((s) => (head ? s.workers : NO_HELPERS));
   const helpers = useMemo(() => workersFor(allWorkers, sessionId), [allWorkers, sessionId]);
+  // Widgets are drawn in place of their step: every show_widget, and only the
+  // LAST todo_write plan of the reply (the agent updates it step by step, and
+  // five copies of one plan are noise). Earlier plan updates stay steps.
+  const activity = message.toolActivity ?? [];
+  const lastPlan = activity.map((a) => a.tool === 'todo_write' && !!a.widget).lastIndexOf(true);
+  const drawn = new Set(activity.filter((a, i) => a.widget && (a.tool !== 'todo_write' || i === lastPlan)).map((a) => a.id));
+  const isStep = (a: (typeof activity)[number]) => a.kind !== 'artifact' && !drawn.has(a.id);
   const lastGroup = pieces
-    ? pieces.reduce((k, p, i) => (p.kind === 'tools' && p.tools.some((a) => a.kind !== 'artifact') ? i : k), -1)
+    ? pieces.reduce((k, p, i) => (p.kind === 'tools' && p.tools.some(isStep) ? i : k), -1)
     : -1;
 
   return (
@@ -278,7 +286,7 @@ export const MessageItem = memo(function MessageItem({
         // duration saved), which the header reads as 'Reasoning' rather than a time.
         durationSec={message.thinkingDurationMs ? Math.max(1, Math.ceil(message.thinkingDurationMs / 1000)) : undefined}
         // In the timeline the tools sit in the text instead; this keeps the reasoning.
-        steps={pieces ? [] : (message.toolActivity ?? []).filter((a) => a.kind !== 'artifact')}
+        steps={pieces ? [] : activity.filter(isStep)}
         streaming={streaming}
       />
       {pieces ? (
@@ -293,7 +301,8 @@ export const MessageItem = memo(function MessageItem({
               </div>
             );
           }
-          const plain = p.tools.filter((a) => a.kind !== 'artifact');
+          const plain = p.tools.filter(isStep);
+          const widgets = p.tools.filter((a) => drawn.has(a.id));
           const artifacts = p.tools.filter((a) => a.kind === 'artifact');
           return (
             <div key={p.tools[0]!.id} className="flex flex-col gap-2">
@@ -307,6 +316,7 @@ export const MessageItem = memo(function MessageItem({
                   helpers={i === lastGroup ? helpers : NO_HELPERS}
                 />
               )}
+              {widgets.map((a) => <ChatWidget key={a.id} w={a.widget!} />)}
               {artifacts.length > 0 && <MessageToolWidgets activity={artifacts} streaming={streaming} />}
             </div>
           );
@@ -316,6 +326,7 @@ export const MessageItem = memo(function MessageItem({
           {/* What the turn MADE stays outside the steps: folding the steps away must
               not fold away the report or chart the person asked for. */}
           {made.length > 0 && <MessageToolWidgets activity={made} streaming={streaming} />}
+          {activity.filter((a) => drawn.has(a.id)).map((a) => <ChatWidget key={a.id} w={a.widget!} />)}
           <div className={cn('text-base leading-relaxed', !message.content && 'hidden')}>
             <Markdown animateWords={streaming}>{message.content}</Markdown>
           </div>
