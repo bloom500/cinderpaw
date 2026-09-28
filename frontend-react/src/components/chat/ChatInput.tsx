@@ -4,7 +4,7 @@ import { ArrowUp, Square, Mic, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { AttachedFileChip, type AttachedFile } from './AttachedFileChip';
+import { AttachedFileChip, isLongPaste, pastedText, type AttachedFile } from './AttachedFileChip';
 import { LinkChip } from './LinkChip';
 import { splitLinks } from '@/lib/linkLabel';
 import { FileAttachButton } from './FileAttachButton';
@@ -431,6 +431,14 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       e.preventDefault();
       const found = parts.flatMap((x) => (x.kind === 'link' ? [x.href] : []));
       setLinks((prev) => [...prev, ...found.filter((h) => !prev.includes(h))]);
+      return;
+    }
+    // A long paste (a log, an article, a whole file) becomes one card instead
+    // of filling the box: the text still goes with the message, in full.
+    const raw = e.clipboardData?.getData('text/plain') ?? '';
+    if (!hasFile && isLongPaste(raw)) {
+      e.preventDefault();
+      addFiles([pastedText(raw)]);
       return;
     }
     if (!hasFile) return;
