@@ -9,7 +9,7 @@ import 'katex/dist/katex.min.css';
 import { Maximize2, X } from 'lucide-react';
 import { CodeBlock } from '@/components/chat/CodeBlock';
 import { MermaidDiagram } from '@/components/chat/MermaidDiagram';
-import { ExternalLink } from '@/components/chat/ExternalLink';
+import { SourceAwareLink } from '@/components/chat/Sources';
 import { rehypeWordFade } from '@/lib/rehypeWordFade';
 import { splitBlocks } from '@/lib/markdownBlocks';
 
@@ -102,7 +102,9 @@ function MarkdownCode({ className, children, node: _node, ...props }: React.HTML
 // time (1,324 code mounts streaming one 6 KB reply, 25 Sep).
 const COMPONENTS: Components = {
   pre: Pre as Components['pre'],
-  a: ExternalLink as Components['a'],
+  // A link to a page this reply's search found is a source chip; any other
+  // link is a normal link (SourceAwareLink falls back to ExternalLink).
+  a: SourceAwareLink as Components['a'],
   table: ExpandableTable as unknown as Components['table'],
   code: MarkdownCode as Components['code'],
 };

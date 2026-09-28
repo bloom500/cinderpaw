@@ -9,6 +9,8 @@ import { Markdown } from '@/lib/markdown';
 import { AskUserCard } from './AskUserCard';
 import { MessageToolWidgets } from './MessageToolWidgets';
 import { ChatWidget } from './ChatWidget';
+import { SourcesContext, SourcesList } from './Sources';
+import { citedSources, sourcesOf } from '@/lib/sources';
 import { MessageChain } from './MessageChain';
 import { MessageActions } from './MessageActions';
 import { VoiceBubble } from './VoiceBubble';
@@ -272,11 +274,16 @@ export const MessageItem = memo(function MessageItem({
   const lastPlan = activity.map((a) => a.tool === 'todo_write' && !!a.widget).lastIndexOf(true);
   const drawn = new Set(activity.filter((a, i) => a.widget && (a.tool !== 'todo_write' || i === lastPlan)).map((a) => a.id));
   const isStep = (a: (typeof activity)[number]) => a.kind !== 'artifact' && !drawn.has(a.id);
+  // The pages this turn's searches found: a link to one is a source chip, and
+  // the ones the answer cited close it as a list once it is done.
+  const sources = useMemo(() => sourcesOf(activity), [activity]);
+  const cited = useMemo(() => (streaming ? [] : citedSources(message.content, sources)), [streaming, message.content, sources]);
   const lastGroup = pieces
     ? pieces.reduce((k, p, i) => (p.kind === 'tools' && p.tools.some(isStep) ? i : k), -1)
     : -1;
 
   return (
+    <SourcesContext.Provider value={sources}>
     <div className="group flex flex-col gap-2">
       <MessageChain
         helpers={lastGroup === -1 ? helpers : NO_HELPERS}
@@ -332,6 +339,7 @@ export const MessageItem = memo(function MessageItem({
           </div>
         </>
       )}
+      <SourcesList hits={cited} />
       {head && <ReplyHead writing={head === 'writing'} />}
       {/* Only on a finished reply: a copy button beside text that is still
           arriving would copy half of it. */}
@@ -401,6 +409,7 @@ export const MessageItem = memo(function MessageItem({
         </div>
       )}
     </div>
+    </SourcesContext.Provider>
   );
 });
 
