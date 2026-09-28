@@ -123,7 +123,7 @@ function ConfirmDeleteDialog({
  * the row, threw the typed name away, and reported nothing anywhere. Both
  * things a rename dialog can do — chats and projects — went through here.
  */
-function RenameDialog({
+export function RenameDialog({
   open, onOpenChange, title, label, initial, onSave,
 }: {
   open: boolean;
