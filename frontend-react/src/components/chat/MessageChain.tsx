@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, Check, ChevronDown, Loader2 } from 'lucide-react';
+import { AlertTriangle, Ban, Check, ChevronDown, Loader2, X } from 'lucide-react';
 import { Streamdown } from 'streamdown';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { thinkingLabel } from '@/components/ai-elements/reasoning';
 import type { ToolActivity } from '@/hooks/useLiveToolActivity';
 import { useUI } from '@/stores/ui';
+import { displayName, type RlmWorker } from '@/stores/rlmWorkers';
 import logoUrl from '@/assets/logo.svg';
 import { Widget, summaryOf } from './CallToolScreen';
 import { CinderpawMascot } from './mascot/CinderpawMascot';
@@ -142,6 +143,41 @@ function StepRow({ a }: { a: ToolActivity }) {
   );
 }
 
+const HELPER_WORD: Record<RlmWorker['status'], string> = {
+  running: 'working', completed: 'done', error: 'failed', cancelled: 'stopped',
+};
+
+/** One `rlm()` helper: its task, how it stands, for how long. Its answer is in WorkersCard. */
+function HelperRow({ w, now }: { w: RlmWorker; now: number }) {
+  const icon = w.status === 'running' ? <Loader2 size={16} className="shrink-0 animate-spin text-brand" />
+    : w.status === 'completed' ? <Check size={16} className="shrink-0 text-success" />
+    : w.status === 'cancelled' ? <Ban size={16} className="shrink-0 text-text-muted" />
+    : <X size={16} className="shrink-0 text-error" />;
+  return (
+    <div className="flex items-center gap-3 py-1.5" data-testid="strip-helper">
+      {icon}
+      <span className="min-w-0 flex-1 truncate text-sm text-text-muted" title={w.name}>{displayName(w.name)}</span>
+      <span className="shrink-0 text-2xs text-text-disabled">
+        {HELPER_WORD[w.status]} · {elapsedLabel((w.endedAt ?? now) - w.startedAt)}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The side activities worth a glance while the strip is folded (spec 7.5):
+ * a memory lookup or an artifact in progress, and helpers still working.
+ */
+export function sideChips(steps: ToolActivity[], helpers: RlmWorker[]): string[] {
+  const running = steps.filter((a) => a.status === 'running');
+  const working = helpers.filter((w) => w.status === 'running').length;
+  return [
+    ...(running.some((a) => a.kind === 'memory') ? ['Using memory'] : []),
+    ...(running.some((a) => a.kind === 'artifact') ? ['Generating artifact'] : []),
+    ...(working > 0 ? [plural(working, 'helper')] : []),
+  ];
+}
+
 /** The clay mascot at work, 48 px; the logo head when the mascot is turned off. */
 function WorkingFigure() {
   const mascot = useUI((s) => s.mascotEnabled);
@@ -168,7 +204,7 @@ function WorkingFigure() {
  * was the bug that made the old block vanish mid-read). A click reopens it.
  */
 export function MessageChain({
-  thinking, thinkingComplete, durationSec, steps, streaming,
+  thinking, thinkingComplete, durationSec, steps, streaming, helpers = [],
 }: {
   /** null when the model gave none, or the person turned reasoning off. */
   thinking: string | null;
@@ -176,11 +212,14 @@ export function MessageChain({
   durationSec: number | undefined;
   steps: ToolActivity[];
   streaming: boolean;
+  /** This chat's `rlm()` helpers. Only the latest reply's last strip gets them:
+   *  they belong to the session, and they run after the reply that started them. */
+  helpers?: RlmWorker[];
 }) {
   const [open, setOpen] = useState(streaming);
   const wasStreaming = useRef(streaming);
   const [reasoningOpen, setReasoningOpen] = useState(false);
-  const now = useNow(streaming);
+  const now = useNow(streaming || helpers.some((w) => w.status === 'running'));
 
   useEffect(() => {
     const before = wasStreaming.current;
@@ -193,7 +232,8 @@ export function MessageChain({
     return undefined;
   }, [streaming]);
 
-  if (thinking === null && steps.length === 0) return null;
+  if (thinking === null && steps.length === 0 && helpers.length === 0) return null;
+  const chips = sideChips(streaming ? steps : [], helpers);
 
   const thinkingLive = streaming && thinking !== null && !thinkingComplete;
   const current = steps.find((a) => a.status === 'running') ?? steps[steps.length - 1];
@@ -202,13 +242,13 @@ export function MessageChain({
   let title: string;
   let detail: string;
   if (streaming) {
-    title = thinkingLive || !current ? 'Thinking' : stepTitle(current);
+    title = thinkingLive || (!current && thinking !== null) ? 'Thinking' : current ? stepTitle(current) : 'Helpers';
     const since = steps.length > 0 ? Math.min(...steps.map((a) => a.startedAt)) : null;
     detail = [count, since !== null ? elapsedLabel(now - since) : ''].filter(Boolean).join(' · ');
   } else {
     const worked = workedSeconds(steps);
     title = steps.length === 0
-      ? thinkingLabel(false, durationSec)
+      ? (thinking !== null ? thinkingLabel(false, durationSec) : 'Helpers')
       : worked !== null ? `Worked for ${plural(worked, 'second')}` : 'Worked';
     detail = count;
   }
@@ -228,6 +268,9 @@ export function MessageChain({
           </span>
         )}
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{title}</span>
+        {chips.map((c) => (
+          <span key={c} className="shrink-0 rounded-full bg-bg-active px-2 py-0.5 text-2xs font-medium text-brand">{c}</span>
+        ))}
         {detail && <span className="shrink-0 text-2xs text-text-disabled">{detail}</span>}
         <ChevronDown size={16} className={cn('shrink-0 text-text-muted transition-transform', open && 'rotate-180')} />
       </CollapsibleTrigger>
@@ -238,6 +281,7 @@ export function MessageChain({
         )}
       >
         {steps.map((a) => <StepRow key={a.id} a={a} />)}
+        {helpers.map((w) => <HelperRow key={w.childId} w={w} now={now} />)}
         {/* ponytail: reasoning is drawn after the tools. The stream keeps only the
             latest segment's reasoning, which is the one after the last tool, so
             this is its real position. Interleaving every segment would need the

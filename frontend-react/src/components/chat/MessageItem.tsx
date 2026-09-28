@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import logoUrl from '@/assets/logo.svg';
@@ -17,6 +17,7 @@ import { timeline } from '@/lib/timeline';
 import { useChat, type ChatMessage } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { useAskUser } from '@/stores/askUser';
+import { useRlmWorkers, workersFor, type RlmWorker } from '@/stores/rlmWorkers';
 import { useT } from '@/lib/i18n';
 
 /**
@@ -125,6 +126,8 @@ export function ReplyHead({ writing }: { writing: boolean }) {
     />
   );
 }
+
+const NO_HELPERS: RlmWorker[] = [];
 
 // Memoized: the store rebuilds only the last (streaming) message object each
 // token, so completed messages keep their reference and skip the expensive
@@ -256,10 +259,19 @@ export const MessageItem = memo(function MessageItem({
   const askUser = message.askUser;
   const submitAskUser = useAskUser((s) => s.submit);
   const cancelAskUser = useAskUser((s) => s.cancel);
+  // The chat's rlm() helpers go in the latest reply's last strip. Read only
+  // there, so a helper's progress does not re-render every older reply.
+  const sessionId = useChat((s) => s.sessionId);
+  const allWorkers = useRlmWorkers((s) => (head ? s.workers : NO_HELPERS));
+  const helpers = useMemo(() => workersFor(allWorkers, sessionId), [allWorkers, sessionId]);
+  const lastGroup = pieces
+    ? pieces.reduce((k, p, i) => (p.kind === 'tools' && p.tools.some((a) => a.kind !== 'artifact') ? i : k), -1)
+    : -1;
 
   return (
     <div className="group flex flex-col gap-2">
       <MessageChain
+        helpers={lastGroup === -1 ? helpers : NO_HELPERS}
         thinking={showThinking ? message.thinking! : null}
         thinkingComplete={message.thinkingComplete === true}
         // Seconds, or undefined when nobody measured it (a reopened chat has no
@@ -292,6 +304,7 @@ export const MessageItem = memo(function MessageItem({
                   durationSec={undefined}
                   steps={plain}
                   streaming={streaming && plain.some((a) => a.status === 'running')}
+                  helpers={i === lastGroup ? helpers : NO_HELPERS}
                 />
               )}
               {artifacts.length > 0 && <MessageToolWidgets activity={artifacts} streaming={streaming} />}

@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MessageChain, elapsedLabel, stepDetail, stepTitle, workedSeconds } from '../MessageChain';
+import { MessageChain, elapsedLabel, sideChips, stepDetail, stepTitle, workedSeconds } from '../MessageChain';
+import type { RlmWorker } from '@/stores/rlmWorkers';
 import { finishActivity, startActivity } from '@/hooks/useLiveToolActivity';
 
 vi.mock('@tauri-apps/plugin-shell', () => ({ open: vi.fn() }));
@@ -81,5 +82,33 @@ describe('step words', () => {
     expect(workedSeconds([a, b])).toBe(42);
     expect(workedSeconds([a, { ...b, endedAt: null }])).toBeNull();
     expect(elapsedLabel(72_000)).toBe('1m 12s');
+  });
+});
+
+const helper = (over: Partial<RlmWorker>): RlmWorker => ({
+  childId: 'w1', sessionId: 's', name: 'subagent-compare-prices-a1b2', status: 'running',
+  detail: null, answer: null, startedAt: 0, endedAt: null, ...over,
+});
+
+describe('side activities and helpers', () => {
+  it('chips name a memory lookup, an artifact in progress, and helpers still working', () => {
+    const memory = startActivity('recall', { query: 'x' });
+    const artifact = startActivity('artifact_create', { title: 'Plan' });
+    expect(sideChips([memory, artifact], [helper({}), helper({ childId: 'w2' }), helper({ childId: 'w3', status: 'completed' })]))
+      .toEqual(['Using memory', 'Generating artifact', '2 helpers']);
+    expect(sideChips([finishActivity(memory, { ok: true })], [])).toEqual([]);
+  });
+
+  it("lists the chat's helpers with their state and time, after the reply has finished", () => {
+    vi.setSystemTime(72_000);
+    const done = finishActivity({ ...startActivity('rlm', {}), startedAt: 0 }, { ok: true });
+    render(
+      <MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[done]} streaming={false}
+        helpers={[helper({}), helper({ childId: 'w2', name: 'api-reviewer', status: 'completed', endedAt: 40_000 })]} />,
+    );
+    expect(screen.getByText('1 helper')).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/^Worked for/));
+    const rows = screen.getAllByTestId('strip-helper').map((r) => r.textContent);
+    expect(rows).toEqual(['compare prices' + 'working · 1m 12s', 'api reviewer' + 'done · 40s']);
   });
 });
