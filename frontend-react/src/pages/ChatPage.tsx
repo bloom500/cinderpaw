@@ -1,6 +1,6 @@
 import { tauri } from '@/lib/tauri';
 import { listen } from '@tauri-apps/api/event';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { useChat } from '@/stores/chat';
@@ -274,6 +274,11 @@ export function ChatPage() {
   const handleSuggestion = (text: string) => {
     chatInputRef.current?.setText(text);
   };
+  // A follow-up chip fills the composer and stops, like the Home intents (spec 7.5).
+  const handleFollowUp = useCallback((text: string) => {
+    chatInputRef.current?.setText(text);
+    chatInputRef.current?.focus();
+  }, []);
 
   // The conversation column is a value so it can be placed either beside the
   // panels or, in the browser's wide mode, inside the panel's own drawer,
@@ -305,7 +310,7 @@ export function ChatPage() {
 
         {/* Content: messages, no-model state, or empty overlay */}
         {!isEmpty ? (
-          <MessageList />
+          <MessageList onFollowUp={handleFollowUp} />
         ) : (
           <NewChatEmptyState isEmpty={isEmpty} />
         )}

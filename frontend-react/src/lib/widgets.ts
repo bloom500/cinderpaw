@@ -19,6 +19,8 @@ export type WidgetData =
   | { kind: 'progress'; title?: string; done: number; total: number; label: string }
   | { kind: 'table'; title?: string; columns: { title: string; subtitle?: string; image?: string; imageFile?: string }[]; rows: { label: string; cells: string[] }[] }
   | { kind: 'verdict'; title?: string; text: string }
+  /** Not drawn in place: chips at the end of the latest reply (spec 7.5). */
+  | { kind: 'followups'; next: string[] }
   | { kind: 'list'; title?: string; lines: string[] };
 
 type Rec = Record<string, unknown>;
@@ -50,7 +52,7 @@ function linesOf(d: Rec): string[] {
   };
   const out: string[] = [];
   for (const key of ['label', 'text']) out.push(...flat(d[key]));
-  for (const key of ['lines', 'items', 'columns', 'rows']) {
+  for (const key of ['lines', 'items', 'columns', 'rows', 'next']) {
     const v = d[key];
     if (Array.isArray(v)) for (const item of v) { const l = flat(item).join(' · '); if (l) out.push(l); }
   }
@@ -100,6 +102,10 @@ function strict(d: Rec): WidgetData | null {
     case 'verdict': {
       const text = str(d.text);
       return text ? { kind: 'verdict', title, text } : null;
+    }
+    case 'followups': {
+      const next = Array.isArray(d.next) ? d.next.filter((l): l is string => typeof l === 'string' && l.trim() !== '').map((l) => l.trim()) : [];
+      return next.length > 0 ? { kind: 'followups', next: next.slice(0, 4) } : null;
     }
     case 'list': {
       const lines = Array.isArray(d.lines) ? d.lines.filter((l): l is string => typeof l === 'string' && l.trim() !== '') : [];

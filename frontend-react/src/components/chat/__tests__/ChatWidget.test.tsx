@@ -58,3 +58,29 @@ describe('widgets in a reply', () => {
     expect(screen.getAllByText('Plan')).toHaveLength(1);
   });
 });
+
+describe('follow-up chips', () => {
+  const followUps = (next: string[]) => ({
+    ...finishActivity(startActivity('show_widget', {}), { ok: true, data: { kind: 'followups', next } }), id: 'f',
+  });
+  const reply = (next: string[]) => ({
+    id: 'a1', role: 'assistant', content: 'Here is the plan.', createdAt: 0, toolActivity: [followUps(next)],
+  } as unknown as ChatMessage);
+
+  it('close the latest reply, at most four, and a chip only fills the composer', async () => {
+    const pick = vi.fn();
+    render(<MemoryRouter><MessageItem message={reply(['Add more charts', 'Make it shorter'])} onFollowUp={pick} /></MemoryRouter>);
+    const group = screen.getByRole('group', { name: 'Follow-ups' });
+    expect(group.querySelectorAll('button')).toHaveLength(2);
+    screen.getByRole('button', { name: 'Add more charts' }).click();
+    expect(pick).toHaveBeenCalledWith('Add more charts');
+  });
+
+  it('are not a step, and not shown on an older reply or while it streams', () => {
+    const { rerender } = render(<MemoryRouter><MessageItem message={reply(['Add more charts'])} /></MemoryRouter>);
+    expect(screen.queryByText('Add more charts')).toBeNull();
+    expect(screen.queryByText(/show_widget|Show widget/i)).toBeNull();
+    rerender(<MemoryRouter><MessageItem message={reply(['Add more charts'])} streaming onFollowUp={() => {}} /></MemoryRouter>);
+    expect(screen.queryByText('Add more charts')).toBeNull();
+  });
+});

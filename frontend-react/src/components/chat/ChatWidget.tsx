@@ -202,6 +202,9 @@ export function ChatWidget({ w }: { w: WidgetData }) {
           <p className="text-sm text-text-primary">{w.text}</p>
         </div>
       );
+    case 'followups':
+      // Drawn at the end of the reply as chips (FollowUps), never in place.
+      return null;
     case 'list':
       return (
         <div className={CARD}>

@@ -11,6 +11,7 @@ import { MessageToolWidgets } from './MessageToolWidgets';
 import { ChatWidget } from './ChatWidget';
 import { SourcesContext, SourcesList } from './Sources';
 import { MemoryPeek } from './MemoryPeek';
+import { FollowUps } from './FollowUps';
 import { citedSources, sourcesOf } from '@/lib/sources';
 import { MessageChain } from './MessageChain';
 import { MessageActions } from './MessageActions';
@@ -142,11 +143,14 @@ export const MessageItem = memo(function MessageItem({
   onRetry,
   onEdit,
   head,
+  onFollowUp,
 }: {
   message: ChatMessage;
   streaming?: boolean;
   /** The logo head after this reply: only the latest reply carries one. */
   head?: 'writing' | 'still';
+  /** Put a follow-up chip's words in the composer. Only the latest reply gets it. */
+  onFollowUp?: (text: string) => void;
   /** Send this turn again. Absent while a reply is still arriving. */
   onRetry?: () => void;
   /** Send this user turn again with different words. */
@@ -273,8 +277,11 @@ export const MessageItem = memo(function MessageItem({
   // five copies of one plan are noise). Earlier plan updates stay steps.
   const activity = message.toolActivity ?? [];
   const lastPlan = activity.map((a) => a.tool === 'todo_write' && !!a.widget).lastIndexOf(true);
-  const drawn = new Set(activity.filter((a, i) => a.widget && (a.tool !== 'todo_write' || i === lastPlan)).map((a) => a.id));
-  const isStep = (a: (typeof activity)[number]) => a.kind !== 'artifact' && !drawn.has(a.id);
+  // Follow-ups are neither a step nor drawn in place: the last set closes the reply.
+  const isFollowUps = (a: (typeof activity)[number]) => a.widget?.kind === 'followups';
+  const drawn = new Set(activity.filter((a, i) => a.widget && !isFollowUps(a) && (a.tool !== 'todo_write' || i === lastPlan)).map((a) => a.id));
+  const isStep = (a: (typeof activity)[number]) => a.kind !== 'artifact' && !drawn.has(a.id) && !isFollowUps(a);
+  const followUps = activity.filter(isFollowUps).at(-1)?.widget;
   // The pages this turn's searches found: a link to one is a source chip, and
   // the ones the answer cited close it as a list once it is done.
   const sources = useMemo(() => sourcesOf(activity), [activity]);
@@ -348,6 +355,9 @@ export const MessageItem = memo(function MessageItem({
           ...(message.memoryUsed ?? []),
           ...activity.filter((a) => a.kind === 'memory').flatMap((a) => a.facts.map((text) => ({ kind: 'fact' as const, text }))),
         ]} />
+      )}
+      {!streaming && onFollowUp && followUps?.kind === 'followups' && (
+        <FollowUps next={followUps.next} onPick={onFollowUp} />
       )}
       {head && <ReplyHead writing={head === 'writing'} />}
       {/* Only on a finished reply: a copy button beside text that is still

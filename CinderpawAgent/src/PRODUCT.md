@@ -230,8 +230,8 @@ already recorded, so it costs no model call and cannot make things up.
 ## Widgets in the chat
 
 `show_widget` draws data as a themed widget: `facts`, `checklist`, `cards`,
-`breakdown`, `progress`, `table`, `verdict`. Never HTML; data that does not fit
-shows as a plain list. Card pictures (named, or a linked page's preview image)
+`breakdown`, `progress`, `table`, `verdict`; `followups` ends a finished task
+with up to four next-request chips. Never HTML; misfit data is a plain list. Card pictures (named, or a linked page's preview image)
 are fetched once through the egress door and kept in `~/.cinderpaw/cache/images`.
 
 ## Keeping its place on a long task

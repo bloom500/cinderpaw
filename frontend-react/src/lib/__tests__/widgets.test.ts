@@ -18,6 +18,12 @@ describe('parseWidget', () => {
     expect(parseWidget({ kind: 'map' })).toBeNull();
   });
 
+  it('keeps up to four follow-ups, trimmed, and none is nothing', () => {
+    expect(parseWidget({ kind: 'followups', next: [' Add charts ', 'a', 'b', 'c', 'd'] }))
+      .toEqual({ kind: 'followups', next: ['Add charts', 'a', 'b', 'c'] });
+    expect(parseWidget({ kind: 'followups', next: [] })).toBeNull();
+  });
+
   it('drops an image that is not https, and keeps the card', () => {
     const w = parseWidget({ kind: 'cards', items: [{ title: 'A', image: 'http://x/a.png' }, { title: 'B' }] });
     expect(w?.kind).toBe('cards');

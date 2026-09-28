@@ -24,6 +24,15 @@ describe("show_widget", () => {
     expect(r.data).toEqual({ kind: "list", title: "Laptops", lines: ["A", "RAM · 16 GB"] });
   });
 
+  test("followups: one to four short requests, kept as data", async () => {
+    const r = await run({ kind: "followups", next: [" Add more charts ", "Make it shorter"] });
+    expect(r.data).toEqual({ kind: "followups", next: ["Add more charts", "Make it shorter"] });
+    expect(validateWidget({ kind: "followups", next: ["a", "b", "c", "d", "e"] })).toBeNull();
+    expect(validateWidget({ kind: "followups", next: [] })).toBeNull();
+    expect(validateWidget({ kind: "followups", next: ["x".repeat(81)] })).toBeNull();
+    expect(validateWidget({ kind: "followups", next: [3] })).toBeNull();
+  });
+
   test("an unknown kind is a fallback too", async () => {
     const r = await run({ kind: "map", text: "Lisbon" });
     expect(r.ok).toBe(true);

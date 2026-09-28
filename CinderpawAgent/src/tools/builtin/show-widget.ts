@@ -2,7 +2,9 @@
  * show_widget — the agent sends data, the app draws it.
  *
  * Seven kinds (spec 7.1 of docs/superpowers/specs/2026-09-27-app-ui-final-design.md):
- * facts, checklist, cards, breakdown, progress, table, verdict. The agent never
+ * facts, checklist, cards, breakdown, progress, table, verdict. An eighth,
+ * followups, is not drawn in place: up to four next requests the app shows as
+ * chips at the end of the reply (spec 7.5, Artifact Dock). The agent never
  * writes their HTML, so they always match the theme, cost few tokens, and
  * cannot run code. The app reads the widget from this tool's `data`, never
  * from its sentence.
@@ -15,7 +17,10 @@
 import type { CinderpawFetch, Tool, ToolManifest, ToolResult } from "../../types.ts";
 import { cacheImage, pagePreviewImage } from "../image-cache.ts";
 
-export const WIDGET_KINDS = ["facts", "checklist", "cards", "breakdown", "progress", "table", "verdict"] as const;
+export const WIDGET_KINDS = ["facts", "checklist", "cards", "breakdown", "progress", "table", "verdict", "followups"] as const;
+
+/** A follow-up chip's longest text: a short request, not a paragraph. */
+export const FOLLOWUP_MAX = 80;
 export type WidgetKind = (typeof WIDGET_KINDS)[number];
 
 /** The only icons a `facts` row may name; the app draws each one. */
@@ -118,6 +123,12 @@ export function validateWidget(args: Rec): Rec | null {
       const text = str(args.text);
       return text ? { kind, title, text } : null;
     }
+    case "followups": {
+      const next = Array.isArray(args.next) && args.next.length >= 1 && args.next.length <= 4 ? args.next : null;
+      if (!next) return null;
+      const texts = next.map((it) => str(it));
+      return texts.every((t) => t !== null && t.length <= FOLLOWUP_MAX) ? { kind, next: texts } : null;
+    }
     default:
       return null;
   }
@@ -134,7 +145,7 @@ export function fallbackLines(args: Rec): string[] {
   };
   const lines: string[] = [];
   for (const key of ["label", "text"]) lines.push(...flat(args[key]));
-  for (const key of ["items", "columns", "rows"]) {
+  for (const key of ["items", "columns", "rows", "next"]) {
     const v = args[key];
     if (Array.isArray(v)) for (const item of v) {
       const line = flat(item).join(" · ");
@@ -184,7 +195,8 @@ export function createShowWidgetTool(): Tool {
       "`cards` (items: 2-6 {title, subtitle?, image?, url?}, https only; a card with a url and no image gets " +
       "the picture that page shows in link previews, so link the real product or place page), `breakdown` (items: {label, value}, total?), " +
       "`progress` (done, total, label), `table` (columns: 2-4 {title, subtitle?, image?}, rows: {label, cells[]} " +
-      "with one cell per column), `verdict` (text, one per answer: your take under a comparison). " +
+      "with one cell per column), `verdict` (text, one per answer: your take under a comparison), " +
+      "`followups` (next: 1-4 short strings, next requests the user might send, in their voice; only after a finished task, last). " +
       `Icons: ${WIDGET_ICONS.join(", ")}. Say in your text what the widget shows; do not repeat its contents.`,
     permissions: [],
     networkAccess: false,
@@ -197,6 +209,8 @@ export function createShowWidgetTool(): Tool {
         schema: { type: "string", enum: [...WIDGET_KINDS] } },
       title: { type: "string", description: "Optional heading.", required: false },
       items: { type: "array", description: "Rows for facts, checklist, cards, breakdown.", required: false, schema: OBJ_ITEMS },
+      next: { type: "array", description: "followups: 1-4 short next requests.", required: false,
+        schema: { type: "array", items: { type: "string" } } },
       columns: { type: "array", description: "Table columns.", required: false, schema: OBJ_ITEMS },
       rows: { type: "array", description: "Table rows: {label, cells}.", required: false, schema: OBJ_ITEMS },
       total: { type: "number", description: "breakdown total, or progress total.", required: false },
