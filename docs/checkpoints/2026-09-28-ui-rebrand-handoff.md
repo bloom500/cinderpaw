@@ -13,9 +13,10 @@ Branch chain, each stacked on the previous:
 | `feat/rebrand-2026-09` | b5532f1 | logo trace, v3 clay mascot in Blender |
 | `feat/ui-s1-foundation` | 0049db0 | slice 1: palette, OS theme default, Young Serif, Solid default |
 | `feat/ui-s2-brand-logos` | 096eec4 | slice 2: 41 bundled brand logos, `<BrandLogo>` |
-| `feat/ui-s3-sidebar` | this file | slice 3: sidebar + starred chats, plus the docs and design sources |
+| `feat/ui-s3-sidebar` | 9b220c6 | slice 3: sidebar + starred chats, plus the docs and design sources |
+| `claude/rebrand-spec-f87jrk` | this file | slice 4 in three commits: 4a Tools menu + chips, 4b header, 4c perch + Agent Pulse |
 
-`feat/ui-s3-sidebar` contains everything above it. Continue from there, one branch per slice.
+`claude/rebrand-spec-f87jrk` contains everything above it. Continue from there, one branch per slice.
 
 ## What to read
 
@@ -55,7 +56,7 @@ light (same colour); use `hover:bg-text-primary/5`.
   appears wherever a chat menu does. Pruned once, at the first successful non-empty list read: a
   failed read also ends with an empty list, and Undo after a delete must keep the star.
 
-## Owed before merging slices 1-3
+## Owed before merging slices 1-4
 
 1. Darius looks at them in the running app (from this branch).
 2. `./scripts/verify.sh` green.
@@ -64,12 +65,24 @@ Known test noise: `markdownBlocks.test.tsx` "at every point while it streams" ti
 full parallel run and passes alone; it is on `main` since 874bd73 and unrelated to the UI work.
 `DownloadStatus.test.tsx` once failed to load `react` on a cold run and passed on rerun.
 
+## Slice 4 decisions to keep (28 Sep)
+
+- The Tools menu is Chat mode only. Agent mode sends through the sidecar, which picks its own
+  tools and takes no per-message switch (`cinderpaw_send_message` carries temperature and
+  max_tokens only), so a menu there would do nothing. Deep research is left out for the same
+  reason. Adding them means a per-message field through Rust and the sidecar: ask Darius first.
+- Think is `reasoningMode`: on = `auto`, off = `off`, hidden when `modelSupportsThinking` is false.
+  The two settings stay unpersisted (see the comment in `stores/ui.ts`).
+- The Call button stays in the composer, not the header: the call's state lives in `ChatInput`
+  and `useCallSession.ts` is on AGENTS.md's do-not-touch list.
+- Agent Pulse reads the turn (`baseState`, `agentTool`, a cowork entry with `approval` in
+  `toolCallStream`), never the pose. Mapping in `mascot/pulse.ts`.
+
 ## Next
 
-Slice 4: conversation header + composer (Tools menu with Deep research / Think / Web search chips,
-`reasoningMode`, `enabledTools`) + the mascot perch on the composer's top-right corner and its state
-label (Agent Pulse, states from `useMascotState`). Read `docs/design/canvas/Main.dc.html` (the chat
-half) and `Activity.dc.html` first. AGENTS.md: more than 3 files means ask Darius first.
+Slice 5: messages (no avatars, head at the end of the latest reply, hover actions and time,
+artifact card). Read spec section 6 and `docs/design/canvas/Main.dc.html` (the chat half) first.
+AGENTS.md: more than 3 files means ask Darius first.
 
 ## Open question: the mascot medium
 
@@ -83,5 +96,6 @@ animate than Blender frames. Not decided yet; the spec keeps the app side indepe
 
 He is the product owner and is learning to read TypeScript. Write to him in Romanian, no em-dashes.
 After each task, a short lesson on ONE TypeScript concept from that diff: he guesses first
-(two or three options work best), then the explanation. Current concept: default parameter,
-on `renderChatRows(items, withStar = false)` in `SideNav.tsx`.
+(two or three options work best), then the explanation. Done: default parameter,
+on `renderChatRows(items, withStar = false)` in `SideNav.tsx`. Current: `?.` and `??`, on
+`s.cloudModel?.modelId ?? s.loaded?.name ?? ''` in `ToolsMenu.tsx` (asked 28 Sep, answer pending).
