@@ -666,11 +666,8 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
             dragOver ? 'border-brand border-dashed' : 'border-border-default',
           )}
         >
-          {dragOver && (
-            <div className="absolute inset-0 z-10 rounded-[28px] bg-brand/10 backdrop-blur-xs border-2 border-dashed border-brand flex items-center justify-center pointer-events-none">
-              <span className="text-sm font-medium text-brand">Drop to attach</span>
-            </div>
-          )}
+          {/* No overlay of its own: ChatPage draws the one "Drop to add to this
+              chat" over the whole chat, the composer included. */}
           {/* Always. The perch is not decoration: it walks the composer's edge
               and carries the tool-call stack, so it is how a person sees WHAT
               is running. Hiding it on Home removed a working feature to fix a

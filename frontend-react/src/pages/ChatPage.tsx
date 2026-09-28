@@ -76,6 +76,7 @@ export function ChatPage() {
       .catch(() => {});
     return () => { cancelled = true; unlisten?.(); };
   }, []);
+  const [dropping, setDropping] = useState(false);
   const panelOpen       = useArtifacts((s) => s.panelOpen);
   const togglePanel     = useArtifacts((s) => s.togglePanel);
   const browserOpen     = useBrowser((s) => s.panelOpen);
@@ -379,14 +380,28 @@ export function ChatPage() {
     // the composer: the page is the target people actually aim at. The
     // composer's own handler stops propagation by handling the drop first.
     <div
-      className="flex h-full"
-      onDragOver={(e) => { if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault(); }}
+      className="relative flex h-full"
+      onDragOver={(e) => {
+        if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+        e.preventDefault();
+        setDropping(true);
+      }}
+      // Leaving a child fires too; only a real exit of the page clears it.
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false); }}
       onDrop={(e) => {
+        setDropping(false);
         if (e.defaultPrevented || !Array.from(e.dataTransfer.types).includes('Files')) return;
         e.preventDefault();
         chatInputRef.current?.attach(e.dataTransfer);
       }}
     >
+    {/* One overlay for a drop anywhere on the chat (spec 6), the composer
+        included. It takes no pointer, so the drop lands where it always did. */}
+    {dropping && (
+      <div className="pointer-events-none absolute inset-3 z-40 flex items-center justify-center rounded-3xl border-2 border-dashed border-brand bg-bg-primary/70 backdrop-blur-xs">
+        <span className="rounded-full bg-bg-elevated px-4 py-2 text-sm font-medium text-brand shadow-sm">Drop to add to this chat</span>
+      </div>
+    )}
     {/* min-w-[28rem]: the artifacts panel may widen only until the chat is this
         wide (CHAT_MIN_WIDTH in ArtifactsPanel). */}
     {/* In wide mode the column lives in the browser panel (from `chat`). */}

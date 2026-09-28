@@ -121,10 +121,11 @@ describe('a file dropped on the composer', () => {
     const dataTransfer = { types: ['Files'], items: [], files: [] } as unknown as DataTransfer;
     const { fireEvent } = await import('@testing-library/react');
     fireEvent.dragOver(composer, { dataTransfer });
-    expect(screen.getByText('Drop to attach')).toBeInTheDocument();
+    // The words are ChatPage's one overlay now; the composer only marks its edge.
+    expect(composer.className).toContain('border-dashed');
     fireEvent.drop(composer, { dataTransfer });
     await waitFor(() => expect(spy).toHaveBeenCalledWith(dataTransfer));
-    expect(screen.queryByText('Drop to attach')).toBeNull();
+    expect(composer.className).not.toContain('border-dashed');
   });
 });
 
