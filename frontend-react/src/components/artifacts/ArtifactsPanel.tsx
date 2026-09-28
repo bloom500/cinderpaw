@@ -1,7 +1,7 @@
 import { panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Archive, ArchiveRestore, ArrowLeft, Check, Download, FileBox, FileUp, Loader2, MessageSquare, Pencil, Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, BookOpen, Check, Download, ExternalLink as OpenIcon, FileBox, FileUp, Loader2, MessageSquare, Pencil, Trash2, X, type LucideIcon } from 'lucide-react';
 import {
   ArtifactAction,
   ArtifactActions,
@@ -67,13 +67,35 @@ function clampWidth(w: number, rowWidth: number): number {
  * their focus rings, their keyboard behaviour and their dark mode instead of
  * growing a second set that drifts.
  */
+/** The panel's heading, as on the Context board: a tile, the title in the
+ *  display face, and one quiet line under it. */
+function PanelTitle({ icon: Icon, title, sub }: { icon: LucideIcon; title: string; sub?: string }) {
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-3">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border-default bg-bg-elevated text-text-secondary">
+        <Icon size={20} />
+      </span>
+      <div className="min-w-0">
+        <h2 className="truncate font-display text-xl leading-tight text-text-primary">{title}</h2>
+        {sub && <p className="truncate text-xs text-text-muted">{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
 export function ArtifactsPanel({
   onClose,
   onAsk,
+  onCompose,
+  onAttach,
 }: {
   onClose: () => void;
   /** Put a question about this artifact into the chat input. */
   onAsk?: (row: ArtifactRow) => void;
+  /** Context tab: fill the composer (Links and Memory "Add"). */
+  onCompose?: (text: string) => void;
+  /** Context tab: the composer's file picker (Files "Add"). */
+  onAttach?: () => void;
 }) {
   const {
     rows, loaded, open, busy, error, lastExport, refresh, close, exportArtifact, deleteArtifact,
@@ -203,27 +225,32 @@ export function ArtifactsPanel({
         <div className="flex-1" />
         <ArtifactClose onClick={onClose} aria-label="Close panel" className="mb-1.5" />
       </div>
-      {tab === 'context' ? <ContextTab /> : <>
-      <ArtifactHeader className="flex-wrap px-3 py-2.5">
-        <div className="flex min-w-[10rem] flex-1 items-center gap-2">
-          {open && !editing ? (
-            <ArtifactAction tooltip="Back to the list" icon={ArrowLeft} onClick={close} />
-          ) : open ? null : (
-            <FileBox className="size-4 shrink-0 text-warning" />
-          )}
-          <div className="min-w-0 flex-1">
-            <ArtifactTitle className="truncate">{open ? open.row.title : showingArchived ? 'Archived' : 'Artifacts'}</ArtifactTitle>
-            {/* What it is and how fresh, where the eye already is. The list rows
-                say the same for each item; the header says it for the one open. */}
-            {(open || rows.length > 0) && (
-              <ArtifactDescription className="truncate text-2xs">
-                {open
-                  ? `${open.row.kind} · v${open.row.version} · updated ${when(open.row.updatedAt)}`
-                  : `${rows.length} saved`}
-              </ArtifactDescription>
-            )}
-          </div>
+      {tab === 'context' ? <>
+        <div className="flex shrink-0 items-center px-4 py-4">
+          <PanelTitle icon={BookOpen} title="Context" sub="Everything Cinderpaw can see and use." />
         </div>
+        <ContextTab onCompose={onCompose} onAttach={onAttach} />
+      </> : <>
+      <ArtifactHeader className={cn('flex-wrap', open ? 'px-3 py-2.5' : 'px-4 py-4')}>
+        {open ? (
+          <div className="flex min-w-[10rem] flex-1 items-center gap-2">
+            {!editing && <ArtifactAction tooltip="Back to the list" icon={ArrowLeft} onClick={close} />}
+            <div className="min-w-0 flex-1">
+              <ArtifactTitle className="truncate">{open.row.title}</ArtifactTitle>
+              {/* What it is and how fresh, where the eye already is. The list rows
+                  say the same for each item; the header says it for the one open. */}
+              <ArtifactDescription className="truncate text-2xs">
+                {`${open.row.kind} · v${open.row.version} · updated ${when(open.row.updatedAt)}`}
+              </ArtifactDescription>
+            </div>
+          </div>
+        ) : (
+          <PanelTitle
+            icon={showingArchived ? Archive : FileBox}
+            title={showingArchived ? 'Archived' : 'Artifacts'}
+            sub={rows.length > 0 ? `${rows.length} saved` : 'What Cinderpaw makes for you.'}
+          />
+        )}
         <ArtifactActions>
           {/* While editing, the header offers only the two ways out of it.
               Back, Export and Delete would each act on the saved version and
@@ -385,15 +412,17 @@ function List({
       )}
       <ScrollArea className="flex-1">
         {docked.length > 0 && (
-          <section aria-label="In this chat" className="flex flex-col gap-2 px-3 pb-1 pt-3">
-            <h3 className="text-2xs font-semibold uppercase tracking-wider text-text-disabled">In this chat</h3>
+          <section aria-label="In this chat" className="flex flex-col gap-3 px-4 pb-1 pt-1">
+            <h3 className="px-1 text-sm font-semibold text-text-primary">
+              In this chat <span className="font-normal text-text-muted">{docked.length}</span>
+            </h3>
             {docked.map((r) => <DockCard key={r.id} row={r} busy={busy} />)}
           </section>
         )}
         {docked.length > 0 && rest.length > 0 && (
-          <h3 className="px-3 pt-4 text-2xs font-semibold uppercase tracking-wider text-text-disabled">Everything else</h3>
+          <h3 className="px-5 pt-5 text-sm font-semibold text-text-primary">Everything else</h3>
         )}
-        <ul className="flex flex-col gap-1 p-2">
+        <ul className="flex flex-col gap-1 px-3 py-2">
           {rest.map((r) => (
             <li key={r.id}>
               <RowItem row={r} busy={busy} archived={showingArchived} />
@@ -410,37 +439,49 @@ function DockCard({ row, busy }: { row: ArtifactRow; busy: boolean }) {
   const openArtifact = useArtifacts((s) => s.openArtifact);
   const exportArtifact = useArtifacts((s) => s.exportArtifact);
   const Icon = artifactKind(row.kind).icon;
+  // As on the Dock board: a large tile, the kind's icon beside the title and
+  // "Document, 12 KB", then Open and Export. No thumbnail yet: the store can
+  // only read an artifact by opening it (see the slice 5 note in the handoff).
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-border-default bg-bg-elevated p-3">
+    <div className="flex flex-col gap-3 rounded-2xl border border-border-default bg-bg-elevated p-3 shadow-sm">
       <button
         type="button"
         disabled={busy}
         onClick={() => void openArtifact(row.id)}
         aria-label={`Open ${row.title}`}
-        className="flex h-24 items-center justify-center rounded-xl bg-bg-active text-brand disabled:opacity-60"
+        className="flex h-28 items-center justify-center rounded-xl border border-border-subtle bg-bg-active/60 text-brand disabled:opacity-60"
       >
         <Icon size={28} />
       </button>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand text-brand-foreground">
+          <Icon size={16} />
+        </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-text-primary" title={row.title}>{row.title}</p>
-          <p className="truncate text-2xs text-text-muted">{artifactSize(row.kind, row.bytes)}</p>
+          <p className="truncate text-xs text-text-muted">{artifactSize(row.kind, row.bytes)}</p>
         </div>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void exportArtifact(row.id)}
-          className="h-8 shrink-0 rounded-lg px-2.5 text-sm text-text-muted hover:bg-text-primary/5 hover:text-text-primary disabled:opacity-60"
-        >
-          Export
-        </button>
+      </div>
+      <div className="flex items-center gap-2">
         <button
           type="button"
           disabled={busy}
           onClick={() => void openArtifact(row.id)}
-          className="h-8 shrink-0 rounded-lg border border-border-default bg-bg-surface px-3.5 text-sm font-medium text-text-primary hover:bg-text-primary/5 disabled:opacity-60"
+          className="flex h-8 items-center gap-1.5 rounded-lg border border-border-default bg-bg-surface px-3 text-sm font-medium text-text-primary hover:bg-text-primary/5 disabled:opacity-60"
         >
           Open
+          <OpenIcon size={14} />
+        </button>
+        <div className="flex-1" />
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void exportArtifact(row.id)}
+          aria-label={`Export ${row.title}`}
+          title="Export"
+          className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-default bg-bg-surface text-text-muted hover:bg-text-primary/5 hover:text-text-primary disabled:opacity-60"
+        >
+          <Download size={16} />
         </button>
       </div>
     </div>

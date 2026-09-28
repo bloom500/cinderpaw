@@ -570,7 +570,7 @@ describe('the Artifact Dock', () => {
     expect(dock).not.toHaveTextContent('Old notes');
     expect(screen.getByText('Everything else')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export Launch plan' }));
     await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'export')).toBe(true));
   });
 
@@ -598,8 +598,25 @@ describe('the Context tab', () => {
     useChat.setState({ messages: [{ id: 'u', role: 'user', content: '[Image attached: cat.png]\n\nhi', createdAt: 0 }] });
     useArtifacts.setState({ panelTab: 'context' });
     render(<ArtifactsPanel onClose={() => {}} />);
-    expect(screen.getByRole('region', { name: 'Files attached' })).toHaveTextContent('cat.png');
+    expect(screen.getByRole('region', { name: 'Files' })).toHaveTextContent('cat.png');
     expect(screen.queryByText(/Nothing here yet/)).toBeNull();
     expect(screen.getByText(/In Agent mode Cinderpaw picks/)).toBeInTheDocument();
+  });
+
+  it('narrows by tab and by search, and Add fills the composer', () => {
+    useChat.setState({ messages: [
+      { id: 'u', role: 'user', content: '[Image attached: cat.png]\n\nhi', createdAt: 0 },
+      { id: 'a', role: 'assistant', content: '', createdAt: 1, memoryUsed: [{ kind: 'fact', text: 'likes: ramen' }] } as ChatMessage,
+    ] });
+    useArtifacts.setState({ panelTab: 'context' });
+    const onCompose = vi.fn();
+    render(<ArtifactsPanel onClose={() => {}} onCompose={onCompose} />);
+    fireEvent.click(screen.getByRole('tab', { name: /Memory/ }));
+    expect(screen.queryByRole('region', { name: 'Files' })).toBeNull();
+    expect(screen.getByRole('region', { name: 'Memory' })).toHaveTextContent('likes: ramen');
+    fireEvent.change(screen.getByLabelText('Search in this context'), { target: { value: 'sushi' } });
+    expect(screen.getByText('No memory matches.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a memory' }));
+    expect(onCompose).toHaveBeenCalledWith('Remember that ');
   });
 });

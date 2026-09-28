@@ -1,5 +1,6 @@
 import { tauri } from '@/lib/tauri';
 import { listen } from '@tauri-apps/api/event';
+import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
@@ -438,6 +439,14 @@ export function ChatPage() {
             onAsk={(row) => {
               chatInputRef.current?.setText(`About the artifact "${row.title}" (${row.id}): `);
               chatInputRef.current?.focus();
+            }}
+            // Context's "Add": the same two gestures, words or files into the
+            // composer, and they go with the next message.
+            onCompose={(text) => chatInputRef.current?.setText(text)}
+            onAttach={() => {
+              void openFileDialog({ multiple: true }).then((picked) => {
+                if (picked) chatInputRef.current?.attachPaths(Array.isArray(picked) ? picked : [picked]);
+              });
             }}
           />
         )}
