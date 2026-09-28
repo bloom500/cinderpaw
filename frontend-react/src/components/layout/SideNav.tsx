@@ -17,6 +17,7 @@ import { useConversations, type ConversationSummary } from '@/stores/conversatio
 import { groupByRecency, type DatedGroup } from '@/lib/chatGroups';
 import { ConversationActions, ProjectActions } from '@/components/items/ItemActions';
 import { useProjects } from '@/stores/projects';
+import { DreamingCard } from './DreamingCard';
 import { useArtifacts } from '@/stores/artifacts';
 import { useBrowser } from '@/stores/browser';
 import { cn } from '@/lib/utils';
@@ -536,6 +537,7 @@ export function SideNav() {
         <div className="flex-1 min-h-0 flex flex-col">
           <Library collapsed={false} />
         </div>
+        <DreamingCard />
         </div>
         )}
       </motion.nav>

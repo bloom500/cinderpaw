@@ -1,6 +1,6 @@
 /**
  * Subscribes to Dream Cycle pulses from the sidecar and surfaces them:
- *   - `started` → mascot enters its `dreaming` pose + an info toast.
+ *   - `started` → mascot enters its `dreaming` pose; the sidebar's Dreaming card shows.
  *   - `ended`   → mascot wakes + a success toast summarising the episode.
  *
  * Mount once near the app root (it owns a single global listener).
@@ -16,12 +16,8 @@ export function useDreamCycle(): void {
     const unlistenP = events.onDreamCycle.listen((e) => {
       if (!alive) return;
       if (e.phase === 'started') {
+        // No toast: the Dreaming card in the sidebar shows it for as long as it runs.
         useDream.getState().setDreaming(true);
-        useNotifications.getState().push(
-          'info',
-          '💤 Cinderpaw is dreaming',
-          'Evolving its own configuration in the background while you’re idle.',
-        );
       } else {
         useDream.getState().setDreaming(false);
         useDream.getState().setStage(null); // cycle over — clear the stage
