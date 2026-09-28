@@ -14,7 +14,7 @@ Branch chain, each stacked on the previous:
 | `feat/ui-s1-foundation` | 0049db0 | slice 1: palette, OS theme default, Young Serif, Solid default |
 | `feat/ui-s2-brand-logos` | 096eec4 | slice 2: 41 bundled brand logos, `<BrandLogo>` |
 | `feat/ui-s3-sidebar` | 9b220c6 | slice 3: sidebar + starred chats, plus the docs and design sources |
-| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) slice 5 (5a message shapes, 5b logo head, 5c artifact card) slice 6 (6a Activity Strip, 6b helpers + chips) slice 7 (7a `show_widget` in the sidecar, 7b the seven renderers) and slice 8 (image cache, real card pictures) |
+| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) slice 5 (5a message shapes, 5b logo head, 5c artifact card) slice 6 (6a Activity Strip, 6b helpers + chips) slice 7 (7a `show_widget` in the sidecar, 7b the seven renderers) and slice 8 (image cache, real card pictures) and slice 9 (9a source chips, 9b pasted-text card, 9c drop overlay) |
 
 `claude/rebrand-spec-f87jrk` contains everything above it. Continue from there, one branch per slice.
 
@@ -56,7 +56,7 @@ light (same colour); use `hover:bg-text-primary/5`.
   appears wherever a chat menu does. Pruned once, at the first successful non-empty list read: a
   failed read also ends with an empty list, and Undo after a delete must keep the star.
 
-## Owed before merging slices 1-8
+## Owed before merging slices 1-9
 
 1. Darius looks at them in the running app (from this branch).
 2. `./scripts/verify.sh` green.
@@ -138,9 +138,21 @@ instance the app uses. A screenshot is a preview, not the "Darius sees it in the
 - Favicons for source chips and the Context drawer (7.1) can reuse `cacheImage` when those slices land.
 - `PRODUCT.md` has a 20 KiB cap (`product-info.test.ts`); slice 7a's paragraph had crossed it, cut here.
 
+## Slice 9 decisions to keep (28 Sep)
+
+- Sources: `lib/sources.ts` (`normalizeUrl`, `sourcesOf`, `citedSources`) and `chat/Sources.tsx`.
+  Markdown's `a` is `SourceAwareLink`, which reads the reply's hits from `SourcesContext` (set in
+  MessageItem), so `COMPONENTS` stays a module constant. The "Sources" list holds only the results
+  the answer cited, never every hit.
+- Pasted text: `isLongPaste` / `pastedText` in `AttachedFileChip.tsx`; the card is an ordinary text
+  attachment with a `clipboard://pasted-` path, so `buildUserContent` sends it in full on both paths.
+- Drop: one overlay in `ChatPage` (`dropping` state); the composer's own words were removed, its
+  dashed edge stays.
+
 ## Next
 
-Slice 9: source chips + pasted-text card + drop overlay (spec 6). Frontend only.
+Slice 10: Memory Peek (spec 7.5): "N memories used" under a reply, only the memories actually put
+into that turn's context, each with Forget. Check first what the stream records about injected memory.
 
 ## Open question: the mascot medium
 
