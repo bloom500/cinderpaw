@@ -212,7 +212,7 @@ describe('the escapes', () => {
     const block = atRule('@media (prefers-reduced-transparency: reduce)');
     for (const theme of ['dark', 'light'] as const) {
       const tokens = themeTokens(theme, block);
-      for (const name of ['--bg-surface', '--bg-elevated', '--bg-hover', '--bg-active']) {
+      for (const name of ['--bg-surface', '--bg-elevated', '--bg-hover', '--bg-active', '--bg-side']) {
         expect(alpha(tokens[name]), `${theme} ${name}`).toBe(1);
       }
     }
@@ -384,7 +384,7 @@ describe('text stays readable on any wallpaper', () => {
     // empty-state greeting. Measuring only the panelled surfaces is how a
     // contrast pass came back green while the pages a person actually reads
     // were unreadable.
-    const GROUNDS: (string | null)[] = [null, '--bg-surface', '--bg-elevated'];
+    const GROUNDS: (string | null)[] = [null, '--bg-surface', '--bg-elevated', '--bg-side'];
 
     test.each(Object.entries(FLOORS))('%s clears %s:1 everywhere', (token, floor) => {
       const measured = GROUNDS.flatMap((surface) =>
@@ -405,7 +405,7 @@ describe('text stays readable on any wallpaper', () => {
       const ground = over(parse(t['--scene-surface']), parse(t['--bg-primary']));
       for (const [token, floor] of Object.entries(FLOORS)) {
         const worst = Math.min(
-          ...[null, '--bg-surface', '--bg-elevated'].map((surface) =>
+          ...[null, '--bg-surface', '--bg-elevated', '--bg-side'].map((surface) =>
             contrast(parse(t[token]), surface ? over(parse(t[surface]), ground) : ground),
           ),
         );
