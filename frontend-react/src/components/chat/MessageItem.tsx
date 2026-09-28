@@ -4,7 +4,6 @@ import { AlertTriangle, FileText, File as FileIcon, Image as ImageIcon, ThumbsUp
 import { cn } from '@/lib/utils';
 import { parseUserAttachments, type DisplayAttachment } from '@/lib/attachmentDisplay';
 import { Markdown } from '@/lib/markdown';
-import { BubbleTail } from './BubbleTail';
 import { AskUserCard } from './AskUserCard';
 import { MessageToolWidgets } from './MessageToolWidgets';
 import { MessageChain } from './MessageChain';
@@ -151,16 +150,11 @@ export const MessageItem = memo(function MessageItem({
       // The reply carried a time and the question did not, which read as an
       // oversight because it was one.
       <div className="group flex flex-col items-end gap-1">
-        {/* The bubble and its tail are one shape in two elements, so they
-            share one fill and no border: a stroke would have to be drawn
-            around the join as well, and the join is the whole illusion. */}
-        {/* A caramel tint, between the two versions that failed. `bg-bg-elevated`
-            was a step away from the page, legible only as a faint rectangle
-            and its tail not at all; solid brand read, and then shouted over
-            every reply. --bubble-user (globals.css) is a quarter of the brand
-            in the page colour: the shape reads, the eye stays on the reply. */}
+        {/* --bubble-user (globals.css) is the spec's `active` tint: the shape
+            reads, and the eye stays on the reply. Solid brand shouted over
+            every reply; `bg-bg-elevated` was a faint rectangle. */}
         {draft !== null ? (
-          <div className="w-full max-w-[75%] flex flex-col gap-2">
+          <div className="w-full max-w-[78%] flex flex-col gap-2">
             <textarea
               autoFocus
               value={draft}
@@ -190,8 +184,9 @@ export const MessageItem = memo(function MessageItem({
             </div>
           </div>
         ) : (
-        <div className="relative max-w-[75%] rounded-2xl rounded-br-none px-4 py-2.5 bg-(--bubble-user) text-text-primary shadow-sm">
-          <BubbleTail className="absolute right-[-11px] bottom-0 text-(--bubble-user)" />
+        // The canvas's 20 20 6 20, on the radius steps (18 and 6): no tail and
+        // no shadow, the fill alone makes the shape.
+        <div className="max-w-[78%] rounded-2xl rounded-br-sm px-4 py-3 bg-(--bubble-user) text-text-primary">
           {images.length > 0 && (
             <div className={cn('flex flex-wrap gap-2', (visibleText || fileChips.length > 0) && 'mb-2')}>
               {images.map((src, i) => (
@@ -207,7 +202,7 @@ export const MessageItem = memo(function MessageItem({
             </div>
           )}
           {visibleText && (
-            <p className="text-base whitespace-pre-wrap wrap-break-word leading-relaxed">
+            <p className="text-base whitespace-pre-wrap wrap-break-word">
               {splitLinks(visibleText).map((part, i) =>
                 part.kind === 'link' ? <LinkChip key={i} href={part.href} /> : part.text,
               )}
@@ -255,7 +250,7 @@ export const MessageItem = memo(function MessageItem({
         pieces.map((p, i) => {
           if (p.kind === 'text') {
             return (
-              <div key={`t${i}`} className="text-sm leading-relaxed">
+              <div key={`t${i}`} className="text-base leading-relaxed">
                 <Markdown animateWords={streaming && i === pieces.length - 1}>{p.text}</Markdown>
               </div>
             );
@@ -282,7 +277,7 @@ export const MessageItem = memo(function MessageItem({
           {/* What the turn MADE stays outside the steps: folding the steps away must
               not fold away the report or chart the person asked for. */}
           {made.length > 0 && <MessageToolWidgets activity={made} streaming={streaming} />}
-          <div className={cn('text-sm leading-relaxed', !message.content && 'hidden')}>
+          <div className={cn('text-base leading-relaxed', !message.content && 'hidden')}>
             <Markdown animateWords={streaming}>{message.content}</Markdown>
           </div>
         </>

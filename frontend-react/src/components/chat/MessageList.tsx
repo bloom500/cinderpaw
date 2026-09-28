@@ -54,8 +54,9 @@ export function MessageList() {
           {/* Clears the dock's measured height, not a flat 12rem: the dock grows
               with the workers card, the error notice and a multi-line draft,
               and a flat pad let the last reply slide under it. */}
+          {/* 748 = the spec's 700 px reading column plus the 24 px gutters. */}
           <MessageScroller.Content
-            className="max-w-3xl mx-auto px-6 py-6 flex flex-col gap-6"
+            className="max-w-[748px] mx-auto px-6 py-6 flex flex-col gap-7"
             style={{ paddingBottom: 'calc(var(--chat-dock-h, 10rem) + 2rem)' }}
           >
             {messages.map((m, i) => (
