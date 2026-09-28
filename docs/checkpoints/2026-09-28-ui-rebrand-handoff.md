@@ -14,7 +14,7 @@ Branch chain, each stacked on the previous:
 | `feat/ui-s1-foundation` | 0049db0 | slice 1: palette, OS theme default, Young Serif, Solid default |
 | `feat/ui-s2-brand-logos` | 096eec4 | slice 2: 41 bundled brand logos, `<BrandLogo>` |
 | `feat/ui-s3-sidebar` | 9b220c6 | slice 3: sidebar + starred chats, plus the docs and design sources |
-| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) and slice 5 (5a message shapes, 5b logo head, 5c artifact card) |
+| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) slice 5 (5a message shapes, 5b logo head, 5c artifact card) and slice 6 (6a Activity Strip, 6b helpers + chips) |
 
 `claude/rebrand-spec-f87jrk` contains everything above it. Continue from there, one branch per slice.
 
@@ -56,7 +56,7 @@ light (same colour); use `hover:bg-text-primary/5`.
   appears wherever a chat menu does. Pruned once, at the first successful non-empty list read: a
   failed read also ends with an empty list, and Undo after a delete must keep the star.
 
-## Owed before merging slices 1-5
+## Owed before merging slices 1-6
 
 1. Darius looks at them in the running app (from this branch).
 2. `./scripts/verify.sh` green.
@@ -101,11 +101,22 @@ script that defines `window.__TAURI_INTERNALS__` (`invoke` returning a completed
 `(await import('/src/stores/chat.ts')).useChat.setState(...)`: Vite serves the same module
 instance the app uses. A screenshot is a preview, not the "Darius sees it in the running app" gate.
 
+## Slice 6 decisions to keep (28 Sep)
+
+- The strip is `MessageChain.tsx`, restyled in place (same props, same open/fold rules), one card per
+  tool group of the timeline, as on the canvas. The vendored `ai-elements/chain-of-thought.tsx` was
+  removed (no other user). Words per step: `stepTitle` / `stepDetail`; time: `workedSeconds`
+  (null, shown as "Worked", when a step has no `endedAt`).
+- No progress bar: the stream has no step total, so a bar would be made up.
+- Helpers (`rlm()` workers) belong to the session and run after the reply that started them, so only
+  the latest reply's last strip (`head` set in MessageItem) gets them. Open question for Darius:
+  WorkersCard still lists the same helpers above the composer (with answers); the spec keeps the
+  answers there, but the duplicate lines could go.
+
 ## Next
 
-Slice 6: Activity Strip (replaces the step card; helpers inside it). Read spec 7.5 (Activity Strip)
-and 7.2 (Helpers), and `docs/design/canvas/Activity.dc.html`, first. AGENTS.md: more than 3 files
-means ask Darius first.
+Slice 7: widget kit, `show_widget` tool (sidecar) + seven renderers + `todo_write` as checklist.
+Marked "more than 3 files" in the spec: ask Darius for the go-ahead first.
 
 ## Open question: the mascot medium
 
