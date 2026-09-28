@@ -51,7 +51,7 @@ export const OUTBOUND_TYPES = [
   "chunk", "done", "tool_start", "tool_progress", "tool_done", "proactive",
   "model_set", "model_error", "pong", "error", "ask_user", "tool_request",
   "ask_user_cancelled", "usage", "budget_warning", "budget_exceeded",
-  "heartbeat", "stream_progress", "artifact", "artifact_result", "cron_fired", "cron_error",
+  "heartbeat", "stream_progress", "memory_used", "artifact", "artifact_result", "cron_fired", "cron_error",
   "desktop_control_request", "rsi_engine_event", "rsi_request",
   "meta_result", "governance_result", "modules_result", "mcp_result",
   "cowork_history_result", "cowork_team_result",

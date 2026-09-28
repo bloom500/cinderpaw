@@ -1251,7 +1251,13 @@ export class AgentLoop {
     if (this.#recall && !this.#spokenSurface.has(sessionId) && recallInjectionEnabled()) {
       try {
         const recalled = await this.#recall.recall(userTextClean, sessionId);
-        memory.setRecall(recalled.context, recallInjectionMaxChars());
+        const max = recallInjectionMaxChars();
+        memory.setRecall(recalled.context, max);
+        // Memory Peek: tell the app which memories went in, as data. Only what
+        // survived the size cap: an item cut off the end was never seen.
+        const kept = recalled.context.slice(0, max);
+        const items = (recalled.used ?? []).filter((m) => kept.includes(m.text.slice(0, 60)));
+        if (items.length > 0) ctx.emit({ type: "memory_used", id: messageId, sessionId, items });
       } catch {
         memory.setRecall("");
       }

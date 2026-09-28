@@ -1805,6 +1805,15 @@ export type OutboundEvent =
   // The React `events.onStreamProgress` listener filters this kind out of
   // the raw `cinderpaw://agent-output` stream. `promptTokens` is set once the
   // provider reports it (cloud: in the final SSE chunk; local: n/a here).
+  // The memories the loop put in front of the model for this turn, one per
+  // item (memory/recall.ts `MemoryUsed`): the app's Memory Peek. `forget` is
+  // the graph edge `memory_forget` takes.
+  | {
+      type: "memory_used";
+      id: string;
+      sessionId: string;
+      items: { kind: "fact" | "past"; text: string; forget?: { from: string; to: string; relation: string }; ts?: number }[];
+    }
   | {
       type: "stream_progress";
       sessionId: string;

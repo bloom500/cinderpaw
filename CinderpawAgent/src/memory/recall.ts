@@ -40,9 +40,25 @@ const DEFAULT_CONFIG: RecallConfig = {
   now: Date.now,
 };
 
+/**
+ * One memory the block put in front of the model, as data for the app's
+ * Memory Peek (spec 7.5): only what was really injected this turn.
+ */
+export interface MemoryUsed {
+  /** A fact about the user, or a line from a past conversation. */
+  kind: "fact" | "past";
+  text: string;
+  /** The graph edge Forget removes (`memory_forget`); absent when there is none. */
+  forget?: { from: string; to: string; relation: string };
+  /** When a past exchange happened. */
+  ts?: number;
+}
+
 export interface RecallResult {
   /** Formatted block for prompt injection, or empty string when nothing found. */
   context: string;
+  /** What `context` holds, item by item. Absent from engines that do not say. */
+  used?: MemoryUsed[];
   episodicHits: number;
   semanticFacts: number;
   /** The leaves the block shows, in block order. Only the fractal path
@@ -81,9 +97,9 @@ export class RecallEngine {
    */
   recall(query: string, sessionId: string): RecallResult {
     const episodicBlock = this.#recallEpisodic(query, sessionId);
-    const known = this.knownFacts(query, sessionId);
+    const known = this.knownFactsDetailed(query, sessionId);
     const parts: string[] = [];
-    if (known) parts.push(known);
+    if (known.text) parts.push(known.text);
     if (episodicBlock.text) parts.push(episodicBlock.text);
 
     const context = parts.length > 0
@@ -92,6 +108,7 @@ export class RecallEngine {
 
     return {
       context,
+      used: context ? [...known.used, ...episodicBlock.used] : [],
       episodicHits: episodicBlock.count,
       semanticFacts: this.#semantic.all(memoryScope(sessionId)).length,
     };
@@ -107,6 +124,11 @@ export class RecallEngine {
    * facade now asks for this block and puts it in front of its own hits.
    */
   knownFacts(query: string, sessionId: string): string {
+    return this.knownFactsDetailed(query, sessionId).text;
+  }
+
+  /** `knownFacts`, with the facts it put in the block as data (`MemoryUsed`). */
+  knownFactsDetailed(query: string, sessionId: string): { text: string; used: MemoryUsed[] } {
     // Scoped so a shared-channel session surfaces this speaker's facts plus
     // the owner's global ones — never another speaker's. Empty for every
     // single-user surface, i.e. unchanged there. See `memoryScope`.
@@ -120,8 +142,31 @@ export class RecallEngine {
     // of the block directly above it, in a different notation, at twenty lines
     // a turn. Only what the facts block did not already say gets through.
     const alreadySaid = new Set(chosen.map((f) => f.value.trim().toLowerCase()));
-    const graphBlock = this.#recallGraph(query, alreadySaid);
-    return [semanticBlock, graphBlock].filter((b) => b).join("\n\n");
+    const graph = this.#recallGraph(query, alreadySaid);
+    return {
+      text: [semanticBlock, graph.text].filter((b) => b).join("\n\n"),
+      used: [
+        ...chosen.map((f): MemoryUsed => {
+          const edge = this.#mirrorEdge(f.key, f.value);
+          return { kind: "fact", text: `${f.key}: ${f.value}`, ...(edge ? { forget: edge } : {}) };
+        }),
+        ...graph.used,
+      ],
+    };
+  }
+
+  /**
+   * The graph edge a fact is mirrored as (`key —has→ value`, extractor.ts), so
+   * Forget in the app can go through `memory_forget`, which drops the fact
+   * with its edge (forget.ts). Null when the graph has no such edge.
+   */
+  #mirrorEdge(key: string, value: string): { from: string; to: string; relation: string } | null {
+    if (!this.#graph) return null;
+    const { nodes, edges } = this.#graph.snapshot();
+    const norm = (v: string | undefined) => (v ?? "").trim().toLowerCase();
+    const e = edges.find((x) =>
+      x.relation === "has" && norm(nodes[x.from]?.label) === norm(key) && norm(nodes[x.to]?.label) === norm(value));
+    return e ? { from: e.from, to: e.to, relation: e.relation } : null;
   }
 
   /** Max graph triples surfaced per recall — keeps the block compact. */
@@ -141,13 +186,14 @@ export class RecallEngine {
    * Recency still decides between equally matching edges, and still orders the
    * block when the turn has no query at all.
    */
-  #recallGraph(query = "", alreadySaid: ReadonlySet<string> = new Set()): string {
-    if (!this.#graph) return "";
+  #recallGraph(query = "", alreadySaid: ReadonlySet<string> = new Set()): { text: string; used: MemoryUsed[] } {
+    const none = { text: "", used: [] };
+    if (!this.#graph) return none;
     const snapshot = this.#graph.snapshot();
     const edges = snapshot.edges.filter(
       (e) => !alreadySaid.has((snapshot.nodes[e.to]?.label ?? "").trim().toLowerCase()),
     );
-    if (edges.length === 0) return "";
+    if (edges.length === 0) return none;
 
     const want = new Set(memoryTokens(query));
     const textOf = (e: (typeof edges)[number]) =>
@@ -163,31 +209,34 @@ export class RecallEngine {
         .sort((a, b) => b.score - a.score || b.e.createdAt - a.e.createdAt);
       // Nothing matched: say nothing. The whole point of the measurement was
       // that the alternative is twenty confident irrelevant lines.
-      if (scored.length === 0) return "";
+      if (scored.length === 0) return none;
       ranked.length = 0;
       ranked.push(...scored.map((x) => x.e));
     } else {
       ranked.sort((a, b) => b.createdAt - a.createdAt);
     }
 
-    const lines = ranked
+    const shown = ranked
       .slice(0, RecallEngine.MAX_GRAPH_FACTS)
       .flatMap((e) => {
         const from = snapshot.nodes[e.from];
         const to = snapshot.nodes[e.to];
         if (!from || !to) return [];
-        return [`  ${from.label} —${e.relation}→ ${to.label}`];
+        return [{ e, line: `${from.label} —${e.relation}→ ${to.label}` }];
       });
 
-    if (lines.length === 0) return "";
-    return `Knowledge graph (facts learned about the user over time):\n${lines.join("\n")}`;
+    if (shown.length === 0) return none;
+    return {
+      text: `Knowledge graph (facts learned about the user over time):\n${shown.map((x) => `  ${x.line}`).join("\n")}`,
+      used: shown.map(({ e, line }) => ({ kind: "fact", text: line, forget: { from: e.from, to: e.to, relation: e.relation } })),
+    };
   }
 
   #recallEpisodic(
     query: string,
     currentSessionId: string,
-  ): { text: string; count: number } {
-    if (!query.trim()) return { text: "", count: 0 };
+  ): { text: string; count: number; used: MemoryUsed[] } {
+    if (!query.trim()) return { text: "", count: 0, used: [] };
 
     // Left out in the query, not only afterwards: the current session's own
     // turns share the question's words and would otherwise take the slots.
@@ -202,10 +251,11 @@ export class RecallEngine {
     }
 
     hits = hits.slice(0, this.#config.maxEpisodic);
-    if (hits.length === 0) return { text: "", count: 0 };
+    if (hits.length === 0) return { text: "", count: 0, used: [] };
 
     const lines = hits.map((e) => formatEpisodic(e, this.#config.snippetMaxChars));
     return {
+      used: hits.map((e) => ({ kind: "past", text: clip(e.content, this.#config.snippetMaxChars), ts: e.timestamp })),
       // Dated lines need today's date to be read against; see fractal-recall.
       text: `Relevant past exchanges (today is ${new Date(this.#config.now()).toISOString().slice(0, 10)}):\n${lines.join("\n")}`,
       count: hits.length,
@@ -213,11 +263,11 @@ export class RecallEngine {
   }
 }
 
+function clip(text: string, maxChars: number): string {
+  return text.length > maxChars ? text.slice(0, maxChars) + "…" : text;
+}
+
 function formatEpisodic(event: EpisodicEvent, maxChars: number): string {
   const when = new Date(event.timestamp).toISOString().slice(0, 10);
-  const snippet =
-    event.content.length > maxChars
-      ? event.content.slice(0, maxChars) + "…"
-      : event.content;
-  return `  [${when}] ${event.role}: ${snippet}`;
+  return `  [${when}] ${event.role}: ${clip(event.content, maxChars)}`;
 }

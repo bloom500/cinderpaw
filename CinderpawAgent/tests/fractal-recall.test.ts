@@ -241,7 +241,7 @@ describe("FractalRecallEngine — line format carries role (fix #2)", () => {
 });
 
 describe("FractalRecallEngine — RecallResult shape", () => {
-  it("returns exactly { context, episodicHits, semanticFacts, leafIds }", async () => {
+  it("returns exactly { context, used, episodicHits, semanticFacts, leafIds }", async () => {
     const tree = await fixtureTree();
     const engine = new FractalRecallEngine({
       tree,
@@ -251,7 +251,8 @@ describe("FractalRecallEngine — RecallResult shape", () => {
     });
     const result = await engine.recall("q", "current-session");
     expect(Object.keys(result).sort()).toEqual(
-      ["context", "episodicHits", "semanticFacts", "leafIds"].sort(),
+      // `used`: what the block shows, item by item, for the app's Memory Peek.
+      ["context", "used", "episodicHits", "semanticFacts", "leafIds"].sort(),
     );
     expect(typeof result.context).toBe("string");
     expect(typeof result.episodicHits).toBe("number");
