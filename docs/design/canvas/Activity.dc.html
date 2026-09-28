@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent activity</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;font-family:'Geist',system-ui,sans-serif}
+button{font-family:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; box-sizing: border-box; padding: 48px 60px; background: #F6EFE6; color: #2F2A26; font-family: 'Geist', system-ui, sans-serif; display: flex; gap: 60px">
+
+<div style="width: 820px; flex-shrink: 0; display: flex; flex-direction: column; border-radius: 20px; border: 1px solid #E4D6C8; background: #F6EFE6; overflow: hidden">
+<header style="height: 60px; flex-shrink: 0; box-sizing: border-box; padding: 0 16px 0 24px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #ECE1D5; position: relative">
+<span style="font-size: 16px; font-weight: 600; flex-grow: 1">Best e-bike for my commute</span>
+<button type="button" aria-expanded="true" style="height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid #E4D6C8; background: #F2DDCC; color: #2F2A26; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 4px; background: #C65A2E"></span>2 running<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+<button type="button" style="height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid #E4D6C8; background: transparent; color: #2F2A26; font-size: 13px; display: flex; align-items: center; gap: 7px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>Call</button>
+
+<div role="dialog" aria-label="Running in the background" style="position: absolute; right: 90px; top: 52px; width: 360px; z-index: 5; box-sizing: border-box; padding: 14px 16px; border-radius: 16px; background: #FFFDFA; border: 1px solid #E4D6C8; box-shadow: 0 16px 40px rgba(70,45,25,0.16); display: flex; flex-direction: column; gap: 12px">
+<span style="font-size: 13.5px; font-weight: 600">Running in the background</span>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; align-items: baseline; gap: 8px"><span style="font-size: 13.5px; flex-grow: 1">Reading owner reviews</span><span style="font-size: 12px; color: #7A5F4E">1m 12s</span></div>
+<span style="height: 5px; border-radius: 3px; background: #EFE3D6; overflow: hidden"><span style="display: block; width: 62%; height: 5px; border-radius: 3px; background: #C65A2E"></span></span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; align-items: baseline; gap: 8px"><span style="font-size: 13.5px; flex-grow: 1">Comparing prices in 4 shops</span><span style="font-size: 12px; color: #7A5F4E">48s</span></div>
+<span style="height: 5px; border-radius: 3px; background: #EFE3D6; overflow: hidden"><span style="display: block; width: 30%; height: 5px; border-radius: 3px; background: #C65A2E"></span></span>
+</div>
+<span style="font-size: 12.5px; color: #7A5F4E">Their answers land in this chat when they finish.</span>
+</div>
+</header>
+
+<div style="flex-grow: 1; padding: 28px 40px; display: flex; flex-direction: column; gap: 24px">
+<div style="display: flex; justify-content: flex-end">
+<div style="max-width: 78%; background: #F2DDCC; border-radius: 20px 20px 6px 20px; padding: 12px 16px; font-size: 15px; line-height: 23px">Find the best e-bike under $1,500 for a 10 km commute. Take your time, check real reviews.</div>
+</div>
+<div style="display: flex">
+<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 14px">
+<p style="margin: 0; font-size: 15.5px; line-height: 25px">On it. I'm doing a deep search, so this will take a few minutes.</p>
+<div style="border-radius: 18px; background: #FBF7F1; border: 1px solid #E4D6C8; overflow: hidden">
+<div style="display: flex; align-items: center; gap: 12px; padding: 12px 18px 12px 12px; border-bottom: 1px solid #ECE1D5">
+<img src="assets/clay-working.png" alt="" style="width: 64px; height: 64px; margin: -6px 0 -8px 0">
+<span style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 600">Deep research</span><span style="font-size: 12.5px; color: #7A5F4E">Step 4 of 5, about 2 minutes in</span></span>
+<button type="button" style="height: 32px; padding: 0 12px; border-radius: 10px; border: 1px solid #E4D6C8; background: #FFFDFA; color: #2F2A26; font-size: 13px">Stop</button>
+</div>
+<div style="padding: 8px 18px 6px 18px; display: flex; flex-direction: column">
+<div style="display: flex; align-items: center; gap: 12px; padding: 7px 0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3F7A4A" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span style="flex-grow: 1; font-size: 13.5px; color: #6F5747">Understood the question</span></div>
+<div style="display: flex; align-items: center; gap: 12px; padding: 7px 0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3F7A4A" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span style="flex-grow: 1; font-size: 13.5px; color: #6F5747">Searched the web</span><span style="font-size: 12.5px; color: #7A5F4E">14 sources</span></div>
+<div style="display: flex; align-items: center; gap: 12px; padding: 7px 0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3F7A4A" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span style="flex-grow: 1; font-size: 13.5px; color: #6F5747">Read the best reviews</span><span style="font-size: 12.5px; color: #7A5F4E">9 pages</span></div>
+<div style="display: flex; align-items: center; gap: 12px; padding: 7px 0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C65A2E" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.22-8.56"></path></svg><span style="flex-grow: 1; font-size: 13.5px; font-weight: 500">Comparing prices</span><span style="font-size: 12.5px; color: #7A5F4E">2 helpers</span></div>
+<div style="display: flex; align-items: center; gap: 12px; padding: 7px 0"><span style="width: 12px; height: 12px; margin: 0 2px; border-radius: 6px; border: 1.5px solid #B8A596"></span><span style="flex-grow: 1; font-size: 13.5px; color: #7A5F4E">Write the report</span></div>
+</div>
+<div style="padding: 10px 18px 14px 18px; font-size: 12.5px; color: #7A5F4E">You can keep chatting while this runs.</div>
+</div>
+</div>
+</div>
+</div>
+
+<div style="flex-shrink: 0; padding: 0 40px 24px 40px">
+<div style="box-sizing: border-box; background: #FFFDFA; border: 1px solid #E4D6C8; border-radius: 24px; padding: 16px 14px 10px 20px; display: flex; flex-direction: column; gap: 14px">
+<div style="font-size: 15px; color: #7A5F4E">Ask Cinderpaw…</div>
+<div style="display: flex; align-items: center; gap: 8px">
+<button type="button" aria-label="Attach a file" style="width: 34px; height: 34px; border-radius: 17px; border: 1px solid #E4D6C8; background: transparent; color: #6F5747; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg></button>
+<button type="button" aria-pressed="true" style="height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #E8C3AA; background: #F2DDCC; color: #9A4421; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7.5"></circle><path d="m20.5 20.5-4-4"></path></svg>Deep research</button>
+<button type="button" aria-pressed="false" style="height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #E4D6C8; background: transparent; color: #6F5747; font-size: 13px; display: flex; align-items: center; gap: 6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"></path><path d="M9 18h6"></path><path d="M10 22h4"></path></svg>Think</button>
+<div style="flex-grow: 1"></div>
+<button type="button" style="height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #E4D6C8; background: transparent; color: #6F5747; font-size: 13px">GLM 5.3 Flash</button>
+<button type="button" aria-label="Send" style="width: 36px; height: 36px; border-radius: 18px; border: 0; background: #B15129; color: #FFFFFF; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 7-7 7 7"></path><path d="M12 19V5"></path></svg></button>
+</div>
+</div>
+</div>
+</div>
+
+<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 40px">
+
+<div style="width: 280px; box-sizing: border-box; padding: 14px 12px; border-radius: 20px; background: #F1E8DD; border: 1px solid #E4D6C8; display: flex; flex-direction: column; gap: 2px">
+<div style="padding: 4px 12px 6px 12px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; color: #7A5F4E">YESTERDAY</div>
+<div style="height: 32px; padding: 0 12px; display: flex; align-items: center; font-size: 13.5px; color: #6F5747">Compare three laptops</div>
+<div style="height: 32px; padding: 0 12px; display: flex; align-items: center; font-size: 13.5px; color: #6F5747">Summarise the meeting notes</div>
+<div style="margin-top: 14px; display: flex; align-items: center; gap: 10px; padding: 8px 12px 10px 4px; border-radius: 14px; background: #FBF7F1; border: 1px solid #E4D6C8">
+<img src="assets/clay-sleeping.png" alt="" style="width: 60px; height: 60px; margin: -4px 0 -6px 0">
+<span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 13.5px; font-weight: 600">Dreaming</span><span style="font-size: 12px; color: #7A5F4E">Tidying today's memories</span><span style="height: 4px; border-radius: 2px; background: #EFE3D6; margin-top: 3px"><span style="display: block; width: 40%; height: 4px; border-radius: 2px; background: #C65A2E"></span></span></span>
+</div>
+</div>
+
+<div style="width: 460px; box-sizing: border-box; border-radius: 16px; background: #FBF7F1; border: 1px solid #E4D6C8; padding: 16px">
+<div style="display: flex; gap: 12px">
+<span style="width: 34px; height: 34px; border-radius: 10px; background: #F6DDD6; color: #A3321F; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 7.5v5"></path><path d="M12 16.5h.01"></path></svg></span>
+<span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 14.5px; font-weight: 600">The model stopped answering</span><span style="font-size: 13px; line-height: 19px; color: #6F5747">OpenRouter did not reply in time. Your message is safe, nothing was lost.</span></span>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; margin-top: 14px; padding-left: 46px">
+<button type="button" style="height: 32px; padding: 0 14px; border-radius: 10px; border: 0; background: #B15129; color: #FFFFFF; font-size: 13px; font-weight: 500">Try again</button>
+<button type="button" style="height: 32px; padding: 0 10px; border-radius: 10px; border: 0; background: transparent; color: #6F5747; font-size: 13px; display: flex; align-items: center; gap: 6px">Show details<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+</div>
+</div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
