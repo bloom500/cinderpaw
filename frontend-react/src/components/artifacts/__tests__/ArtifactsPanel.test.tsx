@@ -6,6 +6,7 @@ import { APP_IFRAME_SANDBOX } from '@/lib/artifactSandbox';
 import { tauri } from '@/lib/tauri';
 import { useChat, type ChatMessage } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
+import { useNotifications } from '@/stores/notifications';
 
 /**
  * The panel is where the store stops being a capability of the agent's and
@@ -21,6 +22,10 @@ vi.mock('@/lib/tauri', async (orig) => {
     tauri: { ...actual.tauri, artifacts: { op: vi.fn().mockResolvedValue(undefined) } },
   };
 });
+// The done toast's Open goes to the chat through the app router, which imports
+// every page; the test only needs to know it was asked.
+const navigate = vi.fn();
+vi.mock('@/router', () => ({ router: { state: { location: { pathname: '/settings' } }, navigate } }));
 
 const op = tauri.artifacts.op as unknown as ReturnType<typeof vi.fn>;
 
@@ -235,11 +240,25 @@ describe('handing the work over', () => {
     await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'get' && c[2]?.artifactId === 'new1')).toBe(true));
   });
 
-  it('one made anywhere else only refreshes the list', async () => {
-    useArtifacts.getState().onEvent({ id: 'tg1', action: 'created', onScreen: false });
+  it('one made anywhere else does not open the panel, and the done toast offers it', async () => {
+    useNotifications.setState({ toasts: [] });
+    useArtifacts.getState().onEvent({ id: 'tg1', action: 'created', onScreen: false, title: 'launch-week.pdf' });
     await waitFor(() => expect(op).toHaveBeenCalled());
     expect(useArtifacts.getState().panelOpen).toBe(false);
     expect(op.mock.calls.every((c) => c[1] === 'list')).toBe(true);
+
+    const toast = useNotifications.getState().toasts.at(-1)!;
+    expect(toast).toMatchObject({ kind: 'success', title: 'launch-week.pdf is ready', message: 'Saved in Artifacts' });
+    toast.action!.run();
+    expect(useArtifacts.getState().panelOpen).toBe(true);
+    await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'get' && c[2]?.artifactId === 'tg1')).toBe(true));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/chat'));
+  });
+
+  it('an update made elsewhere raises no toast', () => {
+    useNotifications.setState({ toasts: [] });
+    useArtifacts.getState().onEvent({ id: 'tg1', action: 'updated', onScreen: false, title: 'x' });
+    expect(useNotifications.getState().toasts).toHaveLength(0);
   });
 });
 

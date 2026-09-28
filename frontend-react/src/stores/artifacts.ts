@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { tauri } from '@/lib/tauri';
+import { useNotifications } from '@/stores/notifications';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import type { PdfEdit } from '@/lib/pdfEdits';
 import type { PdfFieldRow } from '@/components/artifacts/PdfEditor';
@@ -154,7 +155,7 @@ interface ArtifactsStore {
    * the conversation currently on screen (the event's session is the chat's).
    */
   onEvent: (e: {
-    id: string; action: 'created' | 'updated' | 'deleted'; onScreen?: boolean; version?: number;
+    id: string; action: 'created' | 'updated' | 'deleted'; onScreen?: boolean; version?: number; title?: string;
   }) => void;
   onResult: (e: {
     id: string; ok: boolean; items?: ArtifactRow[]; content?: string;
@@ -470,6 +471,23 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
         void get().openArtifact(e.id);
         return;
       }
+    }
+    // Made somewhere you are not looking (another chat, Telegram, a call):
+    // the done toast says so and opens it (spec 7.4). It used to arrive
+    // silently, found only by opening Artifacts.
+    if (!e.onScreen && e.action === 'created') {
+      useNotifications.getState().push('success', `${e.title?.trim() || 'Your new artifact'} is ready`, 'Saved in Artifacts', {
+        label: 'Open',
+        run: () => {
+          set({ panelOpen: true, panelTab: 'artifacts' });
+          void get().openArtifact(e.id);
+          // The panel lives beside the chat. Imported late: the router imports
+          // every page, and the pages import this store.
+          void import('@/router').then(({ router }) => {
+            if (router.state.location.pathname !== '/chat') void router.navigate('/chat');
+          });
+        },
+      });
     }
     const open = get().open;
     if (open?.row.id !== e.id) return;
