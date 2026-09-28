@@ -285,8 +285,10 @@ export const useUI = create<UIStore>()(
 export function useSystemThemeSync() {
   const theme = useUI((s) => s.theme);
   useEffect(() => {
-    if (theme !== 'system') return;
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    // `system` is the default since the rebrand, so this now runs on every
+    // launch; a host with no matchMedia (jsdom) keeps the theme it resolved.
+    const mq = theme === 'system' ? window.matchMedia?.('(prefers-color-scheme: dark)') : undefined;
+    if (!mq) return;
     const handler = () => {
       const resolved = getSystemTheme();
       applyTheme(resolved);
