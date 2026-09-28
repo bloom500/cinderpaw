@@ -296,9 +296,23 @@ board (tabs All/Files/Links/Memory with counts, search, grouped rows with tiles,
   Empty roles have their own "Choose a model" / "Download a model" button: a row press never
   leaves the chat (22 Sep complaint). Models page gained a Roles tab (`RolesTab.tsx`).
 
-Slice 20: Projects, instructions and files (spec 9). Needs Rust (projects.rs fields + file
-commands) and a way to get the instructions into Agent mode's prompt (a per-message field through
-Rust and the sidecar, which the slice 4 note says to ask Darius about). Asked 28 Sep night.
+## Slice 20 decisions to keep (28 Sep night, local, `feat/ui-s20-projects`)
+
+Darius chose "write now, verify after" (cargo would fight his running dev build).
+
+- No per-message field after all: a chat's session id IS its conversation id, and the sidecar
+  reads `projects.json` itself each turn (`CinderpawAgent/src/projects.ts`), into a WorkingMemory
+  project slot on the system prompt. Chat mode adds the same block (`lib/projectPrompt.ts`).
+- Files are copied to `<profile>/workspace/projects/<id>/`: the sidecar's self-protection wall
+  denies every other path under the profile, so a copy anywhere else could never be read.
+- `save_project` takes `instructions` / `files` as `Option`: left out, the stored values stay
+  (every old caller only renames or moves chats). New commands `project_add_file`,
+  `project_remove_file`; count 193.
+- **OWED before merge:** `cargo test -p cinderpaw` (projects tests + command count) with his app
+  closed; then his look. Moving D:/cp-rebrand onto this branch touches `src-tauri/`, so the
+  running `cargo tauri dev` rebuilds and restarts his app: do it only when he says.
+
+All 20 slices are written. Then: the micro-management list (memory `micro-management-list-after-slices`).
 
 ## Open question: the mascot medium
 
