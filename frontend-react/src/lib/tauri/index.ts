@@ -759,6 +759,8 @@ export type CinderpawAgentEvent =
   | { type: 'spawning'; id: string; count: number }
   // Real token usage per completion — drives the live context ring in agent mode.
   | { type: 'usage'; id: string; sessionId: string; promptTokens: number; completionTokens: number }
+  // The memories the agent was given for this turn (Memory Peek).
+  | { type: 'memory_used'; id: string; sessionId: string; items: import('@/stores/chat').MemoryUsedItem[] }
   // The artifact store. `artifact` is unprompted — it fires whenever anything
   // creates, changes or removes one, from ANY surface, so a report written from
   // a voice call or from Telegram appears in the panel without it asking.

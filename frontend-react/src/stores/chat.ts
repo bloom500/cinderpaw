@@ -6,6 +6,18 @@ export type StreamStatus = 'idle' | 'streaming' | 'done' | 'error' | 'stopped';
 export type AgentPhase = 'thinking' | 'calling' | 'processing'
   | 'reading' | 'searching' | 'building' | 'writing' | null;
 
+/**
+ * One memory the agent was given for a turn (the sidecar's `memory_used`): a
+ * fact about the person or a line from a past chat. `forget` is the graph edge
+ * `memory_forget` takes; a past chat has none.
+ */
+export interface MemoryUsedItem {
+  kind: 'fact' | 'past';
+  text: string;
+  forget?: { from: string; to: string; relation: string };
+  ts?: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -16,6 +28,8 @@ export interface ChatMessage {
    * session so follow-up turns still include the pixels.
    */
   images?: string[];
+  /** The memories put into this reply's context (Memory Peek). Not persisted. */
+  memoryUsed?: MemoryUsedItem[];
   thinking?: string;
   thinkingStartAt?: number;
   thinkingDurationMs?: number;

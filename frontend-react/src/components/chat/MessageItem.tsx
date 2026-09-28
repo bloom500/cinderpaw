@@ -10,6 +10,7 @@ import { AskUserCard } from './AskUserCard';
 import { MessageToolWidgets } from './MessageToolWidgets';
 import { ChatWidget } from './ChatWidget';
 import { SourcesContext, SourcesList } from './Sources';
+import { MemoryPeek } from './MemoryPeek';
 import { citedSources, sourcesOf } from '@/lib/sources';
 import { MessageChain } from './MessageChain';
 import { MessageActions } from './MessageActions';
@@ -340,6 +341,14 @@ export const MessageItem = memo(function MessageItem({
         </>
       )}
       <SourcesList hits={cited} />
+      {/* The injected memories, then what a recall lookup found (no Forget:
+          its facts arrive as sentences, with no edge to remove). */}
+      {!streaming && (
+        <MemoryPeek items={[
+          ...(message.memoryUsed ?? []),
+          ...activity.filter((a) => a.kind === 'memory').flatMap((a) => a.facts.map((text) => ({ kind: 'fact' as const, text }))),
+        ]} />
+      )}
       {head && <ReplyHead writing={head === 'writing'} />}
       {/* Only on a finished reply: a copy button beside text that is still
           arriving would copy half of it. */}
