@@ -14,7 +14,7 @@ Branch chain, each stacked on the previous:
 | `feat/ui-s1-foundation` | 0049db0 | slice 1: palette, OS theme default, Young Serif, Solid default |
 | `feat/ui-s2-brand-logos` | 096eec4 | slice 2: 41 bundled brand logos, `<BrandLogo>` |
 | `feat/ui-s3-sidebar` | 9b220c6 | slice 3: sidebar + starred chats, plus the docs and design sources |
-| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) slice 5 (5a message shapes, 5b logo head, 5c artifact card) slice 6 (6a Activity Strip, 6b helpers + chips) and slice 7 (7a `show_widget` in the sidecar, 7b the seven renderers) |
+| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) slice 5 (5a message shapes, 5b logo head, 5c artifact card) slice 6 (6a Activity Strip, 6b helpers + chips) slice 7 (7a `show_widget` in the sidecar, 7b the seven renderers) and slice 8 (image cache, real card pictures) |
 
 `claude/rebrand-spec-f87jrk` contains everything above it. Continue from there, one branch per slice.
 
@@ -56,7 +56,7 @@ light (same colour); use `hover:bg-text-primary/5`.
   appears wherever a chat menu does. Pruned once, at the first successful non-empty list read: a
   failed read also ends with an empty list, and Undo after a delete must keep the star.
 
-## Owed before merging slices 1-7
+## Owed before merging slices 1-8
 
 1. Darius looks at them in the running app (from this branch).
 2. `./scripts/verify.sh` green.
@@ -124,11 +124,23 @@ instance the app uses. A screenshot is a preview, not the "Darius sees it in the
   only the LAST todo_write plan are drawn in place of their step (`drawn` in MessageItem).
 - Card and column images are never loaded yet: a warm placeholder until slice 8's image cache.
 
+## Slice 8 decisions to keep (28 Sep, go-ahead from Darius, plus "real pictures in cards")
+
+- No Rust code. The cache is the sidecar's `src/tools/image-cache.ts` (`cacheImage`, through
+  `ctx.fetch`, https, raster by magic bytes, never SVG, 2 MB each, 200 MB total, oldest pruned),
+  files at `<profile>/cache/images/<sha256[:40]>.<ext>`. `pagePreviewImage` reads a page's
+  og:image / twitter:image / image_src. `show_widget`'s `attachImages` gives cards (named image, or
+  the linked page's preview) and table columns a kept file as `imageFile`.
+- The app shows `imageFile` with `convertFileSrc`; `tauri.conf.json` gained the cache folder in the
+  asset scope and `asset: http://asset.localhost` in img-src. A config change: Darius's dev app needs
+  a restart to pick it up. The scope is `$HOME/.cinderpaw/...` like voice, so a custom
+  `CINDERPAW_HOME` shows placeholders. `lib/widgets.ts` accepts only a hash-named cache file.
+- Favicons for source chips and the Context drawer (7.1) can reuse `cacheImage` when those slices land.
+- `PRODUCT.md` has a 20 KiB cap (`product-info.test.ts`); slice 7a's paragraph had crossed it, cut here.
+
 ## Next
 
-Slice 8: image cache in the engine for widget cards and favicons (spec 7.1 "Images in cards", 14.2:
-through the engine, cached in the profile, size-capped, no referrer). Touches Rust or the sidecar:
-ask Darius first, and schedule it (a Rust change restarts his running dev app).
+Slice 9: source chips + pasted-text card + drop overlay (spec 6). Frontend only.
 
 ## Open question: the mascot medium
 
