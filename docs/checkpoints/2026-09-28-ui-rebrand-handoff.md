@@ -14,7 +14,7 @@ Branch chain, each stacked on the previous:
 | `feat/ui-s1-foundation` | 0049db0 | slice 1: palette, OS theme default, Young Serif, Solid default |
 | `feat/ui-s2-brand-logos` | 096eec4 | slice 2: 41 bundled brand logos, `<BrandLogo>` |
 | `feat/ui-s3-sidebar` | 9b220c6 | slice 3: sidebar + starred chats, plus the docs and design sources |
-| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) slice 5 (5a message shapes, 5b logo head, 5c artifact card) and slice 6 (6a Activity Strip, 6b helpers + chips) |
+| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) slice 5 (5a message shapes, 5b logo head, 5c artifact card) slice 6 (6a Activity Strip, 6b helpers + chips) and slice 7 (7a `show_widget` in the sidecar, 7b the seven renderers) |
 
 `claude/rebrand-spec-f87jrk` contains everything above it. Continue from there, one branch per slice.
 
@@ -56,7 +56,7 @@ light (same colour); use `hover:bg-text-primary/5`.
   appears wherever a chat menu does. Pruned once, at the first successful non-empty list read: a
   failed read also ends with an empty list, and Undo after a delete must keep the star.
 
-## Owed before merging slices 1-6
+## Owed before merging slices 1-7
 
 1. Darius looks at them in the running app (from this branch).
 2. `./scripts/verify.sh` green.
@@ -113,10 +113,22 @@ instance the app uses. A screenshot is a preview, not the "Darius sees it in the
   WorkersCard still lists the same helpers above the composer (with answers); the spec keeps the
   answers there, but the duplicate lines could go.
 
+## Slice 7 decisions to keep (28 Sep, go-ahead from Darius for more than 3 files)
+
+- Sidecar `src/tools/builtin/show-widget.ts`: validates per kind; bad data is `ok: true` with
+  `data.kind = "list"` (every string of the input as lines), never an error. In `ALWAYS_TOOLS`,
+  documented in `PRODUCT.md`, copied by hand into `CORE` in `tool-intent.test.ts` (its own rule).
+- `todo_write` add/set/remove now also return `data.items` (the whole list).
+- App: `lib/widgets.ts` re-reads the data (`parseWidget`, `widgetOf`), `ToolActivity.widget` is
+  optional so older rows load, `ChatWidget.tsx` draws the kinds. In a reply, every show_widget and
+  only the LAST todo_write plan are drawn in place of their step (`drawn` in MessageItem).
+- Card and column images are never loaded yet: a warm placeholder until slice 8's image cache.
+
 ## Next
 
-Slice 7: widget kit, `show_widget` tool (sidecar) + seven renderers + `todo_write` as checklist.
-Marked "more than 3 files" in the spec: ask Darius for the go-ahead first.
+Slice 8: image cache in the engine for widget cards and favicons (spec 7.1 "Images in cards", 14.2:
+through the engine, cached in the profile, size-capped, no referrer). Touches Rust or the sidecar:
+ask Darius first, and schedule it (a Rust change restarts his running dev app).
 
 ## Open question: the mascot medium
 
