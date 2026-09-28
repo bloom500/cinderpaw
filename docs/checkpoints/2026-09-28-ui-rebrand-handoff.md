@@ -236,7 +236,25 @@ as they are. Ask him before folding it into the side panel's tabs.
 
 ## Next
 
-Slice 16: Settings: Team, Appearance, Memory (spec 7.2 Team, 7.4 Appearance and Memory).
+## Slice 16 decisions to keep (28 Sep, local session, branch `feat/ui-s16-settings`)
+
+Done on Darius's machine, not in the cloud: `feat/ui-s16-settings` is stacked on 9bb941d.
+Pull it before slice 17 or the two histories fork.
+
+- Team (`TeammatesSection.tsx`): cards with Working (a running exchange addressed to the teammate
+  in `coworkTranscript`) or Idle; "Can use" stays on the card (a teammate with `tools: null` can
+  do anything). Message and "Add a teammate" open a NEW chat with words in the box: ChatPage
+  reads `location.state.compose` once and clears it. The canvas's second "New teammate" header
+  button was left out (the Add card does the same). The Settings entry is "Agent and team".
+- Appearance: theme cards draw Paper/Charcoal with fixed hex (the preview must not follow the
+  current theme). "follows Windows" names the OS from the user agent. `chatFont` ('geist' |
+  'system', persisted) sets `fontFamily` on the message column in MessageList only.
+- Memory: the category is not in the graph. `memory_notes_result` gained `categories` (node id
+  -> semantic category) from `semantic.all("")`; no new message, no Rust. Projects = goal,
+  decision, commitment, event; everything else, and no category, is Fact. Tiers and count tiles
+  are gone; Notes and Dreams stay. Until the sidecar is rebuilt, every row reads Fact.
+
+Slice 17: Command palette sections and shortcuts (spec 7.5 Command palette).
 
 ## Open question: the mascot medium
 
