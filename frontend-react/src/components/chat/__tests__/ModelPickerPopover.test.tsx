@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import { useModel } from '@/stores/model';
+import { useUI } from '@/stores/ui';
 import userEvent from '@testing-library/user-event';
 import { ModelPickerPopover } from '@/components/chat/ModelPickerPopover';
 import { CinderpawModelSelector } from '@/components/agents/CinderpawModelSelector';
@@ -69,6 +71,26 @@ describe('the chat model picker', () => {
     // model that can hold a conversation.
     const focused = document.activeElement;
     expect(focused?.textContent ?? '').not.toContain('bge');
+  });
+});
+
+describe('the Model Switcher (spec 8)', () => {
+  it('offers roles: Local is the model on disk, Fast asks to be chosen, and picking a role switches to it', async () => {
+    useModel.setState({ roles: {}, cloudModel: null, loaded: null });
+    useUI.setState({ inputMode: 'chat' });
+    const load = vi.spyOn(useModel.getState(), 'load').mockResolvedValue(undefined);
+    render(<ModelPickerPopover />);
+    await userEvent.click(screen.getByRole('button'));
+
+    expect(await screen.findByText('Model Switcher')).toBeInTheDocument();
+    const local = (await screen.findByText('Local')).closest('[role="menuitem"]')!;
+    await waitFor(() => expect(local).toHaveTextContent('Qwen3.8-4B-Q6_K.gguf'));
+    const fast = screen.getByText('Fast').closest('[role="menuitem"]')!;
+    expect(fast).toHaveTextContent('Choose a model');
+
+    await userEvent.click(local);
+    expect(load).toHaveBeenCalledWith('C:/models/Qwen3.8-4B-Q6_K.gguf');
+    load.mockRestore();
   });
 });
 

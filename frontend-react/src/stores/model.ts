@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { tauri, events, type LoadedModel } from '@/lib/tauri';
 import { useNotifications } from '@/stores/notifications';
+import type { Role, RoleModel } from '@/lib/modelRoles';
 
 type UnlistenFn = () => void;
 
@@ -26,12 +27,16 @@ interface ModelStore {
   /** User-chosen context window (tokens) per local model PATH. Absent → load
    *  with the conservative backend default (opt-in: see Hardware settings). */
   contextByModel: Record<string, number>;
+  /** The model chosen for each role on the Models page (spec 8). A role left
+   *  out falls back as `resolveRole` says. */
+  roles: Partial<Record<Role, RoleModel>>;
 
   refresh: () => Promise<void>;
   load:    (path: string) => Promise<void>;
   unload:  () => Promise<void>;
   setCloudModel: (m: CloudModel | null) => void;
   setInferParams: (patch: Partial<InferParamsUI>) => void;
+  setRole: (role: Role, m: RoleModel | null) => void;
   /** Persist a context-window choice for a model and reload it at that size
    *  (the KV cache is allocated at load time, so changing it needs a reload). */
   setModelContext: (path: string, tokens: number) => Promise<void>;
@@ -72,6 +77,7 @@ export const useModel = create<ModelStore>()(persist((set) => ({
   // mid-word. 4096 gives comfortable headroom for most chat replies.
   inferParams: { temperature: 0.8, top_p: 0.95, max_tokens: 4096 },
   contextByModel: {},
+  roles: {},
 
   refresh: async () => {
     const loaded = await tauri.models.loaded();
@@ -110,6 +116,11 @@ export const useModel = create<ModelStore>()(persist((set) => ({
 
   setCloudModel: (cloudModel) => set({ cloudModel }),
   setInferParams: (patch) => set((s) => ({ inferParams: { ...s.inferParams, ...patch } })),
+  setRole: (role, m) => set((s) => {
+    const roles = { ...s.roles };
+    if (m) roles[role] = m; else delete roles[role];
+    return { roles };
+  }),
 
   setModelContext: async (path, tokens) => {
     set((s) => ({ contextByModel: { ...s.contextByModel, [path]: tokens } }));
@@ -119,6 +130,6 @@ export const useModel = create<ModelStore>()(persist((set) => ({
   },
 }), {
   name: 'cinderpaw-model',
-  partialize: (s) => ({ cloudModel: s.cloudModel, inferParams: s.inferParams, contextByModel: s.contextByModel }),
+  partialize: (s) => ({ cloudModel: s.cloudModel, inferParams: s.inferParams, contextByModel: s.contextByModel, roles: s.roles }),
 }));
 

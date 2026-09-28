@@ -7,10 +7,11 @@ import { SystemBar } from '@/components/models/SystemBar';
 import { LocalModelsTab } from '@/components/models/LocalModelsTab';
 import { BrowseTab } from '@/components/models/BrowseTab';
 import { ByokTab } from '@/components/settings/ByokTab';
+import { RolesTab } from '@/components/models/RolesTab';
 import { cn } from '@/lib/utils';
 
-type Tab = 'local' | 'browse' | 'cloud';
-const TABS: readonly Tab[] = ['local', 'browse', 'cloud'];
+type Tab = 'local' | 'browse' | 'cloud' | 'roles';
+const TABS: readonly Tab[] = ['local', 'browse', 'cloud', 'roles'];
 
 function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -56,11 +57,14 @@ export function ModelsPage() {
         <TabButton active={tab === 'local'}  onClick={() => setTab('local')}>Local Models</TabButton>
         <TabButton active={tab === 'browse'} onClick={() => setTab('browse')}>Browse HuggingFace</TabButton>
         <TabButton active={tab === 'cloud'}  onClick={() => setTab('cloud')}>Cloud</TabButton>
+        {/* Spec 8: which model each role in the Model Switcher means. */}
+        <TabButton active={tab === 'roles'}  onClick={() => setTab('roles')}>Roles</TabButton>
       </div>
       <div className="flex-1 overflow-hidden flex flex-col">
         {tab === 'local'  ? <LocalModelsTab onBrowse={() => setTab('browse')} /> : null}
         {tab === 'browse' ? <BrowseTab /> : null}
         {tab === 'cloud'  ? <div className="flex-1 overflow-y-auto p-6"><div className="max-w-2xl"><ByokTab /></div></div> : null}
+        {tab === 'roles'  ? <RolesTab onCloud={() => setTab('cloud')} onBrowse={() => setTab('browse')} /> : null}
       </div>
     </div>
   );
