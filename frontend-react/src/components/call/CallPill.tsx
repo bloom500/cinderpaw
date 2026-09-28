@@ -5,6 +5,11 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronUp, Mic, MicOff, PhoneOff, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CallPillState } from '@/lib/callPill';
+import logoUrl from '@/assets/logo.svg';
+
+/** The canvas's Flame waveform: bar heights, px. It breathes while someone
+ *  is talking; it is a sign of life, not a level meter (the pill gets no audio). */
+const WAVE = [8, 16, 26, 18, 30, 20, 12, 22, 14, 8];
 
 /** What the pill says while a tool runs, by the tool's kind. */
 const WORK_VERB: Record<NonNullable<CallPillState['work']>['kind'], string> = {
@@ -117,7 +122,10 @@ export function CallPill() {
   const subject = work && phase !== 'speaking' && !ask ? work.subject : '';
   const line = subject || s?.said || s?.heard || '';
   const yours = Boolean(s && !subject && !s.said && s.heard);
-  const btn = 'flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-bg-hover';
+  // Charcoal in both themes (spec 7.4, canvas 'Voice pill'): it floats over the
+  // desktop, not over the app, so it keeps one look whatever the app is in.
+  const btn = 'flex size-10 shrink-0 items-center justify-center rounded-full bg-[#453D37] text-[#F6EFE6] transition-colors hover:bg-[#524841]';
+  const live = !s?.muted && (phase === 'listening' || phase === 'speaking');
 
   return (
     <div className="relative flex h-screen w-screen flex-col items-stretch bg-transparent">
@@ -126,25 +134,37 @@ export function CallPill() {
         aria-label={`Voice call: ${status}`}
         // No shadow and no margin: the window is exactly the pill, and a shadow
         // clipped at the window edge drew a dark rectangle around it (21 Sep).
-        className="flex h-16 w-full shrink-0 items-center gap-3 rounded-full bg-popover pl-4 pr-2 text-text-primary"
+        className="flex h-16 w-full shrink-0 items-center gap-3 rounded-full border border-[#4A413A] bg-[#2F2A26] pl-4 pr-2 text-[#F6EFE6]"
         onClick={() => { void emit('call-pill://open'); }}
       >
         {/* The tear drop: the microphone. It pulses while you are being heard,
             and while a question is open it is away, down in the card. */}
         <span aria-hidden className="size-3 shrink-0" />
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#3C3530]" aria-hidden>
+          <img src={logoUrl} alt="" className="size-8" />
+        </span>
         <div className="min-w-0 flex-1">
-          <div className="text-micro font-medium uppercase tracking-wide text-text-muted">{status}</div>
-          <div className={cn('truncate text-sm leading-tight', yours ? 'italic text-text-muted' : 'text-text-primary')}>
+          <div className="text-xs font-medium text-[#CDBFB2]">{status}</div>
+          <div className={cn('truncate text-sm leading-tight', yours ? 'italic text-[#CDBFB2]' : 'text-[#F6EFE6]')}>
             {line || 'Say something'}
           </div>
         </div>
+        <span className="flex h-8 shrink-0 items-center gap-[3px]" aria-hidden>
+          {WAVE.map((h, i) => (
+            <span
+              key={i}
+              className={cn('w-[3px] rounded-full bg-[#FF8A3D]', live ? 'animate-pulse' : 'opacity-40')}
+              style={{ height: live ? h : 4, animationDelay: `${i * 90}ms` }}
+            />
+          ))}
+        </span>
         <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
             aria-label="Open Cinderpaw"
             title="Open Cinderpaw"
             onClick={() => { void emit('call-pill://open'); }}
-            className={cn(btn, 'text-text-muted')}
+            className={cn(btn, 'bg-transparent text-[#CDBFB2]')}
           >
             <ChevronUp size={16} />
           </button>
@@ -155,7 +175,7 @@ export function CallPill() {
             disabled={s ? !s.canMute : true}
             title={s && !s.canMute ? 'This call engine has no microphone switch' : undefined}
             onClick={() => { void emit('call-pill://mute', { muted: !s?.muted }); }}
-            className={cn(btn, s?.muted && 'bg-bg-active text-brand', 'disabled:opacity-40')}
+            className={cn(btn, s?.muted && 'bg-[#FF8A3D]/25 text-[#FF8A3D]', 'disabled:opacity-40')}
           >
             {s?.muted ? <MicOff size={16} /> : <Mic size={16} />}
           </button>
@@ -172,7 +192,7 @@ export function CallPill() {
             type="button"
             aria-label="End call"
             onClick={() => { void emit('call-pill://end'); }}
-            className={cn(btn, 'bg-error text-white hover:opacity-90')}
+            className={cn(btn, 'bg-[#C8372D] text-white hover:bg-[#C8372D]/90')}
           >
             <PhoneOff size={16} />
           </button>
