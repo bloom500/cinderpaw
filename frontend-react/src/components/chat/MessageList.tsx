@@ -5,7 +5,7 @@ import {
 } from '@shadcn/react/message-scroller';
 import { useChat } from '@/stores/chat';
 import { cn } from '@/lib/utils';
-import { MessageItem } from './MessageItem';
+import { MessageItem, ReplyHead } from './MessageItem';
 import { useResendTurn } from '@/hooks/useResendTurn';
 import { StreamingIndicator } from './StreamingIndicator';
 
@@ -40,6 +40,14 @@ export function MessageList() {
   const last = messages[messages.length - 1];
   const hasActiveThinking = Boolean(last?.thinking && !last.thinkingComplete);
   const waitingForFirstToken = status === 'streaming' && last?.content === '' && !hasActiveThinking;
+  // The logo head goes after the latest reply only: moving while it is being
+  // written, still once there is a finished reply to sit under. Before the
+  // first token it is the status line's icon instead, so it is drawn once.
+  const head: 'writing' | 'still' | undefined =
+    last?.role !== 'assistant' || waitingForFirstToken ? undefined
+    : status === 'streaming' ? 'writing'
+    : last.content.trim() ? 'still'
+    : undefined;
 
   return (
     <MessageScroller.Provider autoScroll defaultScrollPosition="last-anchor">
@@ -78,6 +86,7 @@ export function MessageList() {
                 <MessageItem
                   message={m}
                   streaming={status === 'streaming' && i === messages.length - 1 && m.role === 'assistant'}
+                  head={i === messages.length - 1 ? head : undefined}
                   // Retry under a reply resends the question above it; Send under
                   // an edited question resends that one. Both drop everything
                   // below, which is why they are off while a reply is arriving.
@@ -94,7 +103,9 @@ export function MessageList() {
                 />
               </MessageScroller.Item>
             ))}
-            {waitingForFirstToken && <StreamingIndicator phase={agentPhase ?? 'thinking'} tool={agentTool} />}
+            {waitingForFirstToken && (
+              <StreamingIndicator phase={agentPhase ?? 'thinking'} tool={agentTool} icon={<ReplyHead writing />} />
+            )}
           </MessageScroller.Content>
         </MessageScroller.Viewport>
         <JumpToBottom count={messages.length} />

@@ -1,5 +1,7 @@
 import { memo, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion, useReducedMotion } from 'framer-motion';
+import logoUrl from '@/assets/logo.svg';
 import { AlertTriangle, FileText, File as FileIcon, Image as ImageIcon, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { parseUserAttachments, type DisplayAttachment } from '@/lib/attachmentDisplay';
@@ -103,6 +105,27 @@ function MessageAttachmentChip({ attachment }: { attachment: DisplayAttachment }
   );
 }
 
+/**
+ * The logo head at the end of the latest reply (spec 6). It stands in for a
+ * spinner: moving while the reply is being written, still once it is done.
+ * `prefers-reduced-motion` makes it still throughout.
+ */
+export function ReplyHead({ writing }: { writing: boolean }) {
+  const reduced = useReducedMotion();
+  const moving = writing && !reduced;
+  return (
+    <motion.img
+      src={logoUrl}
+      alt=""
+      data-testid="reply-head"
+      data-writing={writing}
+      className="h-7 w-7 shrink-0"
+      animate={moving ? { y: [0, -3, 0], rotate: [0, -5, 0] } : { y: 0, rotate: 0 }}
+      transition={moving ? { duration: 1.1, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.15 }}
+    />
+  );
+}
+
 // Memoized: the store rebuilds only the last (streaming) message object each
 // token, so completed messages keep their reference and skip the expensive
 // markdown re-parse + re-highlight on every streamed token.
@@ -111,9 +134,12 @@ export const MessageItem = memo(function MessageItem({
   streaming = false,
   onRetry,
   onEdit,
+  head,
 }: {
   message: ChatMessage;
   streaming?: boolean;
+  /** The logo head after this reply: only the latest reply carries one. */
+  head?: 'writing' | 'still';
   /** Send this turn again. Absent while a reply is still arriving. */
   onRetry?: () => void;
   /** Send this user turn again with different words. */
@@ -282,6 +308,7 @@ export const MessageItem = memo(function MessageItem({
           </div>
         </>
       )}
+      {head && <ReplyHead writing={head === 'writing'} />}
       {/* Only on a finished reply: a copy button beside text that is still
           arriving would copy half of it. */}
       {!streaming && (
