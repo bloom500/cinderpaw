@@ -27,11 +27,11 @@ beforeEach(() => {
 describe('SideNav', () => {
   it('is four rows, and no more', () => {
     mount();
-    for (const l of ['New', 'Search', 'Models', 'Settings']) {
+    for (const l of ['New chat', 'Search', 'Models', 'Settings']) {
       expect(screen.getByText(l)).toBeTruthy();
     }
     // The wordmark is identity rather than a destination.
-    expect(screen.getByText('CINDERPAW')).toBeTruthy();
+    expect(screen.getByText('Cinderpaw')).toBeTruthy();
     // Chats and Projects left: they were destinations that led to a page
     // listing what this rail already lists, and every row here now carries the
     // rename and delete that used to be the page's reason to exist.
@@ -96,7 +96,7 @@ describe('SideNav', () => {
   it('does not claim the list is empty before it has been read', () => {
     useConversations.setState({ loaded: false, list: [] as never });
     mount();
-    expect(screen.queryByText(/Nothing yet/i)).toBeNull();
+    expect(screen.queryByText(/Your chats will appear here/i)).toBeNull();
   });
 
   it('says which chat is open and which one is generating', () => {
@@ -120,7 +120,18 @@ describe('SideNav', () => {
   it('a fresh install explains the empty list instead of showing a blank strip', () => {
     useConversations.setState({ loaded: true } as never);
     mount();
-    expect(screen.getByText(/Nothing yet/i)).toBeTruthy();
+    expect(screen.getByText(/Your chats will appear here/i)).toBeTruthy();
+  });
+
+  it('New chat is one click, and New project is still reachable', async () => {
+    const user = userEvent.setup();
+    mount();
+    await user.click(screen.getByText('New chat'));
+    expect(navigate).toHaveBeenCalledWith('/chat');
+    // A fresh install has no PROJECTS heading, so the only door to a first
+    // project is this one.
+    await user.click(screen.getByLabelText('More to create'));
+    expect(screen.getByText('New project')).toBeTruthy();
   });
 
   it('Search opens the overlay rather than navigating', async () => {
