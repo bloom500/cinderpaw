@@ -32,7 +32,7 @@ export function BrandLogo({ id, name, className }: { id: string; name: string; c
       aria-hidden
       className={cn(
         'inline-flex size-10 shrink-0 items-center justify-center rounded-[11px] border border-border-default bg-bg-elevated',
-        'text-[17px] font-semibold text-text-primary',
+        'text-lg font-semibold text-text-primary',
         className,
       )}
     >

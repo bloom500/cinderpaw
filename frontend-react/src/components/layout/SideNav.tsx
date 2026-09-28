@@ -38,8 +38,8 @@ import { APP_NAME } from '@/lib/brand';
 
 export const NAV_W = 256;
 
-/** Section headings in the library: STARRED, PROJECTS, TODAY, ... (canvas: 11.5px, 0.08em). */
-const LABEL = 'px-3 pb-1.5 pt-3.5 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-text-disabled select-none';
+/** Section headings in the library: STARRED, PROJECTS, TODAY, ... (canvas: 0.08em tracking; 12px, the scale's step nearest its 11.5). */
+const LABEL = 'px-3 pb-1.5 pt-3.5 text-2xs font-semibold uppercase tracking-[0.08em] text-text-disabled select-none';
 /** Hover on the sidebar ground. `bg-hover` is the sidebar's own colour in light, so it would not show. */
 const ROW_HOVER = 'hover:bg-text-primary/5';
 /**
@@ -91,7 +91,7 @@ function Row({
         style={{ x: magnet.x, y: magnet.y }}
         className="flex shrink-0 items-center justify-center"
       >
-        <Icon size={18} strokeWidth={1.75} className="shrink-0 text-text-muted" />
+        <Icon size={16} strokeWidth={1.75} className="shrink-0 text-text-muted" />
       </motion.span>
       <AnimatePresence initial={false}>
         {!collapsed && (
@@ -108,7 +108,7 @@ function Row({
     </>
   );
   const classes = (isActive: boolean) => cn(
-    'w-full flex items-center gap-3 h-9 px-3 rounded-[10px] text-[14px] text-text-primary transition-colors cursor-pointer',
+    'w-full flex items-center gap-3 h-9 px-3 rounded-[10px] text-sm text-text-primary transition-colors cursor-pointer',
     collapsed && 'justify-center px-0',
     isActive ? 'bg-bg-active' : ROW_HOVER,
   );
@@ -229,7 +229,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
             {streamingIds[c.id] ? (
               <Loader2 size={12} className="shrink-0 animate-spin text-brand" aria-label="Generating" />
             ) : withStar && (
-              <Star size={15} className="shrink-0 fill-current text-brand" aria-hidden />
+              <Star size={14} className="shrink-0 fill-current text-brand" aria-hidden />
             )}
             <span className="truncate">{c.title}</span>
           </button>
@@ -467,7 +467,7 @@ export function SideNav() {
             Only elements carrying the attribute drag; the button stays a button. */}
         <div data-tauri-drag-region className="flex shrink-0 items-center gap-2.5 px-2 pb-4 pt-0.5">
           <img src={logoUrl} alt="" draggable={false} data-tauri-drag-region className="size-8 shrink-0" />
-          <span data-tauri-drag-region className="flex-1 select-none font-display text-[24px] leading-8 tracking-[-0.01em] text-text-primary">
+          <span data-tauri-drag-region className="flex-1 select-none font-display text-2xl tracking-[-0.01em] text-text-primary">
             {APP_NAME}
           </span>
           <button
@@ -488,10 +488,10 @@ export function SideNav() {
           <button
             type="button"
             onClick={newChat}
-            className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2.5 pl-3 pr-1 text-left text-[14.5px] font-semibold"
+            className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2.5 pl-3 pr-1 text-left text-sm font-semibold"
           >
             <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded-full bg-brand text-brand-foreground">
-              <Plus size={13} strokeWidth={2.5} />
+              <Plus size={12} strokeWidth={2.5} />
             </span>
             <span className="flex-1 truncate">New chat</span>
             <Kbd keys={[MOD, 'N']} />
