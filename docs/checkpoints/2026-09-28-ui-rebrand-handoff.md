@@ -254,7 +254,27 @@ Pull it before slice 17 or the two histories fork.
   decision, commitment, event; everything else, and no category, is Fact. Tiers and count tiles
   are gone; Notes and Dreams stay. Until the sidecar is rebuilt, every row reads Fact.
 
-Slice 17: Command palette sections and shortcuts (spec 7.5 Command palette).
+## Slice 17 decisions to keep (28 Sep, local, branch `feat/ui-s17-palette` on top of s16)
+
+- `lib/commands.ts` is the one list of the six named commands; SearchOverlay and
+  useGlobalHotkeys both run them. Keys: Ctrl N, Ctrl Shift A (new chat with "Create "),
+  Ctrl B (browser; not inside a contenteditable, where the editor's bold wins), Ctrl M
+  (Models; Ctrl on every OS because Cmd+M minimises on a Mac), Ctrl ,. Search memory
+  opens Settings > Memory and has no key. The old "Models" palette row is folded into
+  Switch model; slice 19 may point Switch model at the new switcher instead.
+- Browsing (nothing typed) shows the six under CREATE / EXPLORE / CONFIGURE, then RECENT.
+  Enter on an empty field runs New chat.
+
+## Context and Dock look (28 Sep, same branch, 1e2330d)
+
+Slice 14 built them without an artboard, so they kept the old shell; Darius sent a Context
+board (tabs All/Files/Links/Memory with counts, search, grouped rows with tiles, "+ Add",
+"..." menus). Built to it, keeping only rows with data: no "Current file", no filter button.
+"+ Add" fills the composer (files via the dialog + `attachPaths`, "Read this page: ",
+"Remember that "). The panel-level Artifacts/Context underline tabs stay above the heading.
+
+Slice 18: Browser tabs, agent badge, page summary; voice pill; done toast. Read "Darius on
+the Browser" above first: look may change, behaviour may not.
 
 ## Open question: the mascot medium
 
