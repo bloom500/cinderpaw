@@ -4,6 +4,8 @@ import { ArtifactsPanel } from '../ArtifactsPanel';
 import { useArtifacts, resetArtifactRequests, googlePlan, type ArtifactRow } from '@/stores/artifacts';
 import { APP_IFRAME_SANDBOX } from '@/lib/artifactSandbox';
 import { tauri } from '@/lib/tauri';
+import { useChat, type ChatMessage } from '@/stores/chat';
+import { useUI } from '@/stores/ui';
 
 /**
  * The panel is where the store stops being a capability of the agent's and
@@ -49,8 +51,9 @@ beforeEach(() => {
   resetArtifactRequests();
   op.mockClear();
   useArtifacts.setState({
-    rows: [], loaded: false, open: null, busy: false, error: null, lastExport: null,
+    rows: [], loaded: false, open: null, busy: false, error: null, lastExport: null, panelTab: 'artifacts', showingArchived: false,
   });
+  useChat.setState({ messages: [] });
 });
 afterEach(cleanup);
 
@@ -59,14 +62,14 @@ describe('the list', () => {
     render(<ArtifactsPanel onClose={() => {}} />);
     // The mistake this pins: the fresh-install sentence shown to someone with a
     // dozen artifacts, because "empty" and "not asked yet" looked the same.
-    expect(screen.queryByText(/Nothing here yet/)).toBeNull();
+    expect(screen.queryByText(/land here/)).toBeNull();
   });
 
   it('says what to do about an empty workspace, not that it is empty', async () => {
     render(<ArtifactsPanel onClose={() => {}} />);
     await waitFor(() => expect(op).toHaveBeenCalled());
     useArtifacts.getState().onResult({ id: idOfCall(0), ok: true, items: [] });
-    expect(await screen.findByText(/Ask Cinderpaw to write something up/)).toBeInTheDocument();
+    expect(await screen.findByText(/Make me a one-page plan/)).toBeInTheDocument();
   });
 
   it('lists what exists and opens one on click', async () => {
@@ -544,5 +547,59 @@ describe('Send to Google Docs', () => {
   it('a PDF goes as a PDF, and a Word file has no button', () => {
     expect(googlePlan('pdf')).toEqual({ mime: 'application/pdf', convert: false });
     expect(googlePlan('docx')).toBeNull();
+  });
+});
+
+describe('the Artifact Dock', () => {
+  it("puts this chat's artifacts first as cards, with type and size, and the rest below", async () => {
+    useChat.setState({ messages: [{
+      id: 'm1', role: 'assistant', content: '', createdAt: 0,
+      toolActivity: [{ id: 't', tool: 'artifact', kind: 'artifact', subject: '', status: 'done', startedAt: 0, endedAt: 1,
+        note: null, hits: [], files: [], output: '', cwd: '', facts: [], desktop: null, error: null,
+        artifact: { id: 'mine', title: 'Launch plan', kind: 'document', version: 1, path: null } }],
+    } as ChatMessage] });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    await waitFor(() => expect(op).toHaveBeenCalled());
+    useArtifacts.getState().onResult({ id: idOfCall(0), ok: true, items: [
+      row({ id: 'other', title: 'Old notes' }),
+      row({ id: 'mine', title: 'Launch plan', kind: 'document', bytes: 12 * 1024 }),
+    ] });
+    const dock = (await screen.findByText('In this chat')).closest('section')!;
+    expect(dock).toHaveTextContent('Launch plan');
+    expect(dock).toHaveTextContent('Document, 12 KB');
+    expect(dock).not.toHaveTextContent('Old notes');
+    expect(screen.getByText('Everything else')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'export')).toBe(true));
+  });
+
+  it('shows no dock for a chat that made nothing', async () => {
+    render(<ArtifactsPanel onClose={() => {}} />);
+    await waitFor(() => expect(op).toHaveBeenCalled());
+    useArtifacts.getState().onResult({ id: idOfCall(0), ok: true, items: [row()] });
+    expect(await screen.findByText('Q3 report')).toBeInTheDocument();
+    expect(screen.queryByText('In this chat')).toBeNull();
+  });
+});
+
+describe('the Context tab', () => {
+  it('says what will show up in a new chat, and lists the Chat mode tools as switches', async () => {
+    useUI.setState({ inputMode: 'chat', enabledTools: [] });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Context' }));
+    expect(screen.getByText(/Nothing here yet. Files you add/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('switch', { name: /Web search/ }));
+    expect(useUI.getState().enabledTools).toContain('web_search');
+  });
+
+  it("lists the chat's files, and says Agent mode picks its own tools", () => {
+    useUI.setState({ inputMode: 'agent' });
+    useChat.setState({ messages: [{ id: 'u', role: 'user', content: '[Image attached: cat.png]\n\nhi', createdAt: 0 }] });
+    useArtifacts.setState({ panelTab: 'context' });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Files attached' })).toHaveTextContent('cat.png');
+    expect(screen.queryByText(/Nothing here yet/)).toBeNull();
+    expect(screen.getByText(/In Agent mode Cinderpaw picks/)).toBeInTheDocument();
   });
 });

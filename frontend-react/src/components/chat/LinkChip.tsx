@@ -14,7 +14,7 @@ const iconSources = (host: string) => [
   `https://icons.duckduckgo.com/ip3/${host}.ico`,
 ];
 
-function SiteIcon({ href }: { href: string }) {
+export function SiteIcon({ href }: { href: string }) {
   const host = linkHost(href);
   const [attempt, setAttempt] = useState(0);
   const icon = host ? iconSources(host)[attempt] : undefined;

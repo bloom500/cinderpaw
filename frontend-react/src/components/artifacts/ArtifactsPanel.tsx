@@ -1,5 +1,5 @@
 import { panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Archive, ArchiveRestore, ArrowLeft, Check, Download, FileBox, FileUp, Loader2, MessageSquare, Pencil, Trash2, X } from 'lucide-react';
 import {
@@ -29,6 +29,10 @@ function Loading() {
   );
 }
 import { useArtifacts, googlePlan, type ArtifactRow } from '@/stores/artifacts';
+import { ContextTab } from './ContextTab';
+import { artifactKind, artifactSize } from '@/components/chat/ArtifactCard';
+import { chatContext } from '@/lib/chatContext';
+import { useChat } from '@/stores/chat';
 import { ExternalLink } from '@/components/chat/ExternalLink';
 import { cn, readLocal, writeLocal } from '@/lib/utils';
 import { tauri } from '@/lib/tauri';
@@ -74,7 +78,7 @@ export function ArtifactsPanel({
   const {
     rows, loaded, open, busy, error, lastExport, refresh, close, exportArtifact, deleteArtifact,
     editing, startEdit, cancelEdit, save, importPdf, showingArchived, showArchived,
-    google, sendToGoogle,
+    google, sendToGoogle, panelTab: tab, setPanelTab: setTab,
   } = useArtifacts();
   // Delete is for good now, so the header's Delete asks first, in the panel.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -179,7 +183,28 @@ export function ArtifactsPanel({
       {/* flex-wrap: at the panel's narrowest (320px) six 32px actions left the
           title two characters ("Rap…", 20 Sep). Wrapped, the actions drop
           under the title instead of eating it; wide, nothing changes. */}
-      <ArtifactHeader className="flex-wrap px-3 pb-2.5 pt-6">
+      {/* The tabs (spec 2, right panel). The Browser keeps its own panel for now. */}
+      <div role="tablist" aria-label="Side panel" className="flex shrink-0 items-end gap-5 border-b border-border-subtle pl-4 pr-3 pt-6">
+        {(['artifacts', 'context'] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            role="tab"
+            aria-selected={tab === t}
+            onClick={() => setTab(t)}
+            className={cn(
+              'h-10 border-b-2 px-0.5 text-sm transition-colors',
+              tab === t ? 'border-brand font-medium text-text-primary' : 'border-transparent text-text-muted hover:text-text-primary',
+            )}
+          >
+            {t === 'artifacts' ? 'Artifacts' : 'Context'}
+          </button>
+        ))}
+        <div className="flex-1" />
+        <ArtifactClose onClick={onClose} aria-label="Close panel" className="mb-1.5" />
+      </div>
+      {tab === 'context' ? <ContextTab /> : <>
+      <ArtifactHeader className="flex-wrap px-3 py-2.5">
         <div className="flex min-w-[10rem] flex-1 items-center gap-2">
           {open && !editing ? (
             <ArtifactAction tooltip="Back to the list" icon={ArrowLeft} onClick={close} />
@@ -264,7 +289,6 @@ export function ArtifactsPanel({
               onClick={() => setConfirmingDelete(true)}
             />
           )}
-          <ArtifactClose onClick={onClose} aria-label="Close artifacts" />
         </ArtifactActions>
       </ArtifactHeader>
 
@@ -299,6 +323,7 @@ export function ArtifactsPanel({
       ) : (
         <List rows={rows} loaded={loaded} busy={busy} lastExport={lastExport} />
       )}
+      </>}
     </motion.aside>
   );
 }
@@ -312,6 +337,8 @@ function List({
   lastExport: { path: string; note: string } | null;
 }) {
   const showingArchived = useArtifacts((s) => s.showingArchived);
+  const messages = useChat((s) => s.messages);
+  const chatArtifactIds = useMemo(() => chatContext(messages).artifactIds, [messages]);
 
   // Three states, not two. Before the first read comes back, "nothing here yet"
   // is a sentence about a fresh install being shown to someone with a dozen —
@@ -337,13 +364,19 @@ function List({
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
         <FileBox size={20} className="text-text-muted" />
-        <p className="text-xs text-text-muted">
-          Nothing here yet. Ask Cinderpaw to write something up, or make you a chart, and it
-          lands here instead of scrolling away.
-        </p>
+        {/* Spec 11, first run. */}
+        <p className="text-xs text-text-muted">Things Cinderpaw makes for you land here.</p>
+        <p className="text-xs text-text-disabled">Try: "Make me a one-page plan for this week."</p>
       </div>
     );
   }
+
+  // The Artifact Dock (spec 7.5): this chat's artifacts first, as large
+  // cards; everything else below, as rows. Archived ones are not docked.
+  const docked = showingArchived ? [] : chatArtifactIds
+    .map((id) => rows.find((r) => r.id === id))
+    .filter((r): r is ArtifactRow => !!r);
+  const rest = rows.filter((r) => !docked.includes(r));
 
   return (
     <>
@@ -351,8 +384,17 @@ function List({
         <SavedLine saved={lastExport} />
       )}
       <ScrollArea className="flex-1">
+        {docked.length > 0 && (
+          <section aria-label="In this chat" className="flex flex-col gap-2 px-3 pb-1 pt-3">
+            <h3 className="text-2xs font-semibold uppercase tracking-wider text-text-disabled">In this chat</h3>
+            {docked.map((r) => <DockCard key={r.id} row={r} busy={busy} />)}
+          </section>
+        )}
+        {docked.length > 0 && rest.length > 0 && (
+          <h3 className="px-3 pt-4 text-2xs font-semibold uppercase tracking-wider text-text-disabled">Everything else</h3>
+        )}
         <ul className="flex flex-col gap-1 p-2">
-          {rows.map((r) => (
+          {rest.map((r) => (
             <li key={r.id}>
               <RowItem row={r} busy={busy} archived={showingArchived} />
             </li>
@@ -360,6 +402,48 @@ function List({
         </ul>
       </ScrollArea>
     </>
+  );
+}
+
+/** One of this chat's artifacts in the Dock: large tile, title, type and size, Open, Export. */
+function DockCard({ row, busy }: { row: ArtifactRow; busy: boolean }) {
+  const openArtifact = useArtifacts((s) => s.openArtifact);
+  const exportArtifact = useArtifacts((s) => s.exportArtifact);
+  const Icon = artifactKind(row.kind).icon;
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl border border-border-default bg-bg-elevated p-3">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void openArtifact(row.id)}
+        aria-label={`Open ${row.title}`}
+        className="flex h-24 items-center justify-center rounded-xl bg-bg-active text-brand disabled:opacity-60"
+      >
+        <Icon size={28} />
+      </button>
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-text-primary" title={row.title}>{row.title}</p>
+          <p className="truncate text-2xs text-text-muted">{artifactSize(row.kind, row.bytes)}</p>
+        </div>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void exportArtifact(row.id)}
+          className="h-8 shrink-0 rounded-lg px-2.5 text-sm text-text-muted hover:bg-text-primary/5 hover:text-text-primary disabled:opacity-60"
+        >
+          Export
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void openArtifact(row.id)}
+          className="h-8 shrink-0 rounded-lg border border-border-default bg-bg-surface px-3.5 text-sm font-medium text-text-primary hover:bg-text-primary/5 disabled:opacity-60"
+        >
+          Open
+        </button>
+      </div>
+    </div>
   );
 }
 

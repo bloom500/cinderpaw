@@ -19,7 +19,7 @@ export const CHAT_TOOLS: ReadonlyArray<{ id: ToolId; label: string; hint: string
   { id: 'code_execute', label: 'Run code',     hint: 'Run code to work something out' },
 ];
 
-function SwitchRow({ label, hint, checked, onChange }: {
+export function SwitchRow({ label, hint, checked, onChange }: {
   label: string;
   hint: string;
   checked: boolean;

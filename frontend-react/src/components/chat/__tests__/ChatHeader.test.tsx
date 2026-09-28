@@ -9,6 +9,7 @@ import userEvent from '@testing-library/user-event';
 import { ChatHeader } from '../ChatHeader';
 import { useConversations } from '@/stores/conversations';
 import { useProjects } from '@/stores/projects';
+import { useArtifacts } from '@/stores/artifacts';
 
 // The download store subscribes to host events when it is imported; there is no host here.
 vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
@@ -33,6 +34,16 @@ describe('ChatHeader', () => {
     expect(screen.getByText(CHAT.title)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Chat options' })).toBeTruthy();
     expect(screen.queryByText(/^in /)).toBeNull();
+  });
+
+  it('opens the Context tab, and closes it again', async () => {
+    useConversations.setState({ currentId: 'c1' });
+    useArtifacts.setState({ panelOpen: false, panelTab: 'artifacts' });
+    render(<ChatHeader />);
+    await userEvent.click(screen.getByRole('button', { name: 'Chat context' }));
+    expect(useArtifacts.getState()).toMatchObject({ panelOpen: true, panelTab: 'context' });
+    await userEvent.click(screen.getByRole('button', { name: 'Chat context' }));
+    expect(useArtifacts.getState().panelOpen).toBe(false);
   });
 
   it('names the project the chat is in', () => {

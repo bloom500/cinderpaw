@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 
 type Status = 'idle' | 'busy' | 'done' | 'failed';
 
-function Row({ m }: { m: MemoryUsedItem }) {
+export function MemoryRow({ m }: { m: MemoryUsedItem }) {
   const [status, setStatus] = useState<Status>('idle');
   const forget = async () => {
     if (!m.forget) return;
@@ -66,7 +66,7 @@ export function MemoryPeek({ items }: { items: MemoryUsedItem[] }) {
       </button>
       {open && (
         <ul className="mt-1.5 rounded-xl border border-border-subtle bg-bg-surface px-3 py-1">
-          {items.map((m, i) => <Row key={`${m.kind}-${i}`} m={m} />)}
+          {items.map((m, i) => <MemoryRow key={`${m.kind}-${i}`} m={m} />)}
         </ul>
       )}
     </div>

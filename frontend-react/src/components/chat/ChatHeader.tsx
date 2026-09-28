@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, PanelRight } from 'lucide-react';
 import { useConversations } from '@/stores/conversations';
 import { useProjects } from '@/stores/projects';
+import { useArtifacts } from '@/stores/artifacts';
+import { useBrowser } from '@/stores/browser';
 import { ConversationActions, RenameDialog } from '@/components/items/ItemActions';
 
 export function ChatHeader() {
@@ -11,6 +13,13 @@ export function ChatHeader() {
   const project   = useProjects((s) =>
     current ? s.list.find((p) => p.conversation_ids.includes(current.id)) : undefined);
   const [renaming, setRenaming] = useState(false);
+  const contextOpen = useArtifacts((s) => s.panelOpen && s.panelTab === 'context');
+  // The Context tab exists for every chat (spec 7.5); this is its way in.
+  const toggleContext = () => {
+    if (contextOpen) { useArtifacts.setState({ panelOpen: false }); return; }
+    useBrowser.getState().setPanel(false);
+    useArtifacts.setState({ panelOpen: true, panelTab: 'context' });
+  };
 
   if (!current) {
     // No title and no menu on Home: there is no conversation to name yet, and
@@ -44,6 +53,16 @@ export function ChatHeader() {
         </span>
       )}
       <div data-tauri-drag-region className="flex-1 self-stretch" />
+      <button
+        type="button"
+        aria-label="Chat context"
+        aria-pressed={contextOpen}
+        title="Context"
+        onClick={toggleContext}
+        className="h-8 w-8 flex items-center justify-center rounded-full border border-border-default text-text-muted hover:text-text-primary hover:bg-text-primary/5 shrink-0"
+      >
+        <PanelRight size={16} />
+      </button>
       <ConversationActions
         conv={current}
         side="bottom"

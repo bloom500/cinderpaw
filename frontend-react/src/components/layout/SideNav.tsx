@@ -381,8 +381,11 @@ export function SideNav() {
   // goes there and opens it, rather than toggling something off screen.
   const openArtifacts = () => {
     useBrowser.getState().setPanel(false);
-    if (pathname === '/chat') { useArtifacts.getState().togglePanel(); return; }
-    useArtifacts.setState({ panelOpen: true });
+    // On the Context tab, the row switches to Artifacts rather than closing.
+    const st = useArtifacts.getState();
+    if (pathname === '/chat' && st.panelOpen && st.panelTab === 'artifacts') { st.togglePanel(); return; }
+    useArtifacts.setState({ panelOpen: true, panelTab: 'artifacts' });
+    if (pathname === '/chat') return;
     navigate('/chat');
   };
   const browserOpen = useBrowser((s) => s.panelOpen);
