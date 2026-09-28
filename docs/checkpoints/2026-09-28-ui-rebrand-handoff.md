@@ -14,7 +14,7 @@ Branch chain, each stacked on the previous:
 | `feat/ui-s1-foundation` | 0049db0 | slice 1: palette, OS theme default, Young Serif, Solid default |
 | `feat/ui-s2-brand-logos` | 096eec4 | slice 2: 41 bundled brand logos, `<BrandLogo>` |
 | `feat/ui-s3-sidebar` | 9b220c6 | slice 3: sidebar + starred chats, plus the docs and design sources |
-| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) slice 5 (5a message shapes, 5b logo head, 5c artifact card) slice 6 (6a Activity Strip, 6b helpers + chips) slice 7 (7a `show_widget` in the sidecar, 7b the seven renderers) and slice 8 (image cache, real card pictures) slice 9 (9a source chips, 9b pasted-text card, 9c drop overlay) slice 10 (10a `memory_used` in the sidecar, 10b Memory Peek) and slice 11 (Home) |
+| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) slice 5 (5a message shapes, 5b logo head, 5c artifact card) slice 6 (6a Activity Strip, 6b helpers + chips) slice 7 (7a `show_widget` in the sidecar, 7b the seven renderers) and slice 8 (image cache, real card pictures) slice 9 (9a source chips, 9b pasted-text card, 9c drop overlay) slice 10 (10a `memory_used` in the sidecar, 10b Memory Peek) slice 11 (Home) and slice 12 (Connect step) |
 
 `claude/rebrand-spec-f87jrk` contains everything above it. Continue from there, one branch per slice.
 
@@ -56,7 +56,7 @@ light (same colour); use `hover:bg-text-primary/5`.
   appears wherever a chat menu does. Pruned once, at the first successful non-empty list read: a
   failed read also ends with an empty list, and Undo after a delete must keep the star.
 
-## Owed before merging slices 1-11
+## Owed before merging slices 1-12
 
 1. Darius looks at them in the running app (from this branch).
 2. `./scripts/verify.sh` green.
@@ -170,11 +170,20 @@ instance the app uses. A screenshot is a preview, not the "Darius sees it in the
   in HomeIntents.tsx. Both only fill the composer.
 - `saveUserName` in stores/onboarding.ts persists only when `hasOnboardedBefore`.
 
+## Slice 12 decisions to keep (28 Sep)
+
+- `components/onboarding/ConnectStep.tsx`, step 3 of 6 (`STEP_IDS` gained `connect`). `TOOL_IDS` and
+  `CHAT_IDS` name the cards and their order; other transports sit behind "N more"; `coming_soon`
+  ones are never shown.
+- "+" opens a dialog with the Settings forms (`CatalogCard` from ExtensionsPage, `ConnectorCard`
+  from ConnectorsPage, both now exported), so connecting here is real.
+- Google Docs is shown without a button: `google.connect()` opens consent in the Browser panel,
+  which the wizard covers.
+
 ## Next
 
-Slice 12: Connect your world step in the onboarding wizard (spec 7.3): real integrations only, the
-MCP presets from `src-tauri/src/mcp.rs` plus Google Docs, and the chat transports; nothing selected,
-Skip always there. Uses the bundled brand logos from slice 2.
+Slice 13: approval cards in the chat (spec 7.5): the real escalation class from
+`cowork/approval.ts` as the badge, Deny / Approve, expiry denies and the card says so.
 
 ## Open question: the mascot medium
 
