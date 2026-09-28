@@ -14,7 +14,7 @@ Branch chain, each stacked on the previous:
 | `feat/ui-s1-foundation` | 0049db0 | slice 1: palette, OS theme default, Young Serif, Solid default |
 | `feat/ui-s2-brand-logos` | 096eec4 | slice 2: 41 bundled brand logos, `<BrandLogo>` |
 | `feat/ui-s3-sidebar` | 9b220c6 | slice 3: sidebar + starred chats, plus the docs and design sources |
-| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) slice 5 (5a message shapes, 5b logo head, 5c artifact card) slice 6 (6a Activity Strip, 6b helpers + chips) slice 7 (7a `show_widget` in the sidecar, 7b the seven renderers) and slice 8 (image cache, real card pictures) slice 9 (9a source chips, 9b pasted-text card, 9c drop overlay) slice 10 (10a `memory_used` in the sidecar, 10b Memory Peek) slice 11 (Home) slice 12 (Connect step) and slice 13 (approval cards) |
+| `claude/rebrand-spec-f87jrk` | this file | slice 4 (4a Tools menu + chips, 4b header, 4c perch + Agent Pulse) slice 5 (5a message shapes, 5b logo head, 5c artifact card) slice 6 (6a Activity Strip, 6b helpers + chips) slice 7 (7a `show_widget` in the sidecar, 7b the seven renderers) and slice 8 (image cache, real card pictures) slice 9 (9a source chips, 9b pasted-text card, 9c drop overlay) slice 10 (10a `memory_used` in the sidecar, 10b Memory Peek) slice 11 (Home) slice 12 (Connect step) slice 13 (approval cards) and slice 14 (14a Context tab, 14b Artifact Dock, 14c follow-up chips) |
 
 `claude/rebrand-spec-f87jrk` contains everything above it. Continue from there, one branch per slice.
 
@@ -56,7 +56,7 @@ light (same colour); use `hover:bg-text-primary/5`.
   appears wherever a chat menu does. Pruned once, at the first successful non-empty list read: a
   failed read also ends with an empty list, and Undo after a delete must keep the star.
 
-## Owed before merging slices 1-13
+## Owed before merging slices 1-14
 
 1. Darius looks at them in the running app (from this branch).
 2. `./scripts/verify.sh` green.
@@ -192,10 +192,31 @@ instance the app uses. A screenshot is a preview, not the "Darius sees it in the
   size outside `cn()` in that case (see the ApprovalCard badge), or teach `cn` with
   `extendTailwindMerge` in its own change.
 
+## Slice 14 decisions to keep (28 Sep)
+
+- The side panel has tabs Artifacts | Context (`panelTab` in stores/artifacts.ts; a new artifact on
+  screen switches back to Artifacts). The Browser keeps its own panel until slice 18; the canvas's
+  third tab is not drawn yet. The Context tab opens from a button in ChatHeader ("Chat context").
+- `lib/chatContext.ts` reads the chat's messages: files (the `[File: ]` markers), sources (only the
+  hits a reply cited, plus `read_webpage`/`fetch_url` pages), memories (Memory Peek's two sources),
+  artifact ids (newest first). Pending approvals come from coworkTranscript, and ApprovalCard is
+  reused there, so a request can be answered from the chat or from Context. Tools: the Chat mode
+  switches (`SwitchRow`/`CHAT_TOOLS` exported from ToolsMenu); Agent mode says it picks its own.
+- Favicons use LinkChip's `SiteIcon` (the site's /favicon.ico, then DuckDuckGo), not the image cache.
+- Dock: the Artifacts list puts this chat's artifacts first ("In this chat", large cards, "Document,
+  12 KB", Export, Open), the rest under "Everything else". No thumbnails, no page counts (nothing
+  reads them yet); Export is the only download on the desktop, so there is no second button.
+- Follow-ups: `show_widget` kind `followups` with its own `next: string[]` (1-4, 80 chars), so the
+  schema stays strict. Not drawn in place, not a step; `FollowUps.tsx` under the LATEST finished
+  reply only (`onFollowUp` from ChatPage through MessageList), a chip fills the composer.
+- verify.sh in the cloud session: agent tests + tsc, React tests + tsc, TUI tests + build green. The
+  web-app step fails (bun 1.3.11 cannot read `web-app/bun.lock` v2) and `cargo check` cannot build
+  here (no `gdk-3.0` in the container). Slice 14 touches neither web-app nor Rust; run the full
+  script on Darius's machine before merging.
+
 ## Next
 
-Slice 14: Context tab for every chat + Artifact Dock + follow-up chips (spec 7.5). Check first what
-the right panel (ArtifactsPanel) and its tabs look like today.
+Slice 15: Coworker Strip + Dreaming card + error card (spec 7.5, 6 "Error card").
 
 ## Open question: the mascot medium
 
@@ -212,3 +233,5 @@ After each task, a short lesson on ONE TypeScript concept from that diff: he gue
 (two or three options work best), then the explanation. Done: default parameter,
 on `renderChatRows(items, withStar = false)` in `SideNav.tsx`. Current: `?.` and `??`, on
 `s.cloudModel?.modelId ?? s.loaded?.name ?? ''` in `ToolsMenu.tsx` (asked 28 Sep, answer pending).
+Next after it: the type predicate `(r): r is ArtifactRow => !!r` in the Dock (`ArtifactsPanel.tsx`),
+asked 28 Sep with slice 14.
