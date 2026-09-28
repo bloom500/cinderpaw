@@ -17,6 +17,14 @@ export function GeneralTab() {
   const save        = useSettings((s) => s.save);
   const saved       = useSettings((s) => s.saved);
   const reopenOnboarding = useOnboarding((s) => s.reopen);
+  const userName     = useOnboarding((s) => s.userName);
+  const saveUserName = useOnboarding((s) => s.saveUserName);
+  // A draft while typing; saved on Enter or when the field is left.
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const commitName = () => {
+    if (nameDraft !== null && nameDraft.trim() !== userName) saveUserName(nameDraft);
+    setNameDraft(null);
+  };
 
   const handleChangeFolder = async () => {
     const selected = await openDialog({ directory: true, multiple: false });
@@ -54,6 +62,24 @@ export function GeneralTab() {
   return (
     <div className="space-y-6">
       <h2 className="text-lg font-semibold text-text-primary">General</h2>
+
+      {/* The name the Home greeting uses ("Good evening, Darius"). Asked during
+          onboarding; this is where it can be set or changed later. */}
+      <div className={rowCls}>
+        <div>
+          <label htmlFor="call-you" className="text-sm font-medium text-text-primary">What should Cinderpaw call you?</label>
+          <p className="text-xs text-text-muted mt-0.5">Used in the greeting on Home. Leave it empty for none.</p>
+        </div>
+        <input
+          id="call-you"
+          value={nameDraft ?? userName}
+          onChange={(e) => setNameDraft(e.target.value)}
+          onBlur={commitName}
+          onKeyDown={(e) => { if (e.key === 'Enter') commitName(); }}
+          placeholder="Your name"
+          className="w-48 shrink-0 rounded-lg border border-border-default bg-bg-elevated px-3 py-1.5 text-sm text-text-primary outline-hidden focus:border-brand"
+        />
+      </div>
 
       {/* App version */}
       <div className={rowCls}>

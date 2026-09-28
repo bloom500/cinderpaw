@@ -10,17 +10,27 @@ import { tauri } from '@/lib/tauri';
  * intents rots the same way, and the count is the only thing that catches it.
  */
 describe('HomeIntents', () => {
-  it('offers exactly four intents, in the order the contract names', () => {
+  it('offers exactly four intents, in the order the contract names, then the five suggestions', () => {
     render(<HomeIntents onPick={() => {}} />);
-    const labels = screen.getAllByRole('button').map((b) => b.textContent);
-    expect(labels).toEqual(['Research', 'Create', 'Analyze', 'Automate']);
+    const names = screen.getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent);
+    expect(names).toEqual([
+      'Research', 'Create', 'Analyze', 'Automate',
+      'Plan my week', 'Summarize a PDF', 'Compare three laptops', 'Draft an email', 'Explain a topic simply',
+    ]);
+  });
+
+  it('a suggestion fills the composer and stops there too', async () => {
+    const onPick = vi.fn();
+    render(<HomeIntents onPick={onPick} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Draft an email' }));
+    expect(onPick).toHaveBeenCalledWith('Draft an email');
   });
 
   it('fills the composer and stops there', async () => {
     const user = userEvent.setup();
     const onPick = vi.fn();
     render(<HomeIntents onPick={onPick} />);
-    await user.click(screen.getByText('Research'));
+    await user.click(screen.getByRole('button', { name: 'Research' }));
     // A stem to continue, with the trailing space, not a whole sentence and not
     // a send: the product does not guess what the user meant to ask.
     expect(onPick).toHaveBeenCalledWith('Research ');

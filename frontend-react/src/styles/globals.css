@@ -77,6 +77,10 @@
   --text-3xl: 32px;
   --text-3xl--line-height: 38px;
   --text-3xl--letter-spacing: -0.025em;
+  /* Display step (spec 3.2): the home greeting, Young Serif only. */
+  --text-display: 56px;
+  --text-display--line-height: 64px;
+  --text-display--letter-spacing: -0.02em;
 
   /* Display face. `font-display` in markup; never with font-semibold/bold. */
   --font-display: 'Young Serif', Georgia, serif;
