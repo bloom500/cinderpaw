@@ -1,7 +1,7 @@
 import { act, cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ArtifactsPanel } from '../ArtifactsPanel';
-import { useArtifacts, resetArtifactRequests, googlePlan, type ArtifactRow } from '@/stores/artifacts';
+import { useArtifacts, resetArtifactRequests, googlePlan, shownKind, type ArtifactRow } from '@/stores/artifacts';
 import { APP_IFRAME_SANDBOX } from '@/lib/artifactSandbox';
 import { tauri } from '@/lib/tauri';
 import { useChat, type ChatMessage } from '@/stores/chat';
@@ -679,5 +679,23 @@ describe('a chat in a project (spec 9)', () => {
     expect(text).toContain('## Project: Trip');
     expect(text).toContain('Budget 2000 EUR.');
     expect(text).toContain('- a.pdf: C:/p/a.pdf');
+  });
+});
+
+// 30 Sep: a report the agent wrote in Markdown but saved as a 'document' showed
+// as one run-on line of #, | and **, because a document is framed as HTML.
+describe('a document written in Markdown', () => {
+  it('reads as formatted text, with its headings, not as raw symbols', async () => {
+    useArtifacts.setState({
+      loaded: true, editing: null, google: null,
+      open: { row: row({ kind: 'document', title: 'Rețete' }), content: '# Trei rețete\n\n**Verdict:** chili-ul.', showing: 1, versions: [] },
+    });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    expect(await screen.findByRole('heading', { name: 'Trei rețete' })).toBeInTheDocument();
+  });
+
+  it('goes to Google Docs as text, not as a web page', () => {
+    expect(googlePlan(shownKind('document', '# Trei rețete'))).toEqual({ mime: 'text/plain', convert: true });
+    expect(shownKind('document', '<p>hi</p>')).toBe('document');
   });
 });

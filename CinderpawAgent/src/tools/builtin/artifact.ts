@@ -37,6 +37,7 @@ import { canAskAHuman, permissionMode } from "../../core/permission-mode.ts";
 import {
   ArtifactStore,
   isArtifactKind,
+  looksLikeHtml,
   type Artifact,
   type ArtifactKind,
 } from "../../artifacts/store.ts";
@@ -170,7 +171,9 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       "chat scrolls away and cannot be edited or exported. Returns a stable id " +
       "you can change later by name, from any surface: chat, a voice call, or a " +
       "connected chat app.\n\n" +
-      "Kinds: document (prose, as HTML), markdown, app (see below), table (JSON " +
+      "Kinds: markdown (prose: reports, plans, notes, drafts, comparisons; it renders " +
+      "headings, lists and tables, and exports to PDF or Word), document (only for prose " +
+      "you write as HTML), app (see below), table (JSON " +
       "rows), code, json, html, file, pdf (write the content as markdown: # headings, " +
       "paragraphs, - lists; it becomes a real A4 PDF the user can sign and fill in the panel).\n\n" +
       "app = " + APP_AUTHORING_BRIEF + " Charts are apps: there is no separate " +
@@ -186,29 +189,33 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       kind: {
         type: "string",
         description:
-          "document | markdown | app | table | code | json | html | file | pdf. " +
-          "Pick 'document' for prose the user will read, 'markdown' for notes.",
+          "markdown | document | app | table | code | json | html | file | pdf. " +
+          "Pick 'markdown' for anything the user will read; 'pdf' when they asked for a PDF.",
         required: true,
       },
       title: { type: "string", description: "Short human title, one line.", required: true },
       content: { type: "string", description: "The full content.", required: true },
     },
     async execute(args, ctx) {
-      const kind = args.kind;
-      if (!isArtifactKind(kind)) {
+      const asked = args.kind;
+      if (!isArtifactKind(asked)) {
         return {
           ok: false,
           error: "bad_args",
-          content: `artifact_create: unknown kind "${String(kind)}".`,
+          content: `artifact_create: unknown kind "${String(asked)}".`,
         };
       }
+      // Prose sent as a 'document' in Markdown is stored as markdown, where it
+      // renders and exports properly (see looksLikeHtml).
+      const kind: ArtifactKind =
+        asked === "document" && typeof args.content === "string" && !looksLikeHtml(args.content) ? "markdown" : asked;
       if (!ArtifactStore.isTextKind(kind) && kind !== "pdf") {
         return {
           ok: false,
           error: "bad_args",
           content:
             `artifact_create cannot author a ${kind} from text. ` +
-            "Create the content as a 'document' and export it instead.",
+            "Create the content as 'markdown' and export it to that format instead.",
         };
       }
       const title = typeof args.title === "string" ? args.title : "";

@@ -64,6 +64,16 @@ const KINDS: ReadonlySet<string> = new Set<ArtifactKind>([
   "document", "markdown", "app", "table", "code", "json", "html", "pdf", "docx", "image", "file",
 ]);
 
+/**
+ * Whether text is HTML (a block tag somewhere) rather than Markdown or plain
+ * prose. A 'document' is HTML; models tend to write Markdown into it anyway,
+ * and framed as a web page Markdown collapses into one line of raw symbols.
+ * A stray inline tag such as <br> in a sentence does not count.
+ */
+export function looksLikeHtml(text: string): boolean {
+  return /<(p|div|h[1-6]|ul|ol|li|table|tr|section|article|header|body|html|blockquote|pre)\b[^>]*>/i.test(text);
+}
+
 export function isArtifactKind(v: unknown): v is ArtifactKind {
   return typeof v === "string" && KINDS.has(v);
 }

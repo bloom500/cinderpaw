@@ -209,7 +209,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   sendToGoogle: async () => {
     const open = get().open;
     if (!open) return;
-    const plan = googlePlan(open.row.kind);
+    const plan = googlePlan(shownKind(open.row.kind, open.content));
     if (!plan) return;
     set({ google: { busy: true } });
     try {
@@ -631,6 +631,18 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     }
   },
 }));
+
+/**
+ * The kind to show an artifact as. A 'document' is HTML, but models write
+ * Markdown into it; framed as a web page that collapses into one line of raw
+ * #, | and **. The sidecar now stores such prose as markdown (see
+ * `looksLikeHtml` in CinderpawAgent/src/artifacts/store.ts, same pattern);
+ * this reads the ones saved before that the same way.
+ */
+export function shownKind(kind: string, content: string): string {
+  const html = /<(p|div|h[1-6]|ul|ol|li|table|tr|section|article|header|body|html|blockquote|pre)\b[^>]*>/i;
+  return kind === 'document' && !html.test(content) ? 'markdown' : kind;
+}
 
 /** What each kind becomes on Drive; null for kinds the button does not offer. */
 export function googlePlan(kind: string): { mime: string; convert: boolean } | null {

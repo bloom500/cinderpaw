@@ -28,7 +28,7 @@ function Loading() {
     </div>
   );
 }
-import { useArtifacts, googlePlan, type ArtifactRow } from '@/stores/artifacts';
+import { useArtifacts, googlePlan, shownKind, type ArtifactRow } from '@/stores/artifacts';
 import { ContextTab } from './ContextTab';
 import { artifactKind, artifactSize } from '@/components/chat/ArtifactCard';
 import { useChatContext } from '@/hooks/useChatContext';
@@ -290,7 +290,7 @@ export function ArtifactsPanel({
           {open && !editing && canEdit && (
             <ArtifactAction tooltip="Edit" icon={Pencil} disabled={busy} onClick={startEdit} />
           )}
-          {open && !editing && googleRegistered && googlePlan(open.row.kind) && (
+          {open && !editing && googleRegistered && googlePlan(shownKind(open.row.kind, open.content)) && (
             <ArtifactAction
               tooltip="Send to Google Docs"
               disabled={busy || google?.busy === true}
@@ -668,7 +668,7 @@ function Viewer() {
         <Suspense fallback={<Loading />}>
           {row.kind === 'pdf' ? (
             <PdfEditor base64={content} fields={open.fields ?? []} editing busy={busy} onDraft={setDraft} />
-          ) : row.kind === 'document' ? (
+          ) : shownKind(row.kind, editing.draft) === 'document' ? (
             <DocumentEditor value={editing.draft} onChange={setDraft} />
           ) : (
             <SourceEditor value={editing.draft} onChange={setDraft} />
@@ -763,7 +763,7 @@ function Viewer() {
           />
         </Suspense>
       ) : (
-        <Preview kind={row.kind} title={row.title} content={content} />
+        <Preview kind={shownKind(row.kind, content)} title={row.title} content={content} />
       )}
     </>
   );
