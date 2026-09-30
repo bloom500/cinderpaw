@@ -49,6 +49,11 @@ vi.mock('@/hooks/useSendMessage', () => ({
   buildUserContent: (text: string) => text,
 }));
 
+// The campfire game and the perch: a mutable run the composer reads each render.
+const ember = { offered: false, open: false, round: null, openPanel: () => {}, closePanel: () => {} };
+vi.mock('../ember/useEmberRun', () => ({ useEmberRun: () => ember }));
+vi.mock('../mascot/MascotPerch', () => ({ MascotPerch: () => <div data-testid="perch" /> }));
+
 beforeEach(() => {
   vi.clearAllMocks();
   useChat.setState({ messages: [], streamStatus: 'idle' });
@@ -212,3 +217,16 @@ describe('a long paste', () => {
   });
 });
 
+
+// 30 Sep: with the game open, the perch mascot kept walking the composer's edge
+// right under the game and got in the way of play.
+describe('the campfire game', () => {
+  it('hides the perch mascot while the game is open, and brings it back after', () => {
+    ember.open = true;
+    const { rerender } = render(<ChatInput alwaysEnabled />);
+    expect(screen.getByTestId('perch').closest('[hidden]')).not.toBeNull();
+    ember.open = false;
+    rerender(<ChatInput alwaysEnabled />);
+    expect(screen.getByTestId('perch').closest('[hidden]')).toBeNull();
+  });
+});

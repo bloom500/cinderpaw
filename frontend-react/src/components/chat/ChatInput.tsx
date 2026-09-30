@@ -680,7 +680,11 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
               is running. Hiding it on Home removed a working feature to fix a
               spacing complaint — the fix was room above the composer, which the
               greeting now leaves. */}
-          <MascotPerch baseState={mascotState} />
+          {/* Except while the campfire game is open: the game has its own
+              Cinderpaw, and the perch walked right under it, in the way of play. */}
+          <div hidden={ember.open}>
+            <MascotPerch baseState={mascotState} />
+          </div>
           <EmberInvite run={ember} />
           {(attachedFiles.length > 0 || links.length > 0) && (
             <div className="flex flex-wrap gap-1 px-3 pt-2">

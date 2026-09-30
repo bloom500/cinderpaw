@@ -11,12 +11,14 @@ const SPAWN_MIN_X := 150.0
 const SPAWN_MAX_X := 780.0
 const RAIN_GAP := Vector2(1.4, 3.0)
 const RAIN_SPEED := 220.0
+const POP_LIFE := 0.45
 const COLORS := {"search": Color("#5E8BE0"), "read": Color("#F2B54A"), "build": Color("#F0506E"), "other": Color("#FF8A3D")}
 
 var rules := Rules.new()
 var rng := RandomNumberGenerator.new()
 var sparks: Array[Dictionary] = []
 var drops: Array[Vector2] = []
+var pops: Array[Dictionary] = []  # the embers a caught spark bursts into, and the fizzle of a missed one
 var rain_in := 2.0
 var running := false
 var ended := false
@@ -54,6 +56,7 @@ func add_burst(kind: String) -> void:
 			"p": Vector2(rng.randf_range(SPAWN_MIN_X, SPAWN_MAX_X), -rng.randf_range(0.0, 80.0)),
 			"v": Vector2(rng.randf_range(-25.0, 25.0), rng.randf_range(60.0, 110.0)),
 			"kind": kind,
+			"seed": rng.randf() * TAU,
 		})
 
 func end(p_ok: bool) -> void:
@@ -64,6 +67,7 @@ func end(p_ok: bool) -> void:
 	ok = p_ok
 	sparks.clear()
 	drops.clear()
+	pops.clear()
 	best = maxi(best, rules.score())
 	bridge.send({"type": "score", "value": rules.score()})
 
@@ -76,14 +80,23 @@ func step(dt: float, input: Dictionary) -> void:
 	cat.step(dt, input)
 	for i in range(sparks.size() - 1, -1, -1):
 		var s: Dictionary = sparks[i]
-		s["p"] += s["v"] * dt
+		s["p"] += s["v"] * dt + Vector2(sin(time * 3.0 + s["seed"]) * 18.0 * dt, 0.0)  # embers drift as they fall
 		if cat.catches(s["p"]):
 			if rules.catch_spark():
 				flare = 1.2
+			_burst(s["p"], COLORS[s["kind"]], 8, 150.0)
 			sparks.remove_at(i)
 		elif s["p"].y > GROUND:
 			rules.miss_spark()
+			_burst(Vector2(s["p"].x, GROUND), Color("#8a7a70"), 4, 50.0)
 			sparks.remove_at(i)
+	for i in range(pops.size() - 1, -1, -1):
+		pops[i]["life"] -= dt
+		if pops[i]["life"] <= 0.0:
+			pops.remove_at(i)
+			continue
+		pops[i]["v"].y += 320.0 * dt
+		pops[i]["p"] += pops[i]["v"] * dt
 	if running:
 		rain_in -= dt
 		if rain_in <= 0.0 and sparks.is_empty():  # rain falls between bursts, not during them
@@ -100,6 +113,11 @@ func step(dt: float, input: Dictionary) -> void:
 			drops.remove_at(i)
 		elif d.y > GROUND:
 			drops.remove_at(i)
+
+func _burst(at: Vector2, col: Color, n: int, speed: float) -> void:
+	for i in n:
+		var a := TAU * i / n + rng.randf_range(-0.3, 0.3)
+		pops.append({"p": at, "v": Vector2(cos(a), sin(a) - 0.6) * speed * rng.randf_range(0.6, 1.0), "life": POP_LIFE, "col": col})
 
 func _process(dt: float) -> void:
 	step(dt, {
@@ -133,7 +151,17 @@ func _draw() -> void:
 	draw_circle(Vector2(FIRE_X, GROUND - r * 0.45), r * 0.62, Color("#FFB347"))
 	draw_circle(Vector2(FIRE_X, GROUND - r * 0.35), r * 0.3, Color("#FFF1C1"))
 	for s in sparks:
-		draw_circle(s["p"], 4.0, COLORS[s["kind"]])
+		var col: Color = COLORS[s["kind"]]
+		var flick := 1.0 + 0.18 * sin(time * 22.0 + s["seed"])
+		for k in range(4, 0, -1):  # a fading trail behind the fall
+			draw_circle(s["p"] - s["v"] * 0.035 * k, (3.4 - k * 0.55) * flick, Color(col, 0.34 - k * 0.07))
+		draw_circle(s["p"], 12.0 * flick, Color(col, 0.16))  # glow
+		draw_circle(s["p"], 7.0 * flick, Color(col, 0.40))
+		draw_circle(s["p"], 3.6 * flick, col.lightened(0.35))
+		draw_circle(s["p"], 1.6, Color("#FFF8E6"))  # white-hot heart
+	for q in pops:
+		var k: float = q["life"] / POP_LIFE
+		draw_circle(q["p"], 0.8 + 2.2 * k, Color(q["col"].lightened(0.3), k))
 	for d in drops:
 		draw_line(d, d + Vector2(0, 9), Color("#8FD0FF"), 2.0)
 	var font := ThemeDB.fallback_font
