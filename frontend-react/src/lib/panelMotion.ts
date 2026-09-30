@@ -1,10 +1,15 @@
 /**
  * Tell the glass a side panel is moving.
  *
- * `html.panel-moving` switches the app pane's backdrop to its no-displacement
- * form (globals.css) for the length of a slide. A counter, not a boolean: the
- * Artifacts panel can close while the Browser panel opens, and the class must
- * stay until the last one has settled.
+ * `html[data-panel-moving]` switches the app pane's backdrop to its
+ * no-displacement form (globals.css) for the length of a slide. A counter, not
+ * a boolean: the Artifacts panel can close while the Browser panel opens, and
+ * the mark must stay until the last one has settled.
+ *
+ * An attribute, not a class. Typography's `not-prose` guard is written as
+ * `[class~="not-prose"] *`, so the browser cannot tell which elements a class
+ * change on <html> affects and restyled all of them: every slide cost two
+ * full-page style recalcs (~630 elements each) at its start and end.
  */
 let moving = 0;
 const settled = new Set<() => void>();
@@ -41,13 +46,13 @@ const PANEL_MOTION_MAX_MS = 400;
 
 export function panelMotionStart(): void {
   moving += 1;
-  document.documentElement.classList.add('panel-moving');
+  document.documentElement.toggleAttribute('data-panel-moving', true);
 }
 
 export function panelMotionEnd(): void {
   moving = Math.max(0, moving - 1);
   if (moving > 0) return;
-  document.documentElement.classList.remove('panel-moving');
+  document.documentElement.toggleAttribute('data-panel-moving', false);
   const waiting = [...settled];
   settled.clear();
   for (const fn of waiting) fn();

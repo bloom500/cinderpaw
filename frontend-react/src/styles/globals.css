@@ -1122,8 +1122,8 @@ html.has-window-effect[data-theme="light"] { --scene-surface: rgba(246, 239, 230
    with the browser's own webview at 800 MB). Same frost, no refraction, for
    200 ms.
 
-   `html.panel-moving` is set by panelMotion for the length of the slide. */
-html.panel-moving .liquid-glass {
+   `html[data-panel-moving]` is set by panelMotion for the length of the slide. */
+html[data-panel-moving] .liquid-glass {
   backdrop-filter: blur(30px) saturate(150%) brightness(1.06);
   -webkit-backdrop-filter: blur(30px) saturate(150%) brightness(1.06);
 }

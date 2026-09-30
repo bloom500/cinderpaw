@@ -812,18 +812,20 @@ function Preview({ kind, title, content }: { kind: string; title: string; conten
 /**
  * The sandboxed frame, and the one thing it tells the page while it is mounted.
  *
- * `live-frame` on <html> switches the window glass to its no-displacement form
- * (see globals.css). A counter, not a boolean, so two frames closing in either
- * order never leave the class set or clear it early.
+ * `data-live-frame` on <html> is there for the window glass to switch to its
+ * no-displacement form (see globals.css). A counter, not a boolean, so two
+ * frames closing in either order never leave the mark set or clear it early.
+ * An attribute rather than a class, for the reason in lib/panelMotion.ts: a
+ * class change on <html> restyles the whole page.
  */
 let liveFrames = 0;
 function LiveFrame({ title, content }: { title: string; content: string }) {
   useEffect(() => {
     liveFrames += 1;
-    document.documentElement.classList.add('live-frame');
+    document.documentElement.toggleAttribute('data-live-frame', true);
     return () => {
       liveFrames -= 1;
-      if (liveFrames === 0) document.documentElement.classList.remove('live-frame');
+      if (liveFrames === 0) document.documentElement.toggleAttribute('data-live-frame', false);
     };
   }, []);
   return (
