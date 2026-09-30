@@ -19,7 +19,7 @@ describe('CinderpawMascot (SVG)', () => {
   });
 
   it('keeps the 128x132 footprint the perch places by, at any size', () => {
-    const { container } = render(<CinderpawMascot state="idle" size={256} />);
+    const { container } = render(<CinderpawMascot state="idle" width={256} />);
     const svg = container.querySelector('svg')!;
     expect(svg.getAttribute('viewBox')).toBe('0 0 128 132');
     expect(svg.getAttribute('width')).toBe('256');

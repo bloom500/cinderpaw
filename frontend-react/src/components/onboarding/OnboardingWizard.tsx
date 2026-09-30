@@ -179,7 +179,7 @@ function WelcomeStep() {
         className="flex justify-center"
         aria-hidden
       >
-        <CinderpawMascot state="wave" size={112} />
+        <CinderpawMascot state="wave" width={112} />
       </motion.div>
       <h1 id="onboarding-title" className="text-3xl font-semibold text-text-primary">
         Welcome to Cinderpaw

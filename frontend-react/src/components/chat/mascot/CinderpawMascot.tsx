@@ -541,7 +541,9 @@ function Body({ layout, wag }: { layout: Exclude<Layout, 'lie'>; wag: boolean })
 
 // ── The creature ─────────────────────────────────────────────────────────────
 
-export function CinderpawMascot({ state, flip = false, size = BASE_W }: { state: MascotState; flip?: boolean; size?: number }) {
+/** `width` is the rendered width in px; the height follows at 132/128. Not
+ *  `size`: that name is kept for icons, which come in four fixed sizes. */
+export function CinderpawMascot({ state, flip = false, width = BASE_W }: { state: MascotState; flip?: boolean; width?: number }) {
   const pose = POSES[state] ?? POSES.idle;
   const layout = pose.layout ?? 'stand';
   const props = pose.props ?? [];
@@ -574,8 +576,8 @@ export function CinderpawMascot({ state, flip = false, size = BASE_W }: { state:
       aria-hidden="true"
       data-mascot-state={state}
       className={rootClass}
-      width={size}
-      height={Math.round((size * BASE_H) / BASE_W)}
+      width={width}
+      height={Math.round((width * BASE_H) / BASE_W)}
       viewBox={`0 0 ${BASE_W} ${BASE_H}`}
       style={{ display: 'block', pointerEvents: 'none' }}
     >
