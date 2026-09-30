@@ -172,7 +172,7 @@ function ProviderCard({ def, state, open, onToggle }: { def: ProviderDef; state?
         <span className="flex items-center gap-4">
           <ProviderMark def={def} />
           <span className="min-w-0 flex-1">
-            <span className="font-display block truncate text-lg text-text-primary">{def.name}</span>
+            <span className="block truncate text-lg font-semibold text-text-primary">{def.name}</span>
             {configured
               ? (isActive ? <Status tone="success">Connected</Status> : <Status tone="neutral">Turned off</Status>)
               : <span className="text-xs text-text-muted">Not configured</span>}

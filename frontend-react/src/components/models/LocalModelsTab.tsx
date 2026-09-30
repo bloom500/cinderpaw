@@ -201,7 +201,7 @@ function ActiveModelCard({ models }: { models: ModelInfo[] }) {
       <div className="flex items-center gap-3">
         <MakerTile maker={makerFor(loaded.name)} fallback={name} className="size-10 rounded-xl" />
         <div className="min-w-0">
-          <p className="font-display truncate text-sm text-text-primary" title={loaded.name}>{name}</p>
+          <p className="truncate text-sm font-semibold text-text-primary" title={loaded.name}>{name}</p>
           <Status tone="success">Running</Status>
         </div>
       </div>
@@ -222,7 +222,7 @@ function RecommendationCard({ onBrowse }: { onBrowse: () => void }) {
   return (
     <SideCard icon={<WandSparkles size={16} />} title="Recommended for your hardware">
       <div className="flex items-baseline gap-2">
-        <span className="font-display text-xl text-text-primary">{rec.sizeClass}</span>
+        <span className="text-xl font-semibold text-text-primary">{rec.sizeClass}</span>
         <span className="text-xs text-text-muted">models · {rec.quant} · {rec.approxFileSize}</span>
       </div>
       <p className="mt-2 text-xs leading-relaxed text-text-secondary">{rec.rationale}</p>

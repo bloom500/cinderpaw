@@ -135,7 +135,7 @@ export function MakerTile({ maker, fallback, className }: { maker: Maker | null;
     >
       {maker?.key
         ? <ModelLogo provider={maker.key} className="size-6" />
-        : <span className="font-display text-lg">{(maker?.label ?? fallback ?? '?').charAt(0).toUpperCase()}</span>}
+        : <span className="text-lg font-semibold">{(maker?.label ?? fallback ?? '?').charAt(0).toUpperCase()}</span>}
     </span>
   );
 }
