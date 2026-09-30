@@ -1,7 +1,7 @@
 import { panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Archive, ArchiveRestore, ArrowLeft, BookOpen, Check, Download, ExternalLink as OpenIcon, FileBox, FileUp, Loader2, MessageSquare, Pencil, Trash2, X, type LucideIcon } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, BookOpen, Check, Clock, Download, ExternalLink as OpenIcon, FileBox, FileUp, Loader2, MessageSquare, Pencil, Trash2, X, type LucideIcon } from 'lucide-react';
 import {
   ArtifactAction,
   ArtifactActions,
@@ -97,9 +97,9 @@ export function ArtifactsPanel({
   onAttach?: () => void;
 }) {
   const {
-    rows, loaded, open, busy, error, lastExport, refresh, close, exportArtifact, deleteArtifact,
+    rows, loaded, open, busy, error, lastExport, refresh, close, deleteArtifact,
     editing, startEdit, cancelEdit, save, importPdf, showingArchived, showArchived,
-    google, sendToGoogle, panelTab: tab, setPanelTab: setTab,
+    google, panelTab: tab, setPanelTab: setTab,
   } = useArtifacts();
   // Delete is for good now, so the header's Delete asks first, in the panel.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -290,24 +290,8 @@ export function ArtifactsPanel({
           {open && !editing && canEdit && (
             <ArtifactAction tooltip="Edit" icon={Pencil} disabled={busy} onClick={startEdit} />
           )}
-          {open && !editing && googleRegistered && googlePlan(shownKind(open.row.kind, open.content)) && (
-            <ArtifactAction
-              tooltip="Send to Google Docs"
-              disabled={busy || google?.busy === true}
-              onClick={() => void sendToGoogle()}
-              aria-label="Send to Google Docs"
-            >
-              <GoogleMark />
-            </ArtifactAction>
-          )}
           {open && !editing && onAsk && (
             <ArtifactAction tooltip="Ask Cinderpaw" icon={MessageSquare} onClick={() => onAsk(open.row)} />
-          )}
-          {open && !editing && (
-            <ArtifactAction
-              tooltip="Export" icon={Download} disabled={busy}
-              onClick={() => void exportArtifact(open.row.id)}
-            />
           )}
           {open && !editing && (
             <ArtifactAction
@@ -345,7 +329,7 @@ export function ArtifactsPanel({
       )}
 
       {open ? (
-        <Viewer />
+        <Viewer googleRegistered={googleRegistered} />
       ) : (
         <List rows={rows} loaded={loaded} busy={busy} lastExport={lastExport} />
       )}
@@ -631,11 +615,15 @@ function ConfirmDelete({
 /** Text the person can change. A pdf, an image or an uploaded file is not. */
 const EDITABLE_KINDS = new Set(['document', 'markdown', 'app', 'table', 'code', 'json', 'html', 'pdf']);
 
-function Viewer() {
+function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
   const {
     open, lastExport, showVersion, editing, setDraft, conflict, save, cancelEdit, busy,
     review, showChanges, hideChanges, restore, applyPdf,
   } = useArtifacts();
+  // The overview (Darius's Artifact board, 30 Sep) first; Open shows the whole thing.
+  // A PDF is usually a form to fill or sign: it opens straight into its editor.
+  const [full, setFull] = useState(open?.row.kind === 'pdf');
+  useEffect(() => setFull(open?.row.kind === 'pdf'), [open?.row.id]);
   if (!open) return null;
   const { row, content, showing, versions } = open;
 
@@ -695,10 +683,21 @@ function Viewer() {
     );
   }
 
+  if (!full) return <Overview googleRegistered={googleRegistered} onOpen={() => setFull(true)} />;
+
   return (
     <>
-      {/* Ask, Export and Delete moved up into the header's actions. What stays
-          here is the version picker, and only when there is a choice to make. */}
+      <div className="flex items-center border-b border-border-subtle px-3 py-1.5">
+        <button
+          type="button"
+          onClick={() => setFull(false)}
+          className="flex items-center gap-1 rounded-md px-1.5 py-1 text-2xs text-text-muted hover:bg-bg-hover hover:text-text-primary"
+        >
+          <ArrowLeft size={12} />
+          Overview
+        </button>
+      </div>
+      {/* The version picker, only when there is a choice to make. */}
       {versions.length > 1 && (
         <div className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
           <SelectMenu
@@ -833,6 +832,168 @@ function LiveFrame({ title, content }: { title: string; content: string }) {
       sandbox={APP_IFRAME_SANDBOX}
       className="flex-1 border-0 bg-white"
     />
+  );
+}
+
+/** The first lines of a text artifact, as plain words: the overview's summary. */
+export function summaryOf(kind: string, content: string): string {
+  // Markdown already reads as itself in the hero; a page (document, html, Word) is a thumbnail.
+  if (!['document', 'html', 'docx'].includes(kind)) return '';
+  const text = content
+    .replace(/<h1[^>]*>[\s\S]*?<\/h1>/i, ' ') // the page's own title repeats the artifact's
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/^\s*#+\s.*$/m, ' ') // the first heading repeats the title
+    .replace(/[#*_`>|~]+|-{2,}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text.length > 220 ? `${text.slice(0, 220).replace(/\s\S*$/, '')}…` : text;
+}
+
+/**
+ * An open artifact at a glance (Darius's Artifact board, 30 Sep): the thing
+ * itself as the hero, its name, what it is and how fresh, the actions, then
+ * its history. Everything on it is real; the board's comments and related
+ * notes have nothing behind them yet, so they are not drawn.
+ */
+function Overview({ googleRegistered, onOpen }: { googleRegistered: boolean; onOpen: () => void }) {
+  const {
+    open, busy, exportArtifact, sendToGoogle, google, showVersion, showChanges, restore, lastExport,
+  } = useArtifacts();
+  const summary = useMemo(() => (open ? summaryOf(shownKind(open.row.kind, open.content), open.content) : ''), [open?.row.kind, open?.content]);
+  if (!open) return null;
+  const { row, content, showing, versions } = open;
+  const look = artifactKind(row.kind);
+  const current = showing === row.version;
+  const newestFirst = [...versions].sort((a, b) => b.version - a.version);
+  const button = 'flex h-9 items-center justify-center gap-1.5 rounded-xl border px-3 text-sm font-medium disabled:opacity-60';
+
+  return (
+    <ScrollArea className="flex-1">
+      <div className="flex flex-col gap-4 px-4 pb-6 pt-3">
+        <div className="relative flex h-56 flex-col overflow-hidden rounded-2xl border border-border-default bg-bg-elevated shadow-sm">
+          {row.kind === 'pdf' || row.kind === 'image' || row.kind === 'file' ? (
+            <div className="flex flex-1 items-center justify-center bg-gradient-to-br from-brand/15 via-bg-elevated to-bg-surface">
+              <look.icon size={40} className="text-brand" />
+            </div>
+          ) : (
+            <div className="pointer-events-none flex min-h-0 flex-1 flex-col">
+              <Preview kind={row.kind} title={row.title} content={content} />
+            </div>
+          )}
+          <span className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-bg-elevated to-transparent" />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <h3 className="font-display text-2xl leading-tight text-text-primary">{row.title}</h3>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="flex items-center gap-1 rounded-lg border border-border-default bg-bg-elevated px-2 py-1 text-text-secondary">
+              <look.icon size={12} />
+              {look.word}
+            </span>
+            {current ? (
+              <span className="flex items-center gap-1 rounded-lg bg-success/10 px-2 py-1 font-medium text-success">
+                <Check size={12} />
+                Ready
+              </span>
+            ) : (
+              <span className="rounded-lg bg-(--warning)/10 px-2 py-1 font-medium text-(--warning)">{`Older version, v${showing}`}</span>
+            )}
+            <span className="ml-auto flex items-center gap-1 text-text-muted">
+              <Clock size={12} />
+              {`Updated ${when(row.updatedAt)}`}
+            </span>
+          </div>
+          {summary && <p className="line-clamp-3 text-sm leading-relaxed text-text-secondary">{summary}</p>}
+        </div>
+
+        <div className="flex gap-2">
+          <button type="button" onClick={onOpen} className={cn(button, 'flex-1 border-brand bg-brand text-white hover:bg-brand-hover')}>
+            <OpenIcon size={14} />
+            Open
+          </button>
+          {googleRegistered && googlePlan(shownKind(row.kind, content)) && (
+            <button
+              type="button"
+              aria-label="Send to Google Docs"
+              disabled={busy || google?.busy === true}
+              onClick={() => void sendToGoogle()}
+              className={cn(button, 'flex-1 border-border-default bg-bg-elevated text-text-primary hover:bg-bg-hover')}
+            >
+              <GoogleMark />
+              Share
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void exportArtifact(row.id)}
+            className={cn(button, 'flex-1 border-border-default bg-bg-elevated text-text-primary hover:bg-bg-hover')}
+          >
+            <Download size={14} />
+            Export
+          </button>
+        </div>
+
+        {lastExport && <SavedLine saved={lastExport} />}
+
+        {!current && (
+          <div className="flex items-center gap-2 rounded-xl border border-border-default bg-bg-elevated/60 px-3 py-2">
+            <p className="flex-1 text-2xs text-text-muted">{`Showing v${showing}. The current version is v${row.version}.`}</p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void restore(showing)}
+              className="rounded-md border border-border-default px-2 py-1 text-2xs text-text-primary hover:bg-bg-hover disabled:opacity-60"
+            >
+              {`Make v${showing} current`}
+            </button>
+          </div>
+        )}
+
+        {newestFirst.length > 0 && (
+          <section aria-label="Versions" className="flex flex-col gap-2 border-t border-border-subtle pt-4">
+            <header className="flex items-center">
+              <h4 className="text-sm font-semibold text-text-primary">Versions</h4>
+              {current && showing > 1 && row.kind !== 'pdf' && (
+                <button
+                  type="button"
+                  onClick={() => void showChanges()}
+                  className="ml-auto rounded-md px-2 py-1 text-2xs text-text-muted hover:bg-bg-hover hover:text-text-primary"
+                >
+                  What changed
+                </button>
+              )}
+            </header>
+            <ol className="flex flex-col">
+              {newestFirst.map((v, i) => (
+                <li key={v.version} className="relative">
+                  {i < newestFirst.length - 1 && <span className="absolute left-[7px] top-5 h-full w-px bg-border-default" />}
+                  <button
+                    type="button"
+                    aria-current={v.version === showing ? 'true' : undefined}
+                    onClick={() => void showVersion(v.version)}
+                    className="flex w-full items-start gap-3 rounded-lg py-1.5 pr-1 text-left hover:bg-text-primary/5"
+                  >
+                    <span className={cn(
+                      'relative mt-1 h-[15px] w-[15px] shrink-0 rounded-full border-2',
+                      v.version === showing ? 'border-brand bg-bg-surface after:absolute after:inset-[3px] after:rounded-full after:bg-brand' : 'border-border-default bg-bg-surface',
+                    )} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-medium text-text-primary">{`v${v.version}`}</span>
+                      <span className="block truncate text-xs text-text-muted">
+                        {v.note || (v.author === 'user' ? 'Edited by you' : 'Made by Cinderpaw')}
+                      </span>
+                    </span>
+                    <span className="shrink-0 pt-0.5 text-2xs text-text-muted">{when(v.createdAt)}</span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+      </div>
+    </ScrollArea>
   );
 }
 

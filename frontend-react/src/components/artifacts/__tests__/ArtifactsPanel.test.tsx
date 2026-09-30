@@ -1,6 +1,6 @@
 import { act, cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ArtifactsPanel } from '../ArtifactsPanel';
+import { ArtifactsPanel, summaryOf } from '../ArtifactsPanel';
 import { useArtifacts, resetArtifactRequests, googlePlan, shownKind, type ArtifactRow } from '@/stores/artifacts';
 import { APP_IFRAME_SANDBOX } from '@/lib/artifactSandbox';
 import { tauri } from '@/lib/tauri';
@@ -691,11 +691,41 @@ describe('a document written in Markdown', () => {
       open: { row: row({ kind: 'document', title: 'Rețete' }), content: '# Trei rețete\n\n**Verdict:** chili-ul.', showing: 1, versions: [] },
     });
     render(<ArtifactsPanel onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }));
     expect(await screen.findByRole('heading', { name: 'Trei rețete' })).toBeInTheDocument();
   });
 
   it('goes to Google Docs as text, not as a web page', () => {
     expect(googlePlan(shownKind('document', '# Trei rețete'))).toEqual({ mime: 'text/plain', convert: true });
     expect(shownKind('document', '<p>hi</p>')).toBe('document');
+  });
+});
+
+// Darius's Artifact board (30 Sep): an open artifact starts as an overview.
+describe('the artifact overview', () => {
+  it('shows what it is, that it is ready, its history, and opens in full', async () => {
+    useArtifacts.setState({
+      loaded: true, editing: null, google: null,
+      open: {
+        row: row({ kind: 'document', version: 2 }), content: '<h1>Q3</h1><p>Revenue grew in every region.</p>', showing: 2,
+        versions: [
+          { version: 2, author: 'user', note: null, createdAt: Date.now() },
+          { version: 1, author: 'chat', note: 'First draft', createdAt: Date.now() - 3_600_000 },
+        ],
+      },
+    });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    expect(screen.getByRole('heading', { name: 'Q3 report' })).toBeInTheDocument();
+    expect(screen.getByText('Ready')).toBeInTheDocument();
+    expect(screen.getByText('Revenue grew in every region.')).toBeInTheDocument();
+    expect(screen.getByText('Edited by you')).toBeInTheDocument();
+    expect(screen.getByText('First draft')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('button', { name: 'Overview' })).toBeInTheDocument();
+  });
+
+  it('summaryOf reads the words of a page, not its tags or its title', () => {
+    expect(summaryOf('document', '<h1>Q3</h1><p>Up <b>12%</b>.</p>')).toBe('Up 12% .');
+    expect(summaryOf('markdown', '# T\n\ntext')).toBe('');
   });
 });
