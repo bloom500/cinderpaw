@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
 import { CinderpawMascot } from '../CinderpawMascot';
 import { VARIANTS, type MascotState } from '../frames';
+import { SCENES } from '../scenes';
 
 const ALL_STATES = Object.keys(VARIANTS) as MascotState[];
 
@@ -29,5 +30,16 @@ describe('CinderpawMascot (SVG)', () => {
   it('is decoration to a screen reader', () => {
     const { container } = render(<CinderpawMascot state="wave" />);
     expect(container.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('draws every traced pose whole: a body, a face window and two eyes, on the ground', () => {
+    for (const [name, scene] of Object.entries(SCENES)) {
+      expect(scene.base.sil.length, name).toBeGreaterThan(200);
+      expect(scene.face.length, name).toBeGreaterThan(50);
+      expect(scene.eyes, name).toHaveLength(2);
+      // Soles on the perch line: nothing drawn much below y=111.
+      const ys = [...scene.base.sil.matchAll(/[ML](-?[\d.]+) (-?[\d.]+)/g)].map((m) => Number(m[2]));
+      expect(Math.max(...ys), name).toBeLessThan(112);
+    }
   });
 });

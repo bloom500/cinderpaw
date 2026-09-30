@@ -1,23 +1,23 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import type { MascotState } from './frames';
-import * as L from './lyingPose';
+import { SCENES, type Layers, type Part, type Scene, type SceneName } from './scenes';
 import './mascot.css';
 
 /**
  * The creature, drawn as vectors.
  *
  * It used to be a 302-frame pixel sheet rendered out of Blender and blitted
- * onto a canvas. Every new state meant a new render and a regenerated sheet,
- * and a pose could only be as smooth as the frames someone drew. Here every
- * part (horns, head, eyes, each arm, the tail, the prop in its hands) is its
- * own SVG group, and a state is a combination of CSS classes: how the body
- * moves, what the arms do, how the eyes look, and what it holds. A new state
- * is a line in POSES, not a render.
+ * onto a canvas. Now every pose is one of the seven flat drawings of the
+ * character (docs/design/moodboard/SVG/), traced into SVG layers by
+ * scripts/mascot/svg/trace_poses.py into scenes.ts: the two oranges, the
+ * outline and shadow tones, the cream, the eyes, and the marks drawn beside
+ * it. Laid over its drawing, each scene matches it.
  *
- * Drawn flat, after the character art: an orange hood of a head with a wide
- * cream face window, two black oval eyes and no mouth, rounded flame horns, a
- * cream belly, mitten arms and a curled tail. Depth comes only from one
- * darker orange for the creases (under the head, where limbs meet the body).
+ * What moves is cut out of the trace with a margin of body under it, so it can
+ * turn without opening a gap: the tail wags, the waving arm waves, the paws tap
+ * the keys; the eyes blink, the action lines flicker, the Zzz drift. A state is
+ * a scene plus a body motion and, where the drawing has none, a prop or an
+ * effect: a line in POSES, not a render.
  *
  * The drawing is 128x132 with the soles at y=110, the same footprint the
  * sprite had, so the perch's placement above the composer still holds.
@@ -29,9 +29,6 @@ const BASE_H = 132;
 
 const C = {
   orange: '#F05A24',
-  /** The art's second orange, on the horns, tail and limbs. */
-  light: '#FB6226',
-  crease: '#C8441E',
   cream: '#FBF1E4',
   eye: '#2A211C',
   lid: '#B8A497',
@@ -60,105 +57,65 @@ export function usePrefersReducedMotion(): boolean {
 
 // ── Poses ────────────────────────────────────────────────────────────────────
 
-type Layout = 'stand' | 'sit' | 'lie';
-type Eyes = 'open' | 'happy' | 'closed' | 'wide' | 'heart' | 'squeeze' | 'focused';
-type Look = 'center' | 'down' | 'up' | 'side' | 'scan';
-type Arms = 'rest' | 'wave' | 'up' | 'chin' | 'face' | 'front' | 'hold' | 'lap';
+type Eyes = 'drawn' | 'focused' | 'heart';
+type Look = 'center' | 'side' | 'up' | 'scan';
 type Motion = 'breathe' | 'bob' | 'bounce' | 'jump' | 'shake' | 'sway' | 'sleep' | 'stretch' | 'jolt';
 type Prop = 'book' | 'notepad' | 'gamepad' | 'magnifier' | 'headset' | 'sunglasses';
 type Fx =
-  | 'zzz' | 'question' | 'exclaim' | 'thought' | 'check' | 'confetti' | 'sparkles' | 'hearts'
+  | 'question' | 'exclaim' | 'thought' | 'check' | 'confetti' | 'sparkles' | 'hearts'
   | 'sweat' | 'lock' | 'hourglass' | 'gear' | 'blocks' | 'calendar' | 'database' | 'talkwaves'
-  | 'listenwaves' | 'mini' | 'lines';
+  | 'listenwaves' | 'mini' | 'lines' | 'zzz';
 
 interface Pose {
-  /** 'lie' is the traced laptop scene (lyingPose.ts); it brings its own laptop. */
-  layout?: Layout;
-  eyes: Eyes;
-  look?: Look;
-  arms: Arms;
+  scene: SceneName;
   motion: Motion;
-  /** Degrees the head leans; negative is towards the viewer's left. */
-  tilt?: number;
+  /** The drawing's own eyes, narrowed to concentrate, or hearts in their place. */
+  eyes?: Eyes;
+  look?: Look;
   props?: Prop[];
   fx?: Fx[];
-  nod?: boolean;
-  wiggle?: boolean;
+  /** The drawing's action lines or Zzz; off where they would say the wrong thing. */
+  marks?: boolean;
   wag?: boolean;
 }
 
+// Seven drawings: sit (calm, hand to the mouth), think (hand at the chin),
+// wave, cheer (both arms up), surprised (hands on the cheeks), laptop (lying at
+// the keys) and sleep (lying, eyes shut).
 const POSES: Record<MascotState, Pose> = {
-  idle:       { eyes: 'open', arms: 'rest', motion: 'breathe', wag: true },
-  typing:     { layout: 'lie', eyes: 'open', arms: 'rest', motion: 'breathe', wag: true },
-  thinking:   { eyes: 'open', look: 'up', arms: 'chin', motion: 'sway', tilt: -8, fx: ['thought'] },
-  calling:    { eyes: 'open', arms: 'rest', motion: 'bob', props: ['headset'], fx: ['talkwaves'] },
-  done:       { eyes: 'happy', arms: 'rest', motion: 'bounce', fx: ['check'], nod: true, wag: true },
-  running:    { layout: 'lie', eyes: 'focused', arms: 'rest', motion: 'breathe', fx: ['gear'], wag: true },
-  wave:       { eyes: 'happy', arms: 'wave', motion: 'breathe', tilt: 5, wag: true },
-  sleep:      { layout: 'sit', eyes: 'closed', arms: 'lap', motion: 'sleep', tilt: -6, fx: ['zzz'] },
-  surprised:  { eyes: 'wide', arms: 'face', motion: 'jolt', fx: ['lines'], wiggle: true },
-  curious:    { eyes: 'wide', look: 'side', arms: 'chin', motion: 'breathe', tilt: 8 },
-  celebrate:  { eyes: 'happy', arms: 'up', motion: 'jump', tilt: -5, fx: ['confetti'], wiggle: true, wag: true },
-  reading:    { layout: 'sit', eyes: 'open', look: 'down', arms: 'front', motion: 'breathe', props: ['book'] },
-  searching:  { eyes: 'wide', look: 'scan', arms: 'hold', motion: 'breathe', tilt: 4, props: ['magnifier'] },
-  building:   { layout: 'lie', eyes: 'focused', arms: 'rest', motion: 'breathe', fx: ['blocks'] },
-  writing:    { layout: 'sit', eyes: 'open', look: 'down', arms: 'front', motion: 'breathe', props: ['notepad'] },
-  stretching: { eyes: 'closed', arms: 'up', motion: 'stretch' },
-  gaming:     { layout: 'sit', eyes: 'focused', arms: 'front', motion: 'bob', props: ['gamepad'] },
-  love:       { eyes: 'heart', arms: 'face', motion: 'bounce', tilt: -6, fx: ['hearts'], wag: true },
-  cool:       { eyes: 'open', arms: 'rest', motion: 'sway', props: ['sunglasses'], nod: true },
-  error:      { eyes: 'squeeze', arms: 'face', motion: 'shake', fx: ['sweat'] },
-  excited:    { eyes: 'happy', arms: 'up', motion: 'jump', fx: ['lines', 'sparkles'], wiggle: true, wag: true },
-  spawning:   { eyes: 'happy', arms: 'wave', motion: 'bounce', fx: ['mini'] },
-  asking:     { eyes: 'wide', arms: 'chin', motion: 'breathe', tilt: 9, fx: ['question'] },
-  waiting:    { eyes: 'open', look: 'up', arms: 'rest', motion: 'breathe', fx: ['hourglass'], wag: true },
-  speaking:   { eyes: 'happy', arms: 'rest', motion: 'bob', fx: ['talkwaves'] },
-  listening:  { eyes: 'open', arms: 'rest', motion: 'breathe', tilt: 6, props: ['headset'], fx: ['listenwaves'] },
-  blocked:    { eyes: 'open', look: 'down', arms: 'rest', motion: 'breathe', fx: ['lock'] },
-  scheduling: { eyes: 'open', look: 'up', arms: 'rest', motion: 'breathe', fx: ['calendar'] },
-  storing:    { eyes: 'happy', arms: 'rest', motion: 'breathe', fx: ['database'] },
+  idle:       { scene: 'sit', motion: 'breathe', wag: true },
+  typing:     { scene: 'laptop', motion: 'breathe', wag: true },
+  thinking:   { scene: 'think', motion: 'sway', look: 'up', fx: ['thought'] },
+  calling:    { scene: 'think', motion: 'bob', props: ['headset'], fx: ['talkwaves'] },
+  done:       { scene: 'cheer', motion: 'bounce', fx: ['check'], wag: true },
+  running:    { scene: 'laptop', motion: 'breathe', eyes: 'focused', fx: ['gear'], wag: true },
+  wave:       { scene: 'wave', motion: 'breathe', marks: true, wag: true },
+  sleep:      { scene: 'sleep', motion: 'sleep', marks: true },
+  surprised:  { scene: 'surprised', motion: 'jolt', marks: true },
+  curious:    { scene: 'think', motion: 'breathe', look: 'side', wag: true },
+  celebrate:  { scene: 'cheer', motion: 'jump', fx: ['confetti'], wag: true },
+  reading:    { scene: 'sit', motion: 'breathe', props: ['book'] },
+  searching:  { scene: 'think', motion: 'breathe', look: 'scan', props: ['magnifier'] },
+  building:   { scene: 'laptop', motion: 'breathe', eyes: 'focused', fx: ['blocks'] },
+  writing:    { scene: 'sit', motion: 'breathe', props: ['notepad'] },
+  stretching: { scene: 'cheer', motion: 'stretch' },
+  gaming:     { scene: 'sit', motion: 'bob', eyes: 'focused', props: ['gamepad'] },
+  love:       { scene: 'surprised', motion: 'bounce', eyes: 'heart', fx: ['hearts'], wag: true },
+  cool:       { scene: 'wave', motion: 'sway', props: ['sunglasses'], wag: true },
+  error:      { scene: 'surprised', motion: 'shake', fx: ['sweat'] },
+  excited:    { scene: 'cheer', motion: 'jump', fx: ['sparkles'], wag: true },
+  spawning:   { scene: 'cheer', motion: 'bounce', fx: ['mini'] },
+  asking:     { scene: 'think', motion: 'breathe', fx: ['question'], wag: true },
+  waiting:    { scene: 'think', motion: 'breathe', look: 'up', fx: ['hourglass'], wag: true },
+  speaking:   { scene: 'wave', motion: 'bob', marks: true, fx: ['talkwaves'] },
+  listening:  { scene: 'sit', motion: 'breathe', props: ['headset'], fx: ['listenwaves'] },
+  blocked:    { scene: 'think', motion: 'breathe', fx: ['lock'] },
+  scheduling: { scene: 'think', motion: 'breathe', look: 'up', fx: ['calendar'] },
+  storing:    { scene: 'cheer', motion: 'breathe', fx: ['database'] },
 };
 
-// ── Geometry ─────────────────────────────────────────────────────────────────
-// Paths use absolute M/L/C commands only, so `mirror` can flip the left half
-// of the drawing into the right one.
-
-function mirror(d: string): string {
-  let axis = 0;
-  return d.replace(/([MLCZ])|(-?\d*\.?\d+)/g, (tok, cmd: string | undefined) => {
-    if (cmd) { axis = 0; return tok; }
-    const out = axis % 2 === 0 ? String(+(BASE_W - Number(tok)).toFixed(2)) : tok;
-    axis += 1;
-    return out;
-  });
-}
-
-const HEAD = 'M64 24 C85.5 24 99 33 99 48.5 C99 64.5 85 74.5 64 74.5 C43 74.5 29 64.5 29 48.5 C29 33 42.5 24 64 24 Z';
-const FACE =
-  'M50 35.6 C59 34.6 69 34.6 78 35.6 C87.5 36.6 92.2 41.5 92.2 49.5 C92.2 59 86.8 67.6 78 68.4 ' +
-  'C69 69.2 59 69.2 50 68.4 C41.2 67.6 35.8 59 35.8 49.5 C35.8 41.5 40.5 36.6 50 35.6 Z';
-/** A flame: a round bulb at the outer root, a thin stem rising from it and a
- *  soft tip leaning back over the head. Both edges under the tip are concave. */
-const HORN_L =
-  'M44 31.5 C41.6 28 39.8 23.5 39.4 19 C39.2 16.8 39.4 15 38.4 14.2 C37.3 13.3 35.8 14 35.3 15.8 ' +
-  'C34.6 18.4 33.6 20.6 31.2 22.6 C26.8 25.6 24.2 29.8 25.6 34 C27.2 38.4 33.4 39 38.4 36.6 Z';
-const HORN_R = mirror(HORN_L);
-/** Standing body and legs, one outline: narrow at the neck, wide at the hips. */
-const BODY =
-  'M48 70 C44.5 79 41.6 88 41.6 96 C41.6 101 42 105.6 43.2 108.4 C44 110.1 45.8 110.6 48 110.6 L55.4 110.6 ' +
-  'C57.6 110.6 59 109.6 59.4 107.6 L60.2 104.2 C60.6 102.6 62.2 101.8 64 101.8 C65.8 101.8 67.4 102.6 67.8 104.2 ' +
-  'L68.6 107.6 C69 109.6 70.4 110.6 72.6 110.6 L80 110.6 C82.2 110.6 84 110.1 84.8 108.4 ' +
-  'C86 105.6 86.4 101 86.4 96 C86.4 88 83.5 79 80 70 Z';
-const BELLY = 'M64 77.5 C70.5 77.5 75.8 84.2 76.2 91 C76.6 97.4 71.5 100.8 64 100.8 C56.5 100.8 51.4 97.4 51.8 91 C52.2 84.2 57.5 77.5 64 77.5 Z';
-const NECK = 'M47 70 C53 77 75 77 81 70 L81.4 72.6 C75 80 53 80 46.6 72.6 Z';
-const TAIL =
-  'M46 99.5 C39.5 102.8 29.6 102.6 25.4 97.2 C22 92.8 22.6 85.6 26.4 82 C28.4 80.2 31.8 80.6 32.4 83.2 ' +
-  'C33 85.8 31.8 88.6 33.6 90.6 C36 93 41 91.8 45.6 88.8 Z';
-
-const SIT_BODY = 'M46 76 C42 84 40.5 94 42.5 101 C44 106.5 50 109.5 64 109.5 C78 109.5 84 106.5 85.5 101 C87.5 94 86 84 82 76 Z';
-const SIT_BELLY = 'M64 84.5 C69 84.5 73 90.5 73 97 C73 102.5 69.5 106 64 106 C58.5 106 55 102.5 55 97 C55 90.5 59 84.5 64 84.5 Z';
-
-// ── Parts ────────────────────────────────────────────────────────────────────
+// ── Helpers (absolute coordinates: an animated group must never carry a
+//    transform attribute, or its CSS transform replaces it) ────────────────────
 
 const origin = (x: number, y: number) => ({ '--px': `${x}px`, '--py': `${y}px` }) as CSSProperties;
 
@@ -173,171 +130,130 @@ function heartPath(x: number, y: number, s: number): string {
     `C${x + s * 0.9} ${y - s * 1.1} ${x + s * 1.4} ${y} ${x} ${y + s * 0.9}Z`;
 }
 
-/** A limb with its crease: the same shape in the darker orange, nudged
- *  towards the body, then the limb itself on top. */
-function Limb({ cx, cy, rx, ry, rot, dx = 0, dy = 0 }: { cx: number; cy: number; rx: number; ry: number; rot: number; dx?: number; dy?: number }) {
+/** One traced part in its four tones. */
+function Tones({ layers, colors }: { layers: Layers; colors: Scene['colors'] }) {
+  const L = (d: string, fill: string) => (d ? <path d={d} fill={fill} fillRule="evenodd" /> : null);
+  return (
+    <>
+      {L(layers.sil, colors.main)}
+      {L(layers.light, colors.light)}
+      {L(layers.outline, colors.outline)}
+      {L(layers.shadow, colors.shadow)}
+    </>
+  );
+}
+
+/** A part that moves: its own group, turning about its pivot. */
+function Moving({ part, colors, className }: { part?: Part; colors: Scene['colors']; className?: string }) {
+  if (!part) return null;
+  return (
+    <g className={className} style={origin(part.pivot[0], part.pivot[1])}>
+      <Tones layers={part} colors={colors} />
+    </g>
+  );
+}
+
+// ── Props, placed on each drawing ────────────────────────────────────────────
+
+/** Where the hands are in the two drawings that hold things. */
+const HANDS: Partial<Record<SceneName, readonly [number, number]>> = {
+  sit: [62, 76],
+  think: [80, 73],
+};
+
+function Magnifier({ at: [x, y] }: { at: readonly [number, number] }) {
+  // Held up by the hand at the chin, the lens beside the face.
   return (
     <g>
-      <ellipse cx={cx + dx} cy={cy + dy} rx={rx} ry={ry} transform={`rotate(${rot} ${cx + dx} ${cy + dy})`} fill={C.crease} />
-      <ellipse cx={cx} cy={cy} rx={rx} ry={ry} transform={`rotate(${rot} ${cx} ${cy})`} fill={C.light} />
+      <path d={`M${x + 1} ${y - 2} L${x + 9} ${y - 10}`} stroke="#7A4A2C" strokeWidth={3.6} strokeLinecap="round" />
+      <circle cx={x + 15} cy={y - 16} r={8} fill="#DDF0FF" fillOpacity={0.6} stroke="#5A3A2A" strokeWidth={3} />
+      <path d={`M${x + 10.5} ${y - 19} C${x + 11.5} ${y - 21} ${x + 13.5} ${y - 22} ${x + 16} ${y - 22}`} stroke="#fff" strokeWidth={1.6} fill="none" strokeLinecap="round" />
     </g>
   );
 }
 
-function Eye({ x, kind }: { x: number; kind: Eyes }) {
-  const y = 53;
-  if (kind === 'happy') {
-    return <path d={`M${x - 6.6} ${y + 2.8} C${x - 6} ${y - 4.8} ${x + 6} ${y - 4.8} ${x + 6.6} ${y + 2.8}`} fill="none" stroke={C.eye} strokeWidth={3.2} strokeLinecap="round" />;
-  }
-  if (kind === 'closed') {
-    return <path d={`M${x - 5.6} ${y} C${x - 4.8} ${y + 5} ${x + 4.8} ${y + 5} ${x + 5.6} ${y}`} fill="none" stroke={C.eye} strokeWidth={2.6} strokeLinecap="round" />;
-  }
-  if (kind === 'squeeze') {
-    const s = x < 64 ? 1 : -1;
-    return <path d={`M${x - 3.6 * s} ${y - 4} L${x + 3.2 * s} ${y} L${x - 3.6 * s} ${y + 4}`} fill="none" stroke={C.eye} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" />;
-  }
-  if (kind === 'heart') {
-    return <path d={heartPath(x, y, 5)} fill="#E8435A" />;
-  }
-  const ry = kind === 'focused' ? 4.6 : kind === 'wide' ? 6.8 : 6.1;
-  const rx = kind === 'wide' ? 4.9 : 4.5;
-  return (
-    <g className="cpm-eye" style={{ '--ex': `${x}px` } as CSSProperties}>
-      <ellipse cx={x} cy={y} rx={rx} ry={ry} fill={C.eye} />
-    </g>
-  );
-}
-
-/** The magnifier lives inside the right arm's group, drawn as if the arm hung
- *  at rest, so it swings with the arm instead of being animated to match it. */
-function Magnifier() {
-  return (
-    <g>
-      <path d="M85.5 95 L87 102.5" stroke="#7A4A2C" strokeWidth={4} strokeLinecap="round" />
-      <circle cx={88.5} cy={110.5} r={8.2} fill="#DDF0FF" fillOpacity={0.6} stroke="#5A3A2A" strokeWidth={3.2} />
-      <path d="M84 107 C85 105 87 104 89.5 104" stroke="#fff" strokeWidth={1.8} fill="none" strokeLinecap="round" />
-    </g>
-  );
-}
-
-/** The whole lying-at-the-laptop scene, back to front, from the traced layers
- *  in lyingPose.ts. Main orange for head and body, the lighter orange the art
- *  uses for horns, tail and paws, and the crease tone for the shadows. */
-function LieScene({ eyes, blink, wag }: { eyes: Eyes; blink: boolean; wag: boolean }) {
-  const eye = (d: string, [x, y]: readonly [number, number]) => (
-    <g className="cpm-eye" style={{ transformOrigin: `${x}px ${y}px`, transform: eyes === 'focused' ? 'scaleY(0.72)' : undefined }}>
-      <path d={d} fill={C.eye} />
-    </g>
-  );
-  const layer = (d: string, fill: string) => <path d={d} fill={fill} fillRule="evenodd" />;
-  return (
-    <g>
-      {layer(L.LIE_SIL, C.orange)}
-      {layer(L.LIE_LIGHT, C.light)}
-      {layer(L.LIE_CREASE, C.crease)}
-      <g className={wag ? 'cpm-tail cpm-tail--lie' : undefined}>
-        {layer(L.LIE_TAIL, C.orange)}
-        {layer(L.LIE_TAIL_LIGHT, C.light)}
-        {layer(L.LIE_TAIL_CREASE, C.crease)}
-      </g>
-      {layer(L.LIE_FACE, C.cream)}
-      <g className={blink ? 'cpm-eyes--blink' : undefined}>
-        {eye(L.LIE_EYE_L, L.LIE_EYE_L_AT)}
-        {eye(L.LIE_EYE_R, L.LIE_EYE_R_AT)}
-      </g>
-      {layer(L.LIE_BASE, C.lidDark)}
-      <g className="cpm-paw cpm-paw--r">
-        {layer(L.LIE_PAW_R, C.orange)}
-        {layer(L.LIE_PAW_R_LIGHT, C.light)}
-      </g>
-      <g className="cpm-paw cpm-paw--l">
-        {layer(L.LIE_PAW_L, C.orange)}
-        {layer(L.LIE_PAW_L_LIGHT, C.light)}
-        {layer(L.LIE_PAW_L_CREASE, C.crease)}
-      </g>
-      {layer(L.LIE_LID, C.lid)}
-      {layer(L.LIE_LOGO, C.cream)}
-    </g>
-  );
-}
-
-function Hands({ y = 100 }: { y?: number }) {
-  return (
-    <g>
-      <Limb cx={48} cy={y} rx={4.6} ry={4} rot={0} dx={0.9} />
-      <Limb cx={80} cy={y} rx={4.6} ry={4} rot={0} dx={-0.9} />
-    </g>
-  );
-}
-
-function FrontProp({ kind }: { kind: Prop }) {
-  switch (kind) {
-    case 'book':
-      return (
-        <g>
-          <path d="M43 91 C54 87 60 88 64 90.5 C68 88 74 87 85 91 L85 107 C74 103 68 104 64 106.5 C60 104 54 103 43 107 Z" fill="#4F79D8" />
-          <path d="M45 90 C55 86.6 60 87.6 64 90 L64 105 C60 102.8 55 102 45 105 Z" fill="#fff" />
-          <path d="M83 90 C73 86.6 68 87.6 64 90 L64 105 C68 102.8 73 102 83 105 Z" fill="#F4EEE6" />
-          <g stroke="#D7CEC4" strokeWidth={1} strokeLinecap="round" fill="none">
-            <path d="M49 94 C53 92.6 57 92.6 60 93.6" /><path d="M49 98 C53 96.6 57 96.6 60 97.6" />
-            <path d="M68 93.6 C71 92.6 75 92.6 79 94" /><path d="M68 97.6 C71 96.6 75 96.6 79 98" />
+function HeldProp({ kind, at: [x, y] }: { kind: Prop; at: readonly [number, number] }) {
+  // Drawn around (0,0) and moved to the hands; the wrapper is not animated.
+  const shape = (() => {
+    switch (kind) {
+      case 'book':
+        return (
+          <g>
+            <path d="M-19 -6 C-8 -10 -3 -9 0 -6.5 C3 -9 8 -10 19 -6 L19 10 C8 6 3 7 0 9.5 C-3 7 -8 6 -19 10 Z" fill="#4F79D8" />
+            <path d="M-17 -7 C-7 -10.4 -3 -9.4 0 -7 L0 8 C-3 5.8 -7 5 -17 8 Z" fill="#fff" />
+            <path d="M17 -7 C7 -10.4 3 -9.4 0 -7 L0 8 C3 5.8 7 5 17 8 Z" fill="#F4EEE6" />
+            <g stroke="#D7CEC4" strokeWidth={1} strokeLinecap="round" fill="none">
+              <path d="M-13 -3 C-9 -4.4 -5 -4.4 -2 -3.4" /><path d="M-13 1 C-9 -0.4 -5 -0.4 -2 0.6" />
+              <path d="M2 -3.4 C5 -4.4 9 -4.4 13 -3" /><path d="M2 0.6 C5 -0.4 9 -0.4 13 1" />
+            </g>
           </g>
-          <Hands y={99} />
-        </g>
-      );
-    case 'notepad':
-      return (
-        <g>
-          <path d="M47 89 L77 89 C78.5 89 79 89.8 79 91 L79 107 C79 108.2 78.5 109 77 109 L47 109 C45.5 109 45 108.2 45 107 L45 91 C45 89.8 45.5 89 47 89 Z" fill="#fff" stroke="#E4D6C8" />
-          <g stroke="#CFC2B4" strokeWidth={1} strokeLinecap="round">
-            <path d="M49 94 L74 94" /><path d="M49 98.5 L74 98.5" /><path d="M49 103 L64 103" />
+        );
+      case 'notepad':
+        return (
+          <g>
+            <path d="M-15 -9 L15 -9 C16.5 -9 17 -8.2 17 -7 L17 9 C17 10.2 16.5 11 15 11 L-15 11 C-16.5 11 -17 10.2 -17 9 L-17 -7 C-17 -8.2 -16.5 -9 -15 -9 Z" fill="#fff" stroke="#E4D6C8" />
+            <g stroke="#CFC2B4" strokeWidth={1} strokeLinecap="round">
+              <path d="M-13 -4 L12 -4" /><path d="M-13 0.5 L12 0.5" /><path d="M-13 5 L2 5" />
+            </g>
+            <g className="cpm-pencil">
+              <path d="M9 2 L19 -12" stroke="#F4B63F" strokeWidth={3.6} strokeLinecap="round" />
+              <path d="M19 -12 L20.8 -14.4" stroke="#F08BA0" strokeWidth={3.6} strokeLinecap="round" />
+              <path d="M9 2 L7.8 3.8" stroke="#5A3A2A" strokeWidth={1.8} strokeLinecap="round" />
+            </g>
           </g>
-          <g className="cpm-pencil">
-            <path d="M71 100 L81 86" stroke="#F4B63F" strokeWidth={3.6} strokeLinecap="round" />
-            <path d="M81 86 L82.8 83.6" stroke="#F08BA0" strokeWidth={3.6} strokeLinecap="round" />
-            <path d="M71 100 L69.8 101.8" stroke="#5A3A2A" strokeWidth={1.8} strokeLinecap="round" />
+        );
+      case 'gamepad':
+        return (
+          <g>
+            <path d="M-19 -3 C-17.5 -7.5 -12 -8 -9 -8 L9 -8 C12 -8 17.5 -7.5 19 -3 L21.6 6 C22.4 10 19.6 11.4 17.6 11.4 C15 11.4 13.6 9.6 12 7.6 L-12 7.6 C-13.6 9.6 -15 11.4 -17.6 11.4 C-19.6 11.4 -22.4 10 -21.6 6 Z" fill="#3B3F4A" />
+            <path d="M-11.5 -2.5 L-11.5 3.5 M-14.5 0.5 L-8.5 0.5" stroke="#9AA3B2" strokeWidth={2.2} strokeLinecap="round" />
+            <circle cx={10.5} cy={-1.5} r={1.9} fill="#F26B6B" />
+            <circle cx={14.5} cy={2.2} r={1.9} fill="#6BC6F2" />
           </g>
-          <Hands y={101} />
-        </g>
-      );
-    case 'gamepad':
-      return (
-        <g>
-          <path d="M45 95 C46.5 90.5 52 90 55 90 L73 90 C76 90 81.5 90.5 83 95 L85.6 104 C86.4 108 83.6 109.4 81.6 109.4 C79 109.4 77.6 107.6 76 105.6 L52 105.6 C50.4 107.6 49 109.4 46.4 109.4 C44.4 109.4 41.6 108 42.4 104 Z" fill="#3B3F4A" />
-          <path d="M52.5 95.5 L52.5 101.5 M49.5 98.5 L55.5 98.5" stroke="#9AA3B2" strokeWidth={2.2} strokeLinecap="round" />
-          <circle cx={74.5} cy={96.5} r={1.9} fill="#F26B6B" />
-          <circle cx={78.5} cy={100.2} r={1.9} fill="#6BC6F2" />
-          <Hands y={100} />
-        </g>
-      );
-    default:
-      return null;
-  }
+        );
+      default:
+        return null;
+    }
+  })();
+  return <g transform={`translate(${x} ${y + 3})`}>{shape}</g>;
 }
 
-function HeadProp({ kind }: { kind: Prop }) {
-  if (kind === 'headset') {
-    return (
-      <g>
-        <path d="M32 50 C31 30 44 21 64 21 C84 21 97 30 96 50" fill="none" stroke={C.metal} strokeWidth={3.6} strokeLinecap="round" />
-        <path d="M27 42 C29.5 42 31.5 44 31.5 46.5 L31.5 55.5 C31.5 58 29.5 60 27 60 C24.5 60 23 58 23 55.5 L23 46.5 C23 44 24.5 42 27 42 Z" fill={C.metal} />
-        <path d="M101 42 C103.5 42 105 44 105 46.5 L105 55.5 C105 58 103.5 60 101 60 C98.5 60 96.5 58 96.5 55.5 L96.5 46.5 C96.5 44 98.5 42 101 42 Z" fill={C.metal} />
-        <path d="M27 60 C28 67 34 70 43 69" fill="none" stroke={C.metal} strokeWidth={2} strokeLinecap="round" />
-        <circle cx={44.5} cy={69} r={2.5} fill="#2E3238" />
-      </g>
-    );
-  }
-  if (kind === 'sunglasses') {
-    return (
-      <g>
-        <path d="M44 45 L60.5 45 C61.6 45 62 45.6 62 46.6 L62 51 C62 55 59 57.5 55 57.5 L50 57.5 C46 57.5 43 55 43 51 L43 46 C43 45.4 43.4 45 44 45 Z" fill="#1C1C22" />
-        <path d="M84 45 L67.5 45 C66.4 45 66 45.6 66 46.6 L66 51 C66 55 69 57.5 73 57.5 L78 57.5 C82 57.5 85 55 85 51 L85 46 C85 45.4 84.6 45 84 45 Z" fill="#1C1C22" />
-        <path d="M61 47 L67 47" stroke="#1C1C22" strokeWidth={2.4} />
-        <path d="M46.5 48.5 L51 47.2 M69.5 48.5 L74 47.2" stroke="#fff" strokeOpacity={0.55} strokeWidth={1.5} strokeLinecap="round" />
-      </g>
-    );
-  }
-  return null;
+/** What sits on the head, placed by the drawing's eyes: centred on them and
+ *  turned with the line between them, so it follows a tilted head. */
+function HeadProp({ kind, scene }: { kind: Prop; scene: Scene }) {
+  const [l, r] = scene.eyes;
+  if (!l || !r) return null;
+  const mx = (l.at[0] + r.at[0]) / 2;
+  const my = (l.at[1] + r.at[1]) / 2;
+  const angle = (Math.atan2(r.at[1] - l.at[1], r.at[0] - l.at[0]) * 180) / Math.PI;
+  const half = Math.hypot(r.at[0] - l.at[0], r.at[1] - l.at[1]) / 2;
+  const [fx0, fy0, fx1] = scene.faceBox;
+  const w = (fx1 - fx0) / 2 + 5;
+  const top = my - (my - fy0) - 16;
+  const lens = { w: l.rx * 2 + 7, h: l.ry * 2 + 2 };
+  return (
+    <g transform={`rotate(${angle} ${mx} ${my})`}>
+      {kind === 'sunglasses' ? (
+        <g fill="#1C1C22">
+          {[-half, half].map((dx) => (
+            <rect key={dx} x={mx + dx - lens.w / 2} y={my - lens.h / 2} width={lens.w} height={lens.h} rx={lens.h / 2.4} />
+          ))}
+          <rect x={mx - half + lens.w / 2 - 0.5} y={my - lens.h / 2 + 1.5} width={half * 2 - lens.w + 1} height={2.4} rx={1.2} />
+          {[-half, half].map((dx) => (
+            <path key={dx} d={`M${mx + dx - lens.w / 2 + 3} ${my - lens.h / 2 + 3.5} L${mx + dx - 1} ${my - lens.h / 2 + 2}`} stroke="#fff" strokeOpacity={0.5} strokeWidth={1.5} strokeLinecap="round" />
+          ))}
+        </g>
+      ) : (
+        <g>
+          <path d={`M${mx - w} ${my} C${mx - w} ${top} ${mx + w} ${top} ${mx + w} ${my}`} fill="none" stroke={C.metal} strokeWidth={3.4} strokeLinecap="round" />
+          <rect x={mx - w - 5} y={my - 8} width={9} height={17} rx={4.2} fill={C.metal} />
+          <rect x={mx + w - 4} y={my - 8} width={9} height={17} rx={4.2} fill={C.metal} />
+          <path d={`M${mx - w - 1} ${my + 8} C${mx - w} ${my + 16} ${mx - w + 6} ${my + 19} ${mx - w + 14} ${my + 18}`} fill="none" stroke={C.metal} strokeWidth={2} strokeLinecap="round" />
+          <circle cx={mx - w + 15.5} cy={my + 18} r={2.4} fill="#2E3238" />
+        </g>
+      )}
+    </g>
+  );
 }
 
 function Effect({ kind }: { kind: Fx }) {
@@ -505,124 +421,96 @@ function Effect({ kind }: { kind: Fx }) {
   }
 }
 
-// ── Body layouts ─────────────────────────────────────────────────────────────
+// ── The creature ─────────────────────────────────────────────────────────────
 
-/** Where the head sits for each layout, as an offset from the standing pose. */
-const HEAD_AT: Record<Exclude<Layout, 'lie'>, [number, number]> = { stand: [0, 0], sit: [0, 8] };
-
-function Body({ layout, wag }: { layout: Exclude<Layout, 'lie'>; wag: boolean }) {
-  if (layout === 'sit') {
-    return (
-      <g>
-        <g className={wag ? 'cpm-tail' : undefined}>
-          <path d={TAIL} transform="translate(0 6)" fill={C.light} />
-        </g>
-        <path d={SIT_BODY} fill={C.orange} />
-        <path d={SIT_BELLY} fill={C.cream} />
-        <path d={NECK} transform="translate(0 8)" fill={C.crease} />
-        {/* Legs out in front, soles to the viewer. */}
-        <Limb cx={50.5} cy={104} rx={8.6} ry={6.6} rot={-14} dx={1} dy={-0.6} />
-        <Limb cx={77.5} cy={104} rx={8.6} ry={6.6} rot={14} dx={-1} dy={-0.6} />
-      </g>
-    );
-  }
-  return (
-    <g>
-      <g className={wag ? 'cpm-tail' : undefined}>
-        <path d={TAIL} fill={C.light} />
-        <path d="M44.4 89.2 C43.2 92.2 43.6 95.8 46 98.2" fill="none" stroke={C.crease} strokeWidth={1.5} strokeLinecap="round" />
-      </g>
-      <path d={BODY} fill={C.orange} />
-      <path d={BELLY} fill={C.cream} />
-      <path d={NECK} fill={C.crease} />
-    </g>
-  );
+/** Where the effects' top-right corner lands on each drawing: beside the head,
+ *  clear of the far horn. The effects are drawn around (112, 34). */
+function fxShift(name: SceneName, scene: Scene): [number, number] {
+  if (name === 'laptop') return [4, -10];
+  const [, fy0, fx1] = scene.faceBox;
+  return [Math.min(122, fx1 + 18) - 112, fy0 + 2 - 34];
 }
 
-// ── The creature ─────────────────────────────────────────────────────────────
+const LOOK: Record<Exclude<Look, 'scan'>, string> = {
+  center: 'translate(0px, 0px)', side: 'translate(1.8px, 0.4px)', up: 'translate(-1.2px, -1.8px)',
+};
 
 /** `width` is the rendered width in px; the height follows at 132/128. Not
  *  `size`: that name is kept for icons, which come in four fixed sizes. */
 export function CinderpawMascot({ state, flip = false, width = BASE_W }: { state: MascotState; flip?: boolean; width?: number }) {
   const pose = POSES[state] ?? POSES.idle;
-  const layout = pose.layout ?? 'stand';
-  const props = pose.props ?? [];
-  const fx = pose.fx ?? [];
-  const blink = pose.eyes === 'open' || pose.eyes === 'wide' || pose.eyes === 'focused';
+  const scene = SCENES[pose.scene];
+  const colors = scene.colors;
+  const eyes = pose.eyes ?? 'drawn';
   const look = pose.look ?? 'center';
-  const lookOffset: Record<Look, string> = {
-    center: 'translate(0px, 0px)', down: 'translate(0px, 2.2px)', up: 'translate(-1.8px, -2.2px)', side: 'translate(2.6px, 0.6px)', scan: '',
-  };
-
-  const rootClass = [
-    'cpm',
-    `cpm--${pose.motion}`,
-    `cpm-arms--${pose.arms}`,
-    pose.nod ? 'cpm--nod' : '',
-    pose.wiggle ? 'cpm--wiggle' : '',
-  ].filter(Boolean).join(' ');
-
-  // Each arm is its own group so it can swing from the shoulder; the shapes
-  // inside keep their resting slant as attributes, the group moves by CSS.
-  const arm = (side: 'l' | 'r', children?: ReactNode) => (
-    <g className={`cpm-arm-${side}`}>
-      <Limb cx={side === 'l' ? 44.5 : 83.5} cy={87.5} rx={5.4} ry={9} rot={side === 'l' ? 16 : -16} dx={side === 'l' ? 1.1 : -1.1} />
-      {children}
-    </g>
-  );
+  // Only open, oval eyes blink; the cheer's and the sleeper's are drawn shut.
+  const blink = eyes !== 'heart' && pose.scene !== 'cheer' && pose.scene !== 'sleep';
+  const hands = HANDS[pose.scene];
+  const [sx, sy] = fxShift(pose.scene, scene);
+  const drift = pose.scene === 'sleep';
 
   return (
     <svg
       aria-hidden="true"
       data-mascot-state={state}
-      className={rootClass}
+      className={`cpm cpm--${pose.motion}`}
       width={width}
       height={Math.round((width * BASE_H) / BASE_W)}
       viewBox={`0 0 ${BASE_W} ${BASE_H}`}
       style={{ display: 'block', pointerEvents: 'none' }}
     >
       <g transform={flip ? `translate(${BASE_W} 0) scale(-1 1)` : undefined}>
-        <ellipse cx={layout === 'lie' ? 60 : 64} cy={111} rx={layout === 'lie' ? 54 : 26} ry={2.8} fill="#000" opacity={0.08} />
+        <ellipse cx={64} cy={111} rx={pose.scene === 'laptop' || drift ? 50 : 26} ry={2.6} fill="#000" opacity={0.07} />
 
-        {layout === 'lie' ? (
-          <g className="cpm-creature">
-            <LieScene eyes={pose.eyes} blink={blink} wag={!!pose.wag} />
-          </g>
-        ) : (
         <g className="cpm-creature">
-          <Body layout={layout} wag={!!pose.wag} />
+          <Tones layers={scene.base} colors={colors} />
+          <Moving part={scene.parts.tail} colors={colors} className={pose.wag ? 'cpm-wag' : undefined} />
+          <Moving part={scene.parts.arm} colors={colors} className="cpm-wave-arm" />
+          <path d={scene.face} fill={colors.cream} fillRule="evenodd" />
 
-          <g transform={`translate(${HEAD_AT[layout][0]} ${HEAD_AT[layout][1]}) rotate(${pose.tilt ?? 0} 64 74)`}>
-            <g className="cpm-head">
-              <g className="cpm-horns">
-                <path d={HORN_L} fill={C.light} />
-                <path d={HORN_R} fill={C.light} />
-              </g>
-              <path d={HEAD} fill={C.orange} />
-              <path d={FACE} fill={C.cream} />
-              <g
-                className={`cpm-look ${look === 'scan' ? 'cpm-look--scan' : ''} ${blink ? 'cpm-eyes--blink' : ''}`}
-                style={look === 'scan' ? undefined : { transform: lookOffset[look] }}
-              >
-                <Eye x={50.8} kind={pose.eyes} />
-                <Eye x={77.2} kind={pose.eyes} />
-              </g>
-              {props.map((p) => <HeadProp key={p} kind={p} />)}
-            </g>
+          <g
+            className={look === 'scan' ? 'cpm-look cpm-look--scan' : 'cpm-look'}
+            style={look === 'scan' ? undefined : { transform: LOOK[look] }}
+          >
+            {eyes === 'heart'
+              ? scene.eyes.map((e, i) => <path key={i} d={heartPath(e.at[0], e.at[1], Math.max(e.rx, e.ry) * 0.9)} fill="#E8435A" />)
+              : scene.eyes.map((e, i) => {
+                const at = { transformOrigin: `${e.at[0]}px ${e.at[1]}px` };
+                // The squint and the blink are two groups: an animation would
+                // replace a transform set on the same element.
+                return (
+                  <g key={i} style={{ ...at, transform: eyes === 'focused' ? 'scaleY(0.72)' : undefined }}>
+                    <g className={blink ? 'cpm-blink' : undefined} style={at}>
+                      <path d={e.d} fill={colors.eye} />
+                    </g>
+                  </g>
+                );
+              })}
           </g>
 
-          <g transform={layout === 'sit' ? 'translate(0 8)' : undefined}>
-            {arm('l')}
-            {arm('r', props.includes('magnifier') ? <Magnifier /> : null)}
-          </g>
+          {scene.laptop && <path d={scene.laptop.base} fill={C.lidDark} />}
+          <Moving part={scene.parts.pawR} colors={colors} className="cpm-tap" />
+          <Moving part={scene.parts.pawL} colors={colors} className="cpm-tap cpm-tap--late" />
+          {scene.laptop && (
+            <>
+              <path d={scene.laptop.lid} fill={C.lid} />
+              <path d={scene.laptop.logo} fill={colors.cream} />
+            </>
+          )}
 
-          {props.map((p) => <FrontProp key={p} kind={p} />)}
+          {(pose.props ?? []).map((p) =>
+            p === 'headset' || p === 'sunglasses' ? <HeadProp key={p} kind={p} scene={scene} />
+              : p === 'magnifier' ? (hands ? <Magnifier key={p} at={hands} /> : null)
+                : hands ? <HeldProp key={p} kind={p} at={hands} /> : null,
+          )}
         </g>
-        )}
 
-        {/* Lying, the far horn takes the top-right corner the effects use. */}
-        <g transform={layout === 'lie' ? 'translate(4 -10)' : undefined}>
-          {fx.map((f) => <Effect key={f} kind={f} />)}
+        {pose.marks && scene.marks.map((m, i) => (
+          <path key={i} d={m.d} fill={m.color} className={drift ? 'cpm-float' : 'cpm-wave-arc'} style={{ animationDelay: `${i * 0.3}s` }} />
+        ))}
+
+        <g transform={`translate(${sx} ${sy})`}>
+          {(pose.fx ?? []).map((f) => <Effect key={f} kind={f} />)}
         </g>
       </g>
     </svg>

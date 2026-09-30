@@ -1,10 +1,10 @@
 /*
  * The SVG creature's motion. Every part is its own <g>, so a state is a set of
- * classes: how the body moves, what the arms do, how the eyes look, and which
- * prop or effect is showing. `transform-box: view-box` makes every
- * `transform-origin` below a point in the 128x132 drawing (in the part's own
- * coordinates), so a pivot is written where it is on the creature: the soles
- * at y=110, the shoulders at (48,79.5) and (80,79.5), the neck at (64,74).
+ * classes: how the body moves, which traced part turns (tail, arm, paws), how
+ * the eyes look, and which prop or effect is showing. `transform-box: view-box`
+ * makes every `transform-origin` below a point in the 128x132 drawing, so a
+ * pivot is written where it is on the creature: the soles at y=110, a part's
+ * own pivot from the trace (--px, --py).
  */
 .cpm { overflow: visible; }
 .cpm * { transform-box: view-box; }
@@ -50,67 +50,29 @@
   35%, 100% { transform: translateY(0) scale(1, 1); }
 }
 
-/* ── Head ───────────────────────────────────────────────────────────────── */
-.cpm-head { transform-origin: 64px 74px; }
-.cpm-head--lie { transform-origin: 69px 95.6px; }
-.cpm--nod .cpm-head { animation: cpm-nod 2.2s ease-in-out infinite; }
-@keyframes cpm-nod { 0%, 30%, 60%, 100% { transform: rotate(0deg); } 15%, 45% { transform: rotate(4deg) translateY(0.8px); } }
+/* ── Parts: each turns about its own pivot (--px, --py, set from the trace) ── */
+.cpm-wag { transform-origin: var(--px) var(--py); animation: cpm-wag 2.4s ease-in-out infinite; }
+@keyframes cpm-wag { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(7deg); } }
 
-.cpm-horns { transform-origin: 64px 34px; }
-.cpm--wiggle .cpm-horns { animation: cpm-wiggle 0.5s ease-in-out infinite; }
-@keyframes cpm-wiggle { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(3deg); } }
+/* The waving arm, from the shoulder. */
+.cpm-wave-arm { transform-origin: var(--px) var(--py); animation: cpm-wave 1.1s ease-in-out infinite; }
+@keyframes cpm-wave { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(-9deg); } }
+
+/* At the laptop, the two paws take turns on the keys, each tipping up from the
+   wrist so the fingers lift and the arm stays put. */
+.cpm-tap { transform-origin: var(--px) var(--py); animation: cpm-tap 0.42s ease-in-out infinite; }
+.cpm-tap--late { animation-delay: 0.21s; }
+@keyframes cpm-tap { 0%, 60%, 100% { transform: rotate(0deg); } 30% { transform: rotate(-4deg); } }
 
 /* ── Eyes ───────────────────────────────────────────────────────────────── */
-.cpm-eye { transform-origin: var(--ex) 53px; }
-.cpm-eyes--blink .cpm-eye { animation: cpm-blink 5.2s ease-in-out infinite; }
+.cpm-blink { animation: cpm-blink 5.2s ease-in-out infinite; }
 @keyframes cpm-blink {
   0%, 90%, 97%, 100% { transform: scaleY(1); }
   93.5% { transform: scaleY(0.08); }
 }
 .cpm-look { transition: transform 0.35s ease; }
 .cpm-look--scan { animation: cpm-scan 2.4s ease-in-out infinite; }
-@keyframes cpm-scan { 0%, 100% { transform: translate(-2.5px, 0); } 50% { transform: translate(2.5px, 0); } }
-
-/* ── Tail (pivot at its root) ───────────────────────────────────────────── */
-.cpm-tail { transform-origin: 45px 94px; animation: cpm-wag 2.4s ease-in-out infinite; }
-.cpm-tail--lie { transform-origin: 18px 84px; }
-@keyframes cpm-wag { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(8deg); } }
-
-/* ── Arms (pivot at the shoulders) ──────────────────────────────────────── */
-.cpm-arm-l { transform-origin: 48px 79.5px; transition: transform 0.3s ease; }
-.cpm-arm-r { transform-origin: 80px 79.5px; transition: transform 0.3s ease; }
-
-/* Raised arms also slide out along their own length: a chibi arm is short,
-   and rotated in place it only ever reached the cheek. */
-.cpm-arms--wave .cpm-arm-r { animation: cpm-wave 0.9s ease-in-out infinite; }
-@keyframes cpm-wave { 0%, 100% { transform: rotate(-146deg) translateY(5px); } 50% { transform: rotate(-116deg) translateY(5px); } }
-
-.cpm-arms--up .cpm-arm-l { animation: cpm-up-l 0.8s ease-in-out infinite; }
-.cpm-arms--up .cpm-arm-r { animation: cpm-up-r 0.8s ease-in-out infinite; }
-@keyframes cpm-up-l { 0%, 100% { transform: rotate(104deg) translateY(6px); } 50% { transform: rotate(88deg) translateY(6px); } }
-@keyframes cpm-up-r { 0%, 100% { transform: rotate(-104deg) translateY(6px); } 50% { transform: rotate(-88deg) translateY(6px); } }
-
-/* Thinking: one mitten under the chin. */
-.cpm-arms--chin .cpm-arm-r { transform: rotate(171deg) translateY(-6.5px); }
-
-/* Surprised: both mittens up to the cheeks. */
-.cpm-arms--face .cpm-arm-l { transform: rotate(158deg) translateY(2px); }
-.cpm-arms--face .cpm-arm-r { transform: rotate(-158deg) translateY(2px); }
-
-.cpm-arms--front .cpm-arm-l { transform: rotate(-30deg); }
-.cpm-arms--front .cpm-arm-r { transform: rotate(30deg); }
-.cpm-arms--lap .cpm-arm-l { transform: rotate(-22deg); }
-.cpm-arms--lap .cpm-arm-r { transform: rotate(22deg); }
-
-/* The magnifier is drawn inside the right arm, so sweeping the arm sweeps it. */
-.cpm-arms--hold .cpm-arm-r { animation: cpm-sweep-arm 2.4s ease-in-out infinite; }
-@keyframes cpm-sweep-arm { 0%, 100% { transform: rotate(-122deg) translateY(3px); } 50% { transform: rotate(-104deg) translateY(3px); } }
-
-/* Lying at the laptop: the two front paws take turns on the keys, each
-   tipping up from the wrist so the fingers lift and the arm stays put. */
-.cpm-paw--l { transform-origin: 40px 102px; animation: cpm-tap 0.42s ease-in-out infinite; }
-.cpm-paw--r { transform-origin: 70px 101px; animation: cpm-tap 0.42s ease-in-out infinite 0.21s; }
-@keyframes cpm-tap { 0%, 60%, 100% { transform: rotate(0deg); } 30% { transform: rotate(-4deg); } }
+@keyframes cpm-scan { 0%, 100% { transform: translate(-2px, 0); } 50% { transform: translate(2px, 0); } }
 
 /* ── Props and effects ─────────────────────────────────────────────────── */
 .cpm-pencil { animation: cpm-scribble 0.5s ease-in-out infinite; }
