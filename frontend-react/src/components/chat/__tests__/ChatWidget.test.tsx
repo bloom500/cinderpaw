@@ -25,7 +25,7 @@ describe('ChatWidget', () => {
     expect(screen.getByText('My take')).toBeTruthy();
 
     rerender(<ChatWidget w={{ kind: 'breakdown', total: 2000, items: [{ label: 'Flights', value: 900 }] }} />);
-    expect(screen.getByText('Total 2,000')).toBeTruthy();
+    expect(screen.getByText(`Total ${(2000).toLocaleString()}`)).toBeTruthy();
 
     rerender(<ChatWidget w={{ kind: 'cards', items: [{ title: 'Aventon', imageFile: '/p/a.jpg' }, { title: 'Ride1Up' }] }} />);
     // The kept picture is shown from its file; the card without one has the placeholder, not a broken image.
