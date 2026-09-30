@@ -625,21 +625,22 @@ describe('the Context tab', () => {
     expect(screen.getByText(/In Agent mode Cinderpaw picks/)).toBeInTheDocument();
   });
 
-  it('narrows by tab and by search, and Add fills the composer', () => {
-    useChat.setState({ messages: [
-      { id: 'u', role: 'user', content: '[Image attached: cat.png]\n\nhi', createdAt: 0 },
+  it('says what the chat is about, folds each kind of context, and Add fills the composer', () => {
+    useChat.setState({ streamStatus: 'streaming', messages: [
+      { id: 'u', role: 'user', content: '[Image attached: cat.png]\n\nPlan the launch week', createdAt: 0 },
       { id: 'a', role: 'assistant', content: '', createdAt: 1, memoryUsed: [{ kind: 'fact', text: 'likes: ramen' }] } as ChatMessage,
     ] });
     useArtifacts.setState({ panelTab: 'context' });
     const onCompose = vi.fn();
     render(<ArtifactsPanel onClose={() => {}} onCompose={onCompose} />);
-    fireEvent.click(screen.getByRole('tab', { name: /Memory/ }));
-    expect(screen.queryByRole('region', { name: 'Files' })).toBeNull();
+    expect(screen.getByText('Current task')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Plan the launch week' })).toBeInTheDocument();
+    expect(screen.getByText('In progress')).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Memory' })).toHaveTextContent('likes: ramen');
-    fireEvent.change(screen.getByLabelText('Search in this context'), { target: { value: 'sushi' } });
-    expect(screen.getByText('No memory matches.')).toBeInTheDocument();
+    expect(screen.getByText('Recent memory')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Add a memory' }));
     expect(onCompose).toHaveBeenCalledWith('Remember that ');
+    useChat.setState({ streamStatus: 'idle' });
   });
 });
 

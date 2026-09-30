@@ -225,7 +225,7 @@ export function ArtifactsPanel({
       </div>
       {tab === 'context' ? <>
         <div className="flex shrink-0 items-center px-4 py-4">
-          <PanelTitle icon={BookOpen} title="Context" sub="Everything Cinderpaw can see and use." />
+          <PanelTitle icon={BookOpen} title="Context" sub="Everything Cinderpaw knows and is using for this conversation." />
         </div>
         <ContextTab onCompose={onCompose} onAttach={onAttach} />
       </> : <>
