@@ -643,9 +643,11 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   return (
     <TooltipProvider delayDuration={300}>
       <div className={cn(
-        isEmpty
-          ? 'px-4 py-3 max-w-2xl mx-auto w-full'
-          : 'px-4 py-3',
+        'px-4 py-3 mx-auto w-full',
+        // In a conversation the composer lines up with the transcript's
+        // 700px column (MessageList, max-w-[748px] minus px-6), 16px wider
+        // on each side as the canvas draws it, instead of spanning the pane.
+        isEmpty ? 'max-w-2xl' : 'max-w-[764px]',
       )}>
         <div
           ref={composerRef}
@@ -728,7 +730,10 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                 disabled={disabled}
                 rows={1}
                 className={cn(
-                  'resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-2 pt-3 text-base min-h-11 thin-scrollbar',
+                  // shadow-none and md:text-base undo the base Textarea's own
+                  // box and its smaller desktop size: the field is the pill, and
+                  // what is typed is the size of the placeholder it replaces.
+                  'resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 max-h-[200px] px-2 pt-3 text-base md:text-base min-h-11 thin-scrollbar',
                 )}
               />
               {text.length === 0 && rec.state !== 'preview' && (
