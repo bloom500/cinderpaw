@@ -6,7 +6,7 @@ extends SceneTree
 ## early (every suite's run() ends with `return true`), 2 when one hung. A script error aborts _initialize before quit() and would leave
 ## Godot idling forever (a CI job hung for hours), so a watchdog ends the run.
 
-const SUITES := ["res://tests/test_bridge.gd", "res://tests/test_rules.gd"]
+const SUITES := ["res://tests/test_bridge.gd", "res://tests/test_rules.gd", "res://tests/test_world.gd"]
 const WATCHDOG_S := 20.0
 var failed := 0
 
@@ -19,6 +19,11 @@ func _initialize() -> void:
 	create_timer(WATCHDOG_S).timeout.connect(func() -> void:
 		print("FAIL  a suite crashed or hung (see the error above)")
 		quit(2))
+	# Suites run once the tree is live: a node a suite adds to root gets its
+	# _ready (and its @onready vars) then, not during _initialize.
+	process_frame.connect(_run_suites, CONNECT_ONE_SHOT)
+
+func _run_suites() -> void:
 	for path in SUITES:
 		var suite = load(path)
 		if suite == null or not suite.can_instantiate():
