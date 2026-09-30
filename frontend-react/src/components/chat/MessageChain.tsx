@@ -1,35 +1,82 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
-import {
-  AlertTriangle, Brain, Database, FileBox, FileText, Globe, Monitor, Sparkles, SquareTerminal, Wrench,
-  type LucideIcon,
-} from 'lucide-react';
+import { AlertTriangle, Ban, Check, ChevronDown, Loader2, X } from 'lucide-react';
 import { Streamdown } from 'streamdown';
-import {
-  ChainOfThought, ChainOfThoughtContent, ChainOfThoughtHeader, ChainOfThoughtStep,
-} from '@/components/ai-elements/chain-of-thought';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { thinkingLabel } from '@/components/ai-elements/reasoning';
-import { ShimmeringText } from '@/components/ui/shimmering-text';
-import type { ToolActivity, ToolKind } from '@/hooks/useLiveToolActivity';
+import type { ToolActivity } from '@/hooks/useLiveToolActivity';
+import { useUI } from '@/stores/ui';
+import { displayName, type RlmWorker } from '@/stores/rlmWorkers';
+import logoUrl from '@/assets/logo.svg';
 import { Widget, summaryOf } from './CallToolScreen';
+import { CinderpawMascot } from './mascot/CinderpawMascot';
 
 /** How long the finished answer is on screen before the steps fold away. */
 const FOLD_DELAY_MS = 1000;
 
-/** One icon per kind. A Record, so a new kind added to ToolKind fails tsc here until it has one. */
-const ICON: Record<ToolKind, LucideIcon> = {
-  agent: Sparkles,
-  browser: Globe,
-  files: FileText,
-  terminal: SquareTerminal,
-  memory: Database,
-  desktop: Monitor,
-  artifact: FileBox,
-  generic: Wrench,
-};
-
 /** No Streamdown plugins, for the same bundle reason as reasoning.tsx. */
 const NO_PLUGINS = {};
+
+function plural(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** "12s", "1m 12s". */
+export function elapsedLabel(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+/**
+ * What a step did, in words: present tense while it runs, past once it is done
+ * ("Searching the web", "Searched the web"). From the tool's kind and name,
+ * never from its output. A tool with no phrase keeps its own name.
+ */
+export function stepTitle(a: Pick<ToolActivity, 'tool' | 'kind' | 'status' | 'artifact'>): string {
+  const now = a.status === 'running';
+  const pick = (running: string, done: string) => (now ? running : done);
+  switch (a.kind) {
+    case 'browser':
+      if (/^(web_search|deep_research)/.test(a.tool)) return pick('Searching the web', 'Searched the web');
+      if (/^(read_webpage|fetch_url|http_request)/.test(a.tool)) return pick('Reading a page', 'Read a page');
+      return pick('Using the browser', 'Used the browser');
+    case 'files':
+      if (/write|edit|create|delete|move/.test(a.tool)) return pick('Writing files', 'Wrote files');
+      return pick('Reading files', 'Read files');
+    case 'terminal': return pick('Running a command', 'Ran a command');
+    case 'memory':   return pick('Checking memory', 'Checked memory');
+    case 'agent':    return pick('Asking a helper', 'Asked a helper');
+    case 'desktop':  return pick('Using an app', 'Used an app');
+    case 'artifact': {
+      const title = a.artifact?.title;
+      return title ? pick(`Working on ${title}`, `Made ${title}`) : pick('Making an artifact', 'Made an artifact');
+    }
+    default: {
+      const name = a.tool.replace(/_/g, ' ');
+      return name.charAt(0).toUpperCase() + name.slice(1);
+    }
+  }
+}
+
+/** The short count on the right of a step ("14 sources"), or what it was about. */
+export function stepDetail(a: ToolActivity): string {
+  if (a.status === 'failed') return a.error ?? 'Failed';
+  if (a.hits.length > 0) return plural(a.hits.length, 'source');
+  if (a.files.length > 0) return plural(a.files.length, 'file');
+  if (a.facts.length > 0) return plural(a.facts.length, 'memory', 'memories');
+  return summaryOf(a);
+}
+
+/**
+ * How long the steps took, first start to last end, in whole seconds (at least
+ * one). Null when a step never recorded its end, so nothing made up is shown.
+ */
+export function workedSeconds(steps: ToolActivity[]): number | null {
+  if (steps.length === 0 || steps.some((a) => a.endedAt === null)) return null;
+  const start = Math.min(...steps.map((a) => a.startedAt));
+  const end = Math.max(...steps.map((a) => a.endedAt!));
+  return Math.max(1, Math.round((end - start) / 1000));
+}
 
 function ThinkingText({ text, live }: { text: string; live: boolean }) {
   const box = useRef<HTMLDivElement>(null);
@@ -48,10 +95,106 @@ function ThinkingText({ text, live }: { text: string; live: boolean }) {
   );
 }
 
+/** Seconds since `since`, re-read once a second while `live`. */
+function useNow(live: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live) return;
+    setNow(Date.now());
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [live]);
+  return now;
+}
+
+function StatusRing({ status }: { status: ToolActivity['status'] }) {
+  if (status === 'running') return <Loader2 size={16} className="shrink-0 animate-spin text-brand" />;
+  if (status === 'failed') return <AlertTriangle size={16} className="shrink-0 text-warning" />;
+  return <Check size={16} className="shrink-0 text-success" />;
+}
+
+/** One step: ring, what it did, its count. Click for the tool's own widget. */
+function StepRow({ a }: { a: ToolActivity }) {
+  // `null` is "nobody chose": the running step shows its widget, the rest fold.
+  const [choice, setChoice] = useState<boolean | null>(null);
+  const open = choice ?? a.status === 'running';
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setChoice(!open)}
+        className="flex w-full items-center gap-3 py-1.5 text-left"
+      >
+        <StatusRing status={a.status} />
+        <span className={cn('min-w-0 flex-1 truncate text-sm', a.status === 'running' ? 'font-medium text-text-primary' : 'text-text-muted')}>
+          {stepTitle(a)}
+        </span>
+        <span className="max-w-[45%] shrink-0 truncate text-2xs text-text-disabled" title={stepDetail(a)}>
+          {stepDetail(a)}
+        </span>
+      </button>
+      {open && (
+        <div className="mb-1.5 ml-7">
+          <Widget activity={a} flat />
+        </div>
+      )}
+    </div>
+  );
+}
+
+const HELPER_WORD: Record<RlmWorker['status'], string> = {
+  running: 'working', completed: 'done', error: 'failed', cancelled: 'stopped',
+};
+
+/** One `rlm()` helper: its task, how it stands, for how long. Its answer is in WorkersCard. */
+function HelperRow({ w, now }: { w: RlmWorker; now: number }) {
+  const icon = w.status === 'running' ? <Loader2 size={16} className="shrink-0 animate-spin text-brand" />
+    : w.status === 'completed' ? <Check size={16} className="shrink-0 text-success" />
+    : w.status === 'cancelled' ? <Ban size={16} className="shrink-0 text-text-muted" />
+    : <X size={16} className="shrink-0 text-error" />;
+  return (
+    <div className="flex items-center gap-3 py-1.5" data-testid="strip-helper">
+      {icon}
+      <span className="min-w-0 flex-1 truncate text-sm text-text-muted" title={w.name}>{displayName(w.name)}</span>
+      <span className="shrink-0 text-2xs text-text-disabled">
+        {HELPER_WORD[w.status]} · {elapsedLabel((w.endedAt ?? now) - w.startedAt)}
+      </span>
+    </div>
+  );
+}
+
 /**
- * What the agent did before it answered, as steps: each tool it ran, and its
- * reasoning. Replaces the separate reasoning block and tool rows, which showed
- * the same turn as two unrelated things.
+ * The side activities worth a glance while the strip is folded (spec 7.5):
+ * a memory lookup or an artifact in progress, and helpers still working.
+ */
+export function sideChips(steps: ToolActivity[], helpers: RlmWorker[]): string[] {
+  const running = steps.filter((a) => a.status === 'running');
+  const working = helpers.filter((w) => w.status === 'running').length;
+  return [
+    ...(running.some((a) => a.kind === 'memory') ? ['Using memory'] : []),
+    ...(running.some((a) => a.kind === 'artifact') ? ['Generating artifact'] : []),
+    ...(working > 0 ? [plural(working, 'helper')] : []),
+  ];
+}
+
+/** The clay mascot at work, 48 px; the logo head when the mascot is turned off. */
+function WorkingFigure() {
+  const mascot = useUI((s) => s.mascotEnabled);
+  if (!mascot) return <img src={logoUrl} alt="" className="h-8 w-8 shrink-0" />;
+  return (
+    <span aria-hidden className="relative -my-2 h-12 w-12 shrink-0 overflow-hidden">
+      <span className="absolute left-0 top-0 origin-top-left scale-[0.375]">
+        <CinderpawMascot state="calling" />
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The Activity Strip (spec 7.5): what the agent did in this part of the turn,
+ * as one card. Its header says what is happening now and for how long; the
+ * rows are each tool it ran and its reasoning. Replaces the step card.
  *
  * The steps come from `toolActivity`, which the stream already records as
  * structured events, not from guessing steps out of the reasoning text.
@@ -61,7 +204,7 @@ function ThinkingText({ text, live }: { text: string; live: boolean }) {
  * was the bug that made the old block vanish mid-read). A click reopens it.
  */
 export function MessageChain({
-  thinking, thinkingComplete, durationSec, steps, streaming,
+  thinking, thinkingComplete, durationSec, steps, streaming, helpers = [],
 }: {
   /** null when the model gave none, or the person turned reasoning off. */
   thinking: string | null;
@@ -69,9 +212,14 @@ export function MessageChain({
   durationSec: number | undefined;
   steps: ToolActivity[];
   streaming: boolean;
+  /** This chat's `rlm()` helpers. Only the latest reply's last strip gets them:
+   *  they belong to the session, and they run after the reply that started them. */
+  helpers?: RlmWorker[];
 }) {
   const [open, setOpen] = useState(streaming);
   const wasStreaming = useRef(streaming);
+  const [reasoningOpen, setReasoningOpen] = useState(false);
+  const now = useNow(streaming || helpers.some((w) => w.status === 'running'));
 
   useEffect(() => {
     const before = wasStreaming.current;
@@ -84,53 +232,87 @@ export function MessageChain({
     return undefined;
   }, [streaming]);
 
-  if (thinking === null && steps.length === 0) return null;
+  if (thinking === null && steps.length === 0 && helpers.length === 0) return null;
+  const chips = sideChips(streaming ? steps : [], helpers);
 
-  const count = steps.length > 0 ? `${steps.length} step${steps.length === 1 ? '' : 's'}` : '';
-  // A group of tools in the timeline has no reasoning of its own: its header
-  // names what ran ("web search · read file"), the way Claude Code does.
-  const names = [...new Set(steps.map((a) => a.tool.replace(/_/g, ' ')))];
-  const toolsLabel = names.slice(0, 3).join(' · ') + (names.length > 3 ? ` +${names.length - 3}` : '');
-  const title = thinking === null
-    ? (streaming ? <ShimmeringText text={`${toolsLabel}…`} duration={1.4} /> : toolsLabel)
-    : streaming
-      ? <ShimmeringText text="Thinking…" duration={1.4} />
-      : [thinkingLabel(false, durationSec), count].filter(Boolean).join(' · ');
+  const thinkingLive = streaming && thinking !== null && !thinkingComplete;
+  const current = steps.find((a) => a.status === 'running') ?? steps[steps.length - 1];
+  const count = steps.length > 0 ? plural(steps.length, 'step') : '';
+
+  let title: string;
+  let detail: string;
+  if (streaming) {
+    title = thinkingLive || (!current && thinking !== null) ? 'Thinking' : current ? stepTitle(current) : 'Helpers';
+    const since = steps.length > 0 ? Math.min(...steps.map((a) => a.startedAt)) : null;
+    detail = [count, since !== null ? elapsedLabel(now - since) : ''].filter(Boolean).join(' · ');
+  } else {
+    const worked = workedSeconds(steps);
+    title = steps.length === 0
+      ? (thinking !== null ? thinkingLabel(false, durationSec) : 'Helpers')
+      : worked !== null ? `Worked for ${plural(worked, 'second')}` : 'Worked';
+    detail = count;
+  }
 
   return (
-    <ChainOfThought open={open} onOpenChange={setOpen}>
-      <ChainOfThoughtHeader>{title}</ChainOfThoughtHeader>
-      <ChainOfThoughtContent>
-        {steps.map((a) => (
-          <ChainOfThoughtStep
-            key={a.id}
-            icon={a.status === 'failed' ? AlertTriangle : ICON[a.kind]}
-            label={a.tool.replace(/_/g, ' ')}
-            description={a.status === 'failed' ? (a.error ?? 'failed') : summaryOf(a)}
-            status={a.status === 'running' ? 'active' : 'complete'}
-          >
-            <Widget activity={a} flat />
-          </ChainOfThoughtStep>
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className="overflow-hidden rounded-2xl border border-border-default bg-bg-surface"
+    >
+      <CollapsibleTrigger className="flex w-full items-center gap-3 px-3.5 py-2.5 text-left">
+        {streaming ? (
+          <WorkingFigure />
+        ) : (
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-success/15 text-success">
+            <Check size={12} />
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{title}</span>
+        {chips.map((c) => (
+          <span key={c} className="shrink-0 rounded-full bg-bg-active px-2 py-0.5 text-2xs font-medium text-brand">{c}</span>
         ))}
+        {detail && <span className="shrink-0 text-2xs text-text-disabled">{detail}</span>}
+        <ChevronDown size={16} className={cn('shrink-0 text-text-muted transition-transform', open && 'rotate-180')} />
+      </CollapsibleTrigger>
+      <CollapsibleContent
+        className={cn(
+          'overflow-hidden border-t border-border-subtle px-3.5 py-1.5 outline-none',
+          'data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down',
+        )}
+      >
+        {steps.map((a) => <StepRow key={a.id} a={a} />)}
+        {helpers.map((w) => <HelperRow key={w.childId} w={w} now={now} />)}
         {/* ponytail: reasoning is drawn after the tools. The stream keeps only the
             latest segment's reasoning, which is the one after the last tool, so
             this is its real position. Interleaving every segment would need the
             stream to keep each one; add that if earlier reasoning is missed. */}
         {thinking !== null && (
-          <ChainOfThoughtStep
-            icon={Brain}
-            label={streaming && !thinkingComplete ? 'Thinking' : 'Reasoning'}
-            status={streaming && !thinkingComplete ? 'active' : 'complete'}
-          >
+          <div>
+            <button
+              type="button"
+              aria-expanded={thinkingLive || reasoningOpen}
+              onClick={() => setReasoningOpen((v) => !v)}
+              className="flex w-full items-center gap-3 py-1.5 text-left"
+            >
+              {thinkingLive
+                ? <Loader2 size={16} className="shrink-0 animate-spin text-brand" />
+                : <Check size={16} className="shrink-0 text-success" />}
+              <span className={cn('flex-1 text-sm', thinkingLive ? 'font-medium text-text-primary' : 'text-text-muted')}>
+                {thinkingLive ? 'Thinking' : 'Reasoning'}
+              </span>
+            </button>
             {/* While it streams, the reasoning grows inside a box of fixed
                 height that scrolls itself, instead of pushing the answer and
-                everything under it down a line at a time: that push, with the
-                page following, read as the whole transcript bouncing. Once
-                the thinking is complete the box opens to its full height. */}
-            <ThinkingText text={thinking} live={streaming && !thinkingComplete} />
-          </ChainOfThoughtStep>
+                everything under it down a line at a time. Once complete it is
+                one click away, at full height. */}
+            {(thinkingLive || reasoningOpen) && (
+              <div className="mb-1.5 ml-7">
+                <ThinkingText text={thinking} live={thinkingLive} />
+              </div>
+            )}
+          </div>
         )}
-      </ChainOfThoughtContent>
-    </ChainOfThought>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

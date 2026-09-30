@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cinderpaw app</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Young+Serif&amp;display=swap">
+<style>
+body{margin:0;font-family:'Geist',system-ui,sans-serif}
+button{font-family:inherit;cursor:pointer}
+a{color:#B15129}a:hover{color:#8E3F1F}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; overflow: hidden; background: {{t.bg}}; color: {{t.text}}; font-family: 'Geist', system-ui, sans-serif; font-size: 14px">
+
+<nav aria-label="Main" style="width: 256px; flex-shrink: 0; height: 100%; box-sizing: border-box; padding: 18px 12px; display: flex; flex-direction: column; gap: 2px; background: {{t.side}}; border-right: 1px solid {{t.border}}">
+<div style="display: flex; align-items: center; gap: 10px; padding: 2px 8px 16px 8px">
+<img src="assets/logo-head.svg" alt="" style="width: 32px; height: 32px">
+<span style="flex-grow: 1; font-family: 'Young Serif', Georgia, serif; font-size: 24px; letter-spacing: -0.01em">Cinderpaw</span>
+<button type="button" aria-label="Collapse navigation" style="width: 30px; height: 30px; border-radius: 8px; border: 1px solid {{t.border}}; background: transparent; color: {{t.text2}}; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></button>
+</div>
+<button type="button" style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 12px; border: 0; background: {{t.active}}; color: {{t.brandText}}; font-size: 14.5px; font-weight: 600; text-align: left">
+<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="{{t.button}}"></circle><path d="M12 7.5v9M7.5 12h9" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"></path></svg>
+<span style="flex-grow: 1">New chat</span>
+<span style="font-size: 11.5px; font-weight: 500; color: {{t.text3}}">Ctrl N</span>
+</button>
+<div style="height: 8px"></div>
+<button type="button" style="display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; color: {{t.text}}; font-size: 14px; text-align: left">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{{t.text2}}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7.5"></circle><path d="m20.5 20.5-4-4"></path></svg>
+<span style="flex-grow: 1">Search</span>
+<span style="font-size: 11.5px; color: {{t.text3}}; border: 1px solid {{t.border}}; border-radius: 6px; padding: 1px 6px">Ctrl K</span>
+</button>
+<button type="button" style="display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 12px; border-radius: 10px; border: 0; background: {{artifactsRowBg}}; color: {{t.text}}; font-size: 14px; text-align: left">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{{t.text2}}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg>
+<span>Artifacts</span>
+</button>
+<button type="button" style="display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 12px; border-radius: 10px; border: 0; background: {{browserRowBg}}; color: {{t.text}}; font-size: 14px; text-align: left">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{{t.text2}}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 2.5a14 14 0 0 0 0 19 14 14 0 0 0 0-19"></path><path d="M2.5 12h19"></path></svg>
+<span>Browser</span>
+</button>
+<button type="button" style="display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; color: {{t.text}}; font-size: 14px; text-align: left">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{{t.text2}}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path><path d="m3.3 7 8.7 5 8.7-5"></path><path d="M12 22V12"></path></svg>
+<span>Models</span>
+</button>
+<button type="button" style="display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; color: {{t.text}}; font-size: 14px; text-align: left">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{{t.text2}}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7h-9"></path><path d="M14 17H5"></path><circle cx="17" cy="17" r="3"></circle><circle cx="7" cy="7" r="3"></circle></svg>
+<span>Settings</span>
+</button>
+
+<div style="height: 1px; background: {{t.border}}; margin: 14px 10px"></div>
+
+<div style="padding: 4px 12px 6px 12px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; color: {{t.text3}}">STARRED</div>
+<button type="button" style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; color: {{t.text2}}; font-size: 13.5px; text-align: left"><svg width="15" height="15" viewBox="0 0 24 24" fill="{{t.link}}" stroke="none" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.8-4.9 4.6 1.3 6.5L12 17.2l-5.9 3.2 1.3-6.5L2.5 9.3l6.6-.8Z"></path></svg>Brand colour ideas</button>
+<div style="padding: 14px 12px 6px 12px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; color: {{t.text3}}">PROJECTS</div>
+<button type="button" style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; color: {{t.text2}}; font-size: 13.5px; text-align: left">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg>
+<span>Cinderpaw launch</span>
+</button>
+
+<div style="padding: 14px 12px 6px 12px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; color: {{t.text3}}">TODAY</div>
+<button type="button" style="display: flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 10px; border: 0; background: {{convRowBg}}; color: {{convRowText}}; font-size: 13.5px; text-align: left">Plan the launch week</button>
+<button type="button" style="display: flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; color: {{t.text2}}; font-size: 13.5px; text-align: left">Why the Discord bot is quiet</button>
+<div style="padding: 14px 12px 6px 12px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; color: {{t.text3}}">YESTERDAY</div>
+<button type="button" style="display: flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; color: {{t.text2}}; font-size: 13.5px; text-align: left">Compare three laptops</button>
+<button type="button" style="display: flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; color: {{t.text2}}; font-size: 13.5px; text-align: left">Summarise the meeting notes</button>
+</nav>
+
+<main style="flex-grow: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; position: relative">
+
+<sc-if value="{{isHome}}" hint-placeholder-val="{{ true }}">
+<div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 0 48px 60px 48px">
+<div style="width: 760px; display: flex; flex-direction: column">
+<h1 style="margin: 0; font-family: 'Young Serif', Georgia, serif; font-weight: 400; font-size: 56px; line-height: 64px; letter-spacing: -0.015em; color: {{t.text}}">Good evening, Darius</h1>
+<p style="margin: 12px 0 0 0; font-size: 19px; line-height: 28px; color: {{t.text2}}">What can I help you with?</p>
+
+<div style="position: relative; margin-top: 88px">
+<img src="assets/clay-wave.png" alt="" style="position: absolute; right: 36px; top: -100px; width: 108px; height: 108px; z-index: 2">
+<div style="position: relative; z-index: 1; box-sizing: border-box; background: {{t.raised}}; border: 1px solid {{t.border}}; border-radius: 24px; box-shadow: {{t.shadow}}; padding: 18px 16px 12px 20px; display: flex; flex-direction: column; gap: 22px">
+<div style="font-size: 16px; line-height: 24px; color: {{t.text3}}">Ask Cinderpaw…</div>
+<div style="display: flex; align-items: center; gap: 8px">
+<button type="button" aria-label="Attach a file" style="width: 36px; height: 36px; border-radius: 18px; border: 1px solid {{t.border}}; background: transparent; color: {{t.text2}}; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg></button>
+<button type="button" style="height: 36px; padding: 0 12px; border-radius: 18px; border: 1px solid {{t.border}}; background: transparent; color: {{t.text2}}; font-size: 13px; display: flex; align-items: center; gap: 6px">Agent<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+<button type="button" aria-label="Tools and modes" style="height: 36px; padding: 0 12px; border-radius: 18px; border: 1px solid {{t.border}}; background: transparent; color: {{t.text2}}; font-size: 13px; display: flex; align-items: center; gap: 6px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10"></path><path d="M18 7h2"></path><circle cx="16" cy="7" r="2"></circle><path d="M4 17h2"></path><path d="M10 17h10"></path><circle cx="8" cy="17" r="2"></circle></svg>Tools</button>
+<button type="button" style="height: 36px; padding: 0 12px; border-radius: 18px; border: 1px solid {{t.border}}; background: transparent; color: {{t.text2}}; font-size: 13px; display: flex; align-items: center; gap: 6px">GLM 5.3 Flash<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+<div style="flex-grow: 1"></div>
+<button type="button" aria-label="Voice message" style="width: 38px; height: 38px; border-radius: 19px; border: 0; background: {{t.side}}; color: {{t.text}}; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><path d="M12 19v3"></path></svg></button>
+<button type="button" aria-label="Send" style="width: 38px; height: 38px; border-radius: 19px; border: 0; background: {{t.button}}; color: #FFFFFF; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 7-7 7 7"></path><path d="M12 19V5"></path></svg></button>
+</div>
+</div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 16px">
+<button type="button" style="display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 16px; border: 1px solid {{t.border}}; background: {{t.surface}}; color: {{t.text}}; text-align: left">
+<span style="width: 34px; height: 34px; border-radius: 10px; background: {{t.active}}; color: {{t.brandText}}; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"></circle><path d="M12 2.5a14 14 0 0 0 0 19 14 14 0 0 0 0-19"></path><path d="M2.5 12h19"></path></svg></span>
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14.5px; font-weight: 600">Research</span><span style="font-size: 12.5px; color: {{t.text3}}">Look it up on the web</span></span>
+</button>
+<button type="button" style="display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 16px; border: 1px solid {{t.border}}; background: {{t.surface}}; color: {{t.text}}; text-align: left">
+<span style="width: 34px; height: 34px; border-radius: 10px; background: {{t.active}}; color: {{t.brandText}}; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"></path></svg></span>
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14.5px; font-weight: 600">Create</span><span style="font-size: 12.5px; color: {{t.text3}}">A document, a page, a plan</span></span>
+</button>
+<button type="button" style="display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 16px; border: 1px solid {{t.border}}; background: {{t.surface}}; color: {{t.text}}; text-align: left">
+<span style="width: 34px; height: 34px; border-radius: 10px; background: {{t.active}}; color: {{t.brandText}}; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"></path><path d="m7 15 4-4 3 3 5-6"></path></svg></span>
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14.5px; font-weight: 600">Analyze</span><span style="font-size: 12.5px; color: {{t.text3}}">Make sense of a file</span></span>
+</button>
+<button type="button" style="display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 16px; border: 1px solid {{t.border}}; background: {{t.surface}}; color: {{t.text}}; text-align: left">
+<span style="width: 34px; height: 34px; border-radius: 10px; background: {{t.active}}; color: {{t.brandText}}; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2.1l4 4-4 4"></path><path d="M3 12.2v-2a4 4 0 0 1 4-4h14"></path><path d="m7 21.9-4-4 4-4"></path><path d="M21 11.8v2a4 4 0 0 1-4 4H3"></path></svg></span>
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14.5px; font-weight: 600">Automate</span><span style="font-size: 12.5px; color: {{t.text3}}">Hand off a routine</span></span>
+</button>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px">
+<button type="button" style="height: 32px; padding: 0 14px; border-radius: 16px; border: 1px solid {{t.border}}; background: transparent; color: {{t.text2}}; font-size: 13px">Plan my week</button>
+<button type="button" style="height: 32px; padding: 0 14px; border-radius: 16px; border: 1px solid {{t.border}}; background: transparent; color: {{t.text2}}; font-size: 13px">Summarize a PDF</button>
+<button type="button" style="height: 32px; padding: 0 14px; border-radius: 16px; border: 1px solid {{t.border}}; background: transparent; color: {{t.text2}}; font-size: 13px">Compare three laptops</button>
+<button type="button" style="height: 32px; padding: 0 14px; border-radius: 16px; border: 1px solid {{t.border}}; background: transparent; color: {{t.text2}}; font-size: 13px">Draft an email</button>
+<button type="button" style="height: 32px; padding: 0 14px; border-radius: 16px; border: 1px solid {{t.border}}; background: transparent; color: {{t.text2}}; font-size: 13px">Explain a topic simply</button>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{isChat}}" hint-placeholder-val="{{ false }}">
+<div style="flex-grow: 1; min-height: 0; display: flex">
+<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column">
+
+<header style="height: 60px; flex-shrink: 0; box-sizing: border-box; padding: 0 20px 0 28px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid {{t.borderSoft}}">
+<span style="font-size: 16px; font-weight: 600">Plan the launch week</span>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{t.text3}}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+<span style="font-size: 12.5px; color: {{t.text3}}; margin-left: 4px">in Cinderpaw launch</span>
+<div style="flex-grow: 1"></div>
+<button type="button" style="height: 34px; padding: 0 14px; border-radius: 17px; border: 1px solid {{t.border}}; background: transparent; color: {{t.text}}; font-size: 13.5px; display: flex; align-items: center; gap: 8px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>Call</button>
+<button type="button" aria-label="More" style="width: 34px; height: 34px; border-radius: 17px; border: 1px solid {{t.border}}; background: transparent; color: {{t.text2}}; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="19" cy="12" r="1.6"></circle></svg></button>
+</header>
+
+<div style="flex-grow: 1; min-height: 0; overflow: hidden; padding: 32px 32px 0 32px">
+<div style="max-width: 700px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px">
+
+<div style="display: flex; justify-content: flex-end">
+<div style="max-width: 78%; background: {{t.bubble}}; color: {{t.text}}; border-radius: 20px 20px 6px 20px; padding: 12px 16px; font-size: 15px; line-height: 23px">I'm launching Cinderpaw next week. Turn my notes into a day-by-day plan and save it as a document.</div>
+</div>
+
+<div style="display: flex">
+<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+<p style="margin: 0; font-family: {{reply.family}}; font-size: {{reply.size}}; line-height: {{reply.lh}}; color: {{t.text}}">Here is the week, built from your notes. I kept your order and moved the site before the video, because the video links to it.</p>
+
+<div style="border: 1px solid {{t.border}}; border-radius: 16px; background: {{t.surface}}; overflow: hidden">
+<div style="display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid {{t.borderSoft}}">
+<span style="width: 20px; height: 20px; border-radius: 10px; background: {{t.okBg}}; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="{{t.ok}}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span>
+<span style="font-size: 14px; font-weight: 600; flex-grow: 1">Worked for 42 seconds</span>
+<span style="font-size: 12.5px; color: {{t.text3}}">4 steps</span>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{t.text3}}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"></path></svg>
+</div>
+<div style="display: flex; flex-direction: column; padding: 6px 0">
+<div style="display: flex; align-items: center; gap: 12px; padding: 7px 16px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{t.ok}}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span style="flex-grow: 1; font-size: 13.5px; color: {{t.text2}}">Read your notes</span><span style="font-size: 12.5px; color: {{t.text3}}">notes.md</span></div>
+<div style="display: flex; align-items: center; gap: 12px; padding: 7px 16px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{t.ok}}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span style="flex-grow: 1; font-size: 13.5px; color: {{t.text2}}">Searched the web for launch checklists</span><span style="font-size: 12.5px; color: {{t.text3}}">3 sources</span></div>
+<div style="display: flex; align-items: center; gap: 12px; padding: 7px 16px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{t.ok}}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span style="flex-grow: 1; font-size: 13.5px; color: {{t.text2}}">Wrote the plan</span><span style="font-size: 12.5px; color: {{t.text3}}">launch-week.md</span></div>
+<div style="display: flex; align-items: center; gap: 12px; padding: 7px 16px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{t.ok}}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span style="flex-grow: 1; font-size: 13.5px; color: {{t.text2}}">Exported a PDF copy</span><span style="font-size: 12.5px; color: {{t.text3}}">2 pages</span></div>
+</div>
+</div>
+
+<div style="display: flex; align-items: center; gap: 14px; border: 1px solid {{t.border}}; border-radius: 16px; background: {{t.surface}}; padding: 12px 12px 12px 14px">
+<span style="width: 44px; height: 44px; border-radius: 12px; background: {{t.active}}; color: {{t.brandText}}; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg></span>
+<span style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14.5px; font-weight: 600">Launch week</span><span style="font-size: 12.5px; color: {{t.text3}}">Document, 7 days, 14 tasks</span></span>
+<button type="button" style="height: 34px; padding: 0 14px; border-radius: 10px; border: 1px solid {{t.border}}; background: {{t.raised}}; color: {{t.text}}; font-size: 13.5px; font-weight: 500">Open</button>
+</div>
+
+<p style="margin: 0; font-family: {{reply.family}}; font-size: {{reply.size}}; line-height: {{reply.lh}}; color: {{t.text}}">The first three days carry the launch itself: <strong style="font-weight: 600">Monday</strong> you tag the release and build the installers, <strong style="font-weight: 600">Tuesday</strong> the site and download page go live, <strong style="font-weight: 600">Wednesday</strong> the announcement and the video go out. The rest of the week is for replies and fixes.</p>
+</div>
+</div>
+
+<div style="display: flex; justify-content: flex-end">
+<div style="max-width: 78%; background: {{t.bubble}}; color: {{t.text}}; border-radius: 20px 20px 6px 20px; padding: 12px 16px; font-size: 15px; line-height: 23px">Nice. Can you draft the announcement too?</div>
+</div>
+
+<div style="display: flex">
+<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 10px">
+<p style="margin: 0; font-family: {{reply.family}}; font-size: {{reply.size}}; line-height: {{reply.lh}}; color: {{t.text}}">Sure. I'll keep it short, in your voice, and link the download page.</p>
+<div style="display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: {{t.text3}}"><img src="assets/logo-head.svg" alt="Cinderpaw is writing" style="width: 28px; height: 28px">Writing the draft…</div>
+</div>
+</div>
+
+</div>
+</div>
+
+<div style="flex-shrink: 0; padding: 0 32px 22px 32px">
+<div style="max-width: 732px; margin: 0 auto; position: relative">
+<img src="assets/clay-idle.png" alt="" style="position: absolute; right: 28px; top: -86px; width: 92px; height: 92px; z-index: 2">
+<div style="position: relative; z-index: 1; box-sizing: border-box; background: {{t.raised}}; border: 1px solid {{t.border}}; border-radius: 24px; box-shadow: {{t.shadow}}; padding: 16px 14px 10px 20px; display: flex; flex-direction: column; gap: 16px">
+<div style="font-size: 15px; line-height: 23px; color: {{t.text3}}">Ask Cinderpaw…</div>
+<div style="display: flex; align-items: center; gap: 8px">
+<button type="button" aria-label="Attach a file" style="width: 34px; height: 34px; border-radius: 17px; border: 1px solid {{t.border}}; background: transparent; color: {{t.text2}}; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg></button>
+<button type="button" style="height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid {{t.border}}; background: transparent; color: {{t.text2}}; font-size: 13px; display: flex; align-items: center; gap: 6px">Agent<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+<button type="button" aria-label="Tools and modes" style="height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid {{t.border}}; background: transparent; color: {{t.text2}}; font-size: 13px; display: flex; align-items: center; gap: 6px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10"></path><path d="M18 7h2"></path><circle cx="16" cy="7" r="2"></circle><path d="M4 17h2"></path><path d="M10 17h10"></path><circle cx="8" cy="17" r="2"></circle></svg>Tools</button>
+<button type="button" style="height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid {{t.border}}; background: transparent; color: {{t.text2}}; font-size: 13px; display: flex; align-items: center; gap: 6px">GLM 5.3 Flash<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+<div style="flex-grow: 1"></div>
+<button type="button" aria-label="Voice message" style="width: 36px; height: 36px; border-radius: 18px; border: 0; background: {{t.side}}; color: {{t.text}}; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><path d="M12 19v3"></path></svg></button>
+<button type="button" aria-label="Stop" style="width: 36px; height: 36px; border-radius: 18px; border: 0; background: {{t.button}}; color: #FFFFFF; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect></svg></button>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<sc-if value="{{panelOpen}}" hint-placeholder-val="{{ true }}">
+<aside aria-label="Artifacts and browser" style="width: 440px; flex-shrink: 0; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; background: {{t.side}}; border-left: 1px solid {{t.border}}">
+<div style="height: 60px; flex-shrink: 0; box-sizing: border-box; padding: 0 16px 0 20px; display: flex; align-items: flex-end; gap: 22px; border-bottom: 1px solid {{t.border}}">
+<button type="button" style="height: 44px; padding: 0 2px; border: 0; border-bottom: 2px solid {{tabA.line}}; background: transparent; color: {{tabA.color}}; font-size: 14px; font-weight: {{tabA.weight}}">Artifacts</button>
+<button type="button" style="height: 44px; padding: 0 2px; border: 0; border-bottom: 2px solid {{tabB.line}}; background: transparent; color: {{tabB.color}}; font-size: 14px; font-weight: {{tabB.weight}}">Browser</button>
+<div style="flex-grow: 1"></div>
+<button type="button" aria-label="Close panel" style="width: 32px; height: 32px; margin-bottom: 12px; border-radius: 8px; border: 0; background: transparent; color: {{t.text2}}; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+</div>
+<sc-if value="{{browserTab}}" hint-placeholder-val="{{ false }}">
+<div style="padding: 12px 16px; display: flex; align-items: center; gap: 6px">
+<button type="button" aria-label="Back" style="width: 30px; height: 30px; border-radius: 8px; border: 0; background: transparent; color: {{t.text2}}; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></button>
+<button type="button" aria-label="Forward" style="width: 30px; height: 30px; border-radius: 8px; border: 0; background: transparent; color: {{t.text3}}; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></button>
+<button type="button" aria-label="Reload" style="width: 30px; height: 30px; border-radius: 8px; border: 0; background: transparent; color: {{t.text2}}; display: flex; align-items: center; justify-content: center; padding: 0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"></path><path d="M21 3v5h-5"></path></svg></button>
+<div style="flex-grow: 1; height: 32px; border-radius: 16px; background: {{t.raised}}; border: 1px solid {{t.border}}; display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 13px; color: {{t.text2}}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>en.wikipedia.org/wiki/Hakone</div>
+</div>
+<div style="margin: 0 16px; padding: 10px 12px; border-radius: 12px; background: {{t.active}}; display: flex; align-items: center; gap: 10px">
+<img src="assets/logo-head.svg" alt="" style="width: 24px; height: 24px">
+<span style="flex-grow: 1; font-size: 13px; color: {{t.text}}">Cinderpaw is using this page</span>
+<button type="button" style="height: 28px; padding: 0 12px; border-radius: 8px; border: 1px solid {{t.border}}; background: {{t.raised}}; color: {{t.text}}; font-size: 12.5px">Stop</button>
+</div>
+<div style="flex-grow: 1; min-height: 0; margin: 12px 16px 0 16px; border-radius: 14px 14px 0 0; background: #FFFFFF; border: 1px solid {{t.border}}; border-bottom: 0; overflow: hidden; position: relative; padding: 22px">
+<div style="width: 55%; height: 16px; border-radius: 4px; background: #2F2A26; opacity: 0.85"></div>
+<div style="width: 30%; height: 8px; border-radius: 4px; background: #D9C8BE; margin-top: 12px"></div>
+<div style="height: 150px; border-radius: 10px; background: #E4DDD3; margin-top: 18px"></div>
+<div style="width: 96%; height: 8px; border-radius: 4px; background: #E4D6C8; margin-top: 18px"></div>
+<div style="width: 90%; height: 8px; border-radius: 4px; background: #E4D6C8; margin-top: 10px"></div>
+<div style="width: 94%; height: 8px; border-radius: 4px; background: #E4D6C8; margin-top: 10px"></div>
+<div style="width: 70%; height: 8px; border-radius: 4px; background: #E4D6C8; margin-top: 10px"></div>
+<div style="width: 92%; height: 8px; border-radius: 4px; background: #E4D6C8; margin-top: 22px"></div>
+<div style="width: 88%; height: 8px; border-radius: 4px; background: #E4D6C8; margin-top: 10px"></div>
+<div style="width: 60%; height: 8px; border-radius: 4px; background: #E4D6C8; margin-top: 10px"></div>
+<img src="assets/logo-head.svg" alt="" style="position: absolute; right: 26px; bottom: -30px; width: 76px; height: 76px">
+</div>
+</sc-if>
+<sc-if value="{{artifactsTab}}" hint-placeholder-val="{{ true }}">
+<div style="padding: 14px 20px; display: flex; align-items: center; gap: 10px">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{t.text2}}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
+<span style="font-size: 14px; font-weight: 600; flex-grow: 1">launch-week.md</span>
+<span style="font-size: 12px; color: {{t.text3}}; border: 1px solid {{t.border}}; border-radius: 6px; padding: 1px 7px">v2</span>
+<button type="button" style="height: 32px; padding: 0 12px; border-radius: 10px; border: 0; background: {{t.button}}; color: #FFFFFF; font-size: 13px; font-weight: 500">Export</button>
+</div>
+<div style="flex-grow: 1; min-height: 0; overflow: hidden; padding: 0 20px 20px 20px">
+<article style="background: {{t.raised}}; border: 1px solid {{t.border}}; border-radius: 16px; padding: 26px 26px 20px 26px; font-family: 'Geist', system-ui, sans-serif; color: {{t.text}}">
+<h2 style="margin: 0; font-family: 'Young Serif', Georgia, serif; font-size: 26px; line-height: 32px; font-weight: 400">Launch week</h2>
+<p style="margin: 6px 0 18px 0; font-family: 'Geist', sans-serif; font-size: 13px; color: {{t.text3}}">29 September to 5 October</p>
+<h3 style="margin: 0 0 8px 0; font-family: 'Geist', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; color: {{t.text2}}">MONDAY</h3>
+<div style="display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 16px; line-height: 23px"><span style="width: 18px; height: 18px; border-radius: 9px; background: {{t.button}}; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span><span style="color: {{t.text3}}; text-decoration: line-through">Tag the release</span></div>
+<div style="display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 16px; line-height: 23px"><span style="width: 16px; height: 16px; border-radius: 9px; border: 1.5px solid {{t.text3}}; flex-shrink: 0"></span><span>Build the Windows and Mac installers</span></div>
+<div style="display: flex; align-items: center; gap: 10px; padding: 5px 0 16px 0; font-size: 16px; line-height: 23px"><span style="width: 16px; height: 16px; border-radius: 9px; border: 1.5px solid {{t.text3}}; flex-shrink: 0"></span><span>Install once on a clean machine</span></div>
+<h3 style="margin: 0 0 8px 0; font-family: 'Geist', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; color: {{t.text2}}">TUESDAY</h3>
+<div style="display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 16px; line-height: 23px"><span style="width: 16px; height: 16px; border-radius: 9px; border: 1.5px solid {{t.text3}}; flex-shrink: 0"></span><span>Publish the site and download page</span></div>
+<div style="display: flex; align-items: center; gap: 10px; padding: 5px 0 16px 0; font-size: 16px; line-height: 23px"><span style="width: 16px; height: 16px; border-radius: 9px; border: 1.5px solid {{t.text3}}; flex-shrink: 0"></span><span>Check the download links on a phone</span></div>
+<h3 style="margin: 0 0 8px 0; font-family: 'Geist', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; color: {{t.text2}}">WEDNESDAY</h3>
+<div style="display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 16px; line-height: 23px"><span style="width: 16px; height: 16px; border-radius: 9px; border: 1.5px solid {{t.text3}}; flex-shrink: 0"></span><span>Post the announcement</span></div>
+<div style="display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 16px; line-height: 23px"><span style="width: 16px; height: 16px; border-radius: 9px; border: 1.5px solid {{t.text3}}; flex-shrink: 0"></span><span>Upload the video</span></div>
+</article>
+<p style="margin: 12px 4px 0 4px; font-size: 12.5px; color: {{t.text3}}">Edited by Cinderpaw 2 minutes ago</p>
+</div>
+</sc-if>
+</aside>
+</sc-if>
+</div>
+</sc-if>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false,"section":"Theme"},"screen":{"editor":"enum","options":["home","chat"],"default":"home","section":"Screen"},"replyFont":{"editor":"enum","options":["Geist","System"],"default":"Geist","section":"Screen"},"panel":{"editor":"boolean","default":true,"section":"Screen"},"panelTab":{"editor":"enum","options":["artifacts","browser"],"default":"artifacts","section":"Screen"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const LIGHT = {
+      bg: '#F6EFE6', side: '#F1E8DD', surface: '#FBF7F1', raised: '#FFFDFA',
+      border: '#E4D6C8', borderSoft: '#ECE1D5',
+      text: '#2F2A26', text2: '#6F5747', text3: '#7A5F4E',
+      active: '#F2DDCC', brandText: '#9A4421', link: '#B15129', button: '#B15129',
+      bubble: '#F2DDCC', ok: '#3F7A4A', okBg: '#E1ECDB',
+      shadow: '0 1px 2px rgba(70,45,25,0.06), 0 10px 30px rgba(70,45,25,0.07)'
+    };
+    const DARK = {
+      bg: '#2F2A26', side: '#28231F', surface: '#36302B', raised: '#3A3430',
+      border: '#4A413A', borderSoft: '#3F3732',
+      text: '#F6EFE6', text2: '#CDBFB2', text3: '#A8998C',
+      active: '#4A3528', brandText: '#FF8A3D', link: '#FF8A3D', button: '#B15129',
+      bubble: '#4A3A30', ok: '#8FC79A', okBg: '#34402F',
+      shadow: '0 1px 2px rgba(0,0,0,0.3), 0 12px 32px rgba(0,0,0,0.28)'
+    };
+    const dark = this.props.dark ?? false;
+    const screen = this.props.screen ?? 'home';
+    const system = (this.props.replyFont ?? 'Geist') === 'System';
+    const t = dark ? DARK : LIGHT;
+    const isChat = screen === 'chat';
+    const panelOpen = isChat && (this.props.panel ?? true);
+    const browser = (this.props.panelTab ?? 'artifacts') === 'browser';
+    const tabOn = { line: t.link, color: t.text, weight: '600' };
+    const tabOff = { line: 'transparent', color: t.text3, weight: '500' };
+    return {
+      browserTab: browser,
+      artifactsTab: !browser,
+      tabA: browser ? tabOff : tabOn,
+      tabB: browser ? tabOn : tabOff,
+      browserRowBg: panelOpen && browser ? t.active : 'transparent',
+      t,
+      isHome: !isChat,
+      isChat,
+      panelOpen,
+      reply: system
+        ? { family: "system-ui, 'Segoe UI', sans-serif", size: '15.5px', lh: '25px' }
+        : { family: "'Geist', system-ui, sans-serif", size: '15.5px', lh: '25px' },
+      convRowBg: isChat ? t.active : 'transparent',
+      convRowText: isChat ? t.text : t.text2,
+      artifactsRowBg: panelOpen && !browser ? t.active : 'transparent'
+    };
+  }
+}
+</script>
+</body>
+</html>

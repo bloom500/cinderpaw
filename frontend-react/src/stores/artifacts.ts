@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { tauri } from '@/lib/tauri';
+import { useNotifications } from '@/stores/notifications';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import type { PdfEdit } from '@/lib/pdfEdits';
 import type { PdfFieldRow } from '@/components/artifacts/PdfEditor';
@@ -86,6 +87,8 @@ interface ArtifactsStore {
   /** Whether the panel is showing. Here rather than in the UI store because
    *  everything that opens it already has this store in hand. */
   panelOpen: boolean;
+  /** The panel's tab: this chat's artifacts, or what the chat has in context. */
+  panelTab: 'artifacts' | 'context';
   rows: ArtifactRow[];
   /**
    * Whether the first read has come back, win or lose. Without it the panel
@@ -119,6 +122,7 @@ interface ArtifactsStore {
   review: { before: string; beforeVersion: number } | null;
 
   togglePanel: () => void;
+  setPanelTab: (tab: 'artifacts' | 'context') => void;
   refresh: () => Promise<void>;
   openArtifact: (id: string) => Promise<void>;
   showVersion: (version: number) => Promise<void>;
@@ -151,7 +155,7 @@ interface ArtifactsStore {
    * the conversation currently on screen (the event's session is the chat's).
    */
   onEvent: (e: {
-    id: string; action: 'created' | 'updated' | 'deleted'; onScreen?: boolean; version?: number;
+    id: string; action: 'created' | 'updated' | 'deleted'; onScreen?: boolean; version?: number; title?: string;
   }) => void;
   onResult: (e: {
     id: string; ok: boolean; items?: ArtifactRow[]; content?: string;
@@ -190,6 +194,7 @@ async function send(
 
 export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   panelOpen: false,
+  panelTab: 'artifacts',
   rows: [],
   loaded: false,
   open: null,
@@ -224,6 +229,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   showingArchived: false,
 
   togglePanel: () => set((st) => ({ panelOpen: !st.panelOpen })),
+  setPanelTab: (tab) => set({ panelTab: tab }),
 
   showArchived: (on) => {
     set({ showingArchived: on, loaded: false, rows: [] });
@@ -459,12 +465,29 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     // Only that conversation. A report written on Telegram or in another chat
     // must not pull the panel open over what you are doing here.
     if (e.onScreen && e.action !== 'deleted') {
-      set({ panelOpen: true });
+      set({ panelOpen: true, panelTab: 'artifacts' });
       // Never swap the artifact out from under someone typing in another one.
       if (get().open?.row.id !== e.id && !get().editing) {
         void get().openArtifact(e.id);
         return;
       }
+    }
+    // Made somewhere you are not looking (another chat, Telegram, a call):
+    // the done toast says so and opens it (spec 7.4). It used to arrive
+    // silently, found only by opening Artifacts.
+    if (!e.onScreen && e.action === 'created') {
+      useNotifications.getState().push('success', `${e.title?.trim() || 'Your new artifact'} is ready`, 'Saved in Artifacts', {
+        label: 'Open',
+        run: () => {
+          set({ panelOpen: true, panelTab: 'artifacts' });
+          void get().openArtifact(e.id);
+          // The panel lives beside the chat. Imported late: the router imports
+          // every page, and the pages import this store.
+          void import('@/router').then(({ router }) => {
+            if (router.state.location.pathname !== '/chat') void router.navigate('/chat');
+          });
+        },
+      });
     }
     const open = get().open;
     if (open?.row.id !== e.id) return;

@@ -20,6 +20,7 @@ import {
   type WhatsappQr,
 } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
+import { BrandLogo } from '@/lib/brandLogos';
 import { ConnectorAccounts } from '@/components/connectors/ConnectorAccounts';
 
 export function ConnectorsPage() {
@@ -134,7 +135,7 @@ export function ConnectorsPage() {
 
 // ── One connector card: config (token + allowlist), enable, remove ───────────
 
-function ConnectorCard({
+export function ConnectorCard({
   entry,
   state,
   onChanged,
@@ -151,7 +152,6 @@ function ConnectorCard({
   const [knowledgeBase, setKnowledgeBase] = useState(state?.knowledgeBase ?? '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [logoFailed, setLogoFailed] = useState(false);
   const [removeArmed, setRemoveArmed] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
 
@@ -304,20 +304,7 @@ function ConnectorCard({
       )}
     >
       <div className="flex items-start gap-3">
-        {entry.logo_url && !logoFailed ? (
-          <img
-            src={entry.logo_url}
-            alt=""
-            width={32}
-            height={32}
-            className="w-8 h-8 rounded object-contain shrink-0"
-            onError={() => setLogoFailed(true)}
-          />
-        ) : (
-          <span className="text-3xl leading-none shrink-0" aria-hidden="true">
-            {entry.icon}
-          </span>
-        )}
+        <BrandLogo id={entry.id} name={entry.name} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <p className="text-sm font-semibold text-text-primary truncate">{entry.name}</p>

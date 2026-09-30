@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { useGlobalHotkeys } from '../useGlobalHotkeys';
 import { useConversations } from '@/stores/conversations';
 import { useArtifacts } from '@/stores/artifacts';
+import { useBrowser } from '@/stores/browser';
 import { waitFor } from '@testing-library/react';
 
 function Harness() {
@@ -39,5 +40,43 @@ describe('useGlobalHotkeys', () => {
     dialog.remove();
     fireEvent.keyDown(box, { key: 'Escape' });
     await waitFor(() => expect(useArtifacts.getState().panelOpen).toBe(false));
+  });
+
+  // The palette's commands answer the keys the palette shows (lib/commands.ts).
+  function Where() {
+    const { pathname, search, state } = useLocation();
+    return <output data-testid="where">{pathname + search + ((state as { compose?: string } | null)?.compose ?? '')}</output>;
+  }
+  function Editor() {
+    useGlobalHotkeys();
+    return <><div aria-label="doc" contentEditable suppressContentEditableWarning /><textarea aria-label="composer" /><Where /></>;
+  }
+
+  it('answers the palette keys: Ctrl+Shift+A, Ctrl+B, Ctrl+M', () => {
+    const setPanel = vi.spyOn(useBrowser.getState(), 'setPanel').mockImplementation(() => {});
+    const { getByLabelText, getByTestId } = render(<MemoryRouter initialEntries={['/settings']}><Editor /></MemoryRouter>);
+    const box = getByLabelText('composer');
+
+    fireEvent.keyDown(box, { key: 'A', ctrlKey: true, shiftKey: true });
+    expect(getByTestId('where').textContent).toBe('/chatCreate ');
+
+    fireEvent.keyDown(box, { key: 'm', ctrlKey: true });
+    expect(getByTestId('where').textContent).toBe('/models');
+    // ⌘M is the Mac's minimise; it is left to the system.
+    fireEvent.keyDown(box, { key: 'm', metaKey: true });
+    expect(getByTestId('where').textContent).toBe('/models');
+
+    fireEvent.keyDown(box, { key: 'b', ctrlKey: true });
+    expect(setPanel).toHaveBeenCalledWith(true);
+    expect(getByTestId('where').textContent).toBe('/chat');
+    setPanel.mockRestore();
+  });
+
+  it('leaves Ctrl+B to a document being edited, where it means bold', () => {
+    const setPanel = vi.spyOn(useBrowser.getState(), 'setPanel').mockImplementation(() => {});
+    const { getByLabelText } = render(<MemoryRouter><Editor /></MemoryRouter>);
+    fireEvent.keyDown(getByLabelText('doc'), { key: 'b', ctrlKey: true });
+    expect(setPanel).not.toHaveBeenCalled();
+    setPanel.mockRestore();
   });
 });

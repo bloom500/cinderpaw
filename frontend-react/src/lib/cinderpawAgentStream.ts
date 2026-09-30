@@ -18,7 +18,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import type { CinderpawAgentEvent } from '@/lib/tauri';
 import { tauri } from '@/lib/tauri';
-import { useChat } from '@/stores/chat';
+import { useChat, type MemoryUsedItem } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
@@ -34,6 +34,8 @@ export interface CinderpawStreamHandlers {
   onToolStart?: (callId: string, tool: string, args: Record<string, unknown>) => void;
   onToolDone?: (callId: string, tool: string, result: unknown) => void;
   onUsage?: (promptTokens: number, completionTokens: number) => void;
+  /** The memories the agent was given for this turn (`memory_used`). */
+  onMemoryUsed?: (items: MemoryUsedItem[]) => void;
   onAskUser?: (
     requestId: string,
     sessionId: string,
@@ -158,6 +160,9 @@ _${parsed.diagnostic}_`
         break;
       case 'usage':
         if (parsed.id) inflight.get(parsed.id)?.onUsage?.(parsed.promptTokens, parsed.completionTokens);
+        break;
+      case 'memory_used':
+        if (parsed.id && Array.isArray(parsed.items)) inflight.get(parsed.id)?.onMemoryUsed?.(parsed.items);
         break;
       case 'tool_progress':
         // #18: retry/backoff/fallback notes from long-running tools. These

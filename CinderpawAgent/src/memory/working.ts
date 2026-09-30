@@ -152,6 +152,12 @@ export class WorkingMemory {
   #snapshot = "";
   #snapshotSet = false;
   /**
+   * The project this chat is filed in (src/projects.ts): its instructions and
+   * files. Set every turn, but it only changes when the person edits the
+   * project, so the provider's cache survives every other turn.
+   */
+  #project = "";
+  /**
    * Claude Code-style skill menu. Updated each turn from `msg.skillsContext`
    * (the fresh roster sent by Rust). Rendered as a system message so the LLM
    * sees a short "Available skills" list and uses the `read_skill` tool to
@@ -312,6 +318,7 @@ export class WorkingMemory {
   estimatedTokens(): number {
     let total = 0;
     total += countTokens(this.#system);
+    total += countTokens(this.#project);
     total += countTokens(this.#skillMenu);
     total += countTokens(this.#todoList);
     total += countTokens(this.#notebook);
@@ -439,8 +446,13 @@ export class WorkingMemory {
     return this.#snapshotSet;
   }
 
+  /** Per turn; the same text twice changes nothing (see `#project`). */
+  setProject(text: string): void {
+    this.#project = text.trim();
+  }
+
   #systemContent(): string {
-    return this.#snapshot ? `${this.#system}\n\n${this.#snapshot}` : this.#system;
+    return [this.#system, this.#project, this.#snapshot].filter(Boolean).join("\n\n");
   }
 
   /**
@@ -804,6 +816,7 @@ export class WorkingMemory {
     );
     const fixedOverhead =
       countTokens(this.#system) +
+      countTokens(this.#project) +
       countTokens(this.#skillMenu) +
       countTokens(this.#todoList) +
       countTokens(this.#notebook) +

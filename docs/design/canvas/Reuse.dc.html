@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The same widgets, other topics</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;font-family:'Geist',system-ui,sans-serif}
+button{font-family:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 1440px; height: 560px; box-sizing: border-box; padding: 56px 60px; background: #F6EFE6; color: #2F2A26; font-family: 'Geist', system-ui, sans-serif; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 48px">
+
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div style="align-self: flex-end; background: #F2DDCC; border-radius: 20px 20px 6px 20px; padding: 10px 14px; font-size: 14.5px">What's in this repo?</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<div style="padding: 14px; border-radius: 14px; background: #FBF7F1; border: 1px solid #E4D6C8; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12.5px; color: #7A5F4E">Languages</span><span style="font-size: 15.5px; font-weight: 600">TypeScript, Rust, Go</span></div>
+<div style="padding: 14px; border-radius: 14px; background: #FBF7F1; border: 1px solid #E4D6C8; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12.5px; color: #7A5F4E">Code files</span><span style="font-size: 15.5px; font-weight: 600">about 1,140</span></div>
+<div style="padding: 14px; border-radius: 14px; background: #FBF7F1; border: 1px solid #E4D6C8; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12.5px; color: #7A5F4E">Built with</span><span style="font-size: 15.5px; font-weight: 600">Tauri and Bun</span></div>
+<div style="padding: 14px; border-radius: 14px; background: #FBF7F1; border: 1px solid #E4D6C8; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12.5px; color: #7A5F4E">Tests</span><span style="font-size: 15.5px; font-weight: 600; color: #3F7A4A">954 passing</span></div>
+</div>
+<span style="font-size: 12.5px; color: #7A5F4E">Facts: the same piece as the trip overview.</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div style="align-self: flex-end; background: #F2DDCC; border-radius: 20px 20px 6px 20px; padding: 10px 14px; font-size: 14.5px">What did the models cost me this week?</div>
+<div style="border-radius: 16px; background: #FBF7F1; border: 1px solid #E4D6C8; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12.5px; color: #7A5F4E">This week</span><span style="font-size: 26px; line-height: 32px; font-weight: 600">$3.12</span></div>
+<div style="display: grid; grid-template-columns: 96px minmax(0, 1fr) 44px; align-items: center; gap: 10px; font-size: 12.5px"><span style="color: #6F5747">Chat</span><span style="height: 8px; border-radius: 4px; background: #EFE3D6"><span style="display: block; width: 100%; height: 8px; border-radius: 4px; background: #C65A2E"></span></span><span style="text-align: right">$1.84</span></div>
+<div style="display: grid; grid-template-columns: 96px minmax(0, 1fr) 44px; align-items: center; gap: 10px; font-size: 12.5px"><span style="color: #6F5747">Voice calls</span><span style="height: 8px; border-radius: 4px; background: #EFE3D6"><span style="display: block; width: 49%; height: 8px; border-radius: 4px; background: #C65A2E"></span></span><span style="text-align: right">$0.91</span></div>
+<div style="display: grid; grid-template-columns: 96px minmax(0, 1fr) 44px; align-items: center; gap: 10px; font-size: 12.5px"><span style="color: #6F5747">Memory</span><span style="height: 8px; border-radius: 4px; background: #EFE3D6"><span style="display: block; width: 20%; height: 8px; border-radius: 4px; background: #C65A2E"></span></span><span style="text-align: right">$0.37</span></div>
+</div>
+<span style="font-size: 12.5px; color: #7A5F4E">Breakdown: the same piece as the trip budget. Sample numbers.</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div style="align-self: flex-end; background: #F2DDCC; border-radius: 20px 20px 6px 20px; padding: 10px 14px; font-size: 14.5px">Help me pack for two days of hiking.</div>
+<div style="border-radius: 16px; background: #FBF7F1; border: 1px solid #E4D6C8; padding: 16px">
+<div style="display: flex; align-items: baseline; gap: 8px"><span style="font-size: 14.5px; font-weight: 600; flex-grow: 1">Packing list</span><span style="font-size: 12.5px; color: #7A5F4E">2 of 5 packed</span></div>
+<div style="height: 6px; border-radius: 3px; background: #EFE3D6; margin: 10px 0 8px 0; overflow: hidden"><div style="width: 40%; height: 6px; border-radius: 3px; background: #C65A2E"></div></div>
+<label style="display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13.5px"><span style="width: 18px; height: 18px; border-radius: 9px; background: #B15129; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span><span style="color: #7A5F4E; text-decoration: line-through">Rain jacket</span></label>
+<label style="display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13.5px"><span style="width: 18px; height: 18px; border-radius: 9px; background: #B15129; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span><span style="color: #7A5F4E; text-decoration: line-through">Walking shoes</span></label>
+<label style="display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13.5px"><span style="width: 16px; height: 16px; border-radius: 9px; border: 1.5px solid #7A5F4E; flex-shrink: 0"></span><span>Water bottle</span></label>
+<label style="display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13.5px"><span style="width: 16px; height: 16px; border-radius: 9px; border: 1.5px solid #7A5F4E; flex-shrink: 0"></span><span>Power bank</span></label>
+<label style="display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13.5px"><span style="width: 16px; height: 16px; border-radius: 9px; border: 1.5px solid #7A5F4E; flex-shrink: 0"></span><span>Cash for small shops</span></label>
+</div>
+<span style="font-size: 12.5px; color: #7A5F4E">Checklist and progress: the same pieces as bookings.</span>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":560}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -15,7 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createRef } from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChatInput } from '../ChatInput';
 import { useChat } from '@/stores/chat';
@@ -121,10 +121,11 @@ describe('a file dropped on the composer', () => {
     const dataTransfer = { types: ['Files'], items: [], files: [] } as unknown as DataTransfer;
     const { fireEvent } = await import('@testing-library/react');
     fireEvent.dragOver(composer, { dataTransfer });
-    expect(screen.getByText('Drop to attach')).toBeInTheDocument();
+    // The words are ChatPage's one overlay now; the composer only marks its edge.
+    expect(composer.className).toContain('border-dashed');
     fireEvent.drop(composer, { dataTransfer });
     await waitFor(() => expect(spy).toHaveBeenCalledWith(dataTransfer));
-    expect(screen.queryByText('Drop to attach')).toBeNull();
+    expect(composer.className).not.toContain('border-dashed');
   });
 });
 
@@ -189,3 +190,25 @@ describe('a draft', () => {
     await waitFor(() => expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Teach me a skill'));
   });
 });
+
+describe('a long paste', () => {
+  const paste = (text: string) =>
+    fireEvent.paste(screen.getByRole('textbox'), { clipboardData: { getData: () => text, items: [] } });
+
+  it('becomes a card instead of filling the box, and a click shows all of it', async () => {
+    render(<ChatInput alwaysEnabled sendFn={vi.fn(async () => {})} />);
+    const log = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join('\n');
+    paste(log);
+
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('');
+    await userEvent.click(screen.getByRole('button', { name: 'Open Pasted text, 30 lines' }));
+    expect(screen.getByText(/line 30/)).toBeTruthy();
+  });
+
+  it('a short paste stays text', () => {
+    render(<ChatInput alwaysEnabled sendFn={vi.fn(async () => {})} />);
+    paste('just a sentence');
+    expect(screen.queryByRole('button', { name: /^Open Pasted text/ })).toBeNull();
+  });
+});
+

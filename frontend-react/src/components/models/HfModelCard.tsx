@@ -11,7 +11,7 @@ import {
   type Compat,
 } from '@/lib/modelUtils';
 import type { HfModelSummary, HfModelDetail } from '@/lib/tauri';
-import { BTN_PRIMARY, CARD, Chip, MakerTile, SERIF, makerFor, paramsOf } from './ui';
+import { BTN_PRIMARY, CARD, Chip, MakerTile, makerFor, paramsOf } from './ui';
 import { cn } from '@/lib/utils';
 
 const COMPAT: Record<Compat, { label: string; cls: string }> = {
@@ -103,7 +103,7 @@ export function HfModelCard({ model, expanded, detail, detailLoading, onExpand, 
     <div className="flex items-start gap-3">
       <MakerTile maker={maker} fallback={author || shortName} />
       <div className="min-w-0 flex-1">
-        <h3 className="truncate text-base font-semibold text-text-primary" style={{ fontFamily: SERIF }} title={model.id}>{shortName}</h3>
+        <h3 className="font-display truncate text-base text-text-primary" title={model.id}>{shortName}</h3>
         <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-text-muted">
           {author && <span className="truncate">{author}</span>}
           <span className="inline-flex items-center gap-1"><Download size={12} />{fmtNum(model.downloads)}</span>

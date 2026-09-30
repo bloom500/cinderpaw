@@ -20,18 +20,18 @@ const mount = () => render(<MemoryRouter><SideNav /></MemoryRouter>);
 
 beforeEach(() => {
   navigate.mockReset();
-  useUI.setState({ navCollapsed: false, searchOpen: false } as never);
+  useUI.setState({ navCollapsed: false, searchOpen: false, starredChats: [] } as never);
   useConversations.setState({ list: [], currentId: null, streamingIds: {} } as never);
 });
 
 describe('SideNav', () => {
   it('is four rows, and no more', () => {
     mount();
-    for (const l of ['New', 'Search', 'Models', 'Settings']) {
+    for (const l of ['New chat', 'Search', 'Models', 'Settings']) {
       expect(screen.getByText(l)).toBeTruthy();
     }
     // The wordmark is identity rather than a destination.
-    expect(screen.getByText('CINDERPAW')).toBeTruthy();
+    expect(screen.getByText('Cinderpaw')).toBeTruthy();
     // Chats and Projects left: they were destinations that led to a page
     // listing what this rail already lists, and every row here now carries the
     // rename and delete that used to be the page's reason to exist.
@@ -96,7 +96,7 @@ describe('SideNav', () => {
   it('does not claim the list is empty before it has been read', () => {
     useConversations.setState({ loaded: false, list: [] as never });
     mount();
-    expect(screen.queryByText(/Nothing yet/i)).toBeNull();
+    expect(screen.queryByText(/Your chats will appear here/i)).toBeNull();
   });
 
   it('says which chat is open and which one is generating', () => {
@@ -120,7 +120,61 @@ describe('SideNav', () => {
   it('a fresh install explains the empty list instead of showing a blank strip', () => {
     useConversations.setState({ loaded: true } as never);
     mount();
-    expect(screen.getByText(/Nothing yet/i)).toBeTruthy();
+    expect(screen.getByText(/Your chats will appear here/i)).toBeTruthy();
+  });
+
+  it('New chat is one click, and New project is still reachable', async () => {
+    const user = userEvent.setup();
+    mount();
+    await user.click(screen.getByText('New chat'));
+    expect(navigate).toHaveBeenCalledWith('/chat');
+    // A fresh install has no PROJECTS heading, so the only door to a first
+    // project is this one.
+    await user.click(screen.getByLabelText('More to create'));
+    expect(screen.getByText('New project')).toBeTruthy();
+  });
+
+  it('starred chats get their own section, and are not listed twice', () => {
+    useUI.setState({ starredChats: ['b'] } as never);
+    useConversations.setState({ loaded: true, list: [conv('a', 1), conv('b', 2)] as never });
+    mount();
+    expect(screen.getByText('Starred')).toBeTruthy();
+    expect(screen.getAllByText('b')).toHaveLength(1);
+    expect(screen.getByText('a')).toBeTruthy();
+  });
+
+  it('no STARRED heading while nothing is starred', () => {
+    useConversations.setState({ loaded: true, list: [conv('a', 1)] as never });
+    mount();
+    expect(screen.queryByText('Starred')).toBeNull();
+  });
+
+  it('a star whose chat was deleted is dropped when the list loads', () => {
+    useUI.setState({ starredChats: ['gone', 'a'] } as never);
+    useConversations.setState({ loaded: true, list: [conv('a', 1)] as never });
+    mount();
+    expect(useUI.getState().starredChats).toEqual(['a']);
+  });
+
+  it('a failed list read keeps every star', () => {
+    // A read that throws still ends with loaded and an empty list. Pruning
+    // against that would wipe every star because the engine was slow to start.
+    useUI.setState({ starredChats: ['a', 'b'] } as never);
+    useConversations.setState({ loaded: true, list: [] as never });
+    mount();
+    expect(useUI.getState().starredChats).toEqual(['a', 'b']);
+  });
+
+  it('the row menu stars and unstars a chat', async () => {
+    const user = userEvent.setup();
+    useConversations.setState({ loaded: true, list: [conv('a', 1)] as never });
+    mount();
+    await user.click(screen.getByLabelText('Chat options'));
+    await user.click(screen.getByText('Star'));
+    expect(useUI.getState().starredChats).toEqual(['a']);
+    await user.click(screen.getByLabelText('Chat options'));
+    await user.click(screen.getByText('Unstar'));
+    expect(useUI.getState().starredChats).toEqual([]);
   });
 
   it('Search opens the overlay rather than navigating', async () => {

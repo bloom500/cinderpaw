@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Cloud, Laptop } from 'lucide-react';
+import { Cloud, Laptop, SlidersHorizontal } from 'lucide-react';
 import { useSystemInfo } from '@/stores/systemInfo';
 import { useModel } from '@/stores/model';
 import { useSettings } from '@/stores/settings';
@@ -11,17 +11,19 @@ import { ByokTab } from '@/components/settings/ByokTab';
 import { CinderpawMascot } from '@/components/chat/mascot/CinderpawMascot';
 import type { MascotState } from '@/components/chat/mascot/frames';
 import { ModelLogo } from '@/lib/modelLogos';
-import { SERIF } from '@/components/models/ui';
+import { RolesTab } from '@/components/models/RolesTab';
 import { cn } from '@/lib/utils';
 
-type Tab = 'local' | 'browse' | 'cloud';
-const TABS: readonly Tab[] = ['local', 'browse', 'cloud'];
+type Tab = 'local' | 'browse' | 'cloud' | 'roles';
+const TABS: readonly Tab[] = ['local', 'browse', 'cloud', 'roles'];
 
 /** In the order the bar shows them: where models live, from far to near. */
 const TAB_BAR: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'cloud', label: 'Cloud', icon: <Cloud size={16} /> },
   { id: 'browse', label: 'Hugging Face', icon: <ModelLogo provider="huggingface" className="size-4" /> },
   { id: 'local', label: 'Local', icon: <Laptop size={16} /> },
+  // Spec 8: which model each role in the Model Switcher means.
+  { id: 'roles', label: 'Roles', icon: <SlidersHorizontal size={16} /> },
 ];
 
 /** What the mascot is doing, and saying, on each tab. */
@@ -29,6 +31,7 @@ const HERO: Record<Tab, { state: MascotState; line: string }> = {
   cloud: { state: 'wave', line: 'Bring your own keys. They stay in your computer’s keychain.' },
   browse: { state: 'searching', line: 'Thousands of community models. Find one, and I’ll fetch it for you.' },
   local: { state: 'typing', line: 'Your models. Your machine. All private, all yours.' },
+  roles: { state: 'thinking', line: 'Tell me who answers what: a quick one, a careful one, a private one.' },
 };
 
 export function ModelsPage() {
@@ -55,7 +58,7 @@ export function ModelsPage() {
             top of every page, not just the chat header. */}
         <header data-tauri-drag-region className="flex items-end justify-between gap-6">
           <div className="min-w-0">
-            <h1 className="text-3xl font-semibold text-text-primary" style={{ fontFamily: SERIF }}>Models</h1>
+            <h1 className="font-display text-3xl text-text-primary">Models</h1>
             <p className="mt-2 max-w-md text-base text-text-secondary">
               Connect your favourite providers and models. Switch between cloud, local, or Hugging Face models.
             </p>
@@ -123,6 +126,7 @@ export function ModelsPage() {
             {tab === 'local' ? <LocalModelsTab onBrowse={() => setTab('browse')} /> : null}
             {tab === 'browse' ? <BrowseTab /> : null}
             {tab === 'cloud' ? <ByokTab /> : null}
+            {tab === 'roles' ? <RolesTab onCloud={() => setTab('cloud')} onBrowse={() => setTab('browse')} /> : null}
           </motion.main>
         </AnimatePresence>
       </div>

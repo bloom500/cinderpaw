@@ -1805,6 +1805,15 @@ export type OutboundEvent =
   // The React `events.onStreamProgress` listener filters this kind out of
   // the raw `cinderpaw://agent-output` stream. `promptTokens` is set once the
   // provider reports it (cloud: in the final SSE chunk; local: n/a here).
+  // The memories the loop put in front of the model for this turn, one per
+  // item (memory/recall.ts `MemoryUsed`): the app's Memory Peek. `forget` is
+  // the graph edge `memory_forget` takes.
+  | {
+      type: "memory_used";
+      id: string;
+      sessionId: string;
+      items: { kind: "fact" | "past"; text: string; forget?: { from: string; to: string; relation: string }; ts?: number }[];
+    }
   | {
       type: "stream_progress";
       sessionId: string;
@@ -2154,6 +2163,10 @@ export type OutboundEvent =
         observer: import("./memory/extractor.ts").MemoryHealth;
         reflector: import("./memory/extractor.ts").MemoryHealth;
       };
+      /** Each owner fact's category (semantic.ts `FactCategory`), keyed by the
+       *  graph node id its key becomes (`graph.ts` setFact): the Memory page's
+       *  filter chips and tags. Absent from an older sidecar. */
+      categories?: Record<string, string>;
     }
   // Dream Cycle lifecycle — emitted by the host when an evolutionary episode
   // starts (`phase:"started"`) and ends (`phase:"ended"`). Forwarded verbatim

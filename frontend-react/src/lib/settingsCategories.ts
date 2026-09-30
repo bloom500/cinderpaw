@@ -24,7 +24,7 @@ export const CATS: { id: Category; label: string; icon: LucideIcon }[] = [
   { id: 'appearance', label: 'Appearance',  icon: Palette },
   { id: 'hardware',   label: 'Hardware',    icon: Cpu },
   { id: 'api',        label: 'API Server',  icon: ArrowLeftRight },
-  { id: 'agent',      label: 'Agent',       icon: Bot },
+  { id: 'agent',      label: 'Agent and team', icon: Bot },
   { id: 'learning',   label: 'Learning',    icon: Moon },
   { id: 'privacy',    label: 'Privacy',     icon: ShieldCheck },
   // Named for what the user is looking for, not for the subsystem underneath:

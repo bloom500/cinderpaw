@@ -3,6 +3,7 @@ import { ChevronRight, Loader2, Check, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ToolActivity } from '@/hooks/useLiveToolActivity';
 import { Widget, summaryOf } from './CallToolScreen';
+import { ArtifactCard } from './ArtifactCard';
 
 /**
  * The tools a reply ran, drawn inside the reply.
@@ -30,6 +31,11 @@ function Row({ a, streaming }: { a: ToolActivity; streaming: boolean }) {
   // `null` is "nobody chose": open while the turn is live, folded after.
   const [choice, setChoice] = useState<boolean | null>(null);
   const open = choice ?? (streaming || a.status === 'running');
+
+  // A finished artifact is the thing the person asked for, not a step: it is
+  // a card with Open, and never folds away. Running or failed, it stays a tool
+  // row, which is where progress and the error are drawn.
+  if (a.artifact && a.status === 'done' && !a.error) return <ArtifactCard f={a.artifact} />;
 
   if (open) {
     return (

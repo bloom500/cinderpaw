@@ -26,7 +26,7 @@ describe('mascot frames (sheet index)', () => {
   });
 
   it('every drawn frame in the sheet is used, and FRAME_COUNT matches', () => {
-    // The generator writes sheet.png and FRAME_COUNT together; an index past the
+    // The generator writes sheet.webp and FRAME_COUNT together; an index past the
     // sheet would draw blank. SHEET_COLS / FRAME_W / FRAME_H are the renderer's
     // source-rect arithmetic, so they are asserted to be sane here too.
     const used = new Set<number>();
@@ -34,8 +34,8 @@ describe('mascot frames (sheet index)', () => {
     expect(Math.max(...used) + 1).toBe(FRAME_COUNT);
     expect(used.size).toBe(FRAME_COUNT);
     expect(SHEET_COLS).toBeGreaterThan(0);
-    expect(FRAME_W).toBe(64);
-    expect(FRAME_H).toBe(64);
+    expect(FRAME_W).toBe(256);
+    expect(FRAME_H).toBe(256);
   });
 
   it('FRAMES[s] equals VARIANTS[s][0]', () => {

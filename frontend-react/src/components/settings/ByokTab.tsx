@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronDown, Eye, EyeOff, Plus, Search, Server } from 'lucide-react';
 import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 import { SelectMenu } from '@/components/ui/select-menu';
-import { BTN_PRIMARY, CARD, MakerTile, Pill, SERIF, SectionHeader, Status, type Maker } from '@/components/models/ui';
+import { BTN_PRIMARY, CARD, MakerTile, Pill, SectionHeader, Status, type Maker } from '@/components/models/ui';
 import { useSettings, type ByokProviderUpdate } from '@/stores/settings';
 import { useCatalog } from '@/stores/catalog';
 import type { ByokProvider } from '@/lib/tauri';
@@ -172,7 +172,7 @@ function ProviderCard({ def, state, open, onToggle }: { def: ProviderDef; state?
         <span className="flex items-center gap-4">
           <ProviderMark def={def} />
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-lg font-semibold text-text-primary" style={{ fontFamily: SERIF }}>{def.name}</span>
+            <span className="font-display block truncate text-lg text-text-primary">{def.name}</span>
             {configured
               ? (isActive ? <Status tone="success">Connected</Status> : <Status tone="neutral">Turned off</Status>)
               : <span className="text-xs text-text-muted">Not configured</span>}
@@ -401,7 +401,7 @@ export function ByokTab() {
       <section ref={addRef} className="scroll-mt-6 space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h3 className="text-xl font-semibold text-text-primary" style={{ fontFamily: SERIF }}>Add another provider</h3>
+            <h3 className="font-display text-xl text-text-primary">Add another provider</h3>
             <p className="text-sm text-text-secondary">Connect more providers to widen what Cinderpaw can use.</p>
           </div>
           <label className="flex h-9 w-full items-center gap-2 rounded-xl border border-border-subtle bg-bg-surface px-3 shadow-sm focus-within:ring-2 focus-within:ring-brand/30 sm:w-64">

@@ -4,6 +4,12 @@ import { ArtifactsPanel } from '../ArtifactsPanel';
 import { useArtifacts, resetArtifactRequests, googlePlan, type ArtifactRow } from '@/stores/artifacts';
 import { APP_IFRAME_SANDBOX } from '@/lib/artifactSandbox';
 import { tauri } from '@/lib/tauri';
+import { useChat, type ChatMessage } from '@/stores/chat';
+import { useUI } from '@/stores/ui';
+import { useNotifications } from '@/stores/notifications';
+import { useConversations } from '@/stores/conversations';
+import { useProjects } from '@/stores/projects';
+import { projectPrompt } from '@/lib/projectPrompt';
 
 /**
  * The panel is where the store stops being a capability of the agent's and
@@ -19,6 +25,10 @@ vi.mock('@/lib/tauri', async (orig) => {
     tauri: { ...actual.tauri, artifacts: { op: vi.fn().mockResolvedValue(undefined) } },
   };
 });
+// The done toast's Open goes to the chat through the app router, which imports
+// every page; the test only needs to know it was asked.
+const navigate = vi.fn();
+vi.mock('@/router', () => ({ router: { state: { location: { pathname: '/settings' } }, navigate } }));
 
 const op = tauri.artifacts.op as unknown as ReturnType<typeof vi.fn>;
 
@@ -49,8 +59,9 @@ beforeEach(() => {
   resetArtifactRequests();
   op.mockClear();
   useArtifacts.setState({
-    rows: [], loaded: false, open: null, busy: false, error: null, lastExport: null,
+    rows: [], loaded: false, open: null, busy: false, error: null, lastExport: null, panelTab: 'artifacts', showingArchived: false,
   });
+  useChat.setState({ messages: [] });
 });
 afterEach(cleanup);
 
@@ -59,14 +70,14 @@ describe('the list', () => {
     render(<ArtifactsPanel onClose={() => {}} />);
     // The mistake this pins: the fresh-install sentence shown to someone with a
     // dozen artifacts, because "empty" and "not asked yet" looked the same.
-    expect(screen.queryByText(/Nothing here yet/)).toBeNull();
+    expect(screen.queryByText(/land here/)).toBeNull();
   });
 
   it('says what to do about an empty workspace, not that it is empty', async () => {
     render(<ArtifactsPanel onClose={() => {}} />);
     await waitFor(() => expect(op).toHaveBeenCalled());
     useArtifacts.getState().onResult({ id: idOfCall(0), ok: true, items: [] });
-    expect(await screen.findByText(/Ask Cinderpaw to write something up/)).toBeInTheDocument();
+    expect(await screen.findByText(/Make me a one-page plan/)).toBeInTheDocument();
   });
 
   it('lists what exists and opens one on click', async () => {
@@ -232,11 +243,25 @@ describe('handing the work over', () => {
     await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'get' && c[2]?.artifactId === 'new1')).toBe(true));
   });
 
-  it('one made anywhere else only refreshes the list', async () => {
-    useArtifacts.getState().onEvent({ id: 'tg1', action: 'created', onScreen: false });
+  it('one made anywhere else does not open the panel, and the done toast offers it', async () => {
+    useNotifications.setState({ toasts: [] });
+    useArtifacts.getState().onEvent({ id: 'tg1', action: 'created', onScreen: false, title: 'launch-week.pdf' });
     await waitFor(() => expect(op).toHaveBeenCalled());
     expect(useArtifacts.getState().panelOpen).toBe(false);
     expect(op.mock.calls.every((c) => c[1] === 'list')).toBe(true);
+
+    const toast = useNotifications.getState().toasts.at(-1)!;
+    expect(toast).toMatchObject({ kind: 'success', title: 'launch-week.pdf is ready', message: 'Saved in Artifacts' });
+    toast.action!.run();
+    expect(useArtifacts.getState().panelOpen).toBe(true);
+    await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'get' && c[2]?.artifactId === 'tg1')).toBe(true));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/chat'));
+  });
+
+  it('an update made elsewhere raises no toast', () => {
+    useNotifications.setState({ toasts: [] });
+    useArtifacts.getState().onEvent({ id: 'tg1', action: 'updated', onScreen: false, title: 'x' });
+    expect(useNotifications.getState().toasts).toHaveLength(0);
   });
 });
 
@@ -544,5 +569,115 @@ describe('Send to Google Docs', () => {
   it('a PDF goes as a PDF, and a Word file has no button', () => {
     expect(googlePlan('pdf')).toEqual({ mime: 'application/pdf', convert: false });
     expect(googlePlan('docx')).toBeNull();
+  });
+});
+
+describe('the Artifact Dock', () => {
+  it("puts this chat's artifacts first as cards, with type and size, and the rest below", async () => {
+    useChat.setState({ messages: [{
+      id: 'm1', role: 'assistant', content: '', createdAt: 0,
+      toolActivity: [{ id: 't', tool: 'artifact', kind: 'artifact', subject: '', status: 'done', startedAt: 0, endedAt: 1,
+        note: null, hits: [], files: [], output: '', cwd: '', facts: [], desktop: null, error: null,
+        artifact: { id: 'mine', title: 'Launch plan', kind: 'document', version: 1, path: null } }],
+    } as ChatMessage] });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    await waitFor(() => expect(op).toHaveBeenCalled());
+    useArtifacts.getState().onResult({ id: idOfCall(0), ok: true, items: [
+      row({ id: 'other', title: 'Old notes' }),
+      row({ id: 'mine', title: 'Launch plan', kind: 'document', bytes: 12 * 1024 }),
+    ] });
+    const dock = (await screen.findByText('In this chat')).closest('section')!;
+    expect(dock).toHaveTextContent('Launch plan');
+    expect(dock).toHaveTextContent('Document, 12 KB');
+    expect(dock).not.toHaveTextContent('Old notes');
+    expect(screen.getByText('Everything else')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export Launch plan' }));
+    await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'export')).toBe(true));
+  });
+
+  it('shows no dock for a chat that made nothing', async () => {
+    render(<ArtifactsPanel onClose={() => {}} />);
+    await waitFor(() => expect(op).toHaveBeenCalled());
+    useArtifacts.getState().onResult({ id: idOfCall(0), ok: true, items: [row()] });
+    expect(await screen.findByText('Q3 report')).toBeInTheDocument();
+    expect(screen.queryByText('In this chat')).toBeNull();
+  });
+});
+
+describe('the Context tab', () => {
+  it('says what will show up in a new chat, and lists the Chat mode tools as switches', async () => {
+    useUI.setState({ inputMode: 'chat', enabledTools: [] });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Context' }));
+    expect(screen.getByText(/Nothing here yet. Files you add/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('switch', { name: /Web search/ }));
+    expect(useUI.getState().enabledTools).toContain('web_search');
+  });
+
+  it("lists the chat's files, and says Agent mode picks its own tools", () => {
+    useUI.setState({ inputMode: 'agent' });
+    useChat.setState({ messages: [{ id: 'u', role: 'user', content: '[Image attached: cat.png]\n\nhi', createdAt: 0 }] });
+    useArtifacts.setState({ panelTab: 'context' });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Files' })).toHaveTextContent('cat.png');
+    expect(screen.queryByText(/Nothing here yet/)).toBeNull();
+    expect(screen.getByText(/In Agent mode Cinderpaw picks/)).toBeInTheDocument();
+  });
+
+  it('narrows by tab and by search, and Add fills the composer', () => {
+    useChat.setState({ messages: [
+      { id: 'u', role: 'user', content: '[Image attached: cat.png]\n\nhi', createdAt: 0 },
+      { id: 'a', role: 'assistant', content: '', createdAt: 1, memoryUsed: [{ kind: 'fact', text: 'likes: ramen' }] } as ChatMessage,
+    ] });
+    useArtifacts.setState({ panelTab: 'context' });
+    const onCompose = vi.fn();
+    render(<ArtifactsPanel onClose={() => {}} onCompose={onCompose} />);
+    fireEvent.click(screen.getByRole('tab', { name: /Memory/ }));
+    expect(screen.queryByRole('region', { name: 'Files' })).toBeNull();
+    expect(screen.getByRole('region', { name: 'Memory' })).toHaveTextContent('likes: ramen');
+    fireEvent.change(screen.getByLabelText('Search in this context'), { target: { value: 'sushi' } });
+    expect(screen.getByText('No memory matches.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a memory' }));
+    expect(onCompose).toHaveBeenCalledWith('Remember that ');
+  });
+});
+
+describe('a chat in a project (spec 9)', () => {
+  const TRIP = { id: 'p1', name: 'Trip', conversation_ids: ['c1'], instructions: '', files: [] };
+
+  it('shows the project above the chat, and saves the instructions when you leave the box', async () => {
+    useChat.setState({ messages: [] });
+    useConversations.setState({ currentId: 'c1' } as never);
+    useProjects.setState({ list: [TRIP] });
+    const save = vi.spyOn(tauri.projects, 'save').mockResolvedValue(undefined);
+    vi.spyOn(tauri.projects, 'list').mockResolvedValue([{ ...TRIP, instructions: 'Answer in Romanian.' }]);
+    useArtifacts.setState({ panelTab: 'context' });
+    render(<ArtifactsPanel onClose={() => {}} />);
+
+    const box = screen.getByLabelText('Instructions for every chat in this project');
+    expect(box).toHaveAttribute('placeholder', expect.stringContaining('For example'));
+    expect(screen.getByText(/No files yet/)).toBeInTheDocument();
+    fireEvent.change(box, { target: { value: 'Answer in Romanian.' } });
+    fireEvent.blur(box);
+    await waitFor(() => expect(save).toHaveBeenCalledWith('p1', 'Trip', ['c1'], { instructions: 'Answer in Romanian.' }));
+    save.mockRestore();
+  });
+
+  it('a chat outside any project shows no project', () => {
+    useConversations.setState({ currentId: 'c9' } as never);
+    useProjects.setState({ list: [TRIP] });
+    useArtifacts.setState({ panelTab: 'context' });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    expect(screen.queryByLabelText('Instructions for every chat in this project')).toBeNull();
+  });
+
+  it('Chat mode gets the same project block the engine adds', () => {
+    expect(projectPrompt(undefined)).toBe('');
+    expect(projectPrompt(TRIP)).toBe('');
+    const text = projectPrompt({ ...TRIP, instructions: 'Budget 2000 EUR.', files: [{ name: 'a.pdf', path: 'C:/p/a.pdf' }] });
+    expect(text).toContain('## Project: Trip');
+    expect(text).toContain('Budget 2000 EUR.');
+    expect(text).toContain('- a.pdf: C:/p/a.pdf');
   });
 });

@@ -615,6 +615,8 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             load_projects,
             save_project,
             delete_project,
+            project_add_file,
+            project_remove_file,
             get_settings,
             save_settings,
             set_desktop_control_enabled,

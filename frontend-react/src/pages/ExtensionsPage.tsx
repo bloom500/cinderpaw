@@ -20,6 +20,7 @@ import {
   type McpToolView,
 } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
+import { BrandLogo } from '@/lib/brandLogos';
 import { useUI } from '@/stores/ui';
 
 // Communication channels live in the dedicated Connectors section now, never
@@ -199,7 +200,6 @@ function InstalledCard({
   const [toolsOpen, setToolsOpen] = useState(false);
   const [tools, setTools] = useState<McpToolView[] | null>(null);
   const [removeArmed, setRemoveArmed] = useState(false);
-  const [logoFailed, setLogoFailed] = useState(false);
 
   const toggle = async () => {
     setBusy(true);
@@ -249,20 +249,7 @@ function InstalledCard({
   return (
     <div className="rounded-xl border border-border-default bg-bg-surface p-4 flex flex-col">
       <div className="flex items-start gap-3">
-        {server.logo_url && !logoFailed ? (
-          <img
-            src={server.logo_url}
-            alt=""
-            width={32}
-            height={32}
-            className="w-8 h-8 rounded object-contain shrink-0"
-            onError={() => setLogoFailed(true)}
-          />
-        ) : (
-          <span className="text-3xl leading-none shrink-0" aria-hidden="true">
-            {server.icon}
-          </span>
-        )}
+        <BrandLogo id={server.id} name={server.name} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <p className="text-sm font-semibold text-text-primary truncate">{server.name}</p>
@@ -345,7 +332,7 @@ function InstalledCard({
 
 // ── Catalog card: one-click install, inline config when needed ───────────────
 
-function CatalogCard({
+export function CatalogCard({
   entry,
   installed,
   onInstalled,
@@ -358,7 +345,6 @@ function CatalogCard({
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [logoFailed, setLogoFailed] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   // Install gate: catalog extensions run third-party code on the user's machine
@@ -395,20 +381,7 @@ function CatalogCard({
       )}
     >
       <div className="flex items-start gap-3">
-        {entry.logo_url && !logoFailed ? (
-          <img
-            src={entry.logo_url}
-            alt=""
-            width={32}
-            height={32}
-            className="w-8 h-8 rounded object-contain shrink-0"
-            onError={() => setLogoFailed(true)}
-          />
-        ) : (
-          <span className="text-3xl leading-none shrink-0" aria-hidden="true">
-            {entry.icon}
-          </span>
-        )}
+        <BrandLogo id={entry.id} name={entry.name} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <p className="text-sm font-semibold text-text-primary truncate">{entry.name}</p>

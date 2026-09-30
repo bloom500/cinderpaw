@@ -30,6 +30,7 @@ import { collapseIdentical, type CollapseResult } from "./cross-session-dedup.ts
 import { buildFlatTree, buildTree } from "./tree-builder.ts";
 import { appendLeaf } from "./tree-append.ts";
 import { FractalRecallEngine, dateStamp, type RecallResult, type FtsSearch } from "./fractal-recall.ts";
+import type { MemoryUsed } from "../recall.ts";
 import { saveTree, loadTree } from "./tree-store.ts";
 import { projectCentroids } from "./project-centroids.ts";
 import { runFractalBenchmark } from "./bench/run-benchmark.ts";
@@ -74,6 +75,8 @@ export interface RecallFallback {
    * hits (see `recall`). Optional: a fallback without it keeps the old shape.
    */
   knownFacts?(query: string, sessionId: string): string;
+  /** `knownFacts` with its items as data, for the app's Memory Peek. */
+  knownFactsDetailed?(query: string, sessionId: string): { text: string; used: MemoryUsed[] };
 }
 
 const MEMORY_OPEN = "[Memory context]\n";
@@ -83,7 +86,7 @@ const MEMORY_CLOSE = "\n[End memory context]";
  * Put what the agent knows about the user in front of the tree's hits, inside
  * the one memory block the prompt expects. Either side may be empty.
  */
-function withKnownFacts(result: RecallResult, known: string): RecallResult {
+function withKnownFacts(result: RecallResult, known: string, knownUsed: MemoryUsed[] = []): RecallResult {
   if (!known) return result;
   const body =
     result.context.startsWith(MEMORY_OPEN) && result.context.endsWith(MEMORY_CLOSE)
@@ -92,6 +95,7 @@ function withKnownFacts(result: RecallResult, known: string): RecallResult {
   return {
     ...result,
     context: `${MEMORY_OPEN}${[known, body].filter((b) => b).join("\n\n")}${MEMORY_CLOSE}`,
+    used: [...knownUsed, ...(result.used ?? [])],
   };
 }
 
@@ -544,7 +548,9 @@ export class FractalMemory {
         // The tree answers for past conversations only. Returning its block
         // on its own dropped the user's facts from every turn the moment a
         // tree existed — replace, where the contract above says augment.
-        return withKnownFacts(result, this.#fallback.knownFacts?.(query, sessionId) ?? "");
+        const known = this.#fallback.knownFactsDetailed?.(query, sessionId)
+          ?? { text: this.#fallback.knownFacts?.(query, sessionId) ?? "", used: [] };
+        return withKnownFacts(result, known.text, known.used);
       } catch (e) {
         this.#log?.(`fractal: recall fell back to FTS5: ${String(e)}`);
       }

@@ -10,9 +10,10 @@
  */
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { X, CheckCircle2, AlertCircle, Info } from 'lucide-react';
+import { X, Check, CheckCircle2, AlertCircle, Info } from 'lucide-react';
 import { useNotifications, type ToastKind } from '@/stores/notifications';
 import { cn } from '@/lib/utils';
+import logoUrl from '@/assets/logo.svg';
 
 const ICONS: Record<ToastKind, React.ReactNode> = {
   info:    <Info size={14} className="text-info shrink-0 mt-0.5" />,
@@ -31,7 +32,11 @@ export function Toasts({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex flex-col gap-2" role="status" aria-live="polite">
       <AnimatePresence initial={false}>
-        {toasts.map((t) => (
+        {toasts.map((t) => {
+          // The done toast (spec 7.4, canvas): something finished and can be
+          // opened. The head peeks over its top edge; Open is the button.
+          const done = t.kind === 'success' && !!t.action;
+          return (
           <motion.div
             key={t.id}
             layout
@@ -49,9 +54,15 @@ export function Toasts({ compact = false }: { compact?: boolean }) {
               'before:absolute before:inset-0 before:rounded-xl before:pointer-events-none',
               'before:bg-linear-to-b before:from-white/6 before:to-transparent',
               t.kind === 'error' ? 'border-error/40' : 'border-border-default/60',
+              done && 'mt-7 items-center gap-3 rounded-2xl bg-bg-elevated px-3.5 py-3',
             )}
           >
-            {ICONS[t.kind]}
+            {done && <img src={logoUrl} alt="" className="pointer-events-none absolute -top-7 right-14 h-9 w-9" />}
+            {done ? (
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-success/15 text-success">
+                <Check size={16} />
+              </span>
+            ) : ICONS[t.kind]}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-text-primary truncate">
                 {t.title}
@@ -67,7 +78,9 @@ export function Toasts({ compact = false }: { compact?: boolean }) {
               <button
                 type="button"
                 onClick={() => { t.action!.run(); dismiss(t.id); }}
-                className="shrink-0 self-center rounded-md px-2 py-1 text-xs font-semibold text-brand hover:bg-bg-hover"
+                className={done
+                  ? 'h-8 shrink-0 self-center rounded-lg bg-brand px-3.5 text-sm font-medium text-brand-foreground hover:bg-brand/90'
+                  : 'shrink-0 self-center rounded-md px-2 py-1 text-xs font-semibold text-brand hover:bg-bg-hover'}
               >
                 {t.action.label}
               </button>
@@ -80,13 +93,14 @@ export function Toasts({ compact = false }: { compact?: boolean }) {
               // for keyboard and screen-reader users.
               className={cn(
                 'shrink-0 p-0.5 rounded text-text-muted hover:bg-bg-hover hover:text-text-secondary',
-                'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity',
+                done ? 'self-center' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity',
               )}
             >
               <X size={14} />
             </button>
           </motion.div>
-        ))}
+          );
+        })}
       </AnimatePresence>
     </div>
   );

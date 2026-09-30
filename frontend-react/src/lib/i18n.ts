@@ -54,6 +54,10 @@ const en = {
   'home.intent.create': 'Create',
   'home.intent.analyze': 'Analyze',
   'home.intent.automate': 'Automate',
+  'home.intent.research.hint': 'Look into a topic and bring back sources',
+  'home.intent.create.hint': 'Write, draft or make something new',
+  'home.intent.analyze.hint': 'Make sense of a file, data or text',
+  'home.intent.automate.hint': 'Set something up to run on its own',
   // Truncated-response banner
   'chat.truncated.title': 'Response truncated.',
   'chat.truncated.body': 'The model hit its token limit before finishing',

@@ -9,7 +9,7 @@ import { quantToQuality, sizeGb } from '@/lib/modelUtils';
 import { scoreFit, type FitLevel, type RunMode } from '@/lib/fitScore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import type { ModelInfo } from '@/lib/tauri';
-import { BTN_OUTLINE, BTN_PRIMARY, CARD, Chip, MakerTile, Meter, Pill, SERIF, Status, makerFor, paramsOf, prettyModelName } from './ui';
+import { BTN_OUTLINE, BTN_PRIMARY, CARD, Chip, MakerTile, Meter, Pill, Status, makerFor, paramsOf, prettyModelName } from './ui';
 
 // ── Spinner ──────────────────────────────────────────────────────────────────
 
@@ -119,7 +119,7 @@ export function LocalModelCard({ model, onDelete }: Props) {
         {/* ── Name, maker, tags, memory ── */}
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
-            <h3 className="truncate text-lg font-semibold text-text-primary" style={{ fontFamily: SERIF }} title={model.name}>
+            <h3 className="font-display truncate text-lg text-text-primary" title={model.name}>
               {displayName}
             </h3>
             {isActive && <Pill tone="brand"><Star size={12} className="fill-current" /> Active</Pill>}

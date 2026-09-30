@@ -1,49 +1,63 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNotifications } from '@/stores/notifications';
-import { Brain, Layers, RefreshCw, Sparkles } from 'lucide-react';
+import { Brain, RefreshCw, Sparkles } from 'lucide-react';
 import { tauri } from '@/lib/tauri';
 import type { MemoryGraphNodeView, DreamEpisode, MemoryNotesLine } from '@/lib/tauri';
 import { stopReasonWords, triggerWords } from '@/lib/rsiWords';
+import { cn } from '@/lib/utils';
 import { rsiState, type RsiSnapshot, type RsiPhase } from './rsiState';
 
 /**
- * Memory Layers — the user-friendly surface of Cinderpaw's FMS + RSI systems.
+ * Settings > Memory — the user-friendly surface of Cinderpaw's FMS + RSI systems.
  *
  * We deliberately NO LONGER draw a stylized tree: matching a hand-painted
  * reference procedurally takes more artistic range than a runtime renderer
  * can give, and the result was distracting instead of helpful. Non-technical
  * users care about three things, all surfaced here:
  *
- *   1. What does Cinderpaw remember about me?   → tiered memory list
- *      (Today / This week / This month / Older).
+ *   1. What does Cinderpaw remember about me?   → one list, newest first, with
+ *      filter chips by kind, a tag, when, and Forget (spec 7.4, 28 Sep).
  *   2. Is Cinderpaw self-improving right now?   → live RSI pill (idle / dreaming /
  *      ratcheted / error) tied to actual engine events.
  *   3. Has Cinderpaw been dreaming?            → recent dream episodes with score
  *      progression so the user sees something actually changing.
  *
- * Visual: tier border saturation grows for more recent tiers so the visual
- * hierarchy matches the data hierarchy. New memories fade in at the top of
- * "Today". A live dream pulses the "Cinderpaw's Dreams" panel; a ratchet flashes
- * the best score line. Colours come from the project theme tokens so this
- * page adapts automatically to light / dark mode.
+ * A live dream pulses the "Cinderpaw's Dreams" panel; a ratchet flashes the
+ * best score line. Colours come from the project theme tokens so this page
+ * adapts automatically to light / dark mode.
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-type Tier = 'today' | 'week' | 'month' | 'older';
-const TIER_LABELS: Record<Tier, string> = {
-  today: 'Today',
-  week: 'This Week',
-  month: 'This Month',
-  older: 'Older',
+/**
+ * What a memory is, in the three words the page filters by (spec 7.4). The
+ * engine keeps thirteen categories (memory/semantic.ts); a person asks for
+ * fewer. Plans in motion (a goal, a decision, a commitment, a dated event) are
+ * Projects; what is neither a preference nor a plan is a Fact, and so is a row
+ * whose category the engine did not send (an older engine, an orphan node).
+ */
+export type MemoryKind = 'preference' | 'fact' | 'project';
+const PLANS = new Set(['goal', 'decision', 'commitment', 'event']);
+export function kindOf(category: string | undefined): MemoryKind {
+  if (category === 'preference') return 'preference';
+  return category && PLANS.has(category) ? 'project' : 'fact';
+}
+const KIND: Record<MemoryKind, { chip: string; tag: string; cls: string }> = {
+  preference: { chip: 'Preferences', tag: 'Preference', cls: 'bg-bg-active text-brand' },
+  fact:       { chip: 'Facts',       tag: 'Fact',       cls: 'bg-success/15 text-success' },
+  project:    { chip: 'Projects',    tag: 'Project',    cls: 'bg-info/15 text-info' },
 };
 
-function tierOf(now: number, touchedAt: number): Tier {
-  const age = Math.max(0, now - touchedAt);
-  if (age <= DAY_MS) return 'today';
-  if (age <= 7 * DAY_MS) return 'week';
-  if (age <= 30 * DAY_MS) return 'month';
-  return 'older';
+/** "Today", "Yesterday", "3 days ago", "Last week", then the date. Calendar
+ *  days, so a fact from 23:50 is "Yesterday" at 00:10. */
+export function whenLabel(now: number, ts: number): string {
+  const day = (t: number) => new Date(t).setHours(0, 0, 0, 0);
+  const days = Math.round((day(now) - day(ts)) / DAY_MS);
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days} days ago`;
+  if (days < 14) return 'Last week';
+  return new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
 function formatTimeAgo(now: number, ts: number): string {
@@ -54,120 +68,45 @@ function formatTimeAgo(now: number, ts: number): string {
   return `${Math.floor(dt / DAY_MS)}d ago`;
 }
 
-/**
- * A clock the reader recognises.
- *
- * Hand-built `HH:mm` is a 24-hour clock for everybody, including the half of
- * the world that reads 1:20 PM. No locale is passed on purpose: the machine's
- * own is the right answer, and it is the one every other clock this person
- * sees today is using.
- */
-function formatClock(ts: number): string {
-  return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-}
-
-/** Tier panel — shows the memories inside a single recency window. */
-function TierPanel({
-  tier,
-  nodes,
-  totalAllTime,
+/** Every fact, one row each: what it says, its kind, when, and Forget. */
+function FactList({
+  rows,
+  kindOfRow,
   now,
   onForget,
 }: {
-  tier: Tier;
-  nodes: MemoryGraphNodeView[];
-  totalAllTime: number;
+  rows: MemoryGraphNodeView[];
+  kindOfRow: (n: MemoryGraphNodeView) => MemoryKind;
   now: number;
   onForget: (n: MemoryGraphNodeView) => void;
 }) {
-  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-  const total = totalAllTime;
-  const border =
-    tier === 'today' ? 'border-[#e8731c]/60'
-    : tier === 'week' ? 'border-[#a04a14]/60'
-    : tier === 'month' ? 'border-[#5c3416]/50'
-                       : 'border-border-default';
-  const headerDot =
-    tier === 'today' ? 'bg-[#e8731c]'
-    : tier === 'week' ? 'bg-[#c66a25]'
-    : tier === 'month' ? 'bg-[#7a3d0e]'
-                       : 'bg-text-muted';
-  const share = total === 0 ? 0 : (nodes.length / total) * 100;
   return (
-    <section className={`rounded-lg border bg-bg-surface/80 ${border} p-4`}>
-      <header className="mb-3 flex items-baseline justify-between">
-        <div className="flex items-center gap-2">
-          <span className={`h-2.5 w-2.5 rounded-full ${headerDot}`} />
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-text-primary">
-            {TIER_LABELS[tier]}
-          </h2>
-          <span className="text-xs text-text-muted">
-            {nodes.length} {nodes.length === 1 ? 'memory' : 'memories'}
-          </span>
-        </div>
-        <span className="text-micro uppercase tracking-wide text-text-muted">
-          {share.toFixed(0)}% of all
-        </span>
-      </header>
-      {nodes.length === 0 ? (
-        <p className="text-xs text-text-muted">
-          {tier === 'today'
-            ? 'Nothing yet today. Chat with Cinderpaw to fill this tier.'
-            : `No memories in this tier yet.`}
-        </p>
-      ) : (
-        <ul className="space-y-2">
-          {nodes.map((n, i) => {
-            const expanded = expandedIdx === i;
-            return (
-              <li
-                key={n.id}
-                onClick={() => setExpandedIdx(expanded ? null : i)}
-                // Expanding a memory was mouse-only: a bare onClick on an <li>
-                // is not focusable and answers no key.
-                role="button"
-                tabIndex={0}
-                aria-expanded={expanded}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setExpandedIdx(expanded ? null : i);
-                  }
-                }}
-                className={`group/row cursor-pointer rounded border border-border-subtle bg-bg-primary/40 px-3 py-2 transition hover:border-brand/60 hover:bg-bg-elevated focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand ${expanded ? 'border-brand/50' : ''}`}
+    <ul className="flex flex-col rounded-2xl border border-border-default bg-bg-surface">
+      {rows.map((n, i) => {
+        const k = KIND[kindOfRow(n)];
+        return (
+          <li key={n.id} className={cn('flex items-center gap-3.5 px-4 py-3.5', i > 0 && 'border-t border-border-subtle')}>
+            <span className="min-w-0 flex-1 text-sm text-text-primary">{n.label}</span>
+            <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-2xs font-semibold ${k.cls}`}>{k.tag}</span>
+            <span className="w-20 shrink-0 text-xs text-text-muted">{whenLabel(now, n.touched_at)}</span>
+            {/* Everything it knows about you is on this page, so everything on
+                it can be taken back. A row with no edge has nothing to send. */}
+            {n.edge ? (
+              <button
+                type="button"
+                aria-label={`Forget: ${n.label}`}
+                onClick={() => onForget(n)}
+                className="h-[30px] shrink-0 rounded-lg border border-border-default bg-bg-elevated px-2.5 text-xs text-text-muted hover:border-error/60 hover:text-error"
               >
-                <div className="flex items-baseline justify-between gap-3 text-xs">
-                  <span className="font-mono text-brand">{formatClock(n.touched_at)}</span>
-                  <span className="text-text-muted">{formatTimeAgo(now, n.touched_at)}</span>
-                </div>
-                <div className="mt-1 flex items-center gap-3">
-                  <span className="flex-1 text-xs text-text-primary">{n.label}</span>
-                  {/* Everything it knows about you is on this page, so everything
-                      on it can be taken back. Revealed on hover like a mail
-                      client's delete, always reachable by keyboard. */}
-                  {n.edge && (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); onForget(n); }}
-                      onKeyDown={(e) => e.stopPropagation()}
-                      className="shrink-0 rounded-md border border-border-default px-2 py-0.5 text-micro text-text-secondary opacity-0 transition-opacity hover:border-error/60 hover:text-error-text focus-visible:opacity-100 group-hover/row:opacity-100"
-                    >
-                      Forget
-                    </button>
-                  )}
-                </div>
-                {expanded && (
-                  <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-micro text-text-muted">
-                    <span>type</span><span>{n.type}</span>
-                    <span>id</span><span className="font-mono">{n.id}</span>
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </section>
+                Forget
+              </button>
+            ) : (
+              <span className="w-[62px] shrink-0" aria-hidden />
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -325,7 +264,7 @@ function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
  * A memory is a fact, and a fact is an EDGE of the graph: `language —is→ Romanian`.
  * The page used to list the graph's nodes, so the same fact showed up as two
  * bare rows, "language" and "Romanian", with the relation nowhere (20 Sep).
- * Each edge becomes one row in the shape the tiers already understand; a node
+ * Each edge becomes one row in the shape the list already understands; a node
  * with no edge at all (there should be none) is kept as it was.
  */
 export function factsOf(graph: { nodes: MemoryGraphNodeView[]; edges: { from: string; to: string; relation: string }[] }): MemoryGraphNodeView[] {
@@ -451,25 +390,17 @@ export default function MemoryLayersPage() {
       });
   }, []);
 
-  // Group nodes by tier (newest first).
-  const tiers = useMemo(() => {
-    const out: Record<Tier, MemoryGraphNodeView[]> = {
-      today: [], week: [], month: [], older: [],
-    };
-    for (const n of nodes) if (!hidden.has(n.id)) out[tierOf(now, n.touched_at)].push(n);
-    for (const t of Object.keys(out) as Tier[]) {
-      out[t].sort((a, b) => b.touched_at - a.touched_at);
-    }
-    return out;
-  }, [nodes, now, hidden]);
-
-  const stats = useMemo(() => {
-    const total = nodes.length;
-    const today = tiers.today.length;
-    const week = tiers.week.length;
-    const month = tiers.month.length;
-    return { total, today, week, month };
-  }, [nodes, tiers]);
+  // Newest first, minus what was just forgotten (the Undo window).
+  const visible = useMemo(
+    () => nodes.filter((n) => !hidden.has(n.id)).sort((a, b) => b.touched_at - a.touched_at),
+    [nodes, hidden],
+  );
+  const [filter, setFilter] = useState<MemoryKind | 'all'>('all');
+  // The category rides on the notes reply; an older engine sends none, and
+  // every row is then a Fact, which is what it most likely is.
+  const categories = notesReply?.categories;
+  const kindOfRow = (n: MemoryGraphNodeView) => kindOf(n.edge ? categories?.[n.edge.from] : undefined);
+  const shown = filter === 'all' ? visible : visible.filter((n) => kindOfRow(n) === filter);
 
   const rsiPhase: RsiPhase = rsiSnap.phase;
   const panelGlow =
@@ -485,36 +416,28 @@ export default function MemoryLayersPage() {
       <div className="flex flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-8">
         {/* ── HEADER ──────────────────────────────────────────────── */}
-        <header className="flex flex-col gap-2">
-          <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-brand">
-            <Layers size={14} />
-            <span>Cinderpaw · Memory Layers</span>
+        <header className="flex items-start gap-3">
+          <div className="flex-1">
+            <h1 className="text-2xl font-semibold leading-tight text-text-primary">Memory</h1>
+            <p className="mt-2 text-base text-text-muted">
+              What Cinderpaw remembers about you. Forget anything, any time.
+            </p>
           </div>
-          <h1 className="text-2xl font-semibold leading-tight text-text-primary">
-            Everything Cinderpaw remembers.
-          </h1>
-          <p className="max-w-2xl text-sm text-text-secondary">
-            Facts Cinderpaw learned from your conversations, grouped by how long ago. New
-            memories land in <span className="text-brand">Today</span>; older ones
-            stay searchable so Cinderpaw can recall them when context demands.
-          </p>
-          <div className="mt-2 flex items-center gap-3">
-            <RsiHud snapshot={rsiSnap} />
-            <button
-              type="button"
-              onClick={() => void refresh()}
-              disabled={loading}
-              aria-label="Refresh memory layers"
-              className="ml-auto rounded-lg border border-border-subtle bg-bg-surface p-2 text-text-secondary hover:text-text-primary disabled:opacity-50"
-            >
-              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            </button>
-          </div>
+          <RsiHud snapshot={rsiSnap} />
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={loading}
+            aria-label="Refresh memory"
+            className="rounded-lg border border-border-subtle bg-bg-surface p-2 text-text-secondary hover:text-text-primary disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          </button>
         </header>
 
-        {/* ── HERO STATS ─────────────────────────────────────────── */}
+        {/* ── FACTS ──────────────────────────────────────────────── */}
         {error ? (
-          <section className="rounded-lg border border-error/40 bg-error/5 px-5 py-6 text-center">
+          <section className="rounded-2xl border border-error/40 bg-error/5 px-5 py-6 text-center">
             <h2 className="text-base font-semibold text-error">
               Could not read the memory graph.
             </h2>
@@ -529,55 +452,53 @@ export default function MemoryLayersPage() {
               Try again
             </button>
           </section>
-        ) : loading && stats.total === 0 ? (
+        ) : loading && visible.length === 0 ? (
           // "Not read yet" is not "empty", and saying the wrong one of those is
           // worse than saying nothing.
-          <section className="grid grid-cols-2 gap-3 sm:grid-cols-4" aria-hidden>
-            {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="rounded-lg border border-border-subtle bg-bg-surface px-4 py-5">
-                <div className="h-6 w-12 rounded bg-bg-hover animate-pulse" />
-                <div className="mt-2 h-2.5 w-16 rounded bg-bg-hover/70 animate-pulse" />
+          <section className="flex flex-col gap-px overflow-hidden rounded-2xl border border-border-default" aria-hidden>
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="bg-bg-surface px-4 py-4">
+                <div className="h-3 w-2/3 rounded bg-bg-hover animate-pulse" />
               </div>
             ))}
           </section>
-        ) : stats.total === 0 ? (
-          <section className="rounded-lg border border-brand/40 bg-bg-surface px-5 py-6 text-center">
-            <h2 className="text-base font-semibold text-brand">
-              Cinderpaw hasn't remembered anything yet.
-            </h2>
-            <p className="mt-1 text-xs text-text-secondary">
-              As you chat, facts you mention begin to fill the layers below.
-              Start a conversation in <span className="text-brand">Chat</span>{' '}
-              and come back. Memories land in real time.
+        ) : visible.length === 0 ? (
+          <section className="rounded-2xl border border-border-default bg-bg-surface px-5 py-6 text-center">
+            <p className="text-sm text-text-muted">
+              Nothing yet. Tell me about yourself, or just chat and I will learn.
             </p>
           </section>
         ) : (
-          <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {([
-              ['Total', stats.total],
-              ['Today', stats.today],
-              ['This Week', stats.week],
-              ['This Month', stats.month],
-            ] as const).map(([label, value]) => (
-              <div key={label} className="rounded-lg border border-border-subtle bg-bg-surface px-4 py-3">
-                <div className="text-micro uppercase tracking-wide text-text-muted">{label}</div>
-                <div className="mt-1 text-2xl font-semibold leading-none text-text-primary">
-                  {value}
-                </div>
-              </div>
-            ))}
+          <section className="flex flex-col gap-4">
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Show">
+              {(['all', 'preference', 'fact', 'project'] as const).map((k) => {
+                const on = filter === k;
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setFilter(k)}
+                    className={cn(
+                      'h-8 rounded-full px-3.5 text-sm transition-colors',
+                      on ? 'bg-text-primary font-medium text-bg-primary' : 'border border-border-default text-text-primary hover:bg-text-primary/5',
+                    )}
+                  >
+                    {k === 'all' ? 'All' : KIND[k].chip}
+                  </button>
+                );
+              })}
+            </div>
+            {shown.length === 0 ? (
+              <p className="px-1 text-sm text-text-muted">No {filter === 'all' ? 'memories' : KIND[filter].chip.toLowerCase()} yet.</p>
+            ) : (
+              <FactList rows={shown} kindOfRow={kindOfRow} now={now} onForget={forget} />
+            )}
           </section>
         )}
 
         {/* ── WHAT IT CARRIES INTO A NEW CONVERSATION ─────────────── */}
         <NotesPanel reply={notesReply} now={now} onDelete={deleteNote} />
-
-        {/* ── TIERS ─────────────────────────────────────────────── */}
-        {(Object.keys(tiers) as Tier[])
-          .filter((t) => tiers[t].length > 0)
-          .map((t) => (
-            <TierPanel key={t} tier={t} nodes={tiers[t]} totalAllTime={stats.total} now={now} onForget={forget} />
-          ))}
 
         {/* ── CINDERPAW'S DREAMS ────────────────────────────────────── */}
         <section className={`rounded-lg border border-border-default bg-bg-surface/60 p-4 transition-shadow ${panelGlow}`}>

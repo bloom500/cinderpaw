@@ -43,7 +43,7 @@ import { tauri } from '@/lib/tauri';
  * distinct wizard steps, add them here — `totalSteps`, the progress
  * dots, and the next/prev bounds all derive from this list.
  */
-const STEP_IDS = ['welcome', 'personalize', 'provider', 'showcase', 'done'] as const;
+const STEP_IDS = ['welcome', 'personalize', 'provider', 'connect', 'showcase', 'done'] as const;
 const TOTAL_STEPS: number = STEP_IDS.length;
 const FIRST_STEP: number = 0;
 const LAST_STEP: number = STEP_IDS.length - 1;
@@ -84,6 +84,9 @@ export interface OnboardingState {
   next: () => void;
   prev: () => void;
   setUserName: (name: string) => void;
+  /** Settings > General: change the name later, and keep it. Persisted only once
+   *  onboarding is done, so it never writes a completed record early. */
+  saveUserName: (name: string) => void;
   setAgentName: (name: string) => void;
   skip: () => void;
   finish: () => Promise<void>;
@@ -143,6 +146,17 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
     })),
 
   setUserName: (name) => set({ userName: name.trim() }),
+  saveUserName: (name) => {
+    set({ userName: name.trim() });
+    const s = get();
+    if (!s.hasOnboardedBefore) return;
+    void persistAsync({
+      completed: true,
+      completedAt: s.completedAt ?? Date.now(),
+      userName: s.userName,
+      agentName: s.agentName || 'Cinderpaw',
+    }).then((stored) => set({ persistFailed: !stored }));
+  },
   // Note: we do NOT fall back to "Cinderpaw" on empty input here — the user
   // must be able to fully clear the field to retype. The "Cinderpaw" default
   // is applied at the use sites (Preview, DoneStep, agent prompt) via

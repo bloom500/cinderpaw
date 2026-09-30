@@ -599,7 +599,10 @@ export interface Conversation {
   messages: PersistedMessage[];
   agent_id?: string | null;
 }
-export interface Project { id: string; name: string; conversation_ids: string[] }
+/** A copy of a file kept in the project's folder (spec 9). */
+export interface ProjectFile { name: string; path: string }
+/** `instructions` and `files` are optional: a host from before spec 9 sends neither. */
+export interface Project { id: string; name: string; conversation_ids: string[]; instructions?: string; files?: ProjectFile[] }
 
 // ── Memory Graph ─────────────────────────────────────────────────────────────
 export interface MemoryGraphNodeView {
@@ -759,6 +762,8 @@ export type CinderpawAgentEvent =
   | { type: 'spawning'; id: string; count: number }
   // Real token usage per completion — drives the live context ring in agent mode.
   | { type: 'usage'; id: string; sessionId: string; promptTokens: number; completionTokens: number }
+  // The memories the agent was given for this turn (Memory Peek).
+  | { type: 'memory_used'; id: string; sessionId: string; items: import('@/stores/chat').MemoryUsedItem[] }
   // The artifact store. `artifact` is unprompted — it fires whenever anything
   // creates, changes or removes one, from ANY surface, so a report written from
   // a voice call or from Telegram appears in the panel without it asking.
@@ -865,8 +870,11 @@ const raw = {
   deleteConversation:    (id: string) => invoke<void>('delete_conversation', { id }),
   clearAllConversations: ()    => invoke<void>('clear_all_conversations'),
   loadProjects:          ()    => invoke<Project[]>('load_projects'),
-  saveProject:           (id: string, name: string, conversationIds: string[]) =>
-    invoke<void>('save_project', { id, name, conversationIds }),
+  // Left out, instructions and files keep their stored values (commands/projects.rs).
+  saveProject:           (id: string, name: string, conversationIds: string[], extra?: { instructions?: string; files?: ProjectFile[] }) =>
+    invoke<void>('save_project', { id, name, conversationIds, instructions: extra?.instructions ?? null, files: extra?.files ?? null }),
+  projectAddFile:        (projectId: string, srcPath: string) => invoke<ProjectFile>('project_add_file', { projectId, srcPath }),
+  projectRemoveFile:     (projectId: string, name: string) => invoke<void>('project_remove_file', { projectId, name }),
   deleteProject:         (id: string) => invoke<void>('delete_project', { id }),
   getSettings:           ()    => invoke<Settings>('get_settings'),
   saveSettings:          (settings: Settings) => invoke<void>('save_settings', { settings }),
@@ -1222,8 +1230,10 @@ export const tauri = {
 
   projects: {
     list:   async () => raw.loadProjects(),
-    save:   async (id: string, name: string, ids: string[]) =>
-      raw.saveProject(id, name, ids),
+    save:   async (id: string, name: string, ids: string[], extra?: { instructions?: string; files?: ProjectFile[] }) =>
+      raw.saveProject(id, name, ids, extra),
+    addFile:    async (projectId: string, srcPath: string) => raw.projectAddFile(projectId, srcPath),
+    removeFile: async (projectId: string, name: string) => raw.projectRemoveFile(projectId, name),
     delete: async (id: string) => raw.deleteProject(id),
   },
 

@@ -71,5 +71,35 @@ describe('What Cinderpaw remembers', () => {
     render(<MemoryLayersPage />);
     expect(await screen.findByText(/No summary yet/)).toBeInTheDocument();
     expect(screen.getByText('No notes yet.')).toBeInTheDocument();
+    expect(screen.getByText('Nothing yet. Tell me about yourself, or just chat and I will learn.')).toBeInTheDocument();
+  });
+});
+
+describe('Memory facts', () => {
+  it('tags each fact by its category and filters by kind', async () => {
+    const getGraph = tauri.memory.getGraph as unknown as ReturnType<typeof vi.fn>;
+    getGraph.mockResolvedValueOnce({
+      nodes: [
+        { id: 'food', label: 'food', type: 'entity', touched_at: Date.now() },
+        { id: 'ramen', label: 'ramen', type: 'concept', touched_at: Date.now() },
+        { id: 'os', label: 'os', type: 'entity', touched_at: Date.now() },
+        { id: 'windows', label: 'Windows 11', type: 'concept', touched_at: Date.now() },
+      ],
+      edges: [
+        { from: 'food', to: 'ramen', relation: 'has' },
+        { from: 'os', to: 'windows', relation: 'has' },
+      ],
+    });
+    notes.mockResolvedValueOnce(reply({ categories: { food: 'preference', os: 'fact' } }));
+    render(<MemoryLayersPage />);
+    expect(await screen.findByText('Food: ramen')).toBeInTheDocument();
+    expect(screen.getByText('Preference')).toBeInTheDocument();
+    expect(screen.getByText('Fact')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preferences' }));
+    expect(screen.getByText('Food: ramen')).toBeInTheDocument();
+    expect(screen.queryByText('Os: Windows 11')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Projects' }));
+    expect(screen.getByText('No projects yet.')).toBeInTheDocument();
   });
 });

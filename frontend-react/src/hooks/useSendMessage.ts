@@ -15,6 +15,8 @@ import { resolveSttModel } from '@/lib/voiceModel';
 import { buildMemoryContext, extractChatMemory } from '@/lib/chatMemory';
 import { decodeToPcm16k } from '@/lib/audio';
 import type { AttachedFile } from '@/components/chat/AttachedFileChip';
+import { projectPrompt } from '@/lib/projectPrompt';
+import { useProjects } from '@/stores/projects';
 
 /**
  * The token line shown under a finished reply.
@@ -281,6 +283,13 @@ export function useSendMessage() {
             ? `${params.system_prompt}\n\n${memoryContext}`
             : memoryContext;
         }
+      }
+
+      // Projects (spec 9): a chat filed in a project carries its instructions
+      // and files, as the engine adds them in Agent mode.
+      const projectText = projectPrompt(useProjects.getState().list.find((p) => p.conversation_ids.includes(sessionId)));
+      if (projectText) {
+        params.system_prompt = params.system_prompt ? `${params.system_prompt}\n\n${projectText}` : projectText;
       }
 
       // `buffer` is for think-tag parsing; `answer` is the clean (think-stripped)

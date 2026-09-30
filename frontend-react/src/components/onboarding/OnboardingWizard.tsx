@@ -38,6 +38,7 @@ import { useNotifications } from '@/stores/notifications';
 import { recommendModel } from '@/lib/hardwareRecommendation';
 import { tauri, type DiskEncryptionStatus, type SetupCandidate, type SetupVerifyOutcome } from '@/lib/tauri';
 import { CinderpawMascot } from '@/components/chat/mascot/CinderpawMascot';
+import { ConnectStep } from './ConnectStep';
 import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 
 const stepVariants = {
@@ -90,8 +91,9 @@ export function OnboardingWizard() {
               {step === 0 && <WelcomeStep />}
               {step === 1 && <PersonalizeStep />}
               {step === 2 && <ProviderStep />}
-              {step === 3 && <ShowcaseStep />}
-              {step === 4 && <DoneStep />}
+              {step === 3 && <ConnectStep />}
+              {step === 4 && <ShowcaseStep />}
+              {step === 5 && <DoneStep />}
             </motion.div>
           </AnimatePresence>
         </div>

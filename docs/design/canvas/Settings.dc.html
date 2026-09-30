@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;font-family:'Geist',system-ui,sans-serif}
+button{font-family:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; box-sizing: border-box; background: #F6EFE6; color: #2F2A26; font-family: 'Geist', system-ui, sans-serif; display: flex">
+
+<nav aria-label="Settings" style="width: 256px; flex-shrink: 0; box-sizing: border-box; padding: 22px 12px; background: #F1E8DD; border-right: 1px solid #E4D6C8; display: flex; flex-direction: column; gap: 2px">
+<button type="button" style="height: 34px; padding: 0 10px; border: 0; background: transparent; color: #6F5747; font-size: 13.5px; display: flex; align-items: center; gap: 8px; text-align: left"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>Back to chat</button>
+<div style="padding: 14px 12px 10px 12px; font-size: 22px; font-weight: 600; letter-spacing: -0.01em">Settings</div>
+<button type="button" style="height: 36px; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; color: #2F2A26; font-size: 14px; text-align: left">General</button>
+<button type="button" style="height: 36px; padding: 0 12px; border-radius: 10px; border: 0; background: {{nav.appearance}}; color: #2F2A26; font-size: 14px; text-align: left">Appearance</button>
+<button type="button" style="height: 36px; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; color: #2F2A26; font-size: 14px; text-align: left">Hardware</button>
+<button type="button" style="height: 36px; padding: 0 12px; border-radius: 10px; border: 0; background: {{nav.team}}; color: #2F2A26; font-size: 14px; text-align: left">Agent and team</button>
+<button type="button" style="height: 36px; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; color: #2F2A26; font-size: 14px; text-align: left">Learning</button>
+<button type="button" style="height: 36px; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; color: #2F2A26; font-size: 14px; text-align: left">Accounts</button>
+<button type="button" style="height: 36px; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; color: #2F2A26; font-size: 14px; text-align: left">Capabilities</button>
+<button type="button" style="height: 36px; padding: 0 12px; border-radius: 10px; border: 0; background: {{nav.memory}}; color: #2F2A26; font-size: 14px; text-align: left">Memory</button>
+<button type="button" style="height: 36px; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; color: #2F2A26; font-size: 14px; text-align: left">Privacy</button>
+<button type="button" style="height: 36px; padding: 0 12px; border-radius: 10px; border: 0; background: transparent; color: #2F2A26; font-size: 14px; text-align: left">About</button>
+</nav>
+
+<div style="flex-grow: 1; min-width: 0; box-sizing: border-box; padding: 56px 72px">
+<div style="max-width: 860px">
+
+<sc-if value="{{isTeam}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; align-items: flex-start; gap: 16px">
+<div style="flex-grow: 1"><h1 style="margin: 0; font-size: 26px; line-height: 32px; font-weight: 600; letter-spacing: -0.01em">Team</h1><p style="margin: 8px 0 0 0; font-size: 15px; line-height: 23px; color: #6F5747">Teammates take work off your hands. Each one has a role, a model and its own memory.</p></div>
+<button type="button" style="height: 38px; padding: 0 16px; border-radius: 12px; border: 0; background: #B15129; color: #FFFFFF; font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-shrink: 0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>New teammate</button>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 28px">
+<div style="display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: 18px; background: #FBF7F1; border: 1px solid #E4D6C8">
+<span style="width: 52px; height: 52px; border-radius: 16px; background: #F2DDCC; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><img src="assets/logo-head.svg" alt="" style="width: 40px; height: 40px"></span>
+<span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 15px; font-weight: 600">Researcher</span><span style="font-size: 13px; color: #7A5F4E">Finds sources and checks them</span><span style="font-size: 12.5px; color: #9A4421; display: flex; align-items: center; gap: 6px; margin-top: 2px"><span style="width: 7px; height: 7px; border-radius: 4px; background: #C65A2E"></span>Working: reading reviews</span></span>
+<button type="button" style="height: 32px; padding: 0 12px; border-radius: 10px; border: 1px solid #E4D6C8; background: #FFFDFA; color: #2F2A26; font-size: 13px">Message</button>
+</div>
+<div style="display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: 18px; background: #FBF7F1; border: 1px solid #E4D6C8">
+<span style="width: 52px; height: 52px; border-radius: 16px; background: #F2DDCC; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><img src="assets/logo-head.svg" alt="" style="width: 40px; height: 40px"></span>
+<span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 15px; font-weight: 600">Writer</span><span style="font-size: 13px; color: #7A5F4E">Drafts posts, emails and documents</span><span style="font-size: 12.5px; color: #7A5F4E; margin-top: 2px">Idle</span></span>
+<button type="button" style="height: 32px; padding: 0 12px; border-radius: 10px; border: 1px solid #E4D6C8; background: #FFFDFA; color: #2F2A26; font-size: 13px">Message</button>
+</div>
+<div style="display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: 18px; background: #FBF7F1; border: 1px solid #E4D6C8">
+<span style="width: 52px; height: 52px; border-radius: 16px; background: #F2DDCC; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><img src="assets/logo-head.svg" alt="" style="width: 40px; height: 40px"></span>
+<span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 15px; font-weight: 600">Developer</span><span style="font-size: 13px; color: #7A5F4E">Code, tests and fixes</span><span style="font-size: 12.5px; color: #7A5F4E; margin-top: 2px">Idle</span></span>
+<button type="button" style="height: 32px; padding: 0 12px; border-radius: 10px; border: 1px solid #E4D6C8; background: #FFFDFA; color: #2F2A26; font-size: 13px">Message</button>
+</div>
+<button type="button" style="display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: 18px; background: transparent; border: 1.5px dashed #D9C8BE; color: #6F5747; text-align: left">
+<span style="width: 52px; height: 52px; border-radius: 16px; border: 1.5px dashed #D9C8BE; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #9A4421"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></span>
+<span style="display: flex; flex-direction: column; gap: 3px"><span style="font-size: 15px; font-weight: 600; color: #2F2A26">Add a teammate</span><span style="font-size: 13px">Give it a name and a job</span></span>
+</button>
+</div>
+</sc-if>
+
+<sc-if value="{{isAppearance}}" hint-placeholder-val="{{ false }}">
+<h1 style="margin: 0; font-size: 26px; line-height: 32px; font-weight: 600; letter-spacing: -0.01em">Appearance</h1>
+<div style="margin-top: 30px; font-size: 14px; font-weight: 600">Theme</div>
+<div style="display: flex; gap: 16px; margin-top: 12px">
+<button type="button" aria-pressed="false" style="width: 200px; padding: 10px; border-radius: 16px; border: 1px solid #E4D6C8; background: #FBF7F1; display: flex; flex-direction: column; gap: 10px; text-align: left; color: #2F2A26">
+<span style="height: 110px; border-radius: 10px; background: #F6EFE6; border: 1px solid #E4D6C8; display: flex; overflow: hidden"><span style="width: 44px; background: #F1E8DD; border-right: 1px solid #E4D6C8"></span><span style="flex-grow: 1; padding: 14px 12px; display: flex; flex-direction: column; gap: 7px"><span style="width: 60%; height: 7px; border-radius: 4px; background: #2F2A26"></span><span style="width: 85%; height: 5px; border-radius: 3px; background: #D9C8BE"></span><span style="width: 70%; height: 5px; border-radius: 3px; background: #D9C8BE"></span><span style="align-self: flex-end; width: 40%; height: 14px; border-radius: 7px; background: #F2DDCC; margin-top: 6px"></span></span></span>
+<span style="font-size: 14px; font-weight: 500; padding-left: 2px">Light</span>
+</button>
+<button type="button" aria-pressed="false" style="width: 200px; padding: 10px; border-radius: 16px; border: 1px solid #E4D6C8; background: #FBF7F1; display: flex; flex-direction: column; gap: 10px; text-align: left; color: #2F2A26">
+<span style="height: 110px; border-radius: 10px; background: #2F2A26; border: 1px solid #4A413A; display: flex; overflow: hidden"><span style="width: 44px; background: #28231F; border-right: 1px solid #4A413A"></span><span style="flex-grow: 1; padding: 14px 12px; display: flex; flex-direction: column; gap: 7px"><span style="width: 60%; height: 7px; border-radius: 4px; background: #F6EFE6"></span><span style="width: 85%; height: 5px; border-radius: 3px; background: #6B5E54"></span><span style="width: 70%; height: 5px; border-radius: 3px; background: #6B5E54"></span><span style="align-self: flex-end; width: 40%; height: 14px; border-radius: 7px; background: #4A3A30; margin-top: 6px"></span></span></span>
+<span style="font-size: 14px; font-weight: 500; padding-left: 2px">Dark</span>
+</button>
+<button type="button" aria-pressed="true" style="width: 200px; padding: 10px; border-radius: 16px; border: 2px solid #B15129; background: #FBF7F1; display: flex; flex-direction: column; gap: 10px; text-align: left; color: #2F2A26">
+<span style="height: 110px; border-radius: 10px; border: 1px solid #E4D6C8; display: flex; overflow: hidden"><span style="flex-grow: 1; background: #F6EFE6; padding: 14px 10px; display: flex; flex-direction: column; gap: 7px"><span style="width: 70%; height: 7px; border-radius: 4px; background: #2F2A26"></span><span style="width: 90%; height: 5px; border-radius: 3px; background: #D9C8BE"></span><span style="width: 75%; height: 5px; border-radius: 3px; background: #D9C8BE"></span></span><span style="flex-grow: 1; background: #2F2A26; padding: 14px 10px; display: flex; flex-direction: column; gap: 7px"><span style="width: 70%; height: 7px; border-radius: 4px; background: #F6EFE6"></span><span style="width: 90%; height: 5px; border-radius: 3px; background: #6B5E54"></span><span style="width: 75%; height: 5px; border-radius: 3px; background: #6B5E54"></span></span></span>
+<span style="font-size: 14px; font-weight: 600; padding-left: 2px; display: flex; align-items: center; gap: 6px">System<span style="font-size: 12px; font-weight: 400; color: #7A5F4E">follows Windows</span></span>
+</button>
+</div>
+<div style="margin-top: 34px; font-size: 14px; font-weight: 600">Window background</div>
+<div style="display: flex; flex-direction: column; margin-top: 10px; border-radius: 16px; background: #FBF7F1; border: 1px solid #E4D6C8; max-width: 616px">
+<label style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #ECE1D5"><span style="width: 18px; height: 18px; border-radius: 9px; border: 5px solid #B15129; box-sizing: border-box; flex-shrink: 0"></span><span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px"><span style="font-size: 14px; font-weight: 500">Solid</span><span style="font-size: 12.5px; color: #7A5F4E">Paper in light, charcoal in dark</span></span></label>
+<label style="display: flex; align-items: center; gap: 12px; padding: 14px 16px"><span style="width: 18px; height: 18px; border-radius: 9px; border: 1.5px solid #7A5F4E; box-sizing: border-box; flex-shrink: 0"></span><span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px"><span style="font-size: 14px; font-weight: 500">Glass</span><span style="font-size: 12.5px; color: #7A5F4E">Your wallpaper shows through, softly</span></span></label>
+</div>
+</sc-if>
+
+<sc-if value="{{isMemory}}" hint-placeholder-val="{{ false }}">
+<h1 style="margin: 0; font-size: 26px; line-height: 32px; font-weight: 600; letter-spacing: -0.01em">Memory</h1>
+<p style="margin: 8px 0 0 0; font-size: 15px; line-height: 23px; color: #6F5747">What Cinderpaw remembers about you. Forget anything, any time.</p>
+<div style="display: flex; gap: 8px; margin-top: 24px">
+<button type="button" aria-pressed="true" style="height: 32px; padding: 0 14px; border-radius: 16px; border: 0; background: #2F2A26; color: #F6EFE6; font-size: 13px; font-weight: 500">All</button>
+<button type="button" aria-pressed="false" style="height: 32px; padding: 0 14px; border-radius: 16px; border: 1px solid #E4D6C8; background: transparent; color: #2F2A26; font-size: 13px">Preferences</button>
+<button type="button" aria-pressed="false" style="height: 32px; padding: 0 14px; border-radius: 16px; border: 1px solid #E4D6C8; background: transparent; color: #2F2A26; font-size: 13px">Facts</button>
+<button type="button" aria-pressed="false" style="height: 32px; padding: 0 14px; border-radius: 16px; border: 1px solid #E4D6C8; background: transparent; color: #2F2A26; font-size: 13px">Projects</button>
+</div>
+<div style="margin-top: 16px; border-radius: 16px; background: #FBF7F1; border: 1px solid #E4D6C8; display: flex; flex-direction: column">
+<div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-bottom: 1px solid #ECE1D5"><span style="flex-grow: 1; font-size: 14.5px">Prefers short, direct answers</span><span style="font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 10px; background: #F2DDCC; color: #9A4421">Preference</span><span style="width: 84px; font-size: 12.5px; color: #7A5F4E">2 days ago</span><button type="button" style="height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid #E4D6C8; background: #FFFDFA; color: #6F5747; font-size: 12.5px">Forget</button></div>
+<div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-bottom: 1px solid #ECE1D5"><span style="flex-grow: 1; font-size: 14.5px">Planning a trip to Japan in April</span><span style="font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 10px; background: #DCE6F0; color: #33567A">Project</span><span style="width: 84px; font-size: 12.5px; color: #7A5F4E">Today</span><button type="button" style="height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid #E4D6C8; background: #FFFDFA; color: #6F5747; font-size: 12.5px">Forget</button></div>
+<div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-bottom: 1px solid #ECE1D5"><span style="flex-grow: 1; font-size: 14.5px">Likes Japanese food, not too spicy</span><span style="font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 10px; background: #F2DDCC; color: #9A4421">Preference</span><span style="width: 84px; font-size: 12.5px; color: #7A5F4E">Today</span><button type="button" style="height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid #E4D6C8; background: #FFFDFA; color: #6F5747; font-size: 12.5px">Forget</button></div>
+<div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-bottom: 1px solid #ECE1D5"><span style="flex-grow: 1; font-size: 14.5px">Works mostly on Windows 11</span><span style="font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 10px; background: #E1ECDB; color: #3F6E47">Fact</span><span style="width: 84px; font-size: 12.5px; color: #7A5F4E">Last week</span><button type="button" style="height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid #E4D6C8; background: #FFFDFA; color: #6F5747; font-size: 12.5px">Forget</button></div>
+<div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px"><span style="flex-grow: 1; font-size: 14.5px">The product launch is in early October</span><span style="font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 10px; background: #DCE6F0; color: #33567A">Project</span><span style="width: 84px; font-size: 12.5px; color: #7A5F4E">Yesterday</span><button type="button" style="height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid #E4D6C8; background: #FFFDFA; color: #6F5747; font-size: 12.5px">Forget</button></div>
+</div>
+</sc-if>
+
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"cat":{"editor":"enum","options":["team","appearance","memory"],"default":"team"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const cat = this.props.cat ?? 'team';
+    const on = '#F2DDCC';
+    return {
+      isTeam: cat === 'team',
+      isAppearance: cat === 'appearance',
+      isMemory: cat === 'memory',
+      nav: {
+        team: cat === 'team' ? on : 'transparent',
+        appearance: cat === 'appearance' ? on : 'transparent',
+        memory: cat === 'memory' ? on : 'transparent'
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { BarChart3, PenLine, Repeat, Search } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { tauri } from '@/lib/tauri';
 import { signInWithOpenRouter } from '@/lib/openrouterSignIn';
@@ -17,12 +18,25 @@ import { signInWithOpenRouter } from '@/lib/openrouterSignIn';
  * contract says it must never do to the composer.
  */
 
-/** The stem each intent leaves in the composer, and the key for its label. */
+/** The stem each intent leaves in the composer, and the keys for its label and hint. */
 const INTENTS = [
-  { key: 'home.intent.research', stem: 'Research ' },
-  { key: 'home.intent.create',   stem: 'Create ' },
-  { key: 'home.intent.analyze',  stem: 'Analyze ' },
-  { key: 'home.intent.automate', stem: 'Automate ' },
+  { key: 'home.intent.research', hint: 'home.intent.research.hint', stem: 'Research ', icon: Search },
+  { key: 'home.intent.create',   hint: 'home.intent.create.hint',   stem: 'Create ',   icon: PenLine },
+  { key: 'home.intent.analyze',  hint: 'home.intent.analyze.hint',  stem: 'Analyze ',  icon: BarChart3 },
+  { key: 'home.intent.automate', hint: 'home.intent.automate.hint', stem: 'Automate ', icon: Repeat },
+] as const;
+
+/**
+ * The five suggestion chips under the intents (spec 5, "all five stay",
+ * 27 Sep). Like the intents they fill the composer and stop; the words are
+ * the person's to finish or send.
+ */
+export const SUGGESTIONS = [
+  'Plan my week',
+  'Summarize a PDF',
+  'Compare three laptops',
+  'Draft an email',
+  'Explain a topic simply',
 ] as const;
 
 /**
@@ -86,17 +100,34 @@ export function HomeIntents({ onPick }: { onPick: (text: string) => void }) {
   const hasModel = useHasAnyModel();
   if (hasModel === false) return <SetupCard />;
   return (
-    <div className="mt-3 flex flex-wrap justify-center gap-2 px-6">
-      {INTENTS.map(({ key, stem }) => (
-        <button
-          key={key}
-          type="button"
-          onClick={() => onPick(stem)}
-          className="px-4 py-1.5 rounded-full border border-border-default bg-bg-surface/70 hover:bg-bg-hover text-sm text-text-secondary transition-colors cursor-pointer"
-        >
-          {t(key)}
-        </button>
-      ))}
+    <div className="mx-auto mt-4 w-full max-w-2xl px-4">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        {INTENTS.map(({ key, hint, stem, icon: Icon }) => (
+          <button
+            key={key}
+            type="button"
+            aria-label={t(key)}
+            onClick={() => onPick(stem)}
+            className="flex flex-col items-start gap-2 rounded-2xl border border-border-default bg-bg-surface p-3.5 text-left transition-colors hover:border-brand/40 cursor-pointer"
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-bg-active text-brand"><Icon size={16} /></span>
+            <span className="text-sm font-semibold text-text-primary">{t(key)}</span>
+            <span className="text-2xs leading-snug text-text-disabled">{t(hint)}</span>
+          </button>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap justify-center gap-2">
+        {SUGGESTIONS.map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => onPick(s)}
+            className="rounded-full border border-border-default px-3 py-1 text-2xs text-text-muted transition-colors hover:bg-text-primary/5 hover:text-text-secondary cursor-pointer"
+          >
+            {s}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

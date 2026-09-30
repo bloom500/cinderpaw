@@ -9,6 +9,10 @@ export type ToolId = 'web_search' | 'http_request' | 'file_read' | 'file_write' 
 // English only this release; the next one adds ~70 languages.
 export type LangPref = 'en';
 export type InputMode = 'chat' | 'agent';
+/** The typeface of the chat's messages (spec 7.4): the app's Geist, or the
+ *  one the computer uses everywhere else. */
+export type ChatFont = 'geist' | 'system';
+export const SYSTEM_FONT = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 /**
  * Which on-device transcription model to use, by id.
  *
@@ -59,16 +63,21 @@ interface UIStore {
    *  here — the rail answers "where do I want to go" and nothing else. */
   navCollapsed: boolean;
   toggleNav: () => void;
+  /** Starred chat ids, newest star first. Per machine, like everything here. */
+  starredChats: string[];
+  toggleStar: (id: string) => void;
+  /** Drops stars whose chat no longer exists. Call only with a list that was really read. */
+  pruneStarred: (liveIds: readonly string[]) => void;
   theme: ThemePref;
   resolvedTheme: ResolvedTheme;
   language: LangPref;
-  /** Read-only, and neither persisted nor settable. The composer controls that
-   *  used to write these are gone, so the setters went with them rather than
-   *  staying as an API nothing calls. `useSendMessage` and `MessageItem` still
-   *  read them — at their defaults, which is the only value they ever had that
-   *  was right for everybody. */
+  /** Set from the composer's Tools menu, where every switch that is on also
+   *  shows as a chip, so a choice is never out of sight. Still not persisted:
+   *  each launch starts at the defaults (see `partialize`). */
   reasoningMode: ReasoningMode;
   enabledTools: ToolId[];
+  setReasoningMode: (mode: ReasoningMode) => void;
+  toggleTool: (id: ToolId) => void;
   setTheme: (t: ThemePref) => void;
   searchOpen:  boolean;
   /**
@@ -91,6 +100,8 @@ interface UIStore {
   /** #24: pixel-art mascot on the typing bar. Some users want it off. */
   mascotEnabled: boolean;
   setMascotEnabled: (v: boolean) => void;
+  chatFont: ChatFont;
+  setChatFont: (f: ChatFont) => void;
   /** On-device transcription model id, from the Rust catalog. `''` until the
    *  user picks one, or when the stored one is not in this build. */
   sttModel: SttModelId;
@@ -161,7 +172,7 @@ interface UIStore {
 }
 
 const getSystemTheme = (): ResolvedTheme =>
-  window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 
 const resolveTheme = (t: ThemePref): ResolvedTheme =>
   t === 'system' ? getSystemTheme() : t;
@@ -174,11 +185,29 @@ export const useUI = create<UIStore>()(
     (set) => ({
       navCollapsed: false,
       toggleNav: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
-      theme: 'dark',
-      resolvedTheme: 'dark',
+      starredChats: [],
+      toggleStar: (id) => set((s) => ({
+        starredChats: s.starredChats.includes(id)
+          ? s.starredChats.filter((x) => x !== id)
+          : [id, ...s.starredChats],
+      })),
+      pruneStarred: (liveIds) => set((s) => {
+        const live = new Set(liveIds);
+        const kept = s.starredChats.filter((id) => live.has(id));
+        return kept.length === s.starredChats.length ? {} : { starredChats: kept };
+      }),
+      // A stranger in light mode met a dark app; the OS decides until they pick.
+      theme: 'system',
+      resolvedTheme: getSystemTheme(),
       language: 'en',
       reasoningMode: 'auto',
       enabledTools: [],
+      setReasoningMode: (reasoningMode) => set({ reasoningMode }),
+      toggleTool: (id) => set((s) => ({
+        enabledTools: s.enabledTools.includes(id)
+          ? s.enabledTools.filter((t) => t !== id)
+          : [...s.enabledTools, id],
+      })),
       setTheme: (theme) => {
         const resolved = resolveTheme(theme);
         applyTheme(resolved);
@@ -197,6 +226,8 @@ export const useUI = create<UIStore>()(
       setInputMode: (inputMode) => set({ inputMode }),
       mascotEnabled: true,
       setMascotEnabled: (mascotEnabled) => set({ mascotEnabled }),
+      chatFont: 'geist',
+      setChatFont: (chatFont) => set({ chatFont }),
       // Empty, not 'small'. A default that names a specific model is a promise
       // about which engine is underneath, and the answer differs per build —
       // the picker resolves this against what the binary actually offers.
@@ -223,17 +254,19 @@ export const useUI = create<UIStore>()(
       name: 'cinderpaw-ui',
       partialize: (s) => ({
         navCollapsed: s.navCollapsed,
+        starredChats: s.starredChats,
         theme: s.theme,
-        // `reasoningMode` and `enabledTools` are deliberately NOT persisted any
-        // more. The composer controls that set them are gone, so a saved value
-        // would be a setting with no way back: someone who once picked
-        // "Off: suppress thinking blocks", or ticked File Write, would carry
-        // that choice forever with nothing on screen explaining it or offering
-        // to undo it. Unpersisted, they start every launch at the defaults the
-        // app is designed around — `auto`, and an empty tool list that agent
-        // mode overrides with the agent's own tools.
+        // `reasoningMode` and `enabledTools` are deliberately NOT persisted.
+        // They were once, from composer controls that were later removed, and
+        // a saved value became a setting with no way back: someone who once
+        // picked "Off: suppress thinking blocks", or ticked File Write, carried
+        // that choice forever with nothing on screen explaining it. The Tools
+        // menu sets them again, but only for this launch; every launch starts
+        // at `auto` and an empty tool list, which agent mode overrides with the
+        // agent's own tools.
         inputMode: s.inputMode,
         mascotEnabled: s.mascotEnabled,
+        chatFont: s.chatFont,
         sttModel: s.sttModel,
         sttProvider: s.sttProvider,
         ttsProvider: s.ttsProvider,
@@ -284,8 +317,10 @@ export const useUI = create<UIStore>()(
 export function useSystemThemeSync() {
   const theme = useUI((s) => s.theme);
   useEffect(() => {
-    if (theme !== 'system') return;
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    // `system` is the default since the rebrand, so this now runs on every
+    // launch; a host with no matchMedia (jsdom) keeps the theme it resolved.
+    const mq = theme === 'system' ? window.matchMedia?.('(prefers-color-scheme: dark)') : undefined;
+    if (!mq) return;
     const handler = () => {
       const resolved = getSystemTheme();
       applyTheme(resolved);

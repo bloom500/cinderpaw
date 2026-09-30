@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, Cloud, HardDrive } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Cloud, HardDrive, Settings2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +19,9 @@ import { tauri, type ModelInfo, type ByokProvider } from '@/lib/tauri';
 import { router } from '@/router';
 import { signInWithOpenRouter } from '@/lib/openrouterSignIn';
 import { BackendBadge } from '@/components/BackendBadge';
+import { ROLES, resolveRole, roleModelName, sameModel, type RoleModel } from '@/lib/modelRoles';
+import { cn } from '@/lib/utils';
+import logoUrl from '@/assets/logo.svg';
 
 // Cinderpaw's own model engine exposes an OpenAI-compatible API here. In agent mode
 // a local pick must target THIS (not external Ollama on 11434) so the agent uses
@@ -197,53 +200,38 @@ export function ModelPickerPopover() {
   }
   const route = shown ? providerName(shown.provider) : '';
 
-  return (
-    <DropdownMenu onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <button
-          // text-secondary, not muted: this is the name of the model that will answer,
-          // and muted on the light typing bar read as a placeholder (20 Sep).
-          className="flex min-w-0 items-center gap-1.5 h-full pl-2.5 pr-2 text-xs text-text-secondary hover:text-text-primary transition-colors outline-hidden"
-          title={shown ? `${label} · via ${route}` : undefined}
-        >
-          {shown && <ModelLogo modelId={shown.modelId} provider={shown.provider} />}
-          <span className="truncate max-w-[150px]">{label}</span>
-          {/* Only meaningful for a local model — BackendBadge renders nothing
-              when none is loaded, so a cloud route stays clean. */}
-          {!cloudModel && !isLoading && <BackendBadge />}
-          <ChevronDown size={12} className="shrink-0 opacity-50" />
-        </button>
-      </DropdownMenuTrigger>
-      {/* Upward: the composer sits at the bottom of the screen, and a menu
-          that opens downward from it opens off-screen.
-
-          `sideOffset` and the height cap are not spacing taste. Radix opens
-          this menu on POINTER DOWN, and an item whose pointer-down it never
-          saw selects itself on pointer UP:
-
-            onPointerUp: (event) => {
-              if (!isPointerDownRef.current) event.currentTarget?.click();
-            }                        (@radix-ui/react-menu, MenuItem)
-
-          That exists so a press-drag-release picks an item, and it turns into
-          a bug the moment the menu is drawn underneath the cursor: the press
-          opens it, the release lands on whatever row is now there, and a model
-          the user never chose is loaded. A list that outgrows the room above
-          the composer is exactly when that happens, which is why it comes back
-          as soon as somebody installs another model.
-
-          The cap keeps the menu inside the space above the trigger so it is
-          not flipped or shifted under the cursor, and the offset keeps a gap
-          between the cursor and the nearest row either way. The scroll is the
-          other half of the same problem: a picker taller than the window is
-          not a picker. */}
-      <DropdownMenuContent
-        side="top"
-        align="start"
-        sideOffset={8}
-        collisionPadding={12}
-        className="w-72 max-h-[min(55vh,26rem)] overflow-y-auto thin-scrollbar"
-      >
+  const roles = useModel((s) => s.roles);
+  const [showAll, setShowAll] = useState(false);
+  // The model answering now, in the roles' terms: the check mark, and
+  // Primary's default until one is chosen (lib/modelRoles.ts).
+  const active: RoleModel | null = isAgentMode
+    ? cinderpawConfig?.model
+      ? cinderpawConfig.provider === LOCAL_PROVIDER_ID || cinderpawConfig.base_url?.startsWith(CINDERPAW_API_BASE)
+        ? { kind: 'local', path: '', name: cinderpawConfig.model }
+        : { kind: 'cloud', providerId: cinderpawConfig.provider, providerName: providerName(cinderpawConfig.provider), modelId: cinderpawConfig.model }
+      : null
+    : cloudModel
+      ? { kind: 'cloud', ...cloudModel }
+      : loaded?.name ? { kind: 'local', path: loaded.path ?? '', name: loaded.name } : null;
+  const firstLocal: RoleModel | null = localModels[0] ? { kind: 'local', path: localModels[0].path, name: localModels[0].name } : null;
+  /** Switch to a role's model, the same way picking it from the list does. */
+  const pick = (m: RoleModel) => {
+    if (m.kind === 'cloud') {
+      if (isAgentMode) void selectCloudAgent(m.providerId, m.modelId);
+      else setCloudModel({ providerId: m.providerId, providerName: m.providerName, modelId: m.modelId });
+      return;
+    }
+    const info = localModels.find((x) => x.path === m.path || x.name === m.name);
+    if (!info) {
+      useNotifications.getState().push('error', 'That model is not on this computer any more', `${m.name} was chosen for a role. Pick another one in Models.`);
+      return;
+    }
+    if (isAgentMode) void selectLocalAgent(info);
+    else { setCloudModel(null); void load(info.path); }
+  };
+  // Every model, as the picker listed them before roles: behind "All models".
+  const allModels = (
+    <>
         {hasLocal && (
           <>
             <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-text-muted">
@@ -342,7 +330,106 @@ export function ModelPickerPopover() {
             })}
           </>
         )}
-        {!hasLocal && !hasCloud && (
+    </>
+  );
+
+  return (
+    <DropdownMenu onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <button
+          // text-secondary, not muted: this is the name of the model that will answer,
+          // and muted on the light typing bar read as a placeholder (20 Sep).
+          className="flex min-w-0 items-center gap-1.5 h-full pl-2.5 pr-2 text-xs text-text-secondary hover:text-text-primary transition-colors outline-hidden"
+          title={shown ? `${label} · via ${route}` : undefined}
+        >
+          {shown && <ModelLogo modelId={shown.modelId} provider={shown.provider} />}
+          <span className="truncate max-w-[150px]">{label}</span>
+          {/* Only meaningful for a local model — BackendBadge renders nothing
+              when none is loaded, so a cloud route stays clean. */}
+          {!cloudModel && !isLoading && <BackendBadge />}
+          <ChevronDown size={12} className="shrink-0 opacity-50" />
+        </button>
+      </DropdownMenuTrigger>
+      {/* Upward: the composer sits at the bottom of the screen, and a menu
+          that opens downward from it opens off-screen.
+
+          `sideOffset` and the height cap are not spacing taste. Radix opens
+          this menu on POINTER DOWN, and an item whose pointer-down it never
+          saw selects itself on pointer UP:
+
+            onPointerUp: (event) => {
+              if (!isPointerDownRef.current) event.currentTarget?.click();
+            }                        (@radix-ui/react-menu, MenuItem)
+
+          That exists so a press-drag-release picks an item, and it turns into
+          a bug the moment the menu is drawn underneath the cursor: the press
+          opens it, the release lands on whatever row is now there, and a model
+          the user never chose is loaded. A list that outgrows the room above
+          the composer is exactly when that happens, which is why it comes back
+          as soon as somebody installs another model.
+
+          The cap keeps the menu inside the space above the trigger so it is
+          not flipped or shifted under the cursor, and the offset keeps a gap
+          between the cursor and the nearest row either way. The scroll is the
+          other half of the same problem: a picker taller than the window is
+          not a picker. */}
+      <DropdownMenuContent
+        side="top"
+        align="start"
+        sideOffset={8}
+        collisionPadding={12}
+        className="relative w-[22rem] overflow-visible p-0"
+      >
+        {/* The Model Switcher (spec 8): roles first, the head peeking over the
+            top edge. Not clipped: the scroll lives on the inner box. */}
+        <img src={logoUrl} alt="" className="pointer-events-none absolute -top-9 right-6 h-12 w-12" />
+        <div className="max-h-[min(55vh,30rem)] overflow-y-auto thin-scrollbar p-2">
+        <div className="px-2 pb-2 pt-1">
+          <p className="font-display text-lg leading-tight text-text-primary">Model Switcher</p>
+          <p className="text-xs text-text-muted">Choose the best model for your task.</p>
+        </div>
+        {ROLES.map((r) => {
+          const m = resolveRole(r.id, roles, active, firstLocal);
+          const on = !!m && sameModel(m, active);
+          const empty = r.id === 'local' ? 'Download a model' : 'Choose a model';
+          return (
+            <DropdownMenuItem
+              key={r.id}
+              // A role with no model does nothing when pressed; its own button
+              // below goes to the Models page. Leaving is a decision (22 Sep).
+              onSelect={(e) => { if (!m) e.preventDefault(); }}
+              onClick={() => { if (m) pick(m); }}
+              className={cn(
+                'mb-1 flex items-center gap-3 rounded-xl border p-2.5',
+                on ? 'border-brand/50 bg-bg-active' : 'border-transparent',
+              )}
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-bg-active text-brand">
+                <r.icon size={20} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-text-primary">{r.label}</span>
+                <span className="block truncate text-xs text-text-muted">{r.line}</span>
+              </span>
+              {m ? (
+                <span className="max-w-[8.5rem] shrink-0 truncate rounded-full bg-bg-active px-2 py-0.5 text-2xs font-medium text-brand" title={roleModelName(m)}>
+                  {m.kind === 'cloud' ? modelDisplayName(m.modelId) : m.name}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); void router.navigate(r.id === 'local' ? '/models' : '/models?tab=roles'); }}
+                  className="shrink-0 rounded-full border border-border-default px-2 py-0.5 text-2xs text-brand hover:bg-text-primary/5"
+                >
+                  {empty}
+                </button>
+              )}
+              {on && <Check size={16} className="shrink-0 text-brand" />}
+            </DropdownMenuItem>
+          );
+        })}
+        <DropdownMenuSeparator />
+        {!hasLocal && !hasCloud ? (
           <>
             <DropdownMenuItem
               onSelect={() => { void signInWithOpenRouter().then((ok) => { if (ok) void refreshCloud(); }); }}
@@ -355,7 +442,26 @@ export function ModelPickerPopover() {
               Download a model to this computer
             </DropdownMenuItem>
           </>
+        ) : (
+          <DropdownMenuItem
+            onSelect={(e) => { e.preventDefault(); setShowAll((v) => !v); }}
+            aria-expanded={showAll}
+            className="flex items-center gap-2 text-sm text-text-secondary"
+          >
+            <ChevronDown size={14} className={cn('shrink-0 transition-transform', showAll && 'rotate-180')} />
+            All models
+          </DropdownMenuItem>
         )}
+        {showAll && allModels}
+        <DropdownMenuItem
+          onSelect={() => { void router.navigate('/models?tab=roles'); }}
+          className="flex items-center gap-2 text-sm text-text-secondary"
+        >
+          <Settings2 size={14} className="shrink-0" />
+          <span className="flex-1">Manage models</span>
+          <ChevronRight size={14} className="shrink-0 opacity-60" />
+        </DropdownMenuItem>
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );

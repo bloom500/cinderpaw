@@ -97,6 +97,7 @@ import { createGitStatusTool, createGitDiffTool, createGitLogTool, createGitComm
 import { createHttpRequestTool } from "./tools/builtin/http-request.ts";
 import { createTimeDateTool } from "./tools/builtin/time-date.ts";
 import { createCalculatorTool } from "./tools/builtin/calculator.ts";
+import { createShowWidgetTool } from "./tools/builtin/show-widget.ts";
 import { createWebSearchTool } from "./tools/builtin/web-search.ts";
 import { createFetchUrlTool } from "./tools/builtin/fetch-url.ts";
 import { createReadWebpageTool } from "./tools/builtin/read-webpage.ts";
@@ -861,6 +862,7 @@ export async function boot(transportOverride?: Transport) {
   // time_date + calculator: pure utilities, no permissions
   registry.register(createTimeDateTool());
   registry.register(createCalculatorTool());
+  registry.register(createShowWidgetTool());
   registry.register(createWebSearchTool({ searxngOrigin: searxng }));
   // fetch_url: open egress by default, same posture as http_request above.
   // Set CINDERPAW_FETCH_DOMAINS to RESTRICT.

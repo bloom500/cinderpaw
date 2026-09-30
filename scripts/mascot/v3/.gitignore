@@ -1,0 +1,4 @@
+# Blender backups and Python caches only. The .blend, frames/ and renders/ are
+# committed since 28 Sep so a session without Blender still has the character.
+*.blend1
+__pycache__/

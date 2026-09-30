@@ -220,7 +220,7 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
           className={cn(
             'relative rounded-2xl px-3.5 py-2.5 shadow-sm',
             right
-              ? 'rounded-br-none bg-brand text-bg-primary'
+              ? 'rounded-br-none bg-brand text-brand-foreground'
               : m.failed
                 ? 'rounded-bl-none border border-error/40 bg-error/10 text-text-primary'
                 : 'rounded-bl-none border border-border-default bg-bg-surface text-text-primary',
@@ -403,100 +403,6 @@ function TypingRow({ e }: { e: CoworkExchange }) {
   );
 }
 
-/**
- * An approval is the system asking the human, not an agent speaking.
- *
- * And a question needs an answer where it is asked. Until now this row said
- * "Bolt needs your approval" and stopped there — the actual Approve/Deny pair
- * lived only on the mascot's tool-call bubble, which may be collapsed, may be
- * scrolled away, and on a fresh install is a widget the person has never
- * noticed. Somebody watching the panel that reported the request had no way to
- * answer it from the panel that reported it. Same store action as the mascot
- * bubble, so both routes detach the buttons and resolve identically.
- */
-function ApprovalRow({ e }: { e: CoworkExchange }) {
-  const who = displayName(e.fromAgentId, e.fromName);
-  const pending = e.status === 'running';
-  // The exchange id IS `approval:<requestId>` (see applyCoworkEvent). A row
-  // that arrived some other way simply gets no buttons rather than a broken pair.
-  const requestId = e.id.startsWith('approval:') ? e.id.slice('approval:'.length) : null;
-  const [answered, setAnswered] = useState(false);
-  /** Why the last verdict did not land, if it did not. */
-  const [failed, setFailed] = useState<string | null>(null);
-  const label = pending
-    ? `${who} needs your approval`
-    : e.status === 'error'
-      ? `${who} was not approved`
-      : `${who} was approved`;
-  const answer = async (approve: boolean) => {
-    if (!requestId) return;
-    setAnswered(true);
-    setFailed(null);
-    try {
-      await useChat.getState().resolveCoworkApproval(requestId, approve);
-    } catch (err) {
-      // The verdict did not reach the sidecar. Hand the decision back rather
-      // than leaving "sending…" on screen for ever: the teammate is blocked on
-      // this answer, and an approval nobody can give again is a stuck turn.
-      setAnswered(false);
-      setFailed(err instanceof Error ? err.message : String(err));
-    }
-  };
-  return (
-    <li className="flex w-full justify-center">
-      <span
-        className={cn(
-          'flex max-w-[92%] flex-col items-center gap-1 rounded-2xl border px-2.5 py-1.5 text-2xs',
-          pending
-            ? 'border-warning/40 bg-warning/10 text-text-primary'
-            : e.status === 'error'
-              ? 'border-error/30 bg-error/5 text-text-secondary'
-              : 'border-border-default bg-bg-surface text-text-secondary',
-        )}
-      >
-        <span className="flex items-center gap-1.5">
-          <span aria-hidden>🔐</span>
-          {label}
-          {e.approvalClass && <span className="font-medium">{e.approvalClass}</span>}
-          {pending && e.startedAt !== undefined && (
-            <span className="text-text-muted">
-              <Elapsed since={e.startedAt} />
-            </span>
-          )}
-        </span>
-        {/* WHAT is being approved. A decision prompt without the subject of
-            the decision is not a prompt, it is a coin flip. */}
-        {e.requestText && (
-          <span className="w-full wrap-break-word text-center font-mono text-text-secondary">
-            {e.requestText}
-          </span>
-        )}
-        {pending && requestId && !answered && (
-          <span role="group" aria-label={`Approval request: ${e.requestText ?? e.approvalClass ?? who}`} className="flex items-center gap-1.5 pt-0.5">
-            <button
-              type="button"
-              onClick={() => void answer(true)}
-              className="rounded-full border border-brand/40 bg-brand/15 px-2.5 py-0.5 text-2xs
-                         font-medium text-text-primary hover:bg-brand/25 cursor-pointer"
-            >
-              Approve
-            </button>
-            <button
-              type="button"
-              onClick={() => void answer(false)}
-              className="rounded-full border border-error/40 bg-error/10 px-2.5 py-0.5 text-2xs
-                         font-medium text-text-primary hover:bg-error/20 cursor-pointer"
-            >
-              Deny
-            </button>
-          </span>
-        )}
-        {answered && pending && <span className="text-text-muted">sending…</span>}
-        {failed && <span className="text-error">Not sent: {failed}</span>}
-      </span>
-    </li>
-  );
-}
 
 
 /**
@@ -591,7 +497,7 @@ function Composer({
           type="button"
           onClick={() => void send()}
           disabled={!text.trim() || sending}
-          className="rounded-md bg-brand px-2 py-1 text-2xs font-medium text-bg-primary
+          className="rounded-md bg-brand px-2 py-1 text-2xs font-medium text-brand-foreground
                      disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
         >
           {sending ? '…' : 'Send'}
@@ -843,20 +749,8 @@ export function CoworkTranscriptPanel() {
   const following = useRef(true);
 
   const messages = useMemo(() => toMessages(exchanges), [exchanges]);
-  const approvals = useMemo(
-    () => exchanges.filter((e) => e.kind === 'approval'),
-    [exchanges],
-  );
-  // An approval is the system interrupting: a teammate is blocked on it and
-  // it expires in minutes. Folded into the collapsed bubble it was easy to
-  // miss, so a NEW request opens the panel. Not persisted: the person's own
-  // choice to keep it closed is still what the next launch restores.
-  const pendingApprovals = approvals.filter((e) => e.status === 'running').length;
-  const seenPending = useRef(pendingApprovals);
-  useEffect(() => {
-    if (pendingApprovals > seenPending.current) setCollapsed(false);
-    seenPending.current = pendingApprovals;
-  }, [pendingApprovals]);
+  // Approval requests are not listed here any more: they are cards in the
+  // chat's own transcript (ApprovalCard, spec 7.5), where the reply is read.
   const working = useMemo(
     () =>
       exchanges.filter(
@@ -990,7 +884,7 @@ export function CoworkTranscriptPanel() {
   useEffect(() => {
     const el = scrollRef.current;
     if (el && following.current) el.scrollTop = el.scrollHeight;
-  }, [messages.length, working.length, approvals.length, collapsed]);
+  }, [messages.length, working.length, collapsed]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -1315,9 +1209,6 @@ export function CoworkTranscriptPanel() {
                 />
               ))}
             </AnimatePresence>
-            {approvals.map((e) => (
-              <ApprovalRow key={e.id} e={e} />
-            ))}
             {working.map((e) => (
               <TypingRow key={`typing:${e.id}`} e={e} />
             ))}

@@ -47,6 +47,7 @@ export interface Recaller {
 }
 import type { MemoryExtractor } from "../memory/extractor.ts";
 import { WorkingMemory } from "../memory/working.ts";
+import { projectAddendum } from "../projects.ts";
 import { countTokens } from "./tokenizer.ts";
 import { claimedPath, unsourcedWarning, withOpenFirst } from "./unsourced.ts";
 import { daemonNotice, daemonPrompt, unkeptWriteClaims } from "./daemon.ts";
@@ -1238,6 +1239,12 @@ export class AgentLoop {
       }
     }
 
+    // Projects (spec 9): a chat filed in a project carries its instructions and
+    // files in the system prompt, read fresh each turn so an edit applies to
+    // the next message. The owner's chats only: a connector profile speaks as
+    // its own persona.
+    if (!this.#profileFor(sessionId)) memory.setProject(projectAddendum(sessionId));
+
     // Automatic recall. The loop has always HELD a `Recaller` and never asked
     // it anything — only `noteWrite` was ever called, so memory was written
     // every turn and read only when the model happened to reach for the
@@ -1251,7 +1258,13 @@ export class AgentLoop {
     if (this.#recall && !this.#spokenSurface.has(sessionId) && recallInjectionEnabled()) {
       try {
         const recalled = await this.#recall.recall(userTextClean, sessionId);
-        memory.setRecall(recalled.context, recallInjectionMaxChars());
+        const max = recallInjectionMaxChars();
+        memory.setRecall(recalled.context, max);
+        // Memory Peek: tell the app which memories went in, as data. Only what
+        // survived the size cap: an item cut off the end was never seen.
+        const kept = recalled.context.slice(0, max);
+        const items = (recalled.used ?? []).filter((m) => kept.includes(m.text.slice(0, 60)));
+        if (items.length > 0) ctx.emit({ type: "memory_used", id: messageId, sessionId, items });
       } catch {
         memory.setRecall("");
       }

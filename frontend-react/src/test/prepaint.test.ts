@@ -25,6 +25,19 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 // Vite's ?raw loads the shipped file itself, so the test can never drift
 // onto a copy of the script.
 import SCRIPT from '../../public/cinderpaw-prepaint.js?raw';
+// main.tsx runs after this script and before React. It used to stamp the
+// theme a second time, with its own fallback of dark.
+import MAIN from '../main.tsx?raw';
+
+/** jsdom has no matchMedia; stand in for the OS colour-scheme preference. */
+function osPrefers(scheme: 'dark' | 'light'): void {
+  window.matchMedia = ((query: string) => ({
+    matches: query.includes('dark') ? scheme === 'dark' : scheme === 'light',
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  })) as unknown as typeof window.matchMedia;
+}
 
 /** Run the prepaint script in the current jsdom document. */
 function runPrepaint(): void {
@@ -63,10 +76,36 @@ describe('cinderpaw-prepaint', () => {
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
   });
 
-  test('falls back to dark when the persisted theme is corrupt', () => {
-    localStorage.setItem('cinderpaw-ui', '{not json');
+  test('a fresh install follows the OS: light', () => {
+    osPrefers('light');
+    runPrepaint();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+  });
+
+  test('a fresh install follows the OS: dark', () => {
+    osPrefers('dark');
     runPrepaint();
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+  });
+
+  test('a corrupt preference falls back to the OS, not to a fixed theme', () => {
+    osPrefers('light');
+    localStorage.setItem('cinderpaw-ui', '{not json');
+    runPrepaint();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+  });
+
+  test('a stored choice still wins over the OS', () => {
+    osPrefers('light');
+    localStorage.setItem('cinderpaw-ui', JSON.stringify({ state: { theme: 'dark' } }));
+    runPrepaint();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+  });
+
+  test('only this script decides the first theme, main.tsx does not stamp a second one', () => {
+    // Its fallback was dark, so a light-mode stranger saw light, then dark,
+    // then light again once the store rehydrated.
+    expect(MAIN).not.toMatch(/setAttribute\(\s*'data-theme'/);
   });
 
   test('dismisses the startup surface when React mounts AFTER the script ran', async () => {

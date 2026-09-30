@@ -9,7 +9,12 @@ import { MessageToolWidgets } from '../MessageToolWidgets';
 import { startActivity, finishActivity } from '@/hooks/useLiveToolActivity';
 
 vi.mock('@tauri-apps/plugin-shell', () => ({ open: vi.fn().mockResolvedValue(undefined) }));
-vi.mock('../MessageItem', () => ({ MessageItem: ({ message }: { message: { content: string } }) => <p>{message.content}</p> }));
+vi.mock('../MessageItem', () => ({
+  MessageItem: ({ message, head }: { message: { id: string; content: string }; head?: string }) => (
+    <p data-id={message.id} data-head={head ?? 'none'}>{message.content}</p>
+  ),
+  ReplyHead: () => null,
+}));
 vi.mock('../StreamingIndicator', () => ({ StreamingIndicator: () => <span>Thinking…</span> }));
 
 beforeEach(() => {
@@ -208,5 +213,43 @@ describe('chat tool widgets', () => {
     expect(container.firstChild).toHaveClass('absolute');
     expect(container.querySelector('details')).toBeNull();
     expect(screen.getByText('Remembered fact')).toBeInTheDocument();
+  });
+});
+
+describe('the logo head after the latest reply', () => {
+  const headOf = (id: string) => document.querySelector(`[data-id="${id}"]`)?.getAttribute('data-head');
+  const turn = (status: 'streaming' | 'done', last: string) => useChat.setState({
+    streamStatus: status,
+    messages: [
+      { id: 'a1', role: 'assistant', content: 'Earlier answer.', createdAt: 1 },
+      { id: 'u1', role: 'user', content: 'And now?', createdAt: 2 },
+      { id: 'a2', role: 'assistant', content: last, createdAt: 3 },
+    ],
+  });
+
+  it('moves while the reply is written, and only on the latest reply', () => {
+    turn('streaming', 'Half an ans');
+    render(<MessageList />);
+    expect(headOf('a2')).toBe('writing');
+    expect(headOf('a1')).toBe('none');
+  });
+
+  it('stays, still, once the reply is done', () => {
+    turn('done', 'The whole answer.');
+    render(<MessageList />);
+    expect(headOf('a2')).toBe('still');
+  });
+
+  it('is the status line before the first token, not a second head', () => {
+    turn('streaming', '');
+    render(<MessageList />);
+    expect(headOf('a2')).toBe('none');
+    expect(screen.getByText('Thinking…')).toBeInTheDocument();
+  });
+
+  it('is not drawn under a reply that never arrived', () => {
+    turn('done', '');
+    render(<MessageList />);
+    expect(headOf('a2')).toBe('none');
   });
 });

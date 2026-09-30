@@ -182,3 +182,40 @@ describe("automatic recall injection", () => {
     db.close();
   });
 });
+
+describe("memory_used, for the app's Memory Peek", () => {
+  test("the memories that went in are sent as data; one cut off by the cap is not", async () => {
+    installCapturingFetch();
+    withEnv("CINDERPAW_RECALL_INJECTION_MAX_CHARS", "80");
+    const recaller: Recaller = {
+      recall: () => ({
+        context: "[Memory context]\n- city: Cluj\n" + "x".repeat(200) + "\n- pet: a cat named Miso\n[End memory context]",
+        used: [
+          { kind: "fact", text: "city: Cluj", forget: { from: "n1", to: "n2", relation: "has" } },
+          { kind: "fact", text: "pet: a cat named Miso" },
+        ],
+        episodicHits: 0,
+        semanticFacts: 2,
+      }),
+    };
+    const { agent, db } = buildAgent(recaller);
+    const events: Array<Record<string, unknown>> = [];
+    await agent.handle("s1", "where do I live?", "m1", (e) => events.push(e as Record<string, unknown>));
+
+    const used = events.filter((e) => e.type === "memory_used");
+    expect(used).toHaveLength(1);
+    expect(used[0]!.id).toBe("m1");
+    expect(used[0]!.items).toEqual([{ kind: "fact", text: "city: Cluj", forget: { from: "n1", to: "n2", relation: "has" } }]);
+    db.close();
+  });
+
+  test("nothing is sent when nothing was used", async () => {
+    installCapturingFetch();
+    const { agent, db } = buildAgent(new SpyRecaller(""));
+    const events: Array<Record<string, unknown>> = [];
+    await agent.handle("s1", "hello", "m1", (e) => events.push(e as Record<string, unknown>));
+    expect(events.some((e) => e.type === "memory_used")).toBe(false);
+    db.close();
+  });
+});
+

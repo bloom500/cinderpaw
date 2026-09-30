@@ -9,7 +9,7 @@
 import { useEffect, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import { useChat, type ChatMessage, TOOL_CALL_LINGER_MS } from '@/stores/chat';
+import { useChat, type ChatMessage, type MemoryUsedItem, TOOL_CALL_LINGER_MS } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
 import { useAgent } from '@/stores/agent';
 import { useModel } from '@/stores/model';
@@ -51,6 +51,7 @@ interface StreamCallbacks {
   onToolStart?: (callId: string, tool: string, args: Record<string, unknown>) => void;
   onToolDone?:  (callId: string, tool: string, result: unknown) => void;
   onUsage?:     (promptTokens: number, completionTokens: number) => void;
+  onMemoryUsed?: (items: MemoryUsedItem[]) => void;
   /**
    * React-side id of the assistant message that this stream will populate.
    * Threaded into the inflight stream entry so the ask_user flow can attach
@@ -156,6 +157,7 @@ export function useCinderpawStream(chatSessionId: string) {
         onToolStart: callbacks.onToolStart ? (cid, t, a) => callbacks.onToolStart!(cid, t, a) : undefined,
         onToolDone: callbacks.onToolDone ? (cid, t, r) => callbacks.onToolDone!(cid, t, r) : undefined,
         onUsage: callbacks.onUsage ? (p, c) => callbacks.onUsage!(p, c) : undefined,
+        onMemoryUsed: callbacks.onMemoryUsed,
         // Ask_user events carry the sidecar's requestId, not a stream
         // messageId — so the stream manager can't tie the question to a
         // specific message on its own. Pass the React-side asstId so the
@@ -473,6 +475,11 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           // passed so the now-expired bubble is pruned from the on-screen strip.
           window.setTimeout(() => syncToolStrip(), TOOL_CALL_LINGER_MS + 100);
         },
+        // Memory Peek: which memories this reply was given. Only while the
+        // chat is on screen; a background turn keeps its answer, not this.
+        onMemoryUsed: (items) => {
+          if (isActive()) useChat.getState().updateLastAssistantMessage({ memoryUsed: items });
+        },
         onUsage: (promptTokens, completionTokens) => {
           // Real per-completion token counts from the sidecar router. Mirror
           // them so the context ring rehydrates correctly after a tab switch,
@@ -671,6 +678,7 @@ export function useCinderpawGlobal() {
             id: parsed.id,
             action: parsed.action,
             version: parsed.version,
+            title: parsed.title,
             onScreen: typeof parsed.sessionId === 'string' && parsed.sessionId === useChat.getState().sessionId,
           });
         } else if (parsed.type === 'artifact_result') {

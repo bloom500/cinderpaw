@@ -3,10 +3,11 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { panelMotionEnd, panelMotionStart } from '@/lib/panelMotion';
 import {
-  Plus, Search, MessageSquare, Folder, Box, Settings, FileBox, Globe,
-  PanelLeftClose, PanelLeftOpen, Loader2, FolderPlus,
-  ChevronDown, ChevronRight,
+  Plus, Search, Folder, Box, Settings, FileBox, Globe,
+  PanelLeftOpen, Loader2, FolderPlus, Star,
+  ChevronDown, ChevronLeft, ChevronRight,
 } from 'lucide-react';
+import logoUrl from '@/assets/logo.svg';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
@@ -16,6 +17,7 @@ import { useConversations, type ConversationSummary } from '@/stores/conversatio
 import { groupByRecency, type DatedGroup } from '@/lib/chatGroups';
 import { ConversationActions, ProjectActions } from '@/components/items/ItemActions';
 import { useProjects } from '@/stores/projects';
+import { DreamingCard } from './DreamingCard';
 import { useArtifacts } from '@/stores/artifacts';
 import { useBrowser } from '@/stores/browser';
 import { cn } from '@/lib/utils';
@@ -35,7 +37,12 @@ import { APP_NAME } from '@/lib/brand';
  * asking for them out loud.
  */
 
-export const NAV_W = 216;
+export const NAV_W = 256;
+
+/** Section headings in the library: STARRED, PROJECTS, TODAY, ... (canvas: 0.08em tracking; 12px, the scale's step nearest its 11.5). */
+const LABEL = 'px-3 pb-1.5 pt-3.5 text-2xs font-semibold uppercase tracking-[0.08em] text-text-disabled select-none';
+/** Hover on the sidebar ground. `bg-hover` is the sidebar's own colour in light, so it would not show. */
+const ROW_HOVER = 'hover:bg-text-primary/5';
 /**
  * Collapsed means gone, not narrow.
  *
@@ -62,7 +69,7 @@ const NAV = [
 function Row({
   icon: Icon, label, collapsed, onClick, to, active, hint,
 }: {
-  icon: React.ComponentType<{ size?: number | string; className?: string }>;
+  icon: React.ComponentType<{ size?: number | string; strokeWidth?: number; className?: string }>;
   label: string;
   collapsed: boolean;
   onClick?: () => void;
@@ -85,7 +92,7 @@ function Row({
         style={{ x: magnet.x, y: magnet.y }}
         className="flex shrink-0 items-center justify-center"
       >
-        <Icon size={16} className="shrink-0" />
+        <Icon size={16} strokeWidth={1.75} className="shrink-0 text-text-muted" />
       </motion.span>
       <AnimatePresence initial={false}>
         {!collapsed && (
@@ -102,11 +109,9 @@ function Row({
     </>
   );
   const classes = (isActive: boolean) => cn(
-    'w-full flex items-center gap-3 h-9 px-3 rounded-xl text-sm transition-colors cursor-pointer',
+    'w-full flex items-center gap-3 h-9 px-3 rounded-[10px] text-sm text-text-primary transition-colors cursor-pointer',
     collapsed && 'justify-center px-0',
-    isActive
-      ? 'bg-bg-active text-text-primary'
-      : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+    isActive ? 'bg-bg-active' : ROW_HOVER,
   );
 
   if (to) {
@@ -156,16 +161,28 @@ function Library({ collapsed }: { collapsed: boolean }) {
   useEffect(() => {
     void useProjects.getState().refresh();
   }, []);
+  const starredIds = useUI((s) => s.starredChats);
+  // Stars of chats deleted on an earlier launch are dropped at the first list
+  // that was really read, and only then: delete-with-undo takes a chat out of
+  // the list for a few seconds, and Undo must bring its star back with it.
+  // An empty list is skipped because a failed read also ends with `loaded` and [].
+  useEffect(() => {
+    if (loaded && list.length > 0) useUI.getState().pruneStarred(list.map((c) => c.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
   if (collapsed) return null;
 
-  const groups = groupByRecency(list ?? [], (c) => c.updated_at);
+  // A starred chat lives in STARRED only, not twice in the column.
+  const byId = new Map((list ?? []).map((c) => [c.id, c]));
+  const starred = starredIds.flatMap((id) => byId.get(id) ?? []);
+  const groups = groupByRecency((list ?? []).filter((c) => !starredIds.includes(c.id)), (c) => c.updated_at);
   const chatCount = (list ?? []).length;
 
-  const rowBase = 'w-full flex items-center gap-2 h-8 px-3 rounded-lg text-sm text-left transition-colors cursor-pointer';
+  const rowBase = 'w-full flex items-center gap-2.5 h-8 px-3 rounded-[10px] text-sm text-left transition-colors cursor-pointer';
 
   // Chat rows are identical in the all-chats view and inside a project's
   // drill-down — one renderer, so behavior can never drift between them.
-  const renderChatRows = (items: typeof list) => (
+  const renderChatRows = (items: typeof list, withStar = false) => (
     <div className="space-y-0.5">
       {items.map((c) => (
         // The row is a container so the actions can sit beside the
@@ -188,8 +205,8 @@ function Library({ collapsed }: { collapsed: boolean }) {
             setDragOverProject(null);
           }}
           className={cn(
-            'group flex items-center rounded-lg pr-1 transition-opacity duration-150',
-            c.id === currentId ? 'bg-bg-active' : 'hover:bg-bg-hover',
+            'group flex items-center rounded-[10px] pr-1 transition-opacity duration-150',
+            c.id === currentId ? 'bg-bg-active' : ROW_HOVER,
             // While any chat is dragged, the other rows step back
             // so the target section reads as the destination.
             draggingChat && draggingChat !== c.id && 'opacity-40',
@@ -210,8 +227,10 @@ function Library({ collapsed }: { collapsed: boolean }) {
             )}
           >
             {/* A chat can be generating while you are looking at another one. */}
-            {streamingIds[c.id] && (
+            {streamingIds[c.id] ? (
               <Loader2 size={12} className="shrink-0 animate-spin text-brand" aria-label="Generating" />
+            ) : withStar && (
+              <Star size={14} className="shrink-0 fill-current text-brand" aria-hidden />
             )}
             <span className="truncate">{c.title}</span>
           </button>
@@ -222,13 +241,13 @@ function Library({ collapsed }: { collapsed: boolean }) {
   );
 
   const renderGroupedChats = (grouped: DatedGroup<ConversationSummary>[]) => (
-    <div className="space-y-3">
+    <div>
       {grouped.map((group) => (
         <section key={group.id}>
           {/* Date headings, unlike a "Chats" heading, are not a word the
               navigation already says one row above — they are the only
               thing that makes a long column scannable instead of a wall. */}
-          <div className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-wider text-text-secondary">
+          <div className={LABEL}>
             {group.label}
           </div>
           {renderChatRows(group.items)}
@@ -238,9 +257,16 @@ function Library({ collapsed }: { collapsed: boolean }) {
   );
 
   return (
-    <div className="mt-4 min-h-0 flex-1 overflow-y-auto scrollbar-hide pb-2">
+    <div className="min-h-0 flex-1 overflow-y-auto scrollbar-hide pb-2">
+      {starred.length > 0 && (
+        <section>
+          <div className={LABEL}>Starred</div>
+          {renderChatRows(starred, true)}
+        </section>
+      )}
       {projects.length > 0 && (
-        <div className="space-y-0.5 mb-3">
+        <div className="space-y-0.5">
+          <div className={LABEL}>Projects</div>
           {projects.map((p) => {
             const expanded = expandedProjectId === p.id;
             const convs = (list ?? []).filter((c) => p.conversation_ids.includes(c.id));
@@ -249,7 +275,8 @@ function Library({ collapsed }: { collapsed: boolean }) {
               <div key={p.id}>
                 <div
                   className={cn(
-                    'group flex items-center rounded-lg pr-1 hover:bg-bg-hover transition-all duration-150',
+                    'group flex items-center rounded-[10px] pr-1 transition-all duration-150',
+                    ROW_HOVER,
                     // While a chat is being dragged, every project row advertises
                     // itself as a target (dashed outline); the row under the cursor
                     // lights up solid and lifts slightly.
@@ -297,7 +324,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
                     ) : (
                       <ChevronRight size={12} className="shrink-0" aria-hidden />
                     )}
-                    <Folder size={14} className="shrink-0" aria-hidden />
+                    <Folder size={16} strokeWidth={1.75} className="shrink-0" aria-hidden />
                     <span className="truncate">{p.name}</span>
                   </button>
                   <ProjectActions project={p} side="right" align="start" />
@@ -324,18 +351,18 @@ function Library({ collapsed }: { collapsed: boolean }) {
       {!loaded ? (
         // "Empty" and "not read yet" are the same value in the store, so the
         // rail must not answer with the fresh-install sentence before it knows.
-        <div className="space-y-1.5 px-3 py-1" aria-hidden>
+        <div className="space-y-1.5 px-3 pt-3.5" aria-hidden>
           {[0, 1, 2, 3].map((i) => (
             <div
               key={i}
-              className="h-3 rounded bg-bg-hover animate-pulse"
+              className="h-3 rounded bg-text-primary/10 animate-pulse"
               style={{ width: `${62 + ((i * 41) % 30)}%` }}
             />
           ))}
         </div>
       ) : chatCount === 0 ? (
-        <span className="block px-3 py-1 text-xs text-text-disabled">
-          Nothing yet. Ask Cinderpaw something.
+        <span className="block px-3 pt-3.5 text-sm text-text-disabled">
+          Your chats will appear here
         </span>
       ) : (
         renderGroupedChats(groups)
@@ -355,8 +382,11 @@ export function SideNav() {
   // goes there and opens it, rather than toggling something off screen.
   const openArtifacts = () => {
     useBrowser.getState().setPanel(false);
-    if (pathname === '/chat') { useArtifacts.getState().togglePanel(); return; }
-    useArtifacts.setState({ panelOpen: true });
+    // On the Context tab, the row switches to Artifacts rather than closing.
+    const st = useArtifacts.getState();
+    if (pathname === '/chat' && st.panelOpen && st.panelTab === 'artifacts') { st.togglePanel(); return; }
+    useArtifacts.setState({ panelOpen: true, panelTab: 'artifacts' });
+    if (pathname === '/chat') return;
     navigate('/chat');
   };
   const browserOpen = useBrowser((s) => s.panelOpen);
@@ -382,7 +412,7 @@ export function SideNav() {
   // the expand button waits for it to be nearly gone before it fades in.
   //
   // The fixed-width inner wrapper is what keeps the shrink clean: without it,
-  // the rail's children reflow at every width between 216 and 0 and the labels
+  // the rail's children reflow at every width between NAV_W and 0 and the labels
   // wrap into jittering towers mid-animation.
   return (
     <>
@@ -423,22 +453,11 @@ export function SideNav() {
             // Off screen is not gone for a keyboard or a screen reader; inert is.
             inert={collapsed}
             aria-hidden={collapsed}
-          className={cn(
-            'fixed left-3 top-3 bottom-3 z-30 flex flex-col overflow-hidden',
-          // Lifted, not sunken. A panel a shade DARKER than the page reads as a
-          // hole and its rounded corners vanish with it — which is what the
-          // first two attempts here looked like. Theme tokens rather than
-          // hand-rolled rgba, so light mode gets the same treatment for free.
-          // The rail is a SECOND sheet lying on the first, so it uses the same
-          // material as everything else rather than its own hand-rolled blur —
-          // that is what stops the two panes looking like different substances.
-          'rounded-2xl bg-bg-elevated',
-          // The rim carries the border, the lit top edge and the left gleam —
-          // the hairline this component used to hand-roll with `before:*`
-          // utilities is part of the material now, so every glass surface has
-          // it instead of just this one.
-          'liquid-glass liquid-glass-rim',
-        )}
+          // The canvas's sidebar: a full-height column flush to the window's
+          // left edge, on its own ground (`side`) with one hairline on the right.
+          // It used to float as a rounded glass card; flush has no corners to
+          // lose, so a shade darker than the page reads as a column, not a hole.
+          className="fixed inset-y-0 left-0 z-30 flex flex-col overflow-hidden border-r border-border-default bg-bg-side"
       >
         {/* Fixed-width stage: the rail animates its own width, but everything
             inside stays laid out at full width so nothing reflows mid-shrink.
@@ -446,55 +465,62 @@ export function SideNav() {
             shut is the empty frame, which is both cleaner to watch and keeps
             every word out of the tree the moment "gone" was asked for. */}
         {(
-        <div style={{ width: NAV_W }} className="h-full flex flex-col overflow-hidden">
-        <div className="h-12 px-3 flex items-center justify-between shrink-0">
-          {(
-            <span className="font-semibold text-sm text-text-primary tracking-wide select-none">
-              {APP_NAME.toUpperCase()}
-            </span>
-          )}
+        <div style={{ width: NAV_W }} className="h-full flex flex-col overflow-hidden px-3 pt-[18px]">
+        {/* The window has no title bar, and this column now covers the top-left
+            of the app-wide drag band, so the header drags the window itself.
+            Only elements carrying the attribute drag; the button stays a button. */}
+        <div data-tauri-drag-region className="flex shrink-0 items-center gap-2.5 px-2 pb-4 pt-0.5">
+          <img src={logoUrl} alt="" draggable={false} data-tauri-drag-region className="size-8 shrink-0" />
+          <span data-tauri-drag-region className="flex-1 select-none font-display text-2xl tracking-[-0.01em] text-text-primary">
+            {APP_NAME}
+          </span>
           <button
             type="button"
             onClick={toggle}
             aria-label="Collapse navigation"
             title="Collapse navigation"
-            className="h-9 w-9 grid place-items-center rounded-lg text-text-muted hover:bg-bg-hover hover:text-text-primary transition-colors cursor-pointer"
+            className={cn('grid size-[30px] shrink-0 place-items-center rounded-lg border border-border-default text-text-muted hover:text-text-primary transition-colors cursor-pointer', ROW_HOVER)}
           >
-            <PanelLeftClose size={20} />
+            <ChevronLeft size={16} strokeWidth={1.75} />
           </button>
         </div>
 
-        <div className="px-2 space-y-0.5 shrink-0">
-          {/* One creation door with two things behind it, rather than two rows
-              that are only ever used one at a time. */}
+        {/* New chat is one click, as the canvas draws it. "New project" was the
+            other half of the old New menu and keeps a door here, behind the
+            chevron: on a fresh install there is no PROJECTS heading to hang it on. */}
+        <div className="flex h-10 shrink-0 items-center rounded-xl bg-bg-active text-brand">
+          <button
+            type="button"
+            onClick={newChat}
+            className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2.5 pl-3 pr-1 text-left text-sm font-semibold"
+          >
+            <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded-full bg-brand text-brand-foreground">
+              <Plus size={12} strokeWidth={2.5} />
+            </span>
+            <span className="flex-1 truncate">New chat</span>
+            <Kbd keys={[MOD, 'N']} />
+          </button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                title={undefined}
-                className={cn(
-                  'w-full flex items-center gap-3 h-9 px-3 rounded-xl text-sm cursor-pointer',
-                  'text-text-primary bg-bg-elevated hover:bg-bg-hover transition-colors',
-                  
-                )}
+                aria-label="More to create"
+                title="More to create"
+                className={cn('grid h-full w-8 shrink-0 cursor-pointer place-items-center rounded-r-xl', ROW_HOVER)}
               >
-                <Plus size={16} className="shrink-0" />
-                <span>New</span>
+                <ChevronDown size={14} />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-48">
-              <DropdownMenuItem onSelect={newChat} className="gap-2">
-                <MessageSquare size={14} />
-                New chat
-                <Kbd keys={[MOD, 'N']} />
-              </DropdownMenuItem>
+            <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuItem onSelect={() => setProjectOpen(true)} className="gap-2">
                 <FolderPlus size={14} />
                 New project
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+        </div>
 
+        <div className="mt-2 space-y-0.5 shrink-0">
           <Row icon={Search} label="Search" collapsed={false} onClick={() => openSearch()} hint={<Kbd keys={[MOD, 'K']} />} />
           {/* The artifacts' entrance. It sat in the chat header first, right
               under the window's maximize button, where a miss resizes the window.
@@ -507,9 +533,11 @@ export function SideNav() {
           ))}
         </div>
 
-        <div className="flex-1 min-h-0 px-2 flex flex-col">
+        <div className="mx-2.5 mb-1 mt-3.5 h-px shrink-0 bg-border-default" aria-hidden />
+        <div className="flex-1 min-h-0 flex flex-col">
           <Library collapsed={false} />
         </div>
+        <DreamingCard />
         </div>
         )}
       </motion.nav>

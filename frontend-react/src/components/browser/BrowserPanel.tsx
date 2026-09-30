@@ -1,7 +1,7 @@
 import { onPanelMotionSettled, panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { motion, Reorder } from 'framer-motion';
-import { ArrowLeft, ArrowRight, BookOpen, ChevronDown, ChevronUp, Download, Globe, History, Lock, LockOpen, Star, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, Search, Settings2, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, ChevronDown, ChevronUp, Download, Globe, History, Lock, LockOpen, Star, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, ScrollText, Search, Settings2, ShieldCheck, X } from 'lucide-react';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { tauri } from '@/lib/tauri';
 import { SEARCH_ENGINES, useBrowser } from '@/stores/browser';
@@ -10,6 +10,8 @@ import { ENGINE_LOGOS } from '@/lib/engineLogos';
 import { cn, readLocal, writeLocal, SECONDARY_BUTTON } from '@/lib/utils';
 import { emit, listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
+import { requestCinderpawStop } from '@/lib/cinderpawAgentStream';
+import logoUrl from '@/assets/logo.svg';
 import { SelectMenu } from '@/components/ui/select-menu';
 import { type HistoryEntry, loadHistory, saveHistory, recordVisit, recordTitle, recordPick, loadBookmarks, saveBookmarks, upsertBookmark, removeBookmark, parseTags, findBookmarks, display, isReaderUrl, readerOriginal, isSecure } from '@/lib/browserHistory';
 import { AddressSuggestions, useAddressSuggestions } from './AddressSuggestions';
@@ -70,7 +72,11 @@ function place(r: DOMRect | null) {
  * native view, and a native view is always on top of anything React draws, so
  * a chat floating over it would be hidden behind it.
  */
-export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
+export function BrowserPanel({ chat, onCompose }: {
+  chat?: React.ReactNode;
+  /** Summarize this page: words for the composer, sent by the person (spec 7.5). */
+  onCompose?: (text: string) => void;
+}) {
   const {
     url: rawUrl, loading, error, notice, open, go, setPanel, tabs, active, newTab, switchTab, closeTab, reopenTab,
     wide, setWide, chatOpen, setChatOpen, engine, setEngine, agent, inCall, covered, orderTabs,
@@ -590,6 +596,19 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
             }).catch(() => {});
           }}
         />
+        {onCompose && (
+          // Made only when asked (spec 7.5): the request goes into the
+          // composer, the person sends it, and the summary is the reply.
+          <ChromeButton
+            label="Summarize this page"
+            icon={ScrollText}
+            disabled={!url}
+            onClick={() => {
+              if (wide) setChatOpen(true);
+              onCompose(`Summarize this page in a few lines, then list its main topics: ${url}`);
+            }}
+          />
+        )}
         <ChromeButton label="History" icon={History} pressed={historyOpen} onClick={() => setHistoryOpen((v) => !v)} />
         <div ref={downloadsBtn} className="relative">
           <ChromeButton label="Downloads" icon={Download} pressed={downloadsOpen || floatingOpen} onClick={() => void toggleDownloads()} />
@@ -683,13 +702,25 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
           always paints above this, so it sits over the chrome, not the page. */}
       <div className="relative h-0">
         {agent && (
-          <p
+          // The canvas's agent bar (spec 7.4): the head, what it is doing, Stop.
+          // Stop ends the run that is driving the page, like the composer's
+          // Stop; a paused agent is already waiting, so it has none.
+          <div
             role="status"
-            className="absolute left-1/2 top-0 z-10 flex -translate-x-1/2 -translate-y-full items-center gap-2 whitespace-nowrap rounded-full border border-brand/30 bg-bg-elevated px-3 py-1 text-2xs text-text-primary shadow-md"
+            className="absolute left-1/2 top-0 z-10 flex max-w-[calc(100%-24px)] -translate-x-1/2 -translate-y-full items-center gap-2.5 rounded-xl border border-border-default bg-bg-active py-1.5 pl-2 pr-1.5 text-xs text-text-primary shadow-md"
           >
-            <span className={cn('size-2 shrink-0 rounded-full bg-brand', agent.busy && 'animate-pulse')} aria-hidden />
-            {agentLine(agent)}
-          </p>
+            <img src={logoUrl} alt="" className={cn('h-5 w-5 shrink-0', agent.busy && 'animate-pulse')} />
+            <span className="min-w-0 truncate">{agentLine(agent)}</span>
+            {agent.op !== 'paused' && (
+              <button
+                type="button"
+                onClick={() => { void requestCinderpawStop(); useBrowser.setState({ agent: null }); }}
+                className="h-7 shrink-0 rounded-lg border border-border-default bg-bg-elevated px-3 text-xs text-text-primary hover:bg-text-primary/5"
+              >
+                Stop
+              </button>
+            )}
+          </div>
         )}
       </div>
       {error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-(--warning)">{error}</p>}

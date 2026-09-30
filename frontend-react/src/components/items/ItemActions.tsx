@@ -15,7 +15,7 @@
 
 import { useState, type ReactNode } from 'react';
 import {
-  MoreHorizontal, Trash2, FolderInput, FolderMinus, Folder, AlertCircle, Pencil,
+  MoreHorizontal, Trash2, FolderInput, FolderMinus, Folder, AlertCircle, Pencil, Star,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub,
@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils';
 import { useNotifications } from '@/stores/notifications';
 import { useConversations, type ConversationSummary } from '@/stores/conversations';
 import { useProjects, type Project } from '@/stores/projects';
+import { useUI } from '@/stores/ui';
 
 /** Hover-reveal in a list; stays visible once focused, so the keyboard reaches it. */
 const TRIGGER_CLASS =
@@ -122,7 +123,7 @@ function ConfirmDeleteDialog({
  * the row, threw the typed name away, and reported nothing anywhere. Both
  * things a rename dialog can do — chats and projects — went through here.
  */
-function RenameDialog({
+export function RenameDialog({
   open, onOpenChange, title, label, initial, onSave,
 }: {
   open: boolean;
@@ -253,6 +254,7 @@ export function ConversationActions({
   className?: string;
 }) {
   const projects = useProjects((s) => s.list);
+  const starred = useUI((s) => s.starredChats.includes(conv.id));
   const [renaming, setRenaming] = useState(false);
 
   const parent = projects.find((p) => p.conversation_ids.includes(conv.id)) ?? null;
@@ -270,6 +272,10 @@ export function ConversationActions({
       >
         <ActionsTrigger label="Chat options" className={className} />
         <DropdownMenuContent side={side} align={align}>
+          <DropdownMenuItem onClick={() => useUI.getState().toggleStar(conv.id)}>
+            <Star size={14} />
+            {starred ? 'Unstar' : 'Star'}
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setRenaming(true)}>
             <Pencil size={14} />
             Rename
@@ -367,7 +373,7 @@ export function ProjectActions({
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         title="Delete this project?"
-        body={<>This permanently deletes <span className="text-text-primary">{project.name || 'the project'}</span> and every conversation inside it. This can&apos;t be undone.</>}
+        body={<>This permanently deletes <span className="text-text-primary">{project.name || 'the project'}</span> and every conversation inside it, with the copies of its files (your originals stay where they are). This can&apos;t be undone.</>}
         onConfirm={() => useProjects.getState().delete(project.id)}
       />
     </>

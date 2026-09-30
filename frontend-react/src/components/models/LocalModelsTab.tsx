@@ -5,7 +5,7 @@ import { signInWithOpenRouter } from '@/lib/openrouterSignIn';
 import { Button } from '@/components/ui/button';
 import { LocalModelCard } from './LocalModelCard';
 import { SystemBar } from './SystemBar';
-import { BTN_ICON, BTN_OUTLINE, BTN_PRIMARY, CARD, MakerTile, Pill, SERIF, SectionHeader, Status, makerFor, prettyModelName } from './ui';
+import { BTN_ICON, BTN_OUTLINE, BTN_PRIMARY, CARD, MakerTile, Pill, SectionHeader, Status, makerFor, prettyModelName } from './ui';
 import { tauri, type ModelInfo } from '@/lib/tauri';
 import { useModel } from '@/stores/model';
 import { useDownload } from '@/stores/download';
@@ -72,7 +72,7 @@ export function LocalModelsTab({ onBrowse }: Props) {
   if (chatModels.length === 0) {
     return (
       <div className={cn(CARD, 'flex flex-col items-center gap-4 px-6 py-12 text-text-muted')}>
-        <p className="text-center text-lg text-text-primary" style={{ fontFamily: SERIF }}>
+        <p className="font-display text-center text-lg text-text-primary">
           No chat models on this computer yet.
         </p>
         <div className="flex flex-wrap gap-2 justify-center">
@@ -112,7 +112,7 @@ export function LocalModelsTab({ onBrowse }: Props) {
         <section className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h3 className="text-xl font-semibold text-text-primary" style={{ fontFamily: SERIF }}>Installed on this device</h3>
+              <h3 className="font-display text-xl text-text-primary">Installed on this device</h3>
               <p className="text-sm text-text-secondary">Run a model, stop it, or open it for the details.</p>
             </div>
             <button type="button" onClick={onBrowse} className={BTN_PRIMARY}>
@@ -201,7 +201,7 @@ function ActiveModelCard({ models }: { models: ModelInfo[] }) {
       <div className="flex items-center gap-3">
         <MakerTile maker={makerFor(loaded.name)} fallback={name} className="size-10 rounded-xl" />
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-text-primary" style={{ fontFamily: SERIF }} title={loaded.name}>{name}</p>
+          <p className="font-display truncate text-sm text-text-primary" title={loaded.name}>{name}</p>
           <Status tone="success">Running</Status>
         </div>
       </div>
@@ -222,7 +222,7 @@ function RecommendationCard({ onBrowse }: { onBrowse: () => void }) {
   return (
     <SideCard icon={<WandSparkles size={16} />} title="Recommended for your hardware">
       <div className="flex items-baseline gap-2">
-        <span className="text-xl font-semibold text-text-primary" style={{ fontFamily: SERIF }}>{rec.sizeClass}</span>
+        <span className="font-display text-xl text-text-primary">{rec.sizeClass}</span>
         <span className="text-xs text-text-muted">models · {rec.quant} · {rec.approxFileSize}</span>
       </div>
       <p className="mt-2 text-xs leading-relaxed text-text-secondary">{rec.rationale}</p>

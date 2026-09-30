@@ -4,7 +4,7 @@ import { ArrowUp, Square, Mic, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { AttachedFileChip, type AttachedFile } from './AttachedFileChip';
+import { AttachedFileChip, isLongPaste, pastedText, type AttachedFile } from './AttachedFileChip';
 import { LinkChip } from './LinkChip';
 import { splitLinks } from '@/lib/linkLabel';
 import { FileAttachButton } from './FileAttachButton';
@@ -16,6 +16,7 @@ import { ComposerPlaceholder } from './ComposerPlaceholder';
 import { motion } from 'framer-motion';
 import { ModelPill } from './ModelPill';
 import { ContextRing } from './ContextRing';
+import { ToolsMenu } from './ToolsMenu';
 import { MascotPerch } from './mascot/MascotPerch';
 import { useMascotState } from './mascot/useMascotState';
 import { useModel } from '@/stores/model';
@@ -432,6 +433,14 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       setLinks((prev) => [...prev, ...found.filter((h) => !prev.includes(h))]);
       return;
     }
+    // A long paste (a log, an article, a whole file) becomes one card instead
+    // of filling the box: the text still goes with the message, in full.
+    const raw = e.clipboardData?.getData('text/plain') ?? '';
+    if (!hasFile && isLongPaste(raw)) {
+      e.preventDefault();
+      addFiles([pastedText(raw)]);
+      return;
+    }
     if (!hasFile) return;
     // Don't preventDefault — text+image paste should keep the text in the textarea
     // while also attaching the image. Preventing drops the text.
@@ -657,11 +666,8 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
             dragOver ? 'border-brand border-dashed' : 'border-border-default',
           )}
         >
-          {dragOver && (
-            <div className="absolute inset-0 z-10 rounded-[28px] bg-brand/10 backdrop-blur-xs border-2 border-dashed border-brand flex items-center justify-center pointer-events-none">
-              <span className="text-sm font-medium text-brand">Drop to attach</span>
-            </div>
-          )}
+          {/* No overlay of its own: ChatPage draws the one "Drop to add to this
+              chat" over the whole chat, the composer included. */}
           {/* Always. The perch is not decoration: it walks the composer's edge
               and carries the tool-call stack, so it is how a person sees WHAT
               is running. Hiding it on Home removed a working feature to fix a
@@ -800,6 +806,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                 group never does. */}
             <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
               <div className="flex min-w-0 items-center gap-1">
+                {inputMode === 'chat' && <ToolsMenu />}
                 <ModelPill />
                 <span
                   className={cn(

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { events } from '@/lib/tauri/events';
 import { recordArtifact } from '@/lib/callArtifacts';
+import { parseWidget, widgetOf, type WidgetData } from '@/lib/widgets';
 
 /**
  * What Cinderpaw is doing right now, as the call hears about it.
@@ -123,6 +124,9 @@ export interface ToolActivity {
   /** What an artifact tool made or changed. Read from the tool's `data`, never
    *  parsed out of its English sentence: the sentence is for the model. */
   artifact: ArtifactFact | null;
+  /** A chat widget (`show_widget`, or `todo_write`'s plan), drawn in place of
+   *  the step. From the tool's `data`, like `artifact`. */
+  widget?: WidgetData | null;
   /** Present when the tool failed, so the panel can say so rather than empty. */
   error: string | null;
   /** Where in the reply's text this call was made (a character offset into
@@ -286,6 +290,7 @@ export function startActivity(tool: string, args: Record<string, unknown> | unde
     facts: [],
     desktop: desktopOf(args),
     artifact: null,
+    widget: null,
     error: null,
   };
 }
@@ -305,6 +310,7 @@ export function finishActivity(a: ToolActivity, result: unknown): ToolActivity {
     facts: factsOf(result),
     desktop: desktopDone(a.desktop, result),
     artifact: a.kind === 'artifact' ? artifactOf(result) : null,
+    widget: ok ? widgetOf(a.tool, result) : null,
     // The terminal widget's body. Trimmed hard: a build log is megabytes and
     // the panel is twenty lines tall.
     output: ok ? content.slice(0, 1200) : '',
@@ -349,6 +355,8 @@ export function toolsFromPersisted(raw: unknown): ToolActivity[] | undefined {
       // Same rule as `desktop`: a row written by another build may not have
       // it, and a widget must never render a card it cannot fill.
       artifact: r.artifact && typeof r.artifact === 'object' ? r.artifact : null,
+      // Read again rather than trusted: a saved row is untrusted data.
+      widget: parseWidget(r.widget),
       error: running ? 'interrupted' : typeof r.error === 'string' ? r.error : null,
       ...(typeof r.at === 'number' ? { at: r.at } : {}),
     });

@@ -1,12 +1,18 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion, useReducedMotion } from 'framer-motion';
+import logoUrl from '@/assets/logo.svg';
 import { AlertTriangle, FileText, File as FileIcon, Image as ImageIcon, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { parseUserAttachments, type DisplayAttachment } from '@/lib/attachmentDisplay';
 import { Markdown } from '@/lib/markdown';
-import { BubbleTail } from './BubbleTail';
 import { AskUserCard } from './AskUserCard';
 import { MessageToolWidgets } from './MessageToolWidgets';
+import { ChatWidget } from './ChatWidget';
+import { SourcesContext, SourcesList } from './Sources';
+import { MemoryPeek } from './MemoryPeek';
+import { FollowUps } from './FollowUps';
+import { citedSources, sourcesOf } from '@/lib/sources';
 import { MessageChain } from './MessageChain';
 import { MessageActions } from './MessageActions';
 import { VoiceBubble } from './VoiceBubble';
@@ -16,6 +22,7 @@ import { timeline } from '@/lib/timeline';
 import { useChat, type ChatMessage } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { useAskUser } from '@/stores/askUser';
+import { useRlmWorkers, workersFor, type RlmWorker } from '@/stores/rlmWorkers';
 import { useT } from '@/lib/i18n';
 
 /**
@@ -104,6 +111,29 @@ function MessageAttachmentChip({ attachment }: { attachment: DisplayAttachment }
   );
 }
 
+/**
+ * The logo head at the end of the latest reply (spec 6). It stands in for a
+ * spinner: moving while the reply is being written, still once it is done.
+ * `prefers-reduced-motion` makes it still throughout.
+ */
+export function ReplyHead({ writing }: { writing: boolean }) {
+  const reduced = useReducedMotion();
+  const moving = writing && !reduced;
+  return (
+    <motion.img
+      src={logoUrl}
+      alt=""
+      data-testid="reply-head"
+      data-writing={writing}
+      className="h-7 w-7 shrink-0"
+      animate={moving ? { y: [0, -3, 0], rotate: [0, -5, 0] } : { y: 0, rotate: 0 }}
+      transition={moving ? { duration: 1.1, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.15 }}
+    />
+  );
+}
+
+const NO_HELPERS: RlmWorker[] = [];
+
 // Memoized: the store rebuilds only the last (streaming) message object each
 // token, so completed messages keep their reference and skip the expensive
 // markdown re-parse + re-highlight on every streamed token.
@@ -112,9 +142,15 @@ export const MessageItem = memo(function MessageItem({
   streaming = false,
   onRetry,
   onEdit,
+  head,
+  onFollowUp,
 }: {
   message: ChatMessage;
   streaming?: boolean;
+  /** The logo head after this reply: only the latest reply carries one. */
+  head?: 'writing' | 'still';
+  /** Put a follow-up chip's words in the composer. Only the latest reply gets it. */
+  onFollowUp?: (text: string) => void;
   /** Send this turn again. Absent while a reply is still arriving. */
   onRetry?: () => void;
   /** Send this user turn again with different words. */
@@ -151,16 +187,11 @@ export const MessageItem = memo(function MessageItem({
       // The reply carried a time and the question did not, which read as an
       // oversight because it was one.
       <div className="group flex flex-col items-end gap-1">
-        {/* The bubble and its tail are one shape in two elements, so they
-            share one fill and no border: a stroke would have to be drawn
-            around the join as well, and the join is the whole illusion. */}
-        {/* A caramel tint, between the two versions that failed. `bg-bg-elevated`
-            was a step away from the page, legible only as a faint rectangle
-            and its tail not at all; solid brand read, and then shouted over
-            every reply. --bubble-user (globals.css) is a quarter of the brand
-            in the page colour: the shape reads, the eye stays on the reply. */}
+        {/* --bubble-user (globals.css) is the spec's `active` tint: the shape
+            reads, and the eye stays on the reply. Solid brand shouted over
+            every reply; `bg-bg-elevated` was a faint rectangle. */}
         {draft !== null ? (
-          <div className="w-full max-w-[75%] flex flex-col gap-2">
+          <div className="w-full max-w-[78%] flex flex-col gap-2">
             <textarea
               autoFocus
               value={draft}
@@ -182,7 +213,7 @@ export const MessageItem = memo(function MessageItem({
             <div className="flex justify-end gap-2 text-xs">
               <button type="button" className="px-2 py-1 rounded-md text-text-muted hover:text-text-secondary"
                       onClick={() => setDraft(null)}>Cancel</button>
-              <button type="button" className="px-2 py-1 rounded-md bg-brand text-bg-primary disabled:opacity-40"
+              <button type="button" className="px-2 py-1 rounded-md bg-brand text-brand-foreground disabled:opacity-40"
                       disabled={!draft.trim() || draft.trim() === visibleText}
                       onClick={() => { const next = draft.trim(); setDraft(null); onEdit?.(next); }}>
                 Send
@@ -190,8 +221,9 @@ export const MessageItem = memo(function MessageItem({
             </div>
           </div>
         ) : (
-        <div className="relative max-w-[75%] rounded-2xl rounded-br-none px-4 py-2.5 bg-(--bubble-user) text-text-primary shadow-sm">
-          <BubbleTail className="absolute right-[-11px] bottom-0 text-(--bubble-user)" />
+        // The canvas's 20 20 6 20, on the radius steps (18 and 6): no tail and
+        // no shadow, the fill alone makes the shape.
+        <div className="max-w-[78%] rounded-2xl rounded-br-sm px-4 py-3 bg-(--bubble-user) text-text-primary">
           {images.length > 0 && (
             <div className={cn('flex flex-wrap gap-2', (visibleText || fileChips.length > 0) && 'mb-2')}>
               {images.map((src, i) => (
@@ -207,7 +239,7 @@ export const MessageItem = memo(function MessageItem({
             </div>
           )}
           {visibleText && (
-            <p className="text-base whitespace-pre-wrap wrap-break-word leading-relaxed">
+            <p className="text-base whitespace-pre-wrap wrap-break-word">
               {splitLinks(visibleText).map((part, i) =>
                 part.kind === 'link' ? <LinkChip key={i} href={part.href} /> : part.text,
               )}
@@ -235,17 +267,41 @@ export const MessageItem = memo(function MessageItem({
   const askUser = message.askUser;
   const submitAskUser = useAskUser((s) => s.submit);
   const cancelAskUser = useAskUser((s) => s.cancel);
+  // The chat's rlm() helpers go in the latest reply's last strip. Read only
+  // there, so a helper's progress does not re-render every older reply.
+  const sessionId = useChat((s) => s.sessionId);
+  const allWorkers = useRlmWorkers((s) => (head ? s.workers : NO_HELPERS));
+  const helpers = useMemo(() => workersFor(allWorkers, sessionId), [allWorkers, sessionId]);
+  // Widgets are drawn in place of their step: every show_widget, and only the
+  // LAST todo_write plan of the reply (the agent updates it step by step, and
+  // five copies of one plan are noise). Earlier plan updates stay steps.
+  const activity = message.toolActivity ?? [];
+  const lastPlan = activity.map((a) => a.tool === 'todo_write' && !!a.widget).lastIndexOf(true);
+  // Follow-ups are neither a step nor drawn in place: the last set closes the reply.
+  const isFollowUps = (a: (typeof activity)[number]) => a.widget?.kind === 'followups';
+  const drawn = new Set(activity.filter((a, i) => a.widget && !isFollowUps(a) && (a.tool !== 'todo_write' || i === lastPlan)).map((a) => a.id));
+  const isStep = (a: (typeof activity)[number]) => a.kind !== 'artifact' && !drawn.has(a.id) && !isFollowUps(a);
+  const followUps = activity.filter(isFollowUps).at(-1)?.widget;
+  // The pages this turn's searches found: a link to one is a source chip, and
+  // the ones the answer cited close it as a list once it is done.
+  const sources = useMemo(() => sourcesOf(activity), [activity]);
+  const cited = useMemo(() => (streaming ? [] : citedSources(message.content, sources)), [streaming, message.content, sources]);
+  const lastGroup = pieces
+    ? pieces.reduce((k, p, i) => (p.kind === 'tools' && p.tools.some(isStep) ? i : k), -1)
+    : -1;
 
   return (
+    <SourcesContext.Provider value={sources}>
     <div className="group flex flex-col gap-2">
       <MessageChain
+        helpers={lastGroup === -1 ? helpers : NO_HELPERS}
         thinking={showThinking ? message.thinking! : null}
         thinkingComplete={message.thinkingComplete === true}
         // Seconds, or undefined when nobody measured it (a reopened chat has no
         // duration saved), which the header reads as 'Reasoning' rather than a time.
         durationSec={message.thinkingDurationMs ? Math.max(1, Math.ceil(message.thinkingDurationMs / 1000)) : undefined}
         // In the timeline the tools sit in the text instead; this keeps the reasoning.
-        steps={pieces ? [] : (message.toolActivity ?? []).filter((a) => a.kind !== 'artifact')}
+        steps={pieces ? [] : activity.filter(isStep)}
         streaming={streaming}
       />
       {pieces ? (
@@ -255,12 +311,13 @@ export const MessageItem = memo(function MessageItem({
         pieces.map((p, i) => {
           if (p.kind === 'text') {
             return (
-              <div key={`t${i}`} className="text-sm leading-relaxed">
+              <div key={`t${i}`} className="text-base leading-relaxed">
                 <Markdown animateWords={streaming && i === pieces.length - 1}>{p.text}</Markdown>
               </div>
             );
           }
-          const plain = p.tools.filter((a) => a.kind !== 'artifact');
+          const plain = p.tools.filter(isStep);
+          const widgets = p.tools.filter((a) => drawn.has(a.id));
           const artifacts = p.tools.filter((a) => a.kind === 'artifact');
           return (
             <div key={p.tools[0]!.id} className="flex flex-col gap-2">
@@ -271,8 +328,10 @@ export const MessageItem = memo(function MessageItem({
                   durationSec={undefined}
                   steps={plain}
                   streaming={streaming && plain.some((a) => a.status === 'running')}
+                  helpers={i === lastGroup ? helpers : NO_HELPERS}
                 />
               )}
+              {widgets.map((a) => <ChatWidget key={a.id} w={a.widget!} />)}
               {artifacts.length > 0 && <MessageToolWidgets activity={artifacts} streaming={streaming} />}
             </div>
           );
@@ -282,11 +341,25 @@ export const MessageItem = memo(function MessageItem({
           {/* What the turn MADE stays outside the steps: folding the steps away must
               not fold away the report or chart the person asked for. */}
           {made.length > 0 && <MessageToolWidgets activity={made} streaming={streaming} />}
-          <div className={cn('text-sm leading-relaxed', !message.content && 'hidden')}>
+          {activity.filter((a) => drawn.has(a.id)).map((a) => <ChatWidget key={a.id} w={a.widget!} />)}
+          <div className={cn('text-base leading-relaxed', !message.content && 'hidden')}>
             <Markdown animateWords={streaming}>{message.content}</Markdown>
           </div>
         </>
       )}
+      <SourcesList hits={cited} />
+      {/* The injected memories, then what a recall lookup found (no Forget:
+          its facts arrive as sentences, with no edge to remove). */}
+      {!streaming && (
+        <MemoryPeek items={[
+          ...(message.memoryUsed ?? []),
+          ...activity.filter((a) => a.kind === 'memory').flatMap((a) => a.facts.map((text) => ({ kind: 'fact' as const, text }))),
+        ]} />
+      )}
+      {!streaming && onFollowUp && followUps?.kind === 'followups' && (
+        <FollowUps next={followUps.next} onPick={onFollowUp} />
+      )}
+      {head && <ReplyHead writing={head === 'writing'} />}
       {/* Only on a finished reply: a copy button beside text that is still
           arriving would copy half of it. */}
       {!streaming && (
@@ -355,6 +428,7 @@ export const MessageItem = memo(function MessageItem({
         </div>
       )}
     </div>
+    </SourcesContext.Provider>
   );
 });
 

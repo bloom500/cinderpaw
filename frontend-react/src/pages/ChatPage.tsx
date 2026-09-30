@@ -1,7 +1,8 @@
 import { tauri } from '@/lib/tauri';
 import { listen } from '@tauri-apps/api/event';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { useChat } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
@@ -28,6 +29,7 @@ import { ONBOARDING_KEY } from '@/components/agents/agentUtils';
 import { useOnboarding } from '@/stores/onboarding';
 import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
 import { CoworkTranscriptPanel } from '@/components/chat/CoworkTranscriptPanel';
+import { CoworkerStrip } from '@/components/chat/CoworkerStrip';
 import { useCinderpawSendMessage } from '@/hooks/useCinderpaw';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { readLocal } from '@/lib/utils';
@@ -63,6 +65,16 @@ export function ChatPage() {
     window.addEventListener('cinderpaw-focus-composer', focus);
     return () => window.removeEventListener('cinderpaw-focus-composer', focus);
   }, []);
+  // Another screen (Settings > Team) can open a chat with words already in the
+  // box: `navigate('/chat', { state: { compose } })`. Read once, then dropped
+  // from the history entry so Back does not type it a second time.
+  const location = useLocation();
+  useEffect(() => {
+    const compose = (location.state as { compose?: string } | null)?.compose;
+    if (!compose) return;
+    chatInputRef.current?.setText(compose);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location, navigate]);
   // Explorer's Send to > Cinderpaw: files the app was started with, and files
   // sent while it is already open, land in the composer as attachments.
   useEffect(() => {
@@ -76,6 +88,7 @@ export function ChatPage() {
       .catch(() => {});
     return () => { cancelled = true; unlisten?.(); };
   }, []);
+  const [dropping, setDropping] = useState(false);
   const panelOpen       = useArtifacts((s) => s.panelOpen);
   const togglePanel     = useArtifacts((s) => s.togglePanel);
   const browserOpen     = useBrowser((s) => s.panelOpen);
@@ -273,6 +286,11 @@ export function ChatPage() {
   const handleSuggestion = (text: string) => {
     chatInputRef.current?.setText(text);
   };
+  // A follow-up chip fills the composer and stops, like the Home intents (spec 7.5).
+  const handleFollowUp = useCallback((text: string) => {
+    chatInputRef.current?.setText(text);
+    chatInputRef.current?.focus();
+  }, []);
 
   // The conversation column is a value so it can be placed either beside the
   // panels or, in the browser's wide mode, inside the panel's own drawer,
@@ -289,6 +307,7 @@ export function ChatPage() {
 
       {isAgentMode && <CinderpawGlobalMount />}
       {isAgentMode && <AgentOfflineBanner />}
+      {!showAgentOnboarding && <CoworkerStrip />}
 
       {/* Positioning context for absolute children */}
       <div ref={containerRef} className="relative flex-1 overflow-hidden">
@@ -304,7 +323,7 @@ export function ChatPage() {
 
         {/* Content: messages, no-model state, or empty overlay */}
         {!isEmpty ? (
-          <MessageList />
+          <MessageList onFollowUp={handleFollowUp} />
         ) : (
           <NewChatEmptyState isEmpty={isEmpty} />
         )}
@@ -379,14 +398,28 @@ export function ChatPage() {
     // the composer: the page is the target people actually aim at. The
     // composer's own handler stops propagation by handling the drop first.
     <div
-      className="flex h-full"
-      onDragOver={(e) => { if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault(); }}
+      className="relative flex h-full"
+      onDragOver={(e) => {
+        if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+        e.preventDefault();
+        setDropping(true);
+      }}
+      // Leaving a child fires too; only a real exit of the page clears it.
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false); }}
       onDrop={(e) => {
+        setDropping(false);
         if (e.defaultPrevented || !Array.from(e.dataTransfer.types).includes('Files')) return;
         e.preventDefault();
         chatInputRef.current?.attach(e.dataTransfer);
       }}
     >
+    {/* One overlay for a drop anywhere on the chat (spec 6), the composer
+        included. It takes no pointer, so the drop lands where it always did. */}
+    {dropping && (
+      <div className="pointer-events-none absolute inset-3 z-40 flex items-center justify-center rounded-3xl border-2 border-dashed border-brand bg-bg-primary/70 backdrop-blur-xs">
+        <span className="rounded-full bg-bg-elevated px-4 py-2 text-sm font-medium text-brand shadow-sm">Drop to add to this chat</span>
+      </div>
+    )}
     {/* min-w-[28rem]: the artifacts panel may widen only until the chat is this
         wide (CHAT_MIN_WIDTH in ArtifactsPanel). */}
     {/* In wide mode the column lives in the browser panel (from `chat`). */}
@@ -395,7 +428,9 @@ export function ChatPage() {
         {/* One side panel at a time, and the browser wins: when the agent is
             working in it, an artifact it saves must not cover the page. The
             artifact is still one click away in the sidebar. */}
-        {browserOpen && <BrowserPanel key="browser-panel" chat={chatColumn} />}
+        {browserOpen && (
+          <BrowserPanel key="browser-panel" chat={chatColumn} onCompose={(text) => chatInputRef.current?.setText(text)} />
+        )}
         {panelOpen && !browserOpen && (
           <ArtifactsPanel
             key="artifacts-panel"
@@ -406,6 +441,14 @@ export function ChatPage() {
             onAsk={(row) => {
               chatInputRef.current?.setText(`About the artifact "${row.title}" (${row.id}): `);
               chatInputRef.current?.focus();
+            }}
+            // Context's "Add": the same two gestures, words or files into the
+            // composer, and they go with the next message.
+            onCompose={(text) => chatInputRef.current?.setText(text)}
+            onAttach={() => {
+              void openFileDialog({ multiple: true }).then((picked) => {
+                if (picked) chatInputRef.current?.attachPaths(Array.isArray(picked) ? picked : [picked]);
+              });
             }}
           />
         )}

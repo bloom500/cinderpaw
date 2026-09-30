@@ -38,6 +38,9 @@ export interface CoworkExchange {
   status: CoworkExchangeStatus;
   /** Approval events only: send/publish/delete/purchase/prod_change. */
   approvalClass?: string;
+  /** Approval events only, once answered: `error` status is both a refusal and
+   *  a timeout, and the card has to say which ("Timed out, so nothing was done"). */
+  outcome?: 'approved' | 'denied' | 'expired';
   at: number;
   /** Roster names, when the sidecar knew them. The panel falls back to the
    *  id, but a person should never have to read "demo-agent-atlas". */
@@ -229,7 +232,12 @@ export function applyCoworkEvent(
       break;
     default:
       // approval_approved / denied / expired: terminal state on the open ask.
-      next = { ...base, ...named, kind, threadId, status, approvalClass: base.approvalClass ?? str(evt.data.approvalClass), at };
+      next = {
+        ...base, ...named, kind, threadId, status, approvalClass: base.approvalClass ?? str(evt.data.approvalClass), at,
+        ...(evt.eventType === 'approval_approved' ? { outcome: 'approved' as const }
+          : evt.eventType === 'approval_denied' ? { outcome: 'denied' as const }
+          : evt.eventType === 'approval_expired' ? { outcome: 'expired' as const } : {}),
+      };
       break;
   }
 
@@ -306,6 +314,9 @@ interface CoworkTranscriptStore {
    *  yet (a brand-new one). Nothing is shown while this is null. */
   activeThreadId: string | null;
   setThread: (threadId: string | null) => void;
+  /** Answers the person opened from the Coworker Strip, by exchange id. Not persisted. */
+  seenAnswers: Record<string, true>;
+  markSeen: (exchangeId: string) => void;
   ingest: (evt: CoworkEventInput) => void;
   ingestTool: (evt: { sessionId?: string; tool: string; done: boolean }) => void;
   /** Replace the transcript with one thread replayed from disk. */
@@ -319,6 +330,8 @@ export const useCoworkTranscript = create<CoworkTranscriptStore>()(
       exchanges: [],
       activeThreadId: null,
       setThread: (threadId) => set({ activeThreadId: threadId }),
+      seenAnswers: {},
+      markSeen: (id) => set((s) => ({ seenAnswers: { ...s.seenAnswers, [id]: true } })),
       ingest: (evt) =>
         set((s) => ({ exchanges: applyCoworkEvent(s.exchanges, evt, s.activeThreadId) })),
       ingestTool: (evt) => set((s) => ({ exchanges: applyCoworkToolEvent(s.exchanges, evt) })),

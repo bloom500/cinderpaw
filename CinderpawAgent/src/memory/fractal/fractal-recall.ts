@@ -37,6 +37,7 @@ import type { EmbedInvoker } from "./embed.ts";
 import type { Leaf, TreeNode } from "./types.ts";
 import type { EpisodicEvent } from "../../types.ts";
 import { readEnv } from "../../config.ts";
+import type { MemoryUsed } from "../recall.ts";
 
 /** Top-K semantic candidates from the tree before re-rank. */
 const DEFAULT_QUERY_TOPK = 20;
@@ -138,6 +139,8 @@ export interface FractalRecallDeps {
 /** RecallResult mirrors `src/memory/recall.ts` so this is a drop-in. */
 export interface RecallResult {
   context: string;
+  /** What `context` holds, item by item (recall.ts `MemoryUsed`). */
+  used?: MemoryUsed[];
   episodicHits: number;
   semanticFacts: number;
   /** The leaves the block shows, in block order (for the utility ledger). */
@@ -388,6 +391,12 @@ export class FractalRecallEngine {
       "[End memory context]",
     ].join("\n");
 
-    return { context, episodicHits, semanticFacts, leafIds: ranked.map((h) => h.id) };
+    return {
+      context,
+      used: ranked.map((h) => ({ kind: "past" as const, text: snippet(h.text), ...(h.ts > 0 ? { ts: h.ts } : {}) })),
+      episodicHits,
+      semanticFacts,
+      leafIds: ranked.map((h) => h.id),
+    };
   }
 }

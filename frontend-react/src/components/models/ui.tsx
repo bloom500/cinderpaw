@@ -5,13 +5,10 @@ import { extractQuant } from '@/lib/modelUtils';
 import type { HfModelSummary } from '@/lib/tauri';
 
 /**
- * The small pieces the three Models tabs share: the serif display face for
- * titles, the section header, pills and chips, maker marks, buttons, and the
- * few name helpers that turn a GGUF filename into what a person calls a model.
+ * The small pieces the Models tabs share: the section header, pills and
+ * chips, maker marks, buttons, and the few name helpers that turn a GGUF
+ * filename into what a person calls a model.
  */
-
-/** Display face for titles, the same stack What's New uses for its own. */
-export const SERIF = "'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif";
 
 export const BTN_PRIMARY =
   'inline-flex items-center justify-center gap-1.5 h-9 px-4 rounded-xl bg-brand text-primary-foreground text-sm font-medium ' +
@@ -29,7 +26,7 @@ export function SectionHeader({ title, subtitle, children }: { title: string; su
   return (
     <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
       <div className="min-w-0">
-        <h2 className="text-2xl font-semibold text-text-primary" style={{ fontFamily: SERIF }}>{title}</h2>
+        <h2 className="font-display text-2xl text-text-primary">{title}</h2>
         {subtitle && <p className="mt-1 text-sm text-text-secondary">{subtitle}</p>}
       </div>
       {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
@@ -138,7 +135,7 @@ export function MakerTile({ maker, fallback, className }: { maker: Maker | null;
     >
       {maker?.key
         ? <ModelLogo provider={maker.key} className="size-6" />
-        : <span className="text-lg font-semibold" style={{ fontFamily: SERIF }}>{(maker?.label ?? fallback ?? '?').charAt(0).toUpperCase()}</span>}
+        : <span className="font-display text-lg">{(maker?.label ?? fallback ?? '?').charAt(0).toUpperCase()}</span>}
     </span>
   );
 }

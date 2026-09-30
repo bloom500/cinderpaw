@@ -15,8 +15,8 @@
  *
  * Same-origin by design: the Tauri CSP is `script-src 'self'`, so this
  * file is served from the application's own origin. No inline script is
- * used anywhere. If the store is missing or corrupt, the fallback is dark,
- * which matches the store's default.
+ * used anywhere. If the store is missing or corrupt, the fallback is the
+ * OS preference, which matches the store's default ('system').
  */
 (function () {
   'use strict';
@@ -37,7 +37,10 @@
    * second — the very flash this file exists to prevent. Read both, new first. */
   var THEME_KEY = 'cinderpaw-ui';
   var LEGACY_THEME_KEY = 'feral-ui';
-  var FALLBACK_THEME = 'dark';
+  /* No preference stored, or one we cannot read: follow the OS, like the
+   * store's own default. A fixed 'dark' here painted a light-mode stranger's
+   * first frame dark. */
+  var FALLBACK_PREF = 'system';
   /* Must stay >= the `transition: opacity` duration in index.html. */
   var FADE_MS = 500;
   /* Minimum time the startup surface stays visible. The app on this machine
@@ -56,19 +59,20 @@
     try {
       var raw = window.localStorage.getItem(THEME_KEY)
         || window.localStorage.getItem(LEGACY_THEME_KEY);
-      if (!raw) return FALLBACK_THEME;
+      if (!raw) return FALLBACK_PREF;
       var parsed = JSON.parse(raw);
       var pref = parsed && parsed.state && parsed.state.theme;
       if (pref === 'light' || pref === 'dark' || pref === 'system') return pref;
-      return FALLBACK_THEME;
+      return FALLBACK_PREF;
     } catch (_err) {
-      return FALLBACK_THEME;
+      return FALLBACK_PREF;
     }
   }
 
   function resolveTheme(pref) {
     if (pref !== 'system') return pref;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    var mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+    return mq && mq.matches ? 'dark' : 'light';
   }
 
   var resolved = resolveTheme(readThemePref());

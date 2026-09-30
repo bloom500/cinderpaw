@@ -60,11 +60,14 @@ export function HomeGreeting() {
     // perches 104px tall on the field's edge, and with mb-8 it stood through
     // "What can" on the first screen a new install shows (23 Sep). mb-28
     // clears it with a few px to spare and lifts the question, which sat low.
-    <div className="mb-28 flex flex-col items-center text-center select-none">
-      <p className="text-base text-text-muted">{hello}</p>
-      <h1 className="mt-1 text-3xl leading-[1.2] font-semibold tracking-[-0.02em] text-text-primary">
-        {line}
+    // Spec 5 (27 Sep): the greeting is the big line, in Young Serif, with the
+    // person's name when onboarding has one ("Good evening, Darius"; no name,
+    // no comma), and the day's question sits under it, quiet.
+    <div className="mb-28 flex flex-col items-center px-6 text-center select-none">
+      <h1 className="font-display text-3xl font-normal text-text-primary sm:text-display">
+        {hello}
       </h1>
+      <p className="mt-3 text-lg text-text-muted">{line}</p>
     </div>
   );
 }

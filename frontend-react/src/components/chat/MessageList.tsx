@@ -5,9 +5,12 @@ import {
 } from '@shadcn/react/message-scroller';
 import { useChat } from '@/stores/chat';
 import { cn } from '@/lib/utils';
-import { MessageItem } from './MessageItem';
+import { MessageItem, ReplyHead } from './MessageItem';
 import { useResendTurn } from '@/hooks/useResendTurn';
 import { StreamingIndicator } from './StreamingIndicator';
+import { ApprovalCard } from './ApprovalCard';
+import { useCoworkTranscript } from '@/stores/coworkTranscript';
+import { SYSTEM_FONT, useUI } from '@/stores/ui';
 
 /**
  * The transcript, on shadcn's MessageScroller.
@@ -19,7 +22,10 @@ import { StreamingIndicator } from './StreamingIndicator';
  * are at the bottom, and a wheel, key or touch that moves away stops the follow.
  * Opening a saved chat lands on its latest turn.
  */
-export function MessageList() {
+export function MessageList({ onFollowUp }: {
+  /** A follow-up chip was picked: fill the composer with its words. */
+  onFollowUp?: (text: string) => void;
+} = {}) {
   const messages = useChat((s) => s.messages);
   // Rows that arrive together (a chat opened, history loaded) are already
   // there; only the one or two a turn adds should arrive. Animating fifty rows
@@ -36,10 +42,26 @@ export function MessageList() {
   const status = useChat((s) => s.streamStatus);
   const agentPhase = useChat((s) => s.agentPhase);
   const agentTool = useChat((s) => s.agentTool);
+  // Settings > Appearance > Chat font. Code keeps its own monospace face.
+  const chatFont = useUI((s) => s.chatFont);
 
+  // Approval requests belong to the chat they were raised in, as cards in its
+  // transcript (spec 7.5). Other chats' requests reach the person through the
+  // app-wide CoworkApprovalDock, which leaves this chat's to this list.
+  const exchanges = useCoworkTranscript((s) => s.exchanges);
+  const activeThreadId = useCoworkTranscript((s) => s.activeThreadId);
+  const approvals = exchanges.filter((e) => e.kind === 'approval' && !!activeThreadId && e.threadId === activeThreadId);
   const last = messages[messages.length - 1];
   const hasActiveThinking = Boolean(last?.thinking && !last.thinkingComplete);
   const waitingForFirstToken = status === 'streaming' && last?.content === '' && !hasActiveThinking;
+  // The logo head goes after the latest reply only: moving while it is being
+  // written, still once there is a finished reply to sit under. Before the
+  // first token it is the status line's icon instead, so it is drawn once.
+  const head: 'writing' | 'still' | undefined =
+    last?.role !== 'assistant' || waitingForFirstToken ? undefined
+    : status === 'streaming' ? 'writing'
+    : last.content.trim() ? 'still'
+    : undefined;
 
   return (
     <MessageScroller.Provider autoScroll defaultScrollPosition="last-anchor">
@@ -54,9 +76,13 @@ export function MessageList() {
           {/* Clears the dock's measured height, not a flat 12rem: the dock grows
               with the workers card, the error notice and a multi-line draft,
               and a flat pad let the last reply slide under it. */}
+          {/* 748 = the spec's 700 px reading column plus the 24 px gutters. */}
           <MessageScroller.Content
-            className="max-w-3xl mx-auto px-6 py-6 flex flex-col gap-6"
-            style={{ paddingBottom: 'calc(var(--chat-dock-h, 10rem) + 2rem)' }}
+            className="max-w-[748px] mx-auto px-6 py-6 flex flex-col gap-7"
+            style={{
+              paddingBottom: 'calc(var(--chat-dock-h, 10rem) + 2rem)',
+              ...(chatFont === 'system' ? { fontFamily: SYSTEM_FONT } : {}),
+            }}
           >
             {messages.map((m, i) => (
               // A message arrives, it does not blink into existence. Keyed on
@@ -77,6 +103,8 @@ export function MessageList() {
                 <MessageItem
                   message={m}
                   streaming={status === 'streaming' && i === messages.length - 1 && m.role === 'assistant'}
+                  head={i === messages.length - 1 ? head : undefined}
+                  onFollowUp={i === messages.length - 1 && m.role === 'assistant' ? onFollowUp : undefined}
                   // Retry under a reply resends the question above it; Send under
                   // an edited question resends that one. Both drop everything
                   // below, which is why they are off while a reply is arriving.
@@ -93,7 +121,10 @@ export function MessageList() {
                 />
               </MessageScroller.Item>
             ))}
-            {waitingForFirstToken && <StreamingIndicator phase={agentPhase ?? 'thinking'} tool={agentTool} />}
+            {approvals.map((e) => <ApprovalCard key={e.id} e={e} />)}
+            {waitingForFirstToken && (
+              <StreamingIndicator phase={agentPhase ?? 'thinking'} tool={agentTool} icon={<ReplyHead writing />} />
+            )}
           </MessageScroller.Content>
         </MessageScroller.Viewport>
         <JumpToBottom count={messages.length} />

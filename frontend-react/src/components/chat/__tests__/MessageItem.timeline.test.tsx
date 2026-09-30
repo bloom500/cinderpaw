@@ -21,7 +21,7 @@ describe('an agent reply with tools', () => {
     render(<MemoryRouter><MessageItem message={message} /></MemoryRouter>);
 
     const first = screen.getByText(said);
-    const tool = screen.getByText('web search');
+    const tool = screen.getByText(/^Worked for/);
     const last = screen.getByText('Iată ce e real acum.');
     // DOCUMENT_POSITION_FOLLOWING: the second node comes after the first.
     expect(first.compareDocumentPosition(tool) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

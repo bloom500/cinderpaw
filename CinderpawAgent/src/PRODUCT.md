@@ -227,6 +227,13 @@ what the commands actually did, then every file changed with a command to undo
 it, and the agent's own words LAST. It is assembled from what the runtime
 already recorded, so it costs no model call and cannot make things up.
 
+## Widgets in the chat
+
+`show_widget` draws data as a themed widget: `facts`, `checklist`, `cards`,
+`breakdown`, `progress`, `table`, `verdict`; `followups` ends a finished task
+with up to four next-request chips. Never HTML; misfit data is a plain list. Card pictures (named, or a linked page's preview image)
+are fetched once through the egress door and kept in `~/.cinderpaw/cache/images`.
+
 ## Keeping its place on a long task
 
 Long runs fail by forgetting, not by being wrong. Four mechanisms, each covering
@@ -241,7 +248,8 @@ what the others lose:
 - **The task list.** `todo_write` stores tasks in the database, not the
   transcript. Both the open items AND recently finished ones are shown every
   turn — the finished half is what stops work being redone after the
-  conversation that recorded it has been compacted away.
+  conversation that recorded it has been compacted away. The app draws it as a
+  checklist.
 - **Compaction.** When the conversation outgrows its budget, older turns are
   summarized into one note carrying an exact `### Established facts` section.
   Summaries are carried forward verbatim, never re-summarized. `/compact`
