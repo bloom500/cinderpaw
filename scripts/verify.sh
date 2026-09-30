@@ -21,6 +21,13 @@ run "React tests" bash -c "cd \"$ROOT/frontend-react\" && bunx vitest run --maxW
 run "React typecheck" bash -c "cd \"$ROOT/frontend-react\" && bunx tsc --noEmit"
 run "Web app tests + typecheck" bash -c "cd \"$ROOT/web-app\" && bun install --frozen-lockfile && bun test && bun run typecheck"
 run "Sidecar build" bash -c "cd \"$ROOT/src-tauri\" && node scripts/build-sidecar.mjs"
+run "Game export script tests" bash -c "cd \"$ROOT\" && node --test src-tauri/scripts/build-game.test.mjs"
+GODOT="${CINDERPAW_GODOT:-$(command -v godot || true)}"
+if [ -n "$GODOT" ]; then
+  run "Campfire game tests" bash -c "\"$GODOT\" --headless --path \"$ROOT/games/ember\" --import >/dev/null && \"$GODOT\" --headless --path \"$ROOT/games/ember\" -s res://tests/run_tests.gd"
+else
+  echo "== Campfire game tests: skipped, Godot is not installed (python scripts/fetch-godot.py, then set CINDERPAW_GODOT)"
+fi
 run "Rust check" bash -c "cd \"$ROOT\" && cargo check"
 run "Rust tests (host)" bash -c "cd \"$ROOT\" && cargo test -p cinderpaw"
 run "Rust tests (core)" bash -c "cd \"$ROOT\" && cargo test -p cinderpaw-core"
