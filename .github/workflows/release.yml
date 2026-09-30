@@ -19,10 +19,36 @@ permissions:
   contents: write
 
 jobs:
+  ember:
+    name: Export the campfire game
+    if: github.event_name == 'push'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch Godot 4.7.2 and its web templates
+        run: python3 scripts/fetch-godot.py >> "$GITHUB_ENV"
+      - name: Game tests
+        run: |
+          "$CINDERPAW_GODOT" --headless --path games/ember --import
+          "$CINDERPAW_GODOT" --headless --path games/ember -s res://tests/run_tests.gd
+      - name: Export
+        env:
+          CINDERPAW_FORCE_GAME_BUILD: "1"
+        run: node src-tauri/scripts/build-game.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ember-web
+          path: frontend-react/public/games/ember
+          if-no-files-found: error
+
   release:
     name: Build, sign & publish (${{ matrix.name }})
     # Only a tag push cuts a release. A manual run is for the CUDA job below.
     if: github.event_name == 'push'
+    needs: ember
     runs-on: ${{ matrix.os }}
     # SignPath Foundation signing (H-3) — FREE for open-source. Job-level so the
     # gated Windows steps can check whether signing is configured. Absent ⇒ every
@@ -109,6 +135,12 @@ jobs:
     steps:
       - name: Checkout Cinderpaw
         uses: actions/checkout@v4
+
+      - name: Download the campfire game
+        uses: actions/download-artifact@v4
+        with:
+          name: ember-web
+          path: frontend-react/public/games/ember
 
       - name: Setup Node
         uses: actions/setup-node@v4

@@ -351,3 +351,54 @@ jobs:
       # The report ran nowhere until now, which is how it sat at a false 0/15.
       - name: Check invariant coverage
         run: bun run scripts/check-invariant-coverage.ts --strict
+
+  ember:
+    name: campfire game (tests, export, Chromium + WebKit on Linux)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch Godot 4.7.2 and its web templates
+        run: python3 scripts/fetch-godot.py >> "$GITHUB_ENV"
+      - name: Game tests
+        run: |
+          "$CINDERPAW_GODOT" --headless --path games/ember --import
+          "$CINDERPAW_GODOT" --headless --path games/ember -s res://tests/run_tests.gd
+      - name: Export
+        env:
+          CINDERPAW_FORCE_GAME_BUILD: "1"
+        run: node src-tauri/scripts/build-game.mjs
+      - name: Smoke in Chromium and WebKit
+        working-directory: games/ember/tests/smoke
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium webkit
+          node smoke.mjs ../../../../frontend-react/public/games/ember chromium
+          xvfb-run -a node smoke.mjs ../../../../frontend-react/public/games/ember webkit
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ember-web
+          path: frontend-react/public/games/ember
+          if-no-files-found: error
+
+  ember-macos:
+    name: campfire game (WebKit on macOS)
+    needs: ember
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: ember-web
+          path: frontend-react/public/games/ember
+      - name: Smoke in WebKit
+        working-directory: games/ember/tests/smoke
+        run: |
+          npm ci
+          npx playwright install webkit
+          node smoke.mjs ../../../../frontend-react/public/games/ember webkit
