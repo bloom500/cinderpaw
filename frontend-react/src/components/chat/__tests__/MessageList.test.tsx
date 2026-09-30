@@ -10,10 +10,22 @@ import { MessageToolWidgets } from '../MessageToolWidgets';
 import { startActivity, finishActivity } from '@/hooks/useLiveToolActivity';
 
 vi.mock('@tauri-apps/plugin-shell', () => ({ open: vi.fn().mockResolvedValue(undefined) }));
+const { resend, handed } = vi.hoisted(() => ({
+  resend: vi.fn(),
+  handed: [] as { id: string; onRetry?: () => void; onEdit?: (text: string) => void }[],
+}));
+vi.mock('@/hooks/useResendTurn', () => ({ useResendTurn: () => resend }));
 vi.mock('../MessageItem', () => ({
-  MessageItem: ({ message, head }: { message: { id: string; content: string }; head?: string }) => (
-    <p data-id={message.id} data-head={head ?? 'none'}>{message.content}</p>
-  ),
+  MessageItem: ({ message, head, onRetry, onEdit }: { message: { id: string; content: string }; head?: string; onRetry?: () => void; onEdit?: (text: string) => void }) => {
+    handed.push({ id: message.id, onRetry, onEdit });
+    return (
+      <div>
+        <p data-id={message.id} data-head={head ?? 'none'}>{message.content}</p>
+        {onRetry && <button type="button" onClick={onRetry}>Retry {message.id}</button>}
+        {onEdit && <button type="button" onClick={() => onEdit('new words')}>Edit {message.id}</button>}
+      </div>
+    );
+  },
   ReplyHead: () => null,
 }));
 vi.mock('../StreamingIndicator', () => ({ StreamingIndicator: () => <span>Thinking…</span> }));
@@ -26,6 +38,34 @@ beforeEach(() => {
   ] });
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
+
+describe('retry and edit under a message', () => {
+  const turn = (id: string, role: 'user' | 'assistant') => ({ id, role, content: id, createdAt: 1 });
+
+  it('resend the right turn, and stay the same functions while nothing about them changes', () => {
+    resend.mockClear();
+    handed.length = 0;
+    useChat.setState({ streamStatus: 'idle', messages: [turn('q1', 'user'), turn('a1', 'assistant'), turn('q2', 'user'), turn('a2', 'assistant')] });
+    const { rerender } = render(<MessageList />);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry a2' }));
+    expect(resend).toHaveBeenLastCalledWith(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit q1' }));
+    expect(resend).toHaveBeenLastCalledWith(0, 'new words');
+
+    // A fresh arrow per render re-rendered every message whenever the list
+    // did (opening a side panel): the same row must get the same function.
+    const first = handed.filter((h) => h.id === 'a2').at(-1)!.onRetry;
+    rerender(<MessageList onFollowUp={() => {}} />);
+    expect(handed.filter((h) => h.id === 'a2').at(-1)!.onRetry).toBe(first);
+
+    // Rows looked up when pressed: a turn added below leaves a1's index alone.
+    act(() => useChat.setState((s) => ({ messages: [...s.messages, turn('q3', 'user'), turn('a3', 'assistant')] })));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry a1' }));
+    expect(resend).toHaveBeenLastCalledWith(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry a3' }));
+    expect(resend).toHaveBeenLastCalledWith(4);
+  });
+});
 
 describe('chat tool widgets', () => {
   it('draws the call widget open while the reply streams, folds it after, and reopens on click', () => {

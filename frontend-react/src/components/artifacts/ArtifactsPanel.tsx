@@ -1,5 +1,5 @@
 import { panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Archive, ArchiveRestore, ArrowLeft, BookOpen, Check, Download, ExternalLink as OpenIcon, FileBox, FileUp, Loader2, MessageSquare, Pencil, Trash2, X, type LucideIcon } from 'lucide-react';
 import {
@@ -31,8 +31,7 @@ function Loading() {
 import { useArtifacts, googlePlan, type ArtifactRow } from '@/stores/artifacts';
 import { ContextTab } from './ContextTab';
 import { artifactKind, artifactSize } from '@/components/chat/ArtifactCard';
-import { chatContext } from '@/lib/chatContext';
-import { useChat } from '@/stores/chat';
+import { useChatContext } from '@/hooks/useChatContext';
 import { ExternalLink } from '@/components/chat/ExternalLink';
 import { cn, readLocal, writeLocal } from '@/lib/utils';
 import { tauri } from '@/lib/tauri';
@@ -364,8 +363,7 @@ function List({
   lastExport: { path: string; note: string } | null;
 }) {
   const showingArchived = useArtifacts((s) => s.showingArchived);
-  const messages = useChat((s) => s.messages);
-  const chatArtifactIds = useMemo(() => chatContext(messages).artifactIds, [messages]);
+  const chatArtifactIds = useChatContext().artifactIds;
 
   // Three states, not two. Before the first read comes back, "nothing here yet"
   // is a sentence about a fresh install being shown to someone with a dozen —

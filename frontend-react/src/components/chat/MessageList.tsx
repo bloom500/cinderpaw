@@ -40,6 +40,26 @@ export function MessageList({ onFollowUp }: {
   // One resend for the whole transcript: the hooks it needs are called here,
   // once, not inside every row.
   const resend = useResendTurn();
+  // Retry and Edit, one pair per message for as long as it is shown. Fresh
+  // arrows on every render defeated MessageItem's memo, so anything that
+  // re-rendered this list (opening a side panel, a cowork event) re-rendered
+  // every message with its menus and tooltips. They look the row up when
+  // pressed, so a stable pair still resends the right turn.
+  const latest = useRef({ messages, resend });
+  latest.current = { messages, resend };
+  const actions = useRef(new Map<string, { retry: () => void; edit: (text: string) => void }>());
+  const actionsFor = (id: string) => {
+    let pair = actions.current.get(id);
+    if (!pair) {
+      const at = () => latest.current.messages.findIndex((m) => m.id === id);
+      pair = {
+        retry: () => { const i = at(); if (i > 0) void latest.current.resend(i - 1); },
+        edit: (text) => { const i = at(); if (i >= 0) void latest.current.resend(i, text); },
+      };
+      actions.current.set(id, pair);
+    }
+    return pair;
+  };
   const status = useChat((s) => s.streamStatus);
   const agentPhase = useChat((s) => s.agentPhase);
   const agentTool = useChat((s) => s.agentTool);
@@ -113,12 +133,12 @@ export function MessageList({ onFollowUp }: {
                   onRetry={
                     status === 'streaming' || m.role !== 'assistant' || i === 0
                       ? undefined
-                      : () => void resend(i - 1)
+                      : actionsFor(m.id).retry
                   }
                   onEdit={
                     status === 'streaming' || m.role !== 'user'
                       ? undefined
-                      : (text) => void resend(i, text)
+                      : actionsFor(m.id).edit
                   }
                 />
               </MessageScroller.Item>

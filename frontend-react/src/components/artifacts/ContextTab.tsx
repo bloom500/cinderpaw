@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Brain, File, FileCode2, FileImage, FileText, Folder, Globe, Hourglass, MoreHorizontal, Paperclip, Plus, Search, Wrench, type LucideIcon } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-shell';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -6,12 +6,12 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { ApprovalCard } from '@/components/chat/ApprovalCard';
 import { SiteIcon } from '@/components/chat/LinkChip';
 import { CHAT_TOOLS, SwitchRow } from '@/components/chat/ToolsMenu';
-import { chatContext } from '@/lib/chatContext';
+import { useChatContext } from '@/hooks/useChatContext';
 import type { DisplayAttachment } from '@/lib/attachmentDisplay';
 import { siteName } from '@/lib/sources';
 import { tauri, type Project } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
-import { useChat, type MemoryUsedItem } from '@/stores/chat';
+import type { MemoryUsedItem } from '@/stores/chat';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
 import { useConversations } from '@/stores/conversations';
 import { useProjects } from '@/stores/projects';
@@ -230,8 +230,7 @@ export function ContextTab({ onCompose, onAttach }: {
   /** Open the composer's file picker (Files "Add"). */
   onAttach?: () => void;
 }) {
-  const messages = useChat((s) => s.messages);
-  const ctx = useMemo(() => chatContext(messages), [messages]);
+  const ctx = useChatContext();
   const exchanges = useCoworkTranscript((s) => s.exchanges);
   const threadId = useCoworkTranscript((s) => s.activeThreadId);
   const approvals = exchanges.filter((e) => e.kind === 'approval' && e.status === 'running' && !!threadId && e.threadId === threadId);
