@@ -206,10 +206,11 @@ export function HfDetailPanel({ repoId, detail, loading }: Props) {
   };
 
   return (
-    <div className="space-y-3 pt-4">
+    <div className="space-y-4">
       {/* File list — each row has its own download/load action */}
-      <div className="space-y-1">
-        <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">Variants</p>
+      <div>
+        <p className="mb-2 text-micro font-medium uppercase tracking-wider text-text-muted">Variants</p>
+        <div className="divide-y divide-border-subtle overflow-hidden rounded-xl border border-border-subtle bg-bg-surface">
         {detail.gguf_files.map((f) => {
           const isRecommended    = recommended?.rfilename === f.rfilename;
           const size             = fileSizes[f.rfilename];
@@ -223,37 +224,38 @@ export function HfDetailPanel({ repoId, detail, loading }: Props) {
           return (
             <div
               key={f.rfilename}
-              className="flex items-center gap-3 px-3 py-2.5 rounded bg-bg-elevated border border-transparent hover:border-border-subtle transition-colors"
+              className={`flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-bg-hover ${isRecommended ? 'bg-brand/5' : ''}`}
             >
-              {/* Filename + recommended star */}
-              <span className="flex-1 text-text-primary text-xs truncate min-w-0">
-                {f.rfilename}
+              {/* Quant + quality: what the file is, before what it is called */}
+              <span className="w-20 shrink-0 rounded-md border border-border-subtle bg-bg-elevated px-1.5 py-0.5 text-center font-mono text-2xs text-text-primary">
+                {extractQuant(f.rfilename)}
               </span>
-              {isRecommended && (
-                <span className="flex items-center gap-1 text-micro text-brand shrink-0">
-                  <Star size={12} fill="currentColor" /> Best
-                </span>
-              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs text-text-primary" title={f.rfilename}>{f.rfilename}</p>
+                <p className="flex items-center gap-2 text-2xs text-text-muted">
+                  <span className={badgeClass[variant]}>{label} quality</span>
+                  {isRecommended && (
+                    <span className="inline-flex items-center gap-1 text-brand">
+                      <Star size={12} fill="currentColor" /> Best for this machine
+                    </span>
+                  )}
+                </p>
+              </div>
 
               {/* Size */}
-              <span className="text-text-muted text-xs shrink-0 w-16 text-right">
+              <span className="w-16 shrink-0 text-right text-xs tabular-nums text-text-muted">
                 {size ? sizeGb(size) : '…'}
               </span>
 
               {/* Compat icon + popover */}
-              <CompatPopover filename={f.rfilename} modelTags={detail.tags} compat={compat} />
-
-              {/* Quality badge */}
-              <span className={`text-micro px-1.5 py-0.5 rounded shrink-0 w-16 text-center ${badgeClass[variant]}`}>
-                {label}
-              </span>
+              <span className="w-5 shrink-0"><CompatPopover filename={f.rfilename} modelTags={detail.tags} compat={compat} /></span>
 
               {/* Per-row action button */}
-              <div className="shrink-0 w-24 flex justify-end">
+              <div className="flex w-28 shrink-0 justify-end">
                 {isThisDownloading ? (
                   /* Inline progress + cancel */
-                  <div className="flex items-center gap-1.5 w-full">
-                    <div className="flex-1 h-1 rounded-full bg-bg-hover overflow-hidden">
+                  <div className="flex w-full items-center gap-1.5">
+                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-bg-hover">
                       <div
                         className="h-full bg-brand transition-all duration-300"
                         style={{ width: `${progress}%` }}
@@ -262,6 +264,7 @@ export function HfDetailPanel({ repoId, detail, loading }: Props) {
                     <button
                       type="button"
                       onClick={() => void useDownload.getState().cancel()}
+                      aria-label="Cancel download"
                       className="text-micro text-text-muted hover:text-error transition-colors"
                     >
                       ✕
@@ -273,7 +276,7 @@ export function HfDetailPanel({ repoId, detail, loading }: Props) {
                     type="button"
                     onClick={() => void handleLoad(localPath)}
                     disabled={isLoading}
-                    className="flex items-center gap-1 text-xs text-success hover:opacity-80 disabled:opacity-40 transition-colors"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-success/30 bg-success/10 px-3 text-xs font-medium text-success hover:bg-success/15 disabled:opacity-40"
                   >
                     <Play size={12} />
                     {isLoading && loadProgress ? `${loadProgress.percentage.toFixed(0)}%` : 'Load'}
@@ -284,7 +287,11 @@ export function HfDetailPanel({ repoId, detail, loading }: Props) {
                     type="button"
                     onClick={() => void handleDownload(f.rfilename)}
                     disabled={isAnyDownloading}
-                    className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
+                      isRecommended
+                        ? 'bg-brand text-primary-foreground hover:bg-brand-hover'
+                        : 'border border-border-default text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+                    }`}
                   >
                     <Download size={12} />
                     <span>Download</span>
@@ -294,17 +301,18 @@ export function HfDetailPanel({ repoId, detail, loading }: Props) {
             </div>
           );
         })}
+        </div>
       </div>
 
       {/* README */}
       {detail.readme && (
         <Collapsible>
-          <CollapsibleTrigger className="flex items-center gap-2 text-sm text-text-muted hover:text-text-secondary w-full text-left">
+          <CollapsibleTrigger className="group flex w-full items-center gap-2 text-left text-sm font-medium text-text-secondary hover:text-text-primary">
             <span>README</span>
-            <span className="text-xs">▸</span>
+            <span className="text-xs transition-transform group-data-[state=open]:rotate-90">▸</span>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <div className="mt-3 text-sm border-t border-border-subtle pt-3">
+            <div className="mt-3 max-h-96 overflow-y-auto rounded-xl border border-border-subtle bg-bg-surface p-4 text-sm thin-scrollbar">
               <Markdown>{stripFrontmatter(detail.readme)}</Markdown>
             </div>
           </CollapsibleContent>

@@ -1,12 +1,15 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Ellipsis, MessageSquare, Play, Square, Star, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useModel } from '@/stores/model';
 import { useSystemInfo } from '@/stores/systemInfo';
-import { cleanModelName, quantToQuality, quantToBadge, sizeGb, type QuantVariant } from '@/lib/modelUtils';
+import { quantToQuality, sizeGb } from '@/lib/modelUtils';
 import { scoreFit, type FitLevel, type RunMode } from '@/lib/fitScore';
-import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import type { ModelInfo } from '@/lib/tauri';
+import { BTN_OUTLINE, BTN_PRIMARY, CARD, Chip, MakerTile, Meter, Pill, SERIF, Status, makerFor, paramsOf, prettyModelName } from './ui';
 
 // ── Spinner ──────────────────────────────────────────────────────────────────
 
@@ -22,38 +25,18 @@ function DeleteSpinner() {
 
 // ── Fit level styles ──────────────────────────────────────────────────────────
 
-const FIT_STYLES: Record<FitLevel, { pill: string; bar: string; label: string }> = {
-  perfect:  { pill: 'text-success bg-success/10', bar: 'bg-success', label: 'Perfect'   },
-  good:     { pill: 'text-brand bg-brand/10',             bar: 'bg-brand',       label: 'Good'      },
-  marginal: { pill: 'text-warning bg-warning/10',     bar: 'bg-warning',     label: 'Marginal'  },
-  too_big:  { pill: 'text-error bg-error/10',             bar: 'bg-error',       label: 'Too large' },
+const FIT: Record<FitLevel, { tone: 'success' | 'brand' | 'warning' | 'error'; label: string }> = {
+  perfect:  { tone: 'success', label: 'Perfect fit' },
+  good:     { tone: 'brand',   label: 'Good fit' },
+  marginal: { tone: 'warning', label: 'Tight fit' },
+  too_big:  { tone: 'error',   label: 'Too large' },
 };
 
 const RUN_MODE_LABEL: Record<RunMode, string> = {
   gpu:         'GPU',
-  cpu_offload: 'Offload',
+  cpu_offload: 'GPU + CPU',
   cpu:         'CPU',
 };
-
-// ── Quant badge colours ───────────────────────────────────────────────────────
-
-const badgeClass: Record<QuantVariant, string> = {
-  full:     'text-text-secondary bg-bg-elevated',
-  high:     'text-success',
-  balanced: 'text-brand',
-  small:    'text-text-muted',
-  tiny:     'text-text-muted',
-};
-
-// ── Mini bar used inside the tooltip breakdown ────────────────────────────────
-
-function MiniBar({ value, color }: { value: number; color: string }) {
-  return (
-    <div className="flex-1 h-1 rounded-full bg-bg-elevated overflow-hidden">
-      <div className={cn('h-full rounded-full', color)} style={{ width: `${value}%` }} />
-    </div>
-  );
-}
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -65,6 +48,7 @@ interface Props {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function LocalModelCard({ model, onDelete }: Props) {
+  const navigate     = useNavigate();
   const loaded       = useModel((s) => s.loaded);
   const isLoading    = useModel((s) => s.isLoading);
   const loadProgress = useModel((s) => s.loadProgress);
@@ -72,6 +56,7 @@ export function LocalModelCard({ model, onDelete }: Props) {
   const unload       = useModel((s) => s.unload);
   const sysInfo      = useSystemInfo((s) => s.info);
 
+  const [open,         setOpen]         = useState(false);
   const [isDeleting,   setIsDeleting]   = useState(false);
   const [confirmOpen,  setConfirmOpen]  = useState(false);
   const [loadError,    setLoadError]    = useState<string | null>(null);
@@ -81,7 +66,9 @@ export function LocalModelCard({ model, onDelete }: Props) {
   const isActive      = loaded?.path === path;
   const isLoadingThis = isLoading && loadProgress !== null && !isActive;
 
-  const displayName = cleanModelName(model.name);
+  const displayName = prettyModelName(model.name);
+  const maker       = makerFor(model.name);
+  const params      = paramsOf(model.name);
   // The host's verdict (the same rule behind refuse_if_embedding): an
   // embedding model turns text into vectors for memory and search, and cannot
   // hold a conversation. It used to sit in this list with a quality label, a
@@ -89,15 +76,17 @@ export function LocalModelCard({ model, onDelete }: Props) {
   // small (20 Sep).
   const isEmbedding = model.is_embedding;
   const sizeStr     = sizeGb(model.size_bytes);
-  const quality     = quantToQuality(model.quant ?? '');
-  const { label: badgeLabel, variant } = quantToBadge(model.quant ?? '');
+  const quant       = model.quant ?? '';
+  const quality     = quantToQuality(quant);
 
-  // Compute fit score when system info is available
-  const fit = sysInfo
-    ? scoreFit(model.size_bytes, model.quant, model.ctx_len, sysInfo)
+  const fit = sysInfo ? scoreFit(model.size_bytes, model.quant, model.ctx_len, sysInfo) : null;
+  const fitStyle = fit ? FIT[fit.level] : null;
+  const memTotal = sysInfo && sysInfo.vram_total_mb > 0 ? 'VRAM' : 'RAM';
+  const where = fit && sysInfo
+    ? fit.runMode === 'cpu'
+      ? `on CPU (${sysInfo.cores} threads)`
+      : `on ${sysInfo.gpu_name.replace(/^(AMD|NVIDIA)\s+/i, '')}`
     : null;
-
-  const fitStyle = fit ? FIT_STYLES[fit.level] : null;
 
   const handleLoad = async () => {
     setLoadError(null);
@@ -113,170 +102,188 @@ export function LocalModelCard({ model, onDelete }: Props) {
   };
 
   return (
-    <div className={cn(
-      'rounded-lg border border-border-default bg-bg-surface p-4 flex flex-col gap-3',
-      isActive && 'border-brand',
-    )}>
-      {/* ── Header: name + fit pill ── */}
-      <div className="flex items-start justify-between gap-2">
-        <span className="text-sm font-medium text-text-primary truncate">{displayName}</span>
+    <article
+      className={cn(
+        CARD,
+        'relative overflow-hidden transition-shadow',
+        open && 'shadow-md',
+        isActive && 'border-brand/40',
+      )}
+    >
+      {/* The running model wears a thin brand edge, so it is found at a glance. */}
+      {isActive && <span aria-hidden className="absolute inset-y-0 left-0 w-1 bg-brand" />}
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          {fit && fitStyle && (
-            <span className={cn(
-              'text-micro font-semibold px-1.5 py-0.5 rounded-full',
-              fitStyle.pill,
-            )}>
-              {fitStyle.label}
-            </span>
-          )}
-          {isActive && (
-            <span className="text-xs font-medium text-brand">● Active</span>
+      <div className="flex flex-wrap items-center gap-4 p-4 sm:flex-nowrap">
+        <MakerTile maker={maker} fallback={displayName} />
+
+        {/* ── Name, maker, tags, memory ── */}
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <h3 className="truncate text-lg font-semibold text-text-primary" style={{ fontFamily: SERIF }} title={model.name}>
+              {displayName}
+            </h3>
+            {isActive && <Pill tone="brand"><Star size={12} className="fill-current" /> Active</Pill>}
+          </div>
+          <p className="mt-0.5 truncate text-xs text-text-muted">
+            {maker?.label ?? 'Local file'}
+            {' · '}
+            {isEmbedding ? 'Embedding model: used for memory and search, not for chat' : quality}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {params && <Chip>{params}</Chip>}
+            {quant && <Chip>{quant}</Chip>}
+            <Chip>{sizeStr}</Chip>
+          </div>
+          {fit && !isEmbedding && (
+            <div className="mt-3 max-w-md">
+              <div className="mb-1 flex items-center justify-between gap-3 text-2xs text-text-muted">
+                <span>Estimated memory use</span>
+                <span className="tabular-nums">{fit.memUsedGb} GB / {fit.memAvailGb} GB {memTotal}</span>
+              </div>
+              <Meter
+                value={fit.memAvailGb > 0 ? fit.memUsedGb / fit.memAvailGb : 1}
+                tone={fitStyle?.tone ?? 'brand'}
+                label="Estimated memory use"
+              />
+            </div>
           )}
         </div>
-      </div>
 
-      {/* ── Meta: size · quality · quant badge ── */}
-      <div className="flex items-center gap-2 text-xs text-text-muted">
-        <span>{sizeStr}</span>
-        <span>·</span>
-        <span>{isEmbedding ? 'Embedding model: used for memory and search, not for chat' : quality}</span>
-        <span className={cn('ml-auto text-micro px-1.5 py-0.5 rounded', badgeClass[variant])}>
-          {badgeLabel}
-        </span>
-      </div>
+        {/* ── Status and speed ── */}
+        <div className="hidden w-40 shrink-0 space-y-1 lg:block">
+          {isActive ? <Status tone="success">Running</Status> : <Status tone="neutral">Installed</Status>}
+          {fit && !isEmbedding && fit.estimatedTokPerSec !== null && (
+            <>
+              <p className="text-sm font-medium text-text-primary tabular-nums">~{fit.estimatedTokPerSec} tokens/sec</p>
+              {where && <p className="truncate text-2xs text-text-muted">{where}</p>}
+            </>
+          )}
+        </div>
 
-      {/* ── Fit score row ── */}
-      {fit && fitStyle && !isEmbedding && (
-        <TooltipProvider delayDuration={200}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-2 cursor-default select-none" aria-label="Fit score">
-                {/* Score bar */}
-                <div className="flex-1 h-1.5 rounded-full bg-bg-elevated overflow-hidden">
-                  <div
-                    className={cn('h-full rounded-full transition-all duration-500', fitStyle.bar)}
-                    style={{ width: `${fit.score}%` }}
-                  />
-                </div>
-
-                {/* Score number */}
-                <span className="text-2xs font-mono text-text-muted w-6 text-right tabular-nums">
-                  {fit.score}
-                </span>
-
-                {/* Run mode + tok/s */}
-                <span className="text-micro text-text-muted shrink-0">
-                  {RUN_MODE_LABEL[fit.runMode]}
-                  {fit.estimatedTokPerSec !== null && (
-                    <> · ~{fit.estimatedTokPerSec} t/s</>
-                  )}
-                </span>
+        {/* ── Actions ── */}
+        <div className="flex w-full shrink-0 flex-col gap-2 sm:w-28">
+          {isLoadingThis && loadProgress ? (
+            <div className="space-y-1">
+              <div className="flex justify-between text-2xs text-text-muted">
+                <span className="truncate">{loadProgress.statusText}</span>
+                <span className="tabular-nums">{loadProgress.percentage.toFixed(0)}%</span>
               </div>
-            </TooltipTrigger>
-
-            <TooltipContent
-              side="bottom"
-              className="p-3 min-w-[200px] bg-bg-surface border border-border-default text-text-primary"
+              <div className="h-1.5 overflow-hidden rounded-full bg-bg-elevated" role="progressbar" aria-valuenow={Math.round(loadProgress.percentage)}>
+                <div className="h-full bg-brand transition-all duration-300" style={{ width: `${loadProgress.percentage}%` }} />
+              </div>
+            </div>
+          ) : isActive ? (
+            <button type="button" onClick={handleUnload} className={cn(BTN_OUTLINE, 'w-full')}>
+              <Square size={12} className="fill-error text-error" /> Stop
+            </button>
+          ) : !isEmbedding ? (
+            <button
+              type="button"
+              onClick={() => { void handleLoad(); }}
+              disabled={isDeleting || isLoading}
+              className={cn(BTN_PRIMARY, 'w-full')}
             >
-              <div className="space-y-2.5">
-                {/* Component breakdown */}
-                {(
-                  [
-                    { key: 'fit',     label: 'Memory fit', value: fit.components.fit     },
-                    { key: 'quality', label: 'Quality',    value: fit.components.quality  },
-                    { key: 'speed',   label: 'Speed',      value: fit.components.speed    },
-                    { key: 'context', label: 'Context',    value: fit.components.context  },
-                  ] as const
-                ).map(({ key, label, value }) => (
-                  <div key={key} className="flex items-center gap-2">
-                    <span className="text-micro text-text-muted w-16 shrink-0">{label}</span>
-                    <MiniBar value={value} color={fitStyle.bar} />
-                    <span className="text-micro font-mono text-text-secondary w-6 text-right tabular-nums">
-                      {value}
-                    </span>
-                  </div>
-                ))}
+              <Play size={14} className="fill-current" /> Run
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            aria-label={open ? 'Hide details' : 'Show details'}
+            title={open ? 'Hide details' : 'Show details'}
+            className={cn(BTN_OUTLINE, 'w-full', open && 'bg-bg-hover')}
+          >
+            <Ellipsis size={16} />
+          </button>
+        </div>
+      </div>
 
-                {/* Memory detail */}
-                <div className="pt-1 border-t border-border-subtle text-micro text-text-muted space-y-0.5">
+      {loadError && <p className="px-4 pb-3 text-xs text-error wrap-break-word">{loadError}</p>}
+      {deleteError && !confirmOpen && <p className="px-4 pb-3 text-xs text-error wrap-break-word">{deleteError}</p>}
+
+      {/* ── Opened: how well it fits, what the file is, what you can do ── */}
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="border-t border-border-subtle bg-bg-elevated/50">
+              <div className="grid gap-6 p-5 md:grid-cols-[220px_minmax(0,1fr)]">
+                {fit && fitStyle && !isEmbedding ? (
                   <div>
-                    {fit.memUsedGb} GB / {fit.memAvailGb} GB
-                    {' '}({fit.utilizationPct}% utilization)
+                    <div className="flex items-center gap-4">
+                      <ScoreRing score={fit.score} tone={fitStyle.tone} />
+                      <div>
+                        <Pill tone={fitStyle.tone}>{fitStyle.label}</Pill>
+                        <p className="mt-1.5 text-2xs text-text-muted">{fit.utilizationPct}% of your {memTotal}</p>
+                      </div>
+                    </div>
+                    <div className="mt-4 space-y-2">
+                      {([
+                        ['Memory fit', fit.components.fit],
+                        ['Quality', fit.components.quality],
+                        ['Speed', fit.components.speed],
+                        ['Context', fit.components.context],
+                      ] as const).map(([label, value]) => (
+                        <div key={label} className="flex items-center gap-2">
+                          <span className="w-20 shrink-0 text-2xs text-text-muted">{label}</span>
+                          <Meter value={value / 100} tone={fitStyle.tone} label={label} />
+                          <span className="w-7 shrink-0 text-right text-2xs tabular-nums text-text-secondary">{value}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div>
-                    Run mode: <span className="text-text-secondary">{RUN_MODE_LABEL[fit.runMode]}</span>
-                    {fit.estimatedTokPerSec !== null && (
-                      <> · ~{fit.estimatedTokPerSec} tok/s</>
+                ) : (
+                  <p className="text-sm text-text-secondary">
+                    {isEmbedding
+                      ? 'Cinderpaw uses this model to turn what it remembers into vectors, so it can search them. It cannot chat.'
+                      : 'Hardware details are still loading.'}
+                  </p>
+                )}
+
+                <div className="min-w-0">
+                  <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+                    {quant && <Fact label="Quantization" value={quant} hint={quality} />}
+                    <Fact label="Size on disk" value={sizeStr} />
+                    {model.ctx_len ? <Fact label="Context" value={`${model.ctx_len.toLocaleString()} tokens`} /> : null}
+                    {fit && !isEmbedding && <Fact label="Runs on" value={RUN_MODE_LABEL[fit.runMode]} />}
+                    {fit && !isEmbedding && fit.estimatedTokPerSec !== null && <Fact label="Speed" value={`~${fit.estimatedTokPerSec} tok/s`} hint="estimate" />}
+                    {params && <Fact label="Parameters" value={params} />}
+                  </dl>
+                  <div className="mt-4 rounded-xl border border-border-subtle bg-bg-surface px-3 py-2">
+                    <p className="text-micro uppercase tracking-wider text-text-muted">File</p>
+                    <p className="truncate font-mono text-xs text-text-secondary" title={path}>{path}</p>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {isActive && (
+                      <button type="button" onClick={() => navigate('/chat')} className={BTN_PRIMARY}>
+                        <MessageSquare size={14} /> Chat with it
+                      </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => setConfirmOpen(true)}
+                      disabled={isDeleting}
+                      className={cn(BTN_OUTLINE, 'text-error hover:bg-error/10')}
+                    >
+                      {isDeleting
+                        ? <><DeleteSpinner />Deleting…</>
+                        : <><Trash2 size={14} /> Delete</>}
+                    </button>
                   </div>
                 </div>
               </div>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* ── Load progress ── */}
-      {isLoadingThis && loadProgress ? (
-        <div className="space-y-1">
-          <div className="flex justify-between text-xs text-text-muted">
-            <span>{loadProgress.statusText}</span>
-            <span>{loadProgress.percentage.toFixed(0)}%</span>
-          </div>
-          <div className="h-1.5 rounded-full bg-bg-elevated overflow-hidden" role="progressbar">
-            <div
-              className="h-full bg-brand transition-all duration-300"
-              style={{ width: `${loadProgress.percentage}%` }}
-            />
-          </div>
-        </div>
-      ) : (
-        <div className="flex gap-2">
-          {isActive ? (
-            <>
-              <button
-                type="button" onClick={handleUnload} aria-label="Unload"
-                className="flex-1 text-xs py-1.5 rounded border border-border-default text-text-secondary hover:bg-bg-hover transition-colors"
-              >
-                Unload
-              </button>
-              <button
-                type="button" onClick={() => setConfirmOpen(true)} disabled={isDeleting} aria-label="Delete"
-                className="flex-1 text-xs py-1.5 rounded border border-error text-error hover:bg-bg-hover transition-colors disabled:opacity-60"
-              >
-                {isDeleting
-                  ? <span className="flex items-center justify-center gap-1.5"><DeleteSpinner />Deleting…</span>
-                  : 'Delete'}
-              </button>
-            </>
-          ) : (
-            <>
-              {!isEmbedding && (
-                <button
-                  type="button" onClick={() => { void handleLoad(); }} disabled={isDeleting || isLoading} aria-label="Load"
-                  className="flex-1 text-xs py-1.5 rounded bg-bg-elevated text-text-primary hover:bg-bg-hover transition-colors disabled:opacity-60"
-                >
-                  Load
-                </button>
-              )}
-              <button
-                type="button" onClick={() => setConfirmOpen(true)} disabled={isDeleting} aria-label="Delete"
-                className="flex-1 text-xs py-1.5 rounded border border-border-default text-text-muted hover:bg-bg-hover transition-colors disabled:opacity-60"
-              >
-                {isDeleting
-                  ? <span className="flex items-center justify-center gap-1.5"><DeleteSpinner />Deleting…</span>
-                  : 'Delete'}
-              </button>
-            </>
-          )}
-        </div>
-      )}
-
-      {loadError && <p className="text-xs text-error wrap-break-word">{loadError}</p>}
-      {deleteError && !confirmOpen && <p className="text-xs text-error wrap-break-word">{deleteError}</p>}
-
-      <Dialog open={confirmOpen} onOpenChange={(open) => { if (!isDeleting) { setConfirmOpen(open); if (!open) setDeleteError(null); } }}>
+      <Dialog open={confirmOpen} onOpenChange={(o) => { if (!isDeleting) { setConfirmOpen(o); if (!o) setDeleteError(null); } }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Delete this model?</DialogTitle>
@@ -307,6 +314,38 @@ export function LocalModelCard({ model, onDelete }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </article>
+  );
+}
+
+function Fact({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-micro uppercase tracking-wider text-text-muted">{label}</dt>
+      <dd className="truncate font-medium text-text-primary">{value}</dd>
+      {hint && <dd className="truncate text-2xs text-text-muted">{hint}</dd>}
+    </div>
+  );
+}
+
+/** The fit score as a ring, 0..100. */
+function ScoreRing({ score, tone }: { score: number; tone: 'success' | 'brand' | 'warning' | 'error' }) {
+  const r = 22;
+  const c = 2 * Math.PI * r;
+  const stroke = { success: 'var(--success)', brand: 'var(--brand)', warning: 'var(--warning)', error: 'var(--error)' }[tone];
+  return (
+    <div className="relative size-14 shrink-0" role="img" aria-label={`Fit score ${score} of 100`}>
+      <svg viewBox="0 0 56 56" className="size-14 -rotate-90">
+        <circle cx="28" cy="28" r={r} fill="none" strokeWidth="5" className="stroke-bg-hover" />
+        <motion.circle
+          cx="28" cy="28" r={r} fill="none" strokeWidth="5" strokeLinecap="round" stroke={stroke}
+          strokeDasharray={c}
+          initial={{ strokeDashoffset: c }}
+          animate={{ strokeDashoffset: c * (1 - score / 100) }}
+          transition={{ duration: 0.7, ease: [0.2, 0.8, 0.2, 1] }}
+        />
+      </svg>
+      <span className="absolute inset-0 flex items-center justify-center text-sm font-semibold tabular-nums text-text-primary">{score}</span>
     </div>
   );
 }

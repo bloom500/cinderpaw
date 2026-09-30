@@ -1,6 +1,6 @@
 import { useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, ChevronDown, CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
+import { Download, ChevronDown, Heart, Monitor } from 'lucide-react';
 import { HfDetailPanel } from './HfDetailPanel';
 import { StreamingIndicator } from '@/components/chat/StreamingIndicator';
 import { useDownload } from '@/stores/download';
@@ -11,28 +11,38 @@ import {
   type Compat,
 } from '@/lib/modelUtils';
 import type { HfModelSummary, HfModelDetail } from '@/lib/tauri';
+import { BTN_PRIMARY, CARD, Chip, MakerTile, SERIF, makerFor, paramsOf } from './ui';
+import { cn } from '@/lib/utils';
 
-// ── Inline compat badge (no popover — just icon + label) ─────────────────────
+const COMPAT: Record<Compat, { label: string; cls: string }> = {
+  fits: { label: 'Fits your hardware', cls: 'text-success' },
+  slow: { label: 'May be slow here', cls: 'text-warning' },
+  no:   { label: 'Too big for this machine', cls: 'text-error' },
+};
 
-function CompatBadge({ compat }: { compat: Compat }) {
-  if (compat === 'fits') return (
-    <span className="flex items-center gap-1 text-success text-xs font-medium">
-      <CheckCircle size={12} /> Fits
-    </span>
-  );
-  if (compat === 'slow') return (
-    <span className="flex items-center gap-1 text-warning text-xs font-medium">
-      <AlertTriangle size={12} /> May be slow
-    </span>
-  );
-  return (
-    <span className="flex items-center gap-1 text-error text-xs font-medium">
-      <XCircle size={12} /> Won't fit
-    </span>
-  );
+/** Hub tags a person would recognise, in plain words. */
+const TAG_LABELS: Record<string, string> = {
+  'text-generation': 'Text generation',
+  conversational: 'Chat',
+  'feature-extraction': 'Embeddings',
+  'sentence-similarity': 'Embeddings',
+  'image-text-to-text': 'Vision',
+  'image-to-text': 'Vision',
+  'automatic-speech-recognition': 'Speech-to-text',
+  'text-to-speech': 'Text-to-speech',
+  'text-to-image': 'Text-to-image',
+  multilingual: 'Multilingual',
+  code: 'Code',
+};
+
+function tagLabels(tags: string[]): string[] {
+  const out: string[] = [];
+  for (const t of tags) {
+    const l = TAG_LABELS[t.toLowerCase()];
+    if (l && !out.includes(l)) out.push(l);
+  }
+  return out.slice(0, 2);
 }
-
-// ── Card ─────────────────────────────────────────────────────────────────────
 
 interface Props {
   model: HfModelSummary;
@@ -49,7 +59,9 @@ export function HfModelCard({ model, expanded, detail, detailLoading, onExpand, 
 
   const shortName  = model.id.split('/').pop() ?? model.id;
   const author     = model.id.includes('/') ? model.id.split('/')[0] : '';
-  const tags       = model.tags.slice(0, 3).join(' · ');
+  const maker      = makerFor(shortName) ?? makerFor(author);
+  const params     = paramsOf(shortName);
+  const labels     = tagLabels(model.tags);
 
   // Stable quant based on hardware — shown immediately and stays consistent
   const estimatedQuant = globalFittedQuant(sysInfo);
@@ -61,9 +73,6 @@ export function HfModelCard({ model, expanded, detail, detailLoading, onExpand, 
   );
   const recSize   = recommended?.size ?? null;
   const recCompat = recSize ? compatLevel(recSize, sysInfo) : null;
-  // Pill always shows the hardware-appropriate quant (stable, never jumps).
-  // The actual downloaded file is determined by pickFittedFile internally.
-  const displayQuant = estimatedQuant;
 
   const isThisDownloading = dlActive?.repoId === model.id;
   const dlProgress        = isThisDownloading ? (dlActive?.progress ?? 0) * 100 : 0;
@@ -90,106 +99,136 @@ export function HfModelCard({ model, expanded, detail, detailLoading, onExpand, 
     }
   };
 
-  return (
-    <div className="border border-border-default rounded-xl overflow-hidden bg-bg-surface hover:border-border-hover transition-colors">
-
-      {/* ── Header ── */}
-      <div className="flex items-center gap-4 px-5 py-4">
-
-        {/* Left: info */}
-        <div className="flex-1 min-w-0">
-          <span className="text-base font-semibold text-text-primary leading-snug block truncate">
-            {shortName}
-          </span>
-          <div className="flex items-center gap-3 text-xs text-text-muted mt-1 flex-wrap">
-            {author && <span className="text-text-muted/70">{author}</span>}
-            <span>⬇ {fmtNum(model.downloads)}</span>
-            <span>♥ {model.likes}</span>
-            <span>{fmtDate(model.last_modified)}</span>
-            {tags && <span className="text-text-disabled">· {tags}</span>}
-          </div>
-        </div>
-
-        {/* Right: size + compat + download pill + variants toggle */}
-        <div className="flex flex-col items-end gap-2 shrink-0">
-
-          {/* Size + compat badge — visible once detail loads */}
-          {recSize && recCompat && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-text-muted">{sizeGb(recSize)}</span>
-              <CompatBadge compat={recCompat} />
-            </div>
-          )}
-
-          {/* Download pill */}
-          {isThisDownloading ? (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-bg-elevated border border-border-default text-xs text-text-muted min-w-[140px]">
-              <div className="flex-1 h-1 rounded-full bg-bg-hover overflow-hidden">
-                <div
-                  className="h-full bg-brand transition-all duration-300"
-                  style={{ width: `${dlProgress}%` }}
-                />
-              </div>
-              <span>{dlProgress.toFixed(0)}%</span>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={(e) => void handleDownloadPill(e)}
-              disabled={dlActive !== null && !isThisDownloading}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-bg-elevated border border-border-default text-sm text-text-primary hover:bg-bg-hover hover:border-brand/50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              <Download size={12} />
-              <span>Download · {displayQuant}</span>
-            </button>
-          )}
-
-          {/* Show / Hide variants */}
-          <button
-            type="button"
-            onClick={() => onExpand(model.id)}
-            className="flex items-center gap-1 text-xs text-text-muted hover:text-text-secondary transition-colors"
-          >
-            {expanded ? 'Hide variants' : 'Show variants'}
-            <motion.span animate={{ rotate: expanded ? 180 : 0 }} transition={{ duration: 0.18 }}>
-              <ChevronDown size={12} />
-            </motion.span>
-          </button>
-        </div>
+  const header = (
+    <div className="flex items-start gap-3">
+      <MakerTile maker={maker} fallback={author || shortName} />
+      <div className="min-w-0 flex-1">
+        <h3 className="truncate text-base font-semibold text-text-primary" style={{ fontFamily: SERIF }} title={model.id}>{shortName}</h3>
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-text-muted">
+          {author && <span className="truncate">{author}</span>}
+          <span className="inline-flex items-center gap-1"><Download size={12} />{fmtNum(model.downloads)}</span>
+          <span className="inline-flex items-center gap-1"><Heart size={12} />{fmtNum(model.likes)}</span>
+        </p>
       </div>
+      <button
+        type="button"
+        onClick={() => onExpand(model.id)}
+        aria-expanded={expanded}
+        aria-label={expanded ? 'Hide variants' : 'Show variants'}
+        title={expanded ? 'Hide variants' : 'Show variants'}
+        className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-text-muted hover:bg-bg-hover hover:text-text-primary"
+      >
+        <motion.span animate={{ rotate: expanded ? 180 : 0 }} transition={{ duration: 0.18 }} className="inline-flex">
+          <ChevronDown size={16} />
+        </motion.span>
+      </button>
+    </div>
+  );
+
+  const action = isThisDownloading ? (
+    <div className="flex min-w-[120px] items-center gap-2 rounded-xl border border-border-subtle bg-bg-elevated px-3 py-2 text-xs text-text-muted">
+      <div className="h-1 flex-1 overflow-hidden rounded-full bg-bg-hover">
+        <div className="h-full bg-brand transition-all duration-300" style={{ width: `${dlProgress}%` }} />
+      </div>
+      <span className="tabular-nums">{dlProgress.toFixed(0)}%</span>
+    </div>
+  ) : (
+    <button
+      type="button"
+      onClick={(e) => void handleDownloadPill(e)}
+      disabled={dlActive !== null && !isThisDownloading}
+      title={`Downloads the ${recommended ? recommended.rfilename : `${estimatedQuant} file`}, picked for this machine`}
+      className={BTN_PRIMARY}
+    >
+      <Download size={14} /> Install
+    </button>
+  );
+
+  return (
+    <motion.article
+      layout
+      transition={{ layout: { duration: 0.25, ease: [0.2, 0.8, 0.2, 1] } }}
+      className={cn(
+        CARD,
+        'flex flex-col gap-3 p-4 transition-shadow hover:shadow-md',
+        expanded && 'sm:col-span-2 xl:col-span-3 shadow-md ring-1 ring-brand/15',
+      )}
+    >
+      <motion.div layout="position">{header}</motion.div>
+
+      <motion.div layout="position" className="flex flex-wrap gap-1.5">
+        <Chip accent>GGUF</Chip>
+        {params && <Chip>{params}</Chip>}
+        {labels.map((l) => <Chip key={l}>{l}</Chip>)}
+      </motion.div>
+
+      <motion.div layout="position" className="mt-auto flex items-center justify-between gap-3 pt-1">
+        <span className={cn('inline-flex min-w-0 items-center gap-1.5 text-xs', recCompat ? COMPAT[recCompat].cls : 'text-text-muted')}>
+          <Monitor size={14} className="shrink-0" />
+          <span className="truncate">
+            {recSize && recCompat
+              ? `${sizeGb(recSize)} · ${COMPAT[recCompat].label}`
+              : `${estimatedQuant} picked for your ${sysInfo && sysInfo.vram_total_mb > 0 ? 'GPU' : 'RAM'}`}
+          </span>
+        </span>
+        {action}
+      </motion.div>
 
       {/* Download progress bar (full-width strip) */}
       {isThisDownloading && (
-        <div className="h-0.5 bg-bg-elevated">
-          <div
-            className="h-full bg-brand transition-all duration-300"
-            style={{ width: `${dlProgress}%` }}
-          />
+        <div className="-mx-4 -mb-4 h-0.5 bg-bg-elevated">
+          <div className="h-full bg-brand transition-all duration-300" style={{ width: `${dlProgress}%` }} />
         </div>
       )}
 
-      {/* ── Expandable variants ── */}
+      {/* ── Opened: every file in the repo, the best one for this machine first ── */}
       <AnimatePresence initial={false}>
         {expanded && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
+            transition={{ duration: 0.22 }}
             className="overflow-hidden"
           >
-            <div className="px-4 pb-4 border-t border-border-subtle">
-              {detailLoading || !detail ? (
-                <div className="flex justify-center py-4">
-                  <StreamingIndicator />
-                </div>
-              ) : (
-                <HfDetailPanel repoId={model.id} detail={detail} loading={false} />
-              )}
+            <div className="grid gap-6 border-t border-border-subtle pt-4 lg:grid-cols-[240px_minmax(0,1fr)]">
+              <div className="space-y-4">
+                <dl className="grid grid-cols-3 gap-2 lg:grid-cols-1">
+                  <Stat label="Downloads" value={fmtNum(model.downloads)} />
+                  <Stat label="Likes" value={fmtNum(model.likes)} />
+                  <Stat label="Updated" value={fmtDate(model.last_modified)} />
+                </dl>
+                {model.tags.length > 0 && (
+                  <div>
+                    <p className="mb-1.5 text-micro uppercase tracking-wider text-text-muted">Tags</p>
+                    <div className="flex flex-wrap gap-1">
+                      {model.tags.slice(0, 10).map((t) => <Chip key={t}>{t}</Chip>)}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0">
+                {detailLoading || !detail ? (
+                  <div className="flex justify-center py-6">
+                    <StreamingIndicator />
+                  </div>
+                ) : (
+                  <HfDetailPanel repoId={model.id} detail={detail} loading={false} />
+                )}
+              </div>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+    </motion.article>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-border-subtle bg-bg-elevated/60 px-3 py-2">
+      <dt className="text-micro uppercase tracking-wider text-text-muted">{label}</dt>
+      <dd className="text-sm font-semibold tabular-nums text-text-primary">{value}</dd>
     </div>
   );
 }

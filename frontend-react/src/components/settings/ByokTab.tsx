@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { ChevronDown, Eye, EyeOff, Plus, Search, Server } from 'lucide-react';
 import { cn, SECONDARY_BUTTON } from '@/lib/utils';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { SelectMenu } from '@/components/ui/select-menu';
+import { BTN_PRIMARY, CARD, MakerTile, Pill, SERIF, SectionHeader, Status, type Maker } from '@/components/models/ui';
 import { useSettings, type ByokProviderUpdate } from '@/stores/settings';
 import { useCatalog } from '@/stores/catalog';
 import type { ByokProvider } from '@/lib/tauri';
@@ -38,12 +39,53 @@ const PROVIDER_DEFS: readonly ProviderDef[] = [
   { id: 'custom',     name: 'Custom Endpoint', hasBaseUrl: true,  baseUrlHint: 'https://your-endpoint/v1',      availableModels: undefined,                                                                                      keyPrefix: undefined  },
 ];
 
-function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider }) {
+/** One line on what each provider is for, in plain words. */
+const PROVIDER_BLURB: Record<string, string> = {
+  openai: 'GPT models for general-purpose work.',
+  anthropic: 'Claude models, strong at reasoning and writing.',
+  google: 'Gemini models: multimodal, with long context.',
+  kimi: "Moonshot's Kimi, tuned for coding.",
+  glm: "Z.ai's GLM family of open-weight models.",
+  minimax: 'MiniMax models with very long context.',
+  deepseek: 'DeepSeek chat and reasoning models.',
+  groq: 'Very fast inference for open models.',
+  mistral: "Mistral AI's efficient models.",
+  openrouter: 'Hundreds of models through one API key.',
+  nvidia: 'Open models hosted by NVIDIA (NIM).',
+  custom: 'Any OpenAI-compatible endpoint you run or rent.',
+};
+
+/** The mark and colour each provider is known by (keys of the logo set). */
+const PROVIDER_MARK: Record<string, Maker> = {
+  openai: { key: 'openai', label: 'OpenAI' },
+  anthropic: { key: 'anthropic', label: 'Anthropic', color: '#D97757' },
+  google: { key: 'google', label: 'Google', color: '#3186FF' },
+  kimi: { key: 'moonshotai', label: 'Kimi' },
+  glm: { key: 'z-ai', label: 'Z.ai' },
+  minimax: { key: 'minimax', label: 'MiniMax', color: '#F23F5D' },
+  deepseek: { key: 'deepseek', label: 'DeepSeek', color: '#4D6BFE' },
+  groq: { key: 'groq', label: 'Groq', color: '#F55036' },
+  mistral: { key: 'mistral', label: 'Mistral', color: '#FA520F' },
+  openrouter: { key: 'openrouter', label: 'OpenRouter', color: '#6467F2' },
+  nvidia: { key: 'nvidia', label: 'NVIDIA', color: '#76B900' },
+};
+
+function ProviderMark({ def, className }: { def: ProviderDef; className?: string }) {
+  if (def.id === 'custom') {
+    return (
+      <span aria-hidden className={cn('inline-flex size-12 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-elevated text-text-secondary', className)}>
+        <Server size={20} />
+      </span>
+    );
+  }
+  return <MakerTile maker={PROVIDER_MARK[def.id] ?? null} fallback={def.name} className={cn('rounded-full', className)} />;
+}
+
+function ProviderCard({ def, state, open, onToggle }: { def: ProviderDef; state?: ByokProvider; open: boolean; onToggle: () => void }) {
   const saveByokProvider = useSettings((s) => s.saveByokProvider);
   const removeByokProvider = useSettings((s) => s.removeByokProvider);
   const testByokProvider = useSettings((s) => s.testByokProvider);
 
-  const [open, setOpen]             = useState(false);
   const [enabled, setEnabled]       = useState(state?.enabled ?? false);
   const [apiKey, setApiKey]         = useState('');
   const [baseUrl, setBaseUrl]       = useState(state?.base_url ?? '');
@@ -110,125 +152,170 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
     }
   };
 
-  const inputCls = 'w-full px-2 py-1.5 rounded-md border border-border-subtle bg-bg-surface text-sm text-text-primary';
+  const inputCls = 'w-full h-9 px-3 rounded-xl border border-border-subtle bg-bg-surface text-sm text-text-primary focus:outline-hidden focus:ring-2 focus:ring-brand/30';
   const btnSecCls = SECONDARY_BUTTON;
+  const configured = !!state?.has_api_key;
+  const blurb = PROVIDER_BLURB[def.id];
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-border-subtle bg-bg-elevated/80 backdrop-blur-md hover:bg-bg-hover transition-colors text-left">
-        <span className="text-sm font-medium text-text-primary">{def.name}</span>
-        <span className={cn(
-          'text-xs px-2 py-0.5 rounded-full shrink-0 border',
-          isActive
-            ? 'bg-success/25 border-success/40 text-success-text'
-            // Ink on ink in the light theme: dark chip, dark text, 3.0:1 (20 Sep).
-            : 'bg-bg-elevated border-border-default text-text-secondary',
-        )}>
-          {isActive ? 'Active' : 'Not configured'}
+    <motion.article
+      layout
+      transition={{ layout: { duration: 0.25, ease: [0.2, 0.8, 0.2, 1] } }}
+      className={cn(CARD, 'overflow-hidden transition-shadow hover:shadow-md', open && 'md:col-span-2 lg:col-span-full shadow-md ring-1 ring-brand/15')}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="block w-full p-5 text-left"
+      >
+        <span className="flex items-center gap-4">
+          <ProviderMark def={def} />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-lg font-semibold text-text-primary" style={{ fontFamily: SERIF }}>{def.name}</span>
+            {configured
+              ? (isActive ? <Status tone="success">Connected</Status> : <Status tone="neutral">Turned off</Status>)
+              : <span className="text-xs text-text-muted">Not configured</span>}
+          </span>
+          <span className="flex shrink-0 items-center gap-2">
+            {configured && <Pill tone="success" dot>API key added</Pill>}
+            <motion.span animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.18 }} className="inline-flex text-text-muted">
+              <ChevronDown size={16} />
+            </motion.span>
+          </span>
         </span>
-      </CollapsibleTrigger>
+        {blurb && <span className="mt-3 block text-sm text-text-secondary">{blurb}</span>}
+      </button>
 
-      <CollapsibleContent>
-        <div className="px-4 pt-3 pb-4 border border-t-0 border-border-subtle rounded-b-lg space-y-4 bg-bg-elevated/80 backdrop-blur-md">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-text-secondary">Enabled</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={enabled}
-              onClick={() => setEnabled(!enabled)}
-              className={cn('w-10 h-6 rounded-full transition-colors duration-200 relative shrink-0 overflow-hidden', enabled ? 'bg-brand' : 'bg-border-default')}
-            >
-              <span className={cn('absolute top-1 left-0 w-4 h-4 rounded-full bg-primary-foreground transition-transform', enabled ? 'translate-x-5' : 'translate-x-1')} />
-            </button>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs text-text-muted">API Key</label>
-            <div className="flex gap-2">
-              <input
-                type={showKey ? 'text' : 'password'}
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={state?.has_api_key ? 'Key saved, enter new key to update' : 'sk-...'}
-                className={cn(inputCls, 'flex-1 font-mono')}
-              />
-              <button
-                type="button"
-                onClick={() => setShowKey(!showKey)}
-                className="px-2 py-1.5 rounded-md border border-border-subtle text-text-muted hover:bg-bg-hover"
-                aria-label={showKey ? 'Hide key' : 'Show key'}
-              >
-                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
-            {def.keyPrefix && apiKey.startsWith(def.keyPrefix) && (
-              <p className="text-xs text-success mt-1">✓ {def.name} key detected</p>
-            )}
-          </div>
-
-          {def.hasBaseUrl && (
-            <div className="space-y-1">
-              <label className="text-xs text-text-muted">
-                Base URL
-              </label>
-              <input
-                type="url"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder={def.baseUrlHint || 'https://…'}
-                className={inputCls}
-              />
-            </div>
-          )}
-
-          <div className="space-y-1">
-            <label className="text-xs text-text-muted">
-              {def.availableModels ? 'Model' : 'Default model (optional)'}
-            </label>
-            {def.availableModels ? (
-              <SelectMenu
-                value={defaultModel}
-                onChange={setDefModel}
-                ariaLabel="Model"
-                className="w-full"
-                options={def.availableModels.map((m) => ({ value: m, label: m }))}
-              />
-            ) : (
-              <input
-                type="text"
-                value={defaultModel}
-                onChange={(e) => setDefModel(e.target.value)}
-                placeholder="gpt-4o"
-                className={inputCls}
-              />
-            )}
-          </div>
-
-          <div className="flex items-center gap-3 flex-wrap">
-            <button type="button" onClick={() => void handleTest()} disabled={testing || !apiKey} className={btnSecCls}>
-              {testing ? 'Testing…' : 'Test'}
-            </button>
-            <button type="button" onClick={() => void handleSave()} disabled={saving} className="px-3 py-1.5 rounded-md bg-brand hover:bg-brand-hover text-primary-foreground text-sm font-medium disabled:opacity-50 transition-colors">
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-            {state?.has_api_key && (
-              <button
-                type="button"
-                onClick={() => { setApiKey(''); setEnabled(false); void removeByokProvider(def.id); }}
-                disabled={saving}
-                className={btnSecCls}
-                title="Delete this key from the OS keychain"
-              >
-                Remove key
-              </button>
-            )}
-            {testMsg && <span className={cn('text-xs', testMsg.startsWith('✓') ? 'text-success' : 'text-error')}>{testMsg}</span>}
-            {saveMsg && <span className={cn('text-xs', saveMsg.startsWith('✓') ? 'text-text-muted' : 'text-error')}>{saveMsg}</span>}
-          </div>
+      {configured && !open && (
+        <div className="-mt-1 px-5 pb-5">
+          <p className="text-micro font-medium uppercase tracking-wider text-text-muted">Default model</p>
+          <p className="mt-1 truncate rounded-xl border border-border-subtle bg-bg-elevated/60 px-3 py-2 text-sm text-text-primary">
+            {state?.default_model || 'The provider\u2019s default'}
+          </p>
         </div>
-      </CollapsibleContent>
-    </Collapsible>
+      )}
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22 }}
+            className="overflow-hidden"
+          >
+            <div className="grid gap-5 border-t border-border-subtle bg-bg-elevated/40 p-5 md:grid-cols-2">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between rounded-xl border border-border-subtle bg-bg-surface px-3 py-2.5">
+                  <div>
+                    <p className="text-sm font-medium text-text-primary">Enabled</p>
+                    <p className="text-2xs text-text-muted">Off keeps the key but hides the provider&apos;s models.</p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={enabled}
+                    aria-label="Enabled"
+                    onClick={() => setEnabled(!enabled)}
+                    className={cn('w-10 h-6 rounded-full transition-colors duration-200 relative shrink-0 overflow-hidden', enabled ? 'bg-brand' : 'bg-border-default')}
+                  >
+                    <span className={cn('absolute top-1 left-0 w-4 h-4 rounded-full bg-primary-foreground transition-transform', enabled ? 'translate-x-5' : 'translate-x-1')} />
+                  </button>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-text-secondary">API Key</label>
+                  <div className="flex gap-2">
+                    <input
+                      type={showKey ? 'text' : 'password'}
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder={state?.has_api_key ? 'Key saved, enter new key to update' : 'sk-...'}
+                      className={cn(inputCls, 'flex-1 font-mono')}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowKey(!showKey)}
+                      className="inline-flex size-9 items-center justify-center rounded-xl border border-border-subtle text-text-muted hover:bg-bg-hover"
+                      aria-label={showKey ? 'Hide key' : 'Show key'}
+                    >
+                      {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  {def.keyPrefix && apiKey.startsWith(def.keyPrefix) && (
+                    <p className="text-xs text-success mt-1">✓ {def.name} key detected</p>
+                  )}
+                  <p className="text-2xs text-text-muted">Stored in your computer&apos;s keychain, never in a file.</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {def.hasBaseUrl && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-text-secondary">
+                      Base URL
+                    </label>
+                    <input
+                      type="url"
+                      value={baseUrl}
+                      onChange={(e) => setBaseUrl(e.target.value)}
+                      placeholder={def.baseUrlHint || 'https://…'}
+                      className={inputCls}
+                    />
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-text-secondary">
+                    {def.availableModels ? 'Model' : 'Default model (optional)'}
+                  </label>
+                  {def.availableModels ? (
+                    <SelectMenu
+                      value={defaultModel}
+                      onChange={setDefModel}
+                      ariaLabel="Model"
+                      className="w-full"
+                      options={def.availableModels.map((m) => ({ value: m, label: m }))}
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      value={defaultModel}
+                      onChange={(e) => setDefModel(e.target.value)}
+                      placeholder="gpt-4o"
+                      className={inputCls}
+                    />
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap pt-1">
+                  <button type="button" onClick={() => void handleSave()} disabled={saving} className={BTN_PRIMARY}>
+                    {saving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button type="button" onClick={() => void handleTest()} disabled={testing || !apiKey} className={btnSecCls}>
+                    {testing ? 'Testing…' : 'Test'}
+                  </button>
+                  {state?.has_api_key && (
+                    <button
+                      type="button"
+                      onClick={() => { setApiKey(''); setEnabled(false); void removeByokProvider(def.id); }}
+                      disabled={saving}
+                      className={cn(btnSecCls, 'hover:text-error')}
+                      title="Delete this key from the OS keychain"
+                    >
+                      Remove key
+                    </button>
+                  )}
+                </div>
+                {testMsg && <p className={cn('text-xs', testMsg.startsWith('✓') ? 'text-success' : 'text-error')}>{testMsg}</p>}
+                {saveMsg && <p className={cn('text-xs', saveMsg.startsWith('✓') ? 'text-text-muted' : 'text-error')}>{saveMsg}</p>}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.article>
   );
 }
 
@@ -265,52 +352,74 @@ export function ByokTab() {
   const providerCatalog = useCatalog((s) => s.providerCatalog);
   const loadProvider = useCatalog((s) => s.loadProvider);
   const [q, setQ] = useState('');
-  const [onlyConfigured, setOnlyConfigured] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const addRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     void loadProvider();
   }, [loadProvider]);
 
   const defs = mergeProviderDefs(providerCatalog);
-  const filtered = defs.filter((d) => {
-    if (onlyConfigured) {
-      const s = byok.find((b) => b.id === d.id);
-      if (!s?.has_api_key) return false;
-    }
-    if (q.trim()) {
-      const needle = q.toLowerCase();
-      if (!d.name.toLowerCase().includes(needle) && !d.id.toLowerCase().includes(needle)) return false;
-    }
-    return true;
-  });
+  const stateOf = (id: string) => byok.find((b) => b.id === id);
+  const matches = (d: ProviderDef) => {
+    if (!q.trim()) return true;
+    const needle = q.toLowerCase();
+    return d.name.toLowerCase().includes(needle) || d.id.toLowerCase().includes(needle);
+  };
+  // A provider with a key is "yours" and gets a big card at the top; the rest
+  // wait below as the ways to add another.
+  const connected = defs.filter((d) => stateOf(d.id)?.has_api_key);
+  const available = defs.filter((d) => !stateOf(d.id)?.has_api_key && matches(d));
+  const card = (def: ProviderDef) => (
+    <ProviderCard
+      key={def.id}
+      def={def}
+      state={stateOf(def.id)}
+      open={openId === def.id}
+      onToggle={() => setOpenId((cur) => (cur === def.id ? null : def.id))}
+    />
+  );
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-text-primary">Cloud Keys</h2>
-        <p className="text-xs text-text-muted mt-1">Add API keys to use cloud AI providers alongside local models.</p>
-      </div>
-      <div className="flex items-center gap-2">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search providers…"
-          className="flex-1 min-w-0 rounded-md border border-border-subtle bg-bg-surface px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-hidden focus:ring-1 focus:ring-brand"
-        />
-        <label className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer select-none shrink-0">
-          <input type="checkbox" checked={onlyConfigured} onChange={(e) => setOnlyConfigured(e.target.checked)} className="rounded" />
-          Configured only
-        </label>
-      </div>
-      <div className="space-y-2">
-        {filtered.length === 0 ? (
-          <p className="text-sm text-text-muted py-4 text-center">No providers match.</p>
+    <div className="space-y-8">
+      <div className="space-y-5">
+        <SectionHeader title="Cloud Providers" subtitle="Add API keys to use cloud models alongside local ones, and pick each provider's default model.">
+          <button type="button" onClick={() => addRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className={BTN_PRIMARY}>
+            <Plus size={16} /> Add provider
+          </button>
+        </SectionHeader>
+
+        {connected.length > 0 ? (
+          <div className="grid grid-flow-row-dense items-start gap-4 md:grid-cols-2">{connected.map(card)}</div>
         ) : (
-          filtered.map((def) => (
-            <ProviderRow key={def.id} def={def} state={byok.find((b) => b.id === def.id)} />
-          ))
+          <div className={cn(CARD, 'px-5 py-6 text-sm text-text-secondary')}>
+            No provider connected yet. Pick one below and paste its key; it takes a minute.
+          </div>
         )}
       </div>
+
+      <section ref={addRef} className="scroll-mt-6 space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h3 className="text-xl font-semibold text-text-primary" style={{ fontFamily: SERIF }}>Add another provider</h3>
+            <p className="text-sm text-text-secondary">Connect more providers to widen what Cinderpaw can use.</p>
+          </div>
+          <label className="flex h-9 w-full items-center gap-2 rounded-xl border border-border-subtle bg-bg-surface px-3 shadow-sm focus-within:ring-2 focus-within:ring-brand/30 sm:w-64">
+            <Search size={14} className="shrink-0 text-text-muted" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search providers…"
+              className="min-w-0 flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-muted focus:outline-hidden"
+            />
+          </label>
+        </div>
+        {available.length === 0 ? (
+          <p className="py-4 text-center text-sm text-text-muted">{q.trim() ? 'No providers match.' : 'Every provider already has a key.'}</p>
+        ) : (
+          <div className="grid grid-flow-row-dense items-start gap-4 md:grid-cols-2 lg:grid-cols-3">{available.map(card)}</div>
+        )}
+      </section>
     </div>
   );
 }

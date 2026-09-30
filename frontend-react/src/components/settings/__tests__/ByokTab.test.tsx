@@ -10,6 +10,10 @@ const mockUseSettings = vi.mocked(useSettings);
 const mockSaveByok = vi.fn();
 const mockTestByok = vi.fn();
 
+/** A provider's name as the card shows it. The logo beside it carries the same
+ *  name in its SVG <title>, which is not text anyone reads on the card. */
+const text = (t: string) => screen.getByText(t, { ignore: 'script, style, title' });
+
 function setupStore(byok: object[] = []) {
   mockUseSettings.mockImplementation((sel: any) =>
     sel({ byok, saveByokProvider: mockSaveByok, testByokProvider: mockTestByok })
@@ -21,18 +25,18 @@ describe('ByokTab', () => {
 
   it('renders all 12 provider rows', () => {
     render(<ByokTab />);
-    expect(screen.getByText('OpenAI')).toBeInTheDocument();
-    expect(screen.getByText('Anthropic')).toBeInTheDocument();
-    expect(screen.getByText('Google Gemini')).toBeInTheDocument();
-    expect(screen.getByText('Kimi')).toBeInTheDocument();
-    expect(screen.getByText('GLM (Z.ai)')).toBeInTheDocument();
-    expect(screen.getByText('MiniMax')).toBeInTheDocument();
-    expect(screen.getByText('DeepSeek')).toBeInTheDocument();
-    expect(screen.getByText('Groq')).toBeInTheDocument();
-    expect(screen.getByText('Mistral')).toBeInTheDocument();
-    expect(screen.getByText('OpenRouter')).toBeInTheDocument();
-    expect(screen.getByText('NVIDIA NIM')).toBeInTheDocument();
-    expect(screen.getByText('Custom Endpoint')).toBeInTheDocument();
+    expect(text('OpenAI')).toBeInTheDocument();
+    expect(text('Anthropic')).toBeInTheDocument();
+    expect(text('Google Gemini')).toBeInTheDocument();
+    expect(text('Kimi')).toBeInTheDocument();
+    expect(text('GLM (Z.ai)')).toBeInTheDocument();
+    expect(text('MiniMax')).toBeInTheDocument();
+    expect(text('DeepSeek')).toBeInTheDocument();
+    expect(text('Groq')).toBeInTheDocument();
+    expect(text('Mistral')).toBeInTheDocument();
+    expect(text('OpenRouter')).toBeInTheDocument();
+    expect(text('NVIDIA NIM')).toBeInTheDocument();
+    expect(text('Custom Endpoint')).toBeInTheDocument();
   });
 
   it('unconfigured providers show "Not configured" badge', () => {
@@ -40,16 +44,25 @@ describe('ByokTab', () => {
     expect(screen.getAllByText('Not configured')).toHaveLength(12);
   });
 
-  it('enabled provider with has_api_key=true shows "Active" badge', () => {
+  it('enabled provider with has_api_key=true shows as connected, with its key added', () => {
     setupStore([{ id: 'openai', name: 'OpenAI', provider: 'openai', enabled: true, has_api_key: true }]);
     render(<ByokTab />);
-    expect(screen.getByText('Active')).toBeInTheDocument();
+    expect(screen.getByText('Connected')).toBeInTheDocument();
+    expect(screen.getByText('API key added')).toBeInTheDocument();
+    // Connected providers leave the "add another" list.
+    expect(screen.getAllByText('Not configured')).toHaveLength(11);
+  });
+
+  it('a key that is saved but switched off says so', () => {
+    setupStore([{ id: 'groq', name: 'Groq', provider: 'groq', enabled: false, has_api_key: true }]);
+    render(<ByokTab />);
+    expect(screen.getByText('Turned off')).toBeInTheDocument();
   });
 
   it('expanding a row and clicking Save calls saveByokProvider with correct providerId', async () => {
     mockSaveByok.mockResolvedValue(undefined);
     render(<ByokTab />);
-    await userEvent.click(screen.getByText('Anthropic'));
+    await userEvent.click(text('Anthropic'));
     const saveBtn = await screen.findByRole('button', { name: /^save$/i });
     await userEvent.click(saveBtn);
     expect(mockSaveByok).toHaveBeenCalledWith(expect.objectContaining({ providerId: 'anthropic' }));
@@ -61,7 +74,7 @@ describe('ByokTab', () => {
     // Tauri one, or the test drifts from what the component actually reads.
     mockTestByok.mockResolvedValue({ ok: true });
     render(<ByokTab />);
-    await userEvent.click(screen.getByText('OpenAI'));
+    await userEvent.click(text('OpenAI'));
     const keyInput = await screen.findByPlaceholderText('sk-...');
     await userEvent.type(keyInput, 'sk-validkey');
     await userEvent.click(screen.getByRole('button', { name: /^test$/i }));
@@ -71,7 +84,7 @@ describe('ByokTab', () => {
   it('Test button shows error message on failure', async () => {
     mockTestByok.mockResolvedValue({ ok: false, error: 'Invalid API key' });
     render(<ByokTab />);
-    await userEvent.click(screen.getByText('OpenAI'));
+    await userEvent.click(text('OpenAI'));
     const keyInput = await screen.findByPlaceholderText('sk-...');
     await userEvent.type(keyInput, 'sk-bad');
     await userEvent.click(screen.getByRole('button', { name: /^test$/i }));
@@ -84,7 +97,7 @@ describe('ByokTab', () => {
     // reported on OpenRouter / NVIDIA NIM (2026-08-22) undebuggable.
     mockSaveByok.mockRejectedValue('keychain locked');
     render(<ByokTab />);
-    await userEvent.click(screen.getByText('OpenAI'));
+    await userEvent.click(text('OpenAI'));
     const keyInput = await screen.findByPlaceholderText('sk-...');
     await userEvent.type(keyInput, 'sk-key');
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
@@ -95,7 +108,7 @@ describe('ByokTab', () => {
 
   it('MiniMax row shows a themed model picker with MiniMax-M3 preselected', async () => {
     render(<ByokTab />);
-    await userEvent.click(screen.getByText('MiniMax'));
+    await userEvent.click(text('MiniMax'));
     const picker = await screen.findByRole('button', { name: 'Model' });
     expect(picker).toHaveTextContent('MiniMax-M3');
     await userEvent.click(picker);
@@ -112,13 +125,13 @@ describe('ByokTab', () => {
 
   it('GLM row shows a model picker with glm-5.1 first', async () => {
     render(<ByokTab />);
-    await userEvent.click(screen.getByText('GLM (Z.ai)'));
+    await userEvent.click(text('GLM (Z.ai)'));
     expect(await screen.findByRole('button', { name: 'Model' })).toHaveTextContent('glm-5.1');
   });
 
   it('Kimi shows key-detected hint when key starts with sk-kimi-', async () => {
     render(<ByokTab />);
-    await userEvent.click(screen.getByText('Kimi'));
+    await userEvent.click(text('Kimi'));
     const keyInput = await screen.findByPlaceholderText('sk-...');
     await userEvent.type(keyInput, 'sk-kimi-abc123');
     expect(screen.getByText('✓ Kimi key detected')).toBeInTheDocument();
@@ -126,7 +139,7 @@ describe('ByokTab', () => {
 
   it('MiniMax shows key-detected hint when key starts with sk-cp-', async () => {
     render(<ByokTab />);
-    await userEvent.click(screen.getByText('MiniMax'));
+    await userEvent.click(text('MiniMax'));
     const keyInput = await screen.findByPlaceholderText('sk-...');
     await userEvent.type(keyInput, 'sk-cp-tokenplan');
     expect(screen.getByText('✓ MiniMax key detected')).toBeInTheDocument();
@@ -134,7 +147,7 @@ describe('ByokTab', () => {
 
   it('MiniMax does not show hint for non-MiniMax key', async () => {
     render(<ByokTab />);
-    await userEvent.click(screen.getByText('MiniMax'));
+    await userEvent.click(text('MiniMax'));
     const keyInput = await screen.findByPlaceholderText('sk-...');
     await userEvent.type(keyInput, 'sk-other-key');
     expect(screen.queryByText('✓ MiniMax key detected')).not.toBeInTheDocument();
