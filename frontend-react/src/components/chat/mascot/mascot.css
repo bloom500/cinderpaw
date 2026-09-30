@@ -1,0 +1,179 @@
+/*
+ * The SVG creature's motion. Every part is its own <g>, so a state is a set of
+ * classes: how the body moves, what the arms do, how the eyes look, and which
+ * prop or effect is showing. `transform-box: view-box` makes every
+ * `transform-origin` below a point in the 128x132 drawing (in the part's own
+ * coordinates), so a pivot is written where it is on the creature: the soles
+ * at y=110, the shoulders at (48,79.5) and (80,79.5), the neck at (64,74).
+ */
+.cpm { overflow: visible; }
+.cpm * { transform-box: view-box; }
+
+/* ── Whole creature ─────────────────────────────────────────────────────── */
+.cpm-creature { transform-origin: 64px 110px; }
+.cpm--breathe .cpm-creature { animation: cpm-breathe 3.2s ease-in-out infinite; }
+.cpm--bob     .cpm-creature { animation: cpm-bob 0.7s ease-in-out infinite; }
+.cpm--bounce  .cpm-creature { animation: cpm-bounce 0.9s cubic-bezier(.3,.7,.4,1) infinite; }
+.cpm--jump    .cpm-creature { animation: cpm-jump 0.8s cubic-bezier(.3,.7,.4,1) infinite; }
+.cpm--shake   .cpm-creature { animation: cpm-shake 1.6s ease-in-out infinite; }
+.cpm--sway    .cpm-creature { animation: cpm-sway 3.6s ease-in-out infinite; }
+.cpm--sleep   .cpm-creature { animation: cpm-sleep 4.4s ease-in-out infinite; }
+.cpm--stretch .cpm-creature { animation: cpm-stretch 2.6s ease-in-out infinite; }
+.cpm--jolt    .cpm-creature { animation: cpm-jolt 1.4s ease-out infinite; }
+
+@keyframes cpm-breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.012, 0.986); } }
+@keyframes cpm-bob     { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
+@keyframes cpm-bounce  {
+  0%, 100% { transform: translateY(0) scale(1.03, 0.97); }
+  45%      { transform: translateY(-5px) scale(0.99, 1.01); }
+}
+@keyframes cpm-jump {
+  0%, 100% { transform: translateY(0) scale(1.05, 0.95); }
+  15%      { transform: translateY(0) scale(0.97, 1.04); }
+  50%      { transform: translateY(-11px) scale(1, 1); }
+  85%      { transform: translateY(0) scale(1.04, 0.96); }
+}
+@keyframes cpm-shake {
+  0%, 40%, 100% { transform: rotate(0deg); }
+  8%  { transform: rotate(-5deg); }
+  16% { transform: rotate(5deg); }
+  24% { transform: rotate(-3deg); }
+  32% { transform: rotate(2deg); }
+}
+@keyframes cpm-sway    { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg); } }
+@keyframes cpm-sleep   { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.025, 0.975); } }
+@keyframes cpm-stretch { 0%, 100% { transform: scale(1, 1); } 45%, 60% { transform: scale(0.96, 1.07); } }
+@keyframes cpm-jolt {
+  0%   { transform: translateY(0) scale(1, 1); }
+  10%  { transform: translateY(-7px) scale(0.96, 1.05); }
+  25%  { transform: translateY(0) scale(1.04, 0.96); }
+  35%, 100% { transform: translateY(0) scale(1, 1); }
+}
+
+/* ── Head ───────────────────────────────────────────────────────────────── */
+.cpm-head { transform-origin: 64px 74px; }
+.cpm-head--lie { transform-origin: 69px 95.6px; }
+.cpm--nod .cpm-head { animation: cpm-nod 2.2s ease-in-out infinite; }
+@keyframes cpm-nod { 0%, 30%, 60%, 100% { transform: rotate(0deg); } 15%, 45% { transform: rotate(4deg) translateY(0.8px); } }
+
+.cpm-horns { transform-origin: 64px 34px; }
+.cpm--wiggle .cpm-horns { animation: cpm-wiggle 0.5s ease-in-out infinite; }
+@keyframes cpm-wiggle { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(3deg); } }
+
+/* ── Eyes ───────────────────────────────────────────────────────────────── */
+.cpm-eye { transform-origin: var(--ex) 53px; }
+.cpm-eyes--blink .cpm-eye { animation: cpm-blink 5.2s ease-in-out infinite; }
+@keyframes cpm-blink {
+  0%, 90%, 97%, 100% { transform: scaleY(1); }
+  93.5% { transform: scaleY(0.08); }
+}
+.cpm-look { transition: transform 0.35s ease; }
+.cpm-look--scan { animation: cpm-scan 2.4s ease-in-out infinite; }
+@keyframes cpm-scan { 0%, 100% { transform: translate(-2.5px, 0); } 50% { transform: translate(2.5px, 0); } }
+
+/* ── Tail (pivot at its root) ───────────────────────────────────────────── */
+.cpm-tail { transform-origin: 45px 94px; animation: cpm-wag 2.4s ease-in-out infinite; }
+.cpm-tail--lie { transform-origin: 18px 84px; }
+@keyframes cpm-wag { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(8deg); } }
+
+/* ── Arms (pivot at the shoulders) ──────────────────────────────────────── */
+.cpm-arm-l { transform-origin: 48px 79.5px; transition: transform 0.3s ease; }
+.cpm-arm-r { transform-origin: 80px 79.5px; transition: transform 0.3s ease; }
+
+/* Raised arms also slide out along their own length: a chibi arm is short,
+   and rotated in place it only ever reached the cheek. */
+.cpm-arms--wave .cpm-arm-r { animation: cpm-wave 0.9s ease-in-out infinite; }
+@keyframes cpm-wave { 0%, 100% { transform: rotate(-146deg) translateY(5px); } 50% { transform: rotate(-116deg) translateY(5px); } }
+
+.cpm-arms--up .cpm-arm-l { animation: cpm-up-l 0.8s ease-in-out infinite; }
+.cpm-arms--up .cpm-arm-r { animation: cpm-up-r 0.8s ease-in-out infinite; }
+@keyframes cpm-up-l { 0%, 100% { transform: rotate(104deg) translateY(6px); } 50% { transform: rotate(88deg) translateY(6px); } }
+@keyframes cpm-up-r { 0%, 100% { transform: rotate(-104deg) translateY(6px); } 50% { transform: rotate(-88deg) translateY(6px); } }
+
+/* Thinking: one mitten under the chin. */
+.cpm-arms--chin .cpm-arm-r { transform: rotate(171deg) translateY(-6.5px); }
+
+/* Surprised: both mittens up to the cheeks. */
+.cpm-arms--face .cpm-arm-l { transform: rotate(158deg) translateY(2px); }
+.cpm-arms--face .cpm-arm-r { transform: rotate(-158deg) translateY(2px); }
+
+.cpm-arms--front .cpm-arm-l { transform: rotate(-30deg); }
+.cpm-arms--front .cpm-arm-r { transform: rotate(30deg); }
+.cpm-arms--lap .cpm-arm-l { transform: rotate(-22deg); }
+.cpm-arms--lap .cpm-arm-r { transform: rotate(22deg); }
+
+/* The magnifier is drawn inside the right arm, so sweeping the arm sweeps it. */
+.cpm-arms--hold .cpm-arm-r { animation: cpm-sweep-arm 2.4s ease-in-out infinite; }
+@keyframes cpm-sweep-arm { 0%, 100% { transform: rotate(-122deg) translateY(3px); } 50% { transform: rotate(-104deg) translateY(3px); } }
+
+/* Lying at the laptop: the two front paws take turns on the keys, each
+   tipping up from the wrist so the fingers lift and the arm stays put. */
+.cpm-paw--l { transform-origin: 40px 102px; animation: cpm-tap 0.42s ease-in-out infinite; }
+.cpm-paw--r { transform-origin: 70px 101px; animation: cpm-tap 0.42s ease-in-out infinite 0.21s; }
+@keyframes cpm-tap { 0%, 60%, 100% { transform: rotate(0deg); } 30% { transform: rotate(-4deg); } }
+
+/* ── Props and effects ─────────────────────────────────────────────────── */
+.cpm-pencil { animation: cpm-scribble 0.5s ease-in-out infinite; }
+@keyframes cpm-scribble { 0%, 100% { transform: translate(0, 0); } 25% { transform: translate(3px, 1px); } 50% { transform: translate(6px, 0); } 75% { transform: translate(3px, -1px); } }
+
+.cpm-float { opacity: 0; animation: cpm-float 2.7s ease-in-out infinite; }
+.cpm-float:nth-child(2) { animation-delay: 0.9s; }
+.cpm-float:nth-child(3) { animation-delay: 1.8s; }
+@keyframes cpm-float {
+  0%   { opacity: 0; transform: translate(0, 6px) scale(0.7); }
+  25%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(6px, -14px) scale(1.05); }
+}
+
+.cpm-pop { transform-origin: var(--px) var(--py); animation: cpm-pop 2s cubic-bezier(.3,1.6,.5,1) infinite; }
+@keyframes cpm-pop {
+  0%   { transform: scale(0); opacity: 0; }
+  18%  { transform: scale(1); opacity: 1; }
+  80%  { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0; }
+}
+
+.cpm-bob-fx { animation: cpm-bob-fx 1.4s ease-in-out infinite; }
+@keyframes cpm-bob-fx { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+
+.cpm-twinkle { transform-origin: var(--px) var(--py); animation: cpm-twinkle 1.2s ease-in-out infinite; }
+.cpm-twinkle:nth-child(2) { animation-delay: 0.3s; }
+.cpm-twinkle:nth-child(3) { animation-delay: 0.6s; }
+.cpm-twinkle:nth-child(4) { animation-delay: 0.9s; }
+@keyframes cpm-twinkle { 0%, 100% { transform: scale(0.2) rotate(0deg); opacity: 0; } 50% { transform: scale(1) rotate(45deg); opacity: 1; } }
+
+.cpm-spin { transform-origin: var(--px) var(--py); animation: cpm-spin 2.4s linear infinite; }
+@keyframes cpm-spin { to { transform: rotate(360deg); } }
+
+.cpm-flip { transform-origin: var(--px) var(--py); animation: cpm-flip 2.6s ease-in-out infinite; }
+@keyframes cpm-flip { 0%, 40% { transform: rotate(0deg); } 60%, 100% { transform: rotate(180deg); } }
+
+.cpm-wave-arc { opacity: 0; animation: cpm-wave-arc 1.2s ease-out infinite; }
+.cpm-wave-arc:nth-child(2), .cpm-wave-arc:nth-child(5) { animation-delay: 0.3s; }
+.cpm-wave-arc:nth-child(3), .cpm-wave-arc:nth-child(6) { animation-delay: 0.6s; }
+@keyframes cpm-wave-arc { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: 0; } }
+
+.cpm-confetti { animation: cpm-confetti 1.6s linear infinite; }
+@keyframes cpm-confetti {
+  0%   { transform: translateY(-10px) rotate(0deg); opacity: 0; }
+  15%  { opacity: 1; }
+  100% { transform: translateY(34px) rotate(300deg); opacity: 0; }
+}
+
+.cpm-drip { animation: cpm-drip 1.8s ease-in infinite; }
+@keyframes cpm-drip { 0% { transform: translateY(-3px); opacity: 0; } 25% { opacity: 1; } 100% { transform: translateY(8px); opacity: 0; } }
+
+.cpm-stack > * { opacity: 0; animation: cpm-stack 2.4s ease-out infinite; }
+.cpm-stack > :nth-child(2) { animation-delay: 0.4s; }
+.cpm-stack > :nth-child(3) { animation-delay: 0.8s; }
+@keyframes cpm-stack { 0% { opacity: 0; transform: translateY(-8px); } 20%, 80% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; } }
+
+.cpm-drop-in { animation: cpm-drop-in 1.6s ease-in infinite; }
+@keyframes cpm-drop-in { 0% { transform: translateY(-8px); opacity: 0; } 30% { opacity: 1; } 70% { transform: translateY(2px); opacity: 1; } 100% { transform: translateY(2px); opacity: 0; } }
+
+/* Reduced motion: every pose holds still, and the effects that only exist
+   while animating (floating Z's, confetti) stay visible instead of vanishing. */
+@media (prefers-reduced-motion: reduce) {
+  .cpm *, .cpm { animation: none !important; transition: none !important; }
+  .cpm-float, .cpm-wave-arc, .cpm-stack > *, .cpm-pop, .cpm-twinkle, .cpm-confetti, .cpm-drip, .cpm-drop-in { opacity: 1; }
+}

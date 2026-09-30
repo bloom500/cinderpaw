@@ -105,8 +105,8 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
   /**
    * The OS setting already answered this question.
    *
-   * `CinderpawMascot` honours `prefers-reduced-motion` by freezing its sprite
-   * frames. The travel across the composer that used to run past that freeze
+   * `CinderpawMascot` honours `prefers-reduced-motion` by holding its pose
+   * still. The travel across the composer that used to run past that freeze
    * is gone entirely now, so what is left to honour is the doze: a creature
    * that changes pose on its own while nobody asked is the ambient motion the
    * setting is about. Reactions stay, because a reaction is something the
@@ -365,10 +365,10 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
   return (
     <div
       ref={wrapRef}
-      // The feet: the drawn frame has the creature's soles at canvas row 54 of 66
-      // (8px prop margin above, 1px bob headroom), which at 2× is 110px from the
-      // top of this element. -104 sinks the soles 6px into the composer's edge,
-      // so it perches on the bar instead of floating above it.
+      // The feet: the drawing puts the creature's soles at y=110 of its 132,
+      // so at the default 128px they are 110px from the top of this element.
+      // -104 sinks the soles 6px into the composer's edge, so it perches on the
+      // bar instead of floating above it.
       className="pointer-events-none absolute top-[-104px] left-5 z-10"
       // Position only. The lean and the squash go on the creature inside, so
       // the tool-call stack it carries stays upright and readable while the

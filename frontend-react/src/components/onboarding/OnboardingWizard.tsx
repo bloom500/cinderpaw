@@ -171,15 +171,15 @@ function WelcomeStep() {
   return (
     <div className="text-center space-y-6">
       {/* #25: the mascot that lives on the chat input greets the user here
-          first — same pixel-art component, brand continuity from minute one. */}
+          first — same component, brand continuity from minute one. */}
       <motion.div
         initial={{ scale: 0.8, rotate: -10 }}
         animate={{ scale: 1, rotate: 0 }}
         transition={{ type: 'spring', duration: 0.5 }}
-        className="flex justify-center [&_canvas]:w-24 [&_canvas]:h-24 [&_canvas]:[image-rendering:pixelated]"
+        className="flex justify-center"
         aria-hidden
       >
-        <CinderpawMascot state="wave" />
+        <CinderpawMascot state="wave" size={112} />
       </motion.div>
       <h1 id="onboarding-title" className="text-3xl font-semibold text-text-primary">
         Welcome to Cinderpaw

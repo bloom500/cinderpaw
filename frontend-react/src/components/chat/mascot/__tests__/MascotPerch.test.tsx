@@ -3,7 +3,7 @@ import { render, screen, act, fireEvent } from '@testing-library/react';
 import { MascotPerch } from '../MascotPerch';
 import { useUI } from '@/stores/ui';
 
-// The sprite is a canvas, which jsdom cannot draw. What this file is about is
+// The creature's own drawing is covered in CinderpawMascot.test. What this file is about is
 // WHICH state the perch decides to show, so the creature is replaced by a
 // element that simply prints the state it was handed.
 vi.mock('../CinderpawMascot', () => ({
