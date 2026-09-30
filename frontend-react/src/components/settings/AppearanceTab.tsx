@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { tauri } from '@/lib/tauri';
 import { useNotifications } from '@/stores/notifications';
 import { useSettings } from '@/stores/settings';
+import { emberAvailability } from '@/components/chat/ember/emberAvailability';
 
 /**
  * Settings > Appearance (spec 7.4, canvas "Settings: appearance"): theme cards
@@ -100,6 +101,12 @@ export function AppearanceTab() {
   const setChatFont = useUI((s) => s.setChatFont);
   const mascotEnabled    = useUI((s) => s.mascotEnabled);
   const setMascotEnabled = useUI((s) => s.setMascotEnabled);
+  const emberGameEnabled    = useUI((s) => s.emberGameEnabled);
+  const setEmberGameEnabled = useUI((s) => s.setEmberGameEnabled);
+  const [emberBlocked, setEmberBlocked] = useState<string | null>(null);
+  useEffect(() => {
+    void emberAvailability().then((a) => setEmberBlocked(a.ok ? null : a.reason));
+  }, []);
 
   // Glass is the see-through window material over the desktop; Solid paints
   // the app on its own ground, the way the call screen already is. Solid is
@@ -208,6 +215,34 @@ export function AppearanceTab() {
             className={cn(
               'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200',
               mascotEnabled ? 'translate-x-[18px]' : 'translate-x-[2px]',
+            )}
+          />
+        </button>
+      </div>
+
+      <div className="flex max-w-[616px] items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-text-primary">Campfire game</p>
+          <p className="text-xs text-text-muted mt-0.5">
+            {emberBlocked ?? 'A small game Cinderpaw offers while the agent works on a long task'}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={emberGameEnabled && !emberBlocked}
+          aria-label="Toggle campfire game"
+          disabled={!!emberBlocked}
+          onClick={() => setEmberGameEnabled(!emberGameEnabled)}
+          className={cn(
+            'inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+            emberGameEnabled && !emberBlocked ? 'bg-brand hover:bg-brand-hover' : 'bg-border-default hover:bg-bg-hover',
+          )}
+        >
+          <span
+            className={cn(
+              'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200',
+              emberGameEnabled && !emberBlocked ? 'translate-x-[18px]' : 'translate-x-[2px]',
             )}
           />
         </button>

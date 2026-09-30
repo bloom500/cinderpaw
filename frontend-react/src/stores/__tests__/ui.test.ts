@@ -76,3 +76,18 @@ describe('useUI: theme default', () => {
     expect(useUI.getInitialState().theme).toBe('system');
   });
 });
+
+describe('useUI: the campfire game', () => {
+  it('is offered by default, and its best score only goes up', () => {
+    expect(useUI.getState().emberGameEnabled).toBe(true);
+    useUI.getState().recordEmberScore(30);
+    useUI.getState().recordEmberScore(12);
+    expect(useUI.getState().emberBest).toBe(30);
+  });
+
+  it('keeps its setting and best score across launches', () => {
+    const saved = useUI.persist.getOptions().partialize!(useUI.getState()) as Record<string, unknown>;
+    expect(saved).toHaveProperty('emberGameEnabled');
+    expect(saved).toHaveProperty('emberBest');
+  });
+});

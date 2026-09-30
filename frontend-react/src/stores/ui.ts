@@ -100,6 +100,13 @@ interface UIStore {
   /** #24: pixel-art mascot on the typing bar. Some users want it off. */
   mascotEnabled: boolean;
   setMascotEnabled: (v: boolean) => void;
+  /** The campfire mini-game's icon during long tasks. On by default: it is
+   *  only an icon, and nothing opens unless it is clicked. */
+  emberGameEnabled: boolean;
+  setEmberGameEnabled: (v: boolean) => void;
+  /** The biggest fire this person has kept going. */
+  emberBest: number;
+  recordEmberScore: (score: number) => void;
   chatFont: ChatFont;
   setChatFont: (f: ChatFont) => void;
   /** On-device transcription model id, from the Rust catalog. `''` until the
@@ -226,6 +233,10 @@ export const useUI = create<UIStore>()(
       setInputMode: (inputMode) => set({ inputMode }),
       mascotEnabled: true,
       setMascotEnabled: (mascotEnabled) => set({ mascotEnabled }),
+      emberGameEnabled: true,
+      setEmberGameEnabled: (emberGameEnabled) => set({ emberGameEnabled }),
+      emberBest: 0,
+      recordEmberScore: (score) => set((s) => (score > s.emberBest ? { emberBest: score } : {})),
       chatFont: 'geist',
       setChatFont: (chatFont) => set({ chatFont }),
       // Empty, not 'small'. A default that names a specific model is a promise
@@ -266,6 +277,8 @@ export const useUI = create<UIStore>()(
         // agent's own tools.
         inputMode: s.inputMode,
         mascotEnabled: s.mascotEnabled,
+        emberGameEnabled: s.emberGameEnabled,
+        emberBest: s.emberBest,
         chatFont: s.chatFont,
         sttModel: s.sttModel,
         sttProvider: s.sttProvider,
