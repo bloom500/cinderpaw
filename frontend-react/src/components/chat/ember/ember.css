@@ -1,0 +1,13 @@
+/* The campfire icon flickers; someone who asked for less motion gets a still fire. */
+.ember-flame {
+  transform-box: view-box;
+  transform-origin: 14px 21px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ember-flame { animation: ember-flicker 1.3s ease-in-out infinite; }
+}
+@keyframes ember-flicker {
+  0%, 100% { transform: scale(1, 1) skewX(0deg); }
+  30% { transform: scale(0.94, 1.06) skewX(-3deg); }
+  60% { transform: scale(1.04, 0.96) skewX(2deg); }
+}

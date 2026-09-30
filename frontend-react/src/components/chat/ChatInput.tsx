@@ -19,6 +19,9 @@ import { ContextRing } from './ContextRing';
 import { ToolsMenu } from './ToolsMenu';
 import { MascotPerch } from './mascot/MascotPerch';
 import { useMascotState } from './mascot/useMascotState';
+import { useEmberRun } from './ember/useEmberRun';
+import { EmberInvite } from './ember/EmberInvite';
+import { EmberPanel } from './ember/EmberPanel';
 import { useModel } from '@/stores/model';
 import { useChat, type ChatMessage } from '@/stores/chat';
 import { useUI, type CallEngine } from '@/stores/ui';
@@ -454,6 +457,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     agentPhase,
     isUserTyping: text.trim().length > 0,
   });
+  const ember = useEmberRun();
   /**
    * No local model loaded and no cloud key configured.
    *
@@ -649,6 +653,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
         // on each side as the canvas draws it, instead of spanning the pane.
         isEmpty ? 'max-w-2xl' : 'max-w-[764px]',
       )}>
+        <EmberPanel run={ember} onClosed={() => taRef.current?.focus()} />
         <div
           ref={composerRef}
           onFocusCapture={() => setEngaged(true)}
@@ -676,6 +681,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
               spacing complaint — the fix was room above the composer, which the
               greeting now leaves. */}
           <MascotPerch baseState={mascotState} />
+          <EmberInvite run={ember} />
           {(attachedFiles.length > 0 || links.length > 0) && (
             <div className="flex flex-wrap gap-1 px-3 pt-2">
               {links.map((href) => (
