@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { ModelLogo } from '@/lib/modelLogos';
 import { extractQuant } from '@/lib/modelUtils';
+import type { HfModelSummary } from '@/lib/tauri';
 
 /**
  * The small pieces the three Models tabs share: the serif display face for
@@ -171,4 +172,21 @@ export function billionsOf(name: string): number | null {
   if (!m) return null;
   const n = Number(m[2]) * (m[1] ? Number(m[1]) : 1);
   return m[3] === 'M' ? n / 1000 : n;
+}
+
+// ── Hub filters ──────────────────────────────────────────────────────────────
+
+export type Filter = 'all' | 'text' | 'embed' | 'vision' | 'audio' | 'small';
+
+/** What a repo is for, read off its Hub tags (and its name, for size). */
+export function kindsOf(m: HfModelSummary): Set<Filter> {
+  const t = new Set(m.tags.map((s) => s.toLowerCase()));
+  const kinds = new Set<Filter>();
+  if (t.has('text-generation') || t.has('conversational')) kinds.add('text');
+  if (t.has('feature-extraction') || t.has('sentence-similarity') || /embed|bge|e5-|gte-/i.test(m.id)) kinds.add('embed');
+  if (t.has('image-text-to-text') || t.has('image-to-text') || t.has('vision') || t.has('multimodal')) kinds.add('vision');
+  if (t.has('automatic-speech-recognition') || t.has('text-to-speech') || t.has('audio') || /whisper/i.test(m.id)) kinds.add('audio');
+  const b = billionsOf(m.id.split('/').pop() ?? m.id);
+  if ((b !== null && b <= 4) || /mini|small|tiny/i.test(m.id)) kinds.add('small');
+  return kinds;
 }

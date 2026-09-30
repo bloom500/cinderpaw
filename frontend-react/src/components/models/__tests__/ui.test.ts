@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { billionsOf, makerFor, paramsOf, prettyModelName } from '../ui';
-import { kindsOf } from '../BrowseTab';
+import { billionsOf, kindsOf, makerFor, paramsOf, prettyModelName } from '../ui';
 import type { HfModelSummary } from '@/lib/tauri';
 
 describe('model names', () => {

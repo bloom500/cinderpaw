@@ -2,13 +2,11 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { LayoutGroup } from 'framer-motion';
 import { AudioLines, FileText, Image, Layers, Search, Tag, X } from 'lucide-react';
 import { HfModelCard } from './HfModelCard';
-import { BTN_OUTLINE, BTN_PRIMARY, CARD, MakerTile, Pill, SectionHeader, billionsOf, makerFor } from './ui';
+import { BTN_OUTLINE, BTN_PRIMARY, CARD, MakerTile, Pill, SectionHeader, kindsOf, makerFor, type Filter } from './ui';
 import { ModelLogo } from '@/lib/modelLogos';
 import { useDownload } from '@/stores/download';
 import { tauri, type HfModelSummary, type HfModelDetail } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
-
-type Filter = 'all' | 'text' | 'embed' | 'vision' | 'audio' | 'small';
 
 const FILTERS: { id: Filter; label: string; icon?: React.ReactNode }[] = [
   { id: 'all', label: 'All' },
@@ -18,19 +16,6 @@ const FILTERS: { id: Filter; label: string; icon?: React.ReactNode }[] = [
   { id: 'audio', label: 'Audio', icon: <AudioLines size={14} /> },
   { id: 'small', label: 'Small (≤ 4B)', icon: <Tag size={14} /> },
 ];
-
-/** What a repo is for, read off its Hub tags (and its name, for size). */
-export function kindsOf(m: HfModelSummary): Set<Filter> {
-  const t = new Set(m.tags.map((s) => s.toLowerCase()));
-  const kinds = new Set<Filter>();
-  if (t.has('text-generation') || t.has('conversational')) kinds.add('text');
-  if (t.has('feature-extraction') || t.has('sentence-similarity') || /embed|bge|e5-|gte-/i.test(m.id)) kinds.add('embed');
-  if (t.has('image-text-to-text') || t.has('image-to-text') || t.has('vision') || t.has('multimodal')) kinds.add('vision');
-  if (t.has('automatic-speech-recognition') || t.has('text-to-speech') || t.has('audio') || /whisper/i.test(m.id)) kinds.add('audio');
-  const b = billionsOf(m.id.split('/').pop() ?? m.id);
-  if ((b !== null && b <= 4) || /mini|small|tiny/i.test(m.id)) kinds.add('small');
-  return kinds;
-}
 
 export function BrowseTab() {
   const [query, setQuery]                   = useState('');
