@@ -11,6 +11,7 @@ import { StreamingIndicator } from './StreamingIndicator';
 import { ApprovalCard } from './ApprovalCard';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
 import { SYSTEM_FONT, useUI } from '@/stores/ui';
+import { useChatDockHeight } from '@/lib/chatDock';
 
 /**
  * The transcript, on shadcn's MessageScroller.
@@ -44,6 +45,7 @@ export function MessageList({ onFollowUp }: {
   const agentTool = useChat((s) => s.agentTool);
   // Settings > Appearance > Chat font. Code keeps its own monospace face.
   const chatFont = useUI((s) => s.chatFont);
+  const dockH = useChatDockHeight();
 
   // Approval requests belong to the chat they were raised in, as cards in its
   // transcript (spec 7.5). Other chats' requests reach the person through the
@@ -80,7 +82,7 @@ export function MessageList({ onFollowUp }: {
           <MessageScroller.Content
             className="max-w-[748px] mx-auto px-6 py-6 flex flex-col gap-7"
             style={{
-              paddingBottom: 'calc(var(--chat-dock-h, 10rem) + 2rem)',
+              paddingBottom: dockH === null ? '12rem' : `${dockH + 32}px`,
               ...(chatFont === 'system' ? { fontFamily: SYSTEM_FONT } : {}),
             }}
           >
@@ -136,13 +138,14 @@ export function MessageList({ onFollowUp }: {
 /**
  * Shown only while there is transcript below the fold, with how many messages
  * arrived while you were up there. Offset by the composer's MEASURED height
- * (`--chat-dock-h`, published by ChatPage): a flat 80px was right for a
+ * (lib/chatDock.ts, published by ChatPage): a flat 80px was right for a
  * one-line draft and hidden behind a three-line one.
  */
 function JumpToBottom({ count }: { count: number }) {
   const { end: below } = useMessageScrollerScrollable();
   const seen = useRef(count);
   const [unread, setUnread] = useState(0);
+  const dockH = useChatDockHeight();
 
   useEffect(() => {
     if (!below) {
@@ -160,7 +163,7 @@ function JumpToBottom({ count }: { count: number }) {
         state.active ? (
           <button
             {...props}
-            style={{ bottom: 'calc(var(--chat-dock-h, 5rem) + 0.75rem)' }}
+            style={{ bottom: dockH === null ? '5.75rem' : `${dockH + 12}px` }}
             className="absolute left-1/2 -translate-x-1/2 z-10 rounded-full bg-(--surface-typing) text-text-primary text-xs px-3 py-1.5 shadow-sm hover:bg-bg-hover flex items-center gap-1.5 border border-border-default"
           >
             ↓ {unread > 0 ? `${unread} new` : 'Jump to bottom'}

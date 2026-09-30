@@ -4,6 +4,7 @@ import { open } from '@tauri-apps/plugin-shell';
 import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { MessageList } from '../MessageList';
+import { setChatDockHeight } from '@/lib/chatDock';
 import { CallToolScreen } from '../CallToolScreen';
 import { MessageToolWidgets } from '../MessageToolWidgets';
 import { startActivity, finishActivity } from '@/hooks/useLiveToolActivity';
@@ -121,10 +122,13 @@ describe('chat tool widgets', () => {
     it('clears the composer by its measured height, never a fixed number', () => {
       // `bottom-20` was a flat 80px: right for a one-line draft, wrong the
       // moment the composer grew. The height is published by ChatPage.
+      setChatDockHeight(140);
       const { container } = render(<MessageList />);
       scrollUp(container);
       const button = screen.getByRole('button', { name: /Jump to bottom|new/ });
-      expect(button.style.bottom).toContain('var(--chat-dock-h');
+      expect(button.style.bottom).toBe('152px');
+      act(() => setChatDockHeight(200));
+      expect(button.style.bottom).toBe('212px');
       expect(button.className).not.toMatch(/bottom-\d/);
     });
 

@@ -33,6 +33,7 @@ import { CoworkerStrip } from '@/components/chat/CoworkerStrip';
 import { useCinderpawSendMessage } from '@/hooks/useCinderpaw';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { readLocal } from '@/lib/utils';
+import { setChatDockHeight } from '@/lib/chatDock';
 
 export function ChatPage() {
   const { id } = useParams();
@@ -134,9 +135,8 @@ export function ChatPage() {
     }
   }, [isEmpty, showAgentOnboarding]);
 
-  // Publish the composer's real height as `--chat-dock-h` on the positioning
-  // container, so anything floating above the composer can clear it in plain
-  // CSS instead of guessing.
+  // Publish the composer's real height (lib/chatDock.ts), so anything floating
+  // above the composer can clear it instead of guessing.
   //
   // The guess is the bug this removes. "Jump to bottom" cleared a hard-coded
   // 80px, the cowork panel used to clear a hard-coded 88px, and the dock is
@@ -153,9 +153,7 @@ export function ChatPage() {
     const container = containerRef.current;
     const wrapper   = inputWrapperRef.current;
     if (!container || !wrapper) return;
-    const publish = () => {
-      container.style.setProperty('--chat-dock-h', `${wrapper.offsetHeight}px`);
-    };
+    const publish = () => setChatDockHeight(wrapper.offsetHeight);
     publish();
     // Guarded: jsdom and older WebViews have no ResizeObserver, and a missing
     // one must leave the initial measurement standing rather than throw.
