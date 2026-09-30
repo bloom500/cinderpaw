@@ -21,6 +21,15 @@ var squash_v := 0.0
 var facing := 1.0
 var tex_normal: Texture2D = preload("res://art/cheer.png")
 var tex_flinch: Texture2D = preload("res://art/surprised.png")
+var rig: Rig
+var _t := 0.0
+var _horn := 0.0
+var _horn_v := 0.0
+
+func _ready() -> void:
+	rig = Rig.new()
+	rig.build(JSON.parse_string(FileAccess.get_file_as_string("res://rig/rig.json")), tex_normal, HEIGHT)
+	add_child(rig)
 
 func step(dt: float, input: Dictionary) -> void:
 	var dir := int(input.get("right", false)) - int(input.get("left", false))
@@ -48,6 +57,18 @@ func step(dt: float, input: Dictionary) -> void:
 	position.x = clampf(position.x, MIN_X, MAX_X)
 	squash_v += (-(squash - 1.0) * 220.0 - squash_v * 14.0) * dt  # springs back with a little wobble
 	squash += squash_v * dt
+	# The rig follows the body a beat late: horns and arms flop on the hops, the tail swings.
+	_t += dt
+	_horn_v += (-(_horn - clampf(-vel.y * 0.03, -12.0, 12.0)) * 90.0 - _horn_v * 8.0) * dt
+	_horn += _horn_v * dt
+	rig.visible = stunned <= 0.0
+	rig.scale = Vector2(facing / sqrt(maxf(squash, 0.4)), squash)
+	rig.bend("head", clampf(vel.x * 0.02, -6.0, 6.0))
+	rig.bend("horn_l", -_horn)
+	rig.bend("horn_r", _horn)
+	rig.bend("arm_l", -_horn * 0.8 + sin(_t * 6.0) * 4.0)
+	rig.bend("arm_r", _horn * 0.8 - sin(_t * 6.0) * 4.0)
+	rig.bend("tail", sin(_t * 5.0) * 10.0 - vel.x * 0.03)
 	queue_redraw()
 
 func catches(p: Vector2) -> bool:
@@ -58,7 +79,8 @@ func flinch() -> void:
 	squash = 1.2
 
 func _draw() -> void:
-	var tex := tex_flinch if stunned > 0.0 else tex_normal
-	var w := HEIGHT * tex.get_width() / tex.get_height()
+	if stunned <= 0.0:
+		return  # the rig draws Cinderpaw
+	var w := HEIGHT * tex_flinch.get_width() / tex_flinch.get_height()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(facing / sqrt(maxf(squash, 0.4)), squash))
-	draw_texture_rect(tex, Rect2(-w / 2.0, -HEIGHT, w, HEIGHT), false)
+	draw_texture_rect(tex_flinch, Rect2(-w / 2.0, -HEIGHT, w, HEIGHT), false)

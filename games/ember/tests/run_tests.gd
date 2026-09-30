@@ -6,7 +6,7 @@ extends SceneTree
 ## early (every suite's run() ends with `return true`), 2 when one hung. A script error aborts _initialize before quit() and would leave
 ## Godot idling forever (a CI job hung for hours), so a watchdog ends the run.
 
-const SUITES := ["res://tests/test_bridge.gd", "res://tests/test_rules.gd", "res://tests/test_world.gd"]
+const SUITES := ["res://tests/test_bridge.gd", "res://tests/test_rules.gd", "res://tests/test_world.gd", "res://tests/test_rig.gd"]
 const WATCHDOG_S := 20.0
 var failed := 0
 
