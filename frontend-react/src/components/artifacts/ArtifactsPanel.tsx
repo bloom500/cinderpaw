@@ -6,7 +6,6 @@ import {
   ArtifactAction,
   ArtifactActions,
   ArtifactClose,
-  ArtifactDescription,
   ArtifactHeader,
   ArtifactTitle,
 } from '@/components/ai-elements/artifact';
@@ -234,14 +233,12 @@ export function ArtifactsPanel({
         {open ? (
           <div className="flex min-w-[10rem] flex-1 items-center gap-2">
             {!editing && <ArtifactAction tooltip="Back to the list" icon={ArrowLeft} onClick={close} />}
-            <div className="min-w-0 flex-1">
-              <ArtifactTitle className="truncate">{open.row.title}</ArtifactTitle>
-              {/* What it is and how fresh, where the eye already is. The list rows
-                  say the same for each item; the header says it for the one open. */}
-              <ArtifactDescription className="truncate text-2xs">
-                {`${open.row.kind} · v${open.row.version} · updated ${when(open.row.updatedAt)}`}
-              </ArtifactDescription>
-            </div>
+            {/* The board's header: a tile and "Artifact". The name, kind and
+                freshness are the overview's first lines, right under it. */}
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border-default bg-bg-elevated text-brand">
+              <FileBox size={16} />
+            </span>
+            <ArtifactTitle className="truncate font-display text-lg font-normal">Artifact</ArtifactTitle>
           </div>
         ) : (
           <PanelTitle
@@ -877,8 +874,12 @@ function Overview({ googleRegistered, onOpen }: { googleRegistered: boolean; onO
               <look.icon size={40} className="text-brand" />
             </div>
           ) : (
-            <div className="pointer-events-none flex min-h-0 flex-1 flex-col">
-              <Preview kind={row.kind} title={row.title} content={content} />
+            // A thumbnail of the real thing: laid out at 1/0.55 of the card and
+            // scaled down, so it reads as a page rather than as large text.
+            <div className="pointer-events-none min-h-0 flex-1 overflow-hidden bg-white">
+              <div className="flex h-[182%] w-[182%] origin-top-left scale-[0.55] flex-col">
+                <Preview kind={row.kind} title={row.title} content={content} />
+              </div>
             </div>
           )}
           <span className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-bg-elevated to-transparent" />
@@ -1031,5 +1032,7 @@ function when(ms: number): string {
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d ago`;
   return new Date(ms).toLocaleDateString();
 }
