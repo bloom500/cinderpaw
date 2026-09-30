@@ -29,7 +29,9 @@ function ExpandableTable({ children, ...props }: React.HTMLAttributes<HTMLTableE
         >
           <Maximize2 size={12} />
         </button>
-        <div className="overflow-x-auto -mx-1">
+        {/* No negative margin: a message row is `content-visibility: auto`,
+            which clips at its edge, and -mx-1 cut the first column's text. */}
+        <div className="overflow-x-auto">
           <table {...(props as any)}>{children}</table>
         </div>
       </div>

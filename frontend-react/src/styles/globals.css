@@ -1394,6 +1394,37 @@ body::after {
 [data-theme="light"] .hljs-addition { color: #22863a; background-color: #f0fff4; }
 [data-theme="light"] .hljs-deletion { color: #b31d28; background-color: #ffeef0; }
 
+/*
+ * A fenced block in a message. Both highlight.js themes put their padding and
+ * background on `pre code.hljs`, but the atom-one-dark import sits in
+ * layer(base) and typography's `pre code { padding: 0; background:
+ * transparent }` is a utility, so it won: code ran flush against the edge of
+ * its box in light, and had no box at all in dark. Unlayered here, on the
+ * palette's raised surface in both themes.
+ */
+.prose pre > code.hljs {
+  display: block;
+  padding: 12px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+/*
+ * Typography's greys are cool (slate): blue-grey bullets, list numbers and
+ * table rules on a warm page. Its `prose-invert` swaps these per theme from
+ * the utilities layer; unlayered, the palette's own tokens win in both.
+ */
+.prose {
+  --tw-prose-bullets: var(--text-disabled);
+  --tw-prose-counters: var(--text-muted);
+  --tw-prose-hr: var(--border-default);
+  --tw-prose-quote-borders: var(--border-default);
+  --tw-prose-th-borders: var(--border-default);
+  --tw-prose-td-borders: var(--border-subtle);
+  --tw-prose-captions: var(--text-muted);
+}
+
 /* Blinking caret, used by the terminal caret below. */
 @keyframes cursor-blink {
   0%, 100% { opacity: 1; }
