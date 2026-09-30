@@ -66,9 +66,12 @@ Cinderpaw is one repo, three runtimes, three languages:
   - `src/lib/streamControl.ts` — the **only** stop entry point UI code may call.
 - **IPC:** typed wrappers in `src/lib/tauri/index.ts`. Never call `invoke()`
   ad-hoc from components — add a typed wrapper.
-- **Mascot:** `src/components/chat/mascot/` — pixel frames in `frames.ts`,
-  procedural particle effects in `effects.ts`, canvas renderer in
-  `CinderpawMascot.tsx`, idle choreography in `MascotPerch.tsx`.
+- **Mascot:** `src/components/chat/mascot/` — an SVG creature in
+  `CinderpawMascot.tsx` (one `POSES` line per state, animated by the classes
+  in `mascot.css`; the lying-at-the-laptop pose is traced art in
+  `lyingPose.ts`), the state names in `frames.ts`, idle choreography in
+  `MascotPerch.tsx`. The old pixel sheet (`sheet.png`, the frame lists in
+  `frames.ts`) is no longer drawn.
 
 ### src-tauri/ — the Rust host
 
