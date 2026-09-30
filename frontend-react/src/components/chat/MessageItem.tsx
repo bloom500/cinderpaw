@@ -1,6 +1,5 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, useReducedMotion } from 'framer-motion';
 import logoUrl from '@/assets/logo.svg';
 import { AlertTriangle, FileText, File as FileIcon, Image as ImageIcon, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -117,17 +116,16 @@ function MessageAttachmentChip({ attachment }: { attachment: DisplayAttachment }
  * `prefers-reduced-motion` makes it still throughout.
  */
 export function ReplyHead({ writing }: { writing: boolean }) {
-  const reduced = useReducedMotion();
-  const moving = writing && !reduced;
+  // A CSS animation (`.reply-head-writing`, globals.css), not framer-motion:
+  // separate y and rotate values are driven from script, a style write on
+  // every frame of every reply; a keyframed transform runs on the compositor.
   return (
-    <motion.img
+    <img
       src={logoUrl}
       alt=""
       data-testid="reply-head"
       data-writing={writing}
-      className="h-7 w-7 shrink-0"
-      animate={moving ? { y: [0, -3, 0], rotate: [0, -5, 0] } : { y: 0, rotate: 0 }}
-      transition={moving ? { duration: 1.1, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.15 }}
+      className={cn('h-7 w-7 shrink-0', writing && 'reply-head-writing')}
     />
   );
 }

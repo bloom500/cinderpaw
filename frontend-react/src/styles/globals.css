@@ -1467,6 +1467,18 @@ body { overflow: hidden; }
   .word-fade { animation: none; }
 }
 
+/* The logo head under a reply that is still being written (MessageItem's
+   ReplyHead): a small bob and tilt, as one keyframed transform so the
+   compositor runs it. Still with reduced motion. */
+@keyframes reply-head-write {
+  0%, 100% { transform: none; }
+  50%      { transform: translateY(-3px) rotate(-5deg); }
+}
+.reply-head-writing { animation: reply-head-write 1.1s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .reply-head-writing { animation: none; }
+}
+
 /* Call-surface colours that the base palette has no entry for, per theme and in
    this file's own convention — the store always stamps `data-theme`, so there is
    no bare-root case to cover.

@@ -739,7 +739,11 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
               {text.length === 0 && rec.state !== 'preview' && (
                 <div aria-hidden className="pointer-events-none absolute inset-x-2 top-3 overflow-hidden text-base leading-6">
                   <ComposerPlaceholder
-                    active={!engaged && !disabled}
+                    // Cycling examples are onboarding: on Home and a new chat.
+                    // In a conversation they ran for as long as it was open,
+                    // forty blurred letters every 3.2 s behind the transcript
+                    // and every streamed reply; there the field says what it is.
+                    active={!!isEmpty && !engaged && !disabled}
                     fallback={alwaysEnabled ? t('chat.placeholder.agent') : t('chat.placeholder')}
                   />
                 </div>
