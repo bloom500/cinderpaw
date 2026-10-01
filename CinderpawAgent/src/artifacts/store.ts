@@ -58,10 +58,12 @@ export type ArtifactKind =
   /** A Word file, kept byte for byte so a form stays the form. See docx.ts. */
   | "docx"
   | "image"
+  /** JSON blocks the app draws as a board (spec 2026-10-01). See board.ts. */
+  | "board"
   | "file";
 
 const KINDS: ReadonlySet<string> = new Set<ArtifactKind>([
-  "document", "markdown", "app", "table", "code", "json", "html", "pdf", "docx", "image", "file",
+  "document", "markdown", "app", "table", "code", "json", "html", "pdf", "docx", "image", "board", "file",
 ]);
 
 /**
@@ -86,7 +88,7 @@ export function isArtifactKind(v: unknown): v is ArtifactKind {
  * instead, rather than writing a .pdf file full of prose that no reader opens.
  */
 const TEXT_KINDS: ReadonlySet<ArtifactKind> = new Set<ArtifactKind>([
-  "document", "markdown", "app", "table", "code", "json", "html", "file",
+  "document", "markdown", "app", "table", "code", "json", "html", "board", "file",
 ]);
 
 const EXT: Record<ArtifactKind, string> = {
@@ -100,6 +102,7 @@ const EXT: Record<ArtifactKind, string> = {
   pdf: ".pdf",
   docx: ".docx",
   image: ".png",
+  board: ".board.json",
   file: ".bin",
 };
 
@@ -114,6 +117,7 @@ const MIME: Record<ArtifactKind, string> = {
   pdf: "application/pdf",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   image: "image/png",
+  board: "application/json",
   file: "application/octet-stream",
 };
 

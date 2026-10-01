@@ -25,6 +25,7 @@ import {
 } from "../egress/tool-permissions.ts";
 import { ArtifactStore, looksLikeHtml, type Artifact } from "./store.ts";
 import { inlineApp } from "./app.ts";
+import { boardToMarkdown, validateBoard } from "./board.ts";
 import { pdfFromMarkdown } from "./pdf.ts";
 import { docxFromMarkdown, tableRows, xlsxFromRows } from "./office.ts";
 import { htmlToText } from "../tools/builtin/fetch-url.ts";
@@ -125,7 +126,10 @@ export async function artifactFile(
   if (as === "pdf" || as === "docx") {
     const text = readText();
     if (text === null) throw new Error(`Artifact ${a.id} has no readable content.`);
-    const md = (a.kind === "document" || a.kind === "html" || a.kind === "app") && looksLikeHtml(text) ? htmlToMarkdown(text) : text;
+    const board = a.kind === "board" ? validateBoard(text, a.title).board : null;
+    const md = board
+      ? boardToMarkdown(board)
+      : (a.kind === "document" || a.kind === "html" || a.kind === "app") && looksLikeHtml(text) ? htmlToMarkdown(text) : text;
     return {
       name: `${safeFileName(a.title)}.${as}`,
       content: as === "pdf" ? await pdfFromMarkdown(md, a.title) : await docxFromMarkdown(md, a.title),

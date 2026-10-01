@@ -42,6 +42,7 @@ import {
   type ArtifactKind,
 } from "../../artifacts/store.ts";
 import { APP_AUTHORING_BRIEF } from "../../artifacts/app.ts";
+import { BOARD_BRIEF, validateBoard } from "../../artifacts/board.ts";
 import {
   applyPdfEdits,
   isPdf,
@@ -78,6 +79,20 @@ export function activeWorkspaceId(db: Database): string {
   // pointer at all, so check the row actually exists rather than trusting the id.
   if (active && getWorkspace(db, active)) return active;
   return ensureWorkspace(db, "default").id;
+}
+
+/**
+ * A board's text as it is stored (validated, normalised JSON), or the reason it
+ * cannot be one, said so the agent can fix it. Dropped blocks are named in a
+ * note: the board is kept, and the agent learns which parts did not make it.
+ */
+function boardContent(content: string, title: string): { text?: string; note?: string; error?: string } {
+  const { board, dropped, error } = validateBoard(content, title);
+  if (!board) {
+    return { error: `artifact: this board cannot be drawn: ${error}${dropped.length ? `; dropped blocks ${dropped.join(", ")}` : ""}. Check the board shape in the artifact_create description.` };
+  }
+  const note = dropped.length ? ` Blocks ${dropped.join(", ")} did not fit their shape and were left out; fix them with artifact_edit.` : "";
+  return { text: JSON.stringify(board, null, 1), note };
 }
 
 /**
@@ -179,7 +194,9 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       "rows), code, json, html, file, pdf (write the content as markdown: # headings, " +
       "paragraphs, - lists; it becomes a real A4 PDF the user can sign and fill in the panel).\n\n" +
       "app = " + APP_AUTHORING_BRIEF + " Charts are apps: there is no separate " +
-      "chart kind, because a chart is an app with no controls.",
+      "chart kind, because a chart is an app with no controls.\n\n" +
+      "Prefer a board for anything the user will look at rather than read: a plan, a dashboard, a diagram, " +
+      "an itinerary, a campaign. " + BOARD_BRIEF,
     permissions: ["fs:write", "fs:read"],
     networkAccess: false,
     allowedPaths: [deps.store.root],
@@ -191,7 +208,7 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       kind: {
         type: "string",
         description:
-          "markdown | document | app | table | code | json | html | file | pdf. " +
+          "markdown | document | app | board | table | code | json | html | file | pdf. " +
           "Pick 'markdown' for anything the user will read; 'pdf' when they asked for a PDF.",
         required: true,
       },
@@ -229,10 +246,13 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
         return { ok: false, error: "bad_args", content: "artifact_create: 'content' is required." };
       }
 
+      const checked = kind === "board" ? boardContent(content, title) : null;
+      if (checked?.error) return { ok: false, error: "bad_args", content: checked.error };
+
       const a = deps.store.create({
         kind,
         title,
-        content: kind === "pdf" ? await pdfFromMarkdown(content, title) : content,
+        content: kind === "pdf" ? await pdfFromMarkdown(content, title) : checked?.text ?? content,
         workspaceId: activeWorkspaceId(deps.db),
         sessionId: ctx.sessionId,
         // Provenance, so a later "the report I made on WhatsApp" has something
@@ -248,7 +268,7 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
         : "";
       return {
         ok: true,
-        content: `Created ${a.kind} "${a.title}" — id ${a.id} (v1, ${a.bytes} bytes).${warning}`,
+        content: `Created ${a.kind} "${a.title}" — id ${a.id} (v1, ${a.bytes} bytes).${warning}${checked?.note ?? ""}`,
         data: { id: a.id, kind: a.kind, title: a.title, version: a.version },
       };
     },
@@ -560,10 +580,12 @@ export function createArtifactEditTool(deps: ArtifactToolDeps): Tool {
             data: { id, version: updated!.version, title: updated!.title, kind: updated!.kind },
           };
         }
-        const updated = deps.store.write(id, args.content, ctx.sessionId, note ?? "rewrote");
+        const board = existing.kind === "board" ? boardContent(args.content, existing.title) : null;
+        if (board?.error) return { ok: false, error: "bad_args", content: board.error };
+        const updated = deps.store.write(id, board?.text ?? args.content, ctx.sessionId, note ?? "rewrote");
         return {
           ok: true,
-          content: `Rewrote "${updated!.title}" — now v${updated!.version} (${updated!.bytes} bytes).`,
+          content: `Rewrote "${updated!.title}" — now v${updated!.version} (${updated!.bytes} bytes).${board?.note ?? ""}`,
           data: { id, version: updated!.version, title: updated!.title, kind: updated!.kind },
         };
       }
@@ -593,10 +615,13 @@ export function createArtifactEditTool(deps: ArtifactToolDeps): Tool {
       // First occurrence only. A blind replace-all is how a one-word anchor
       // silently rewrites a document in ten places the user never looked at.
       const next = current.replace(find, replace);
-      const updated = deps.store.write(id, next, ctx.sessionId, note ?? "edited");
+      // A board is JSON: an edit that breaks it is refused here, not drawn as a blank later.
+      const board = existing.kind === "board" ? boardContent(next, existing.title) : null;
+      if (board?.error) return { ok: false, error: "bad_args", content: board.error };
+      const updated = deps.store.write(id, board?.text ?? next, ctx.sessionId, note ?? "edited");
       return {
         ok: true,
-        content: `Edited "${updated!.title}" — now v${updated!.version} (${updated!.bytes} bytes).`,
+        content: `Edited "${updated!.title}" — now v${updated!.version} (${updated!.bytes} bytes).${board?.note ?? ""}`,
         data: { id, version: updated!.version, title: updated!.title, kind: updated!.kind },
       };
     },
