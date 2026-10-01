@@ -25,6 +25,11 @@ describe('ChatWidget', () => {
     expect(screen.getByText('My take')).toBeTruthy();
 
     rerender(<ChatWidget w={{ kind: 'breakdown', total: 2000, items: [{ label: 'Flights', value: 900 }] }} />);
+    // The widget prints the number in the machine's own locale, so the test
+    // has to ask for it the same way. Hard-coding the English "2,000" made
+    // this fail on every machine whose locale writes a dot instead
+    // (`(2000).toLocaleString()` is "2.000" under ro-RO), which is why
+    // verify.sh was red on this box while the widget itself was right.
     expect(screen.getByText(`Total ${(2000).toLocaleString()}`)).toBeTruthy();
 
     rerender(<ChatWidget w={{ kind: 'cards', items: [{ title: 'Aventon', imageFile: '/p/a.jpg' }, { title: 'Ride1Up' }] }} />);

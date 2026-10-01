@@ -19,11 +19,13 @@ vi.mock('@/lib/tauri', () => ({
 }));
 
 import { useSettings } from '@/stores/settings';
+import { useModel } from '@/stores/model';
 import { tauri } from '@/lib/tauri';
 
 const mockGet      = vi.mocked(tauri.settings.get);
 const mockSave     = vi.mocked(tauri.settings.save);
 const mockGetByok  = vi.mocked(tauri.raw.getByokSettings);
+const mockSaveByok = vi.mocked(tauri.raw.saveByokProvider);
 const mockTestByok = vi.mocked(tauri.raw.testByokProvider);
 
 const sample = {
@@ -41,8 +43,10 @@ const sample = {
   active_route: null, cloud_fallback_enabled: false,
 };
 
-const reset = () =>
+const reset = () => {
   useSettings.setState({ settings: null, byok: [], loading: false, saving: false, saved: false });
+  useModel.setState({ roles: {}, cloudModel: null });
+};
 
 describe('useSettings', () => {
   beforeEach(() => { reset(); vi.clearAllMocks(); });
@@ -119,6 +123,46 @@ describe('useSettings', () => {
     await useSettings.getState().setRsiBudget(2.5);
     expect(spy).toHaveBeenCalledWith(2.5);
     expect(useSettings.getState().settings?.rsi_max_cost_usd).toBe(2.5);
+  });
+
+  it('saving a new default model carries it into Roles and the chat', async () => {
+    // Models > Cloud says "choose the model each provider answers with".
+    // Roles copies that value, so a change made there has to arrive here too,
+    // or the user edits the same choice in two places and the two drift.
+    const provider = (default_model: string | null) => ({
+      id: 'openrouter', name: 'OpenRouter', provider: 'openrouter',
+      enabled: true, has_api_key: true, base_url: null, default_model,
+    });
+    const OLD = 'z-ai/glm-5.3-flash';
+    const NEW = 'anthropic/claude-sonnet-4.5';
+
+    mockGetByok.mockResolvedValue([provider(OLD)] as any);
+    await useSettings.getState().fetchByok();
+
+    useModel.setState({
+      roles: {
+        // seeded from the default, so it follows it
+        deep: { kind: 'cloud', providerId: 'openrouter', providerName: 'OpenRouter', modelId: OLD },
+        // typed by hand, so it does not
+        fast: { kind: 'cloud', providerId: 'openrouter', providerName: 'OpenRouter', modelId: 'openrouter/pinned' },
+      },
+      cloudModel: { providerId: 'openrouter', providerName: 'OpenRouter', modelId: OLD },
+    });
+
+    mockSaveByok.mockResolvedValue(undefined);
+    mockGetByok.mockResolvedValue([provider(NEW)] as any);
+    await useSettings.getState().saveByokProvider({
+      providerId: 'openrouter', enabled: true, apiKey: '', baseUrl: null, defaultModel: NEW,
+    });
+
+    expect(mockSaveByok).toHaveBeenCalledWith('openrouter', true, '', null, NEW);
+    expect(useModel.getState().roles.deep).toEqual(
+      { kind: 'cloud', providerId: 'openrouter', providerName: 'OpenRouter', modelId: NEW },
+    );
+    expect(useModel.getState().roles.fast).toEqual(
+      { kind: 'cloud', providerId: 'openrouter', providerName: 'OpenRouter', modelId: 'openrouter/pinned' },
+    );
+    expect(useModel.getState().cloudModel?.modelId).toBe(NEW);
   });
 });
 

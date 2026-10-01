@@ -37,6 +37,11 @@ interface ModelStore {
   setCloudModel: (m: CloudModel | null) => void;
   setInferParams: (patch: Partial<InferParamsUI>) => void;
   setRole: (role: Role, m: RoleModel | null) => void;
+  /** A provider's default model changed on the Cloud tab. Anything that was
+   *  showing the OLD default — a role seeded from it, or the model the chat is
+   *  answering with — is moved to the new one, so the choice is made in one
+   *  place instead of once per row that mirrors it. */
+  followProviderDefault: (providerId: string, previousDefault: string | null, nextDefault: string | null) => void;
   /** Persist a context-window choice for a model and reload it at that size
    *  (the KV cache is allocated at load time, so changing it needs a reload). */
   setModelContext: (path: string, tokens: number) => Promise<void>;
@@ -120,6 +125,34 @@ export const useModel = create<ModelStore>()(persist((set) => ({
     const roles = { ...s.roles };
     if (m) roles[role] = m; else delete roles[role];
     return { roles };
+  }),
+
+  followProviderDefault: (providerId, previousDefault, nextDefault) => set((s) => {
+    // Nothing was mirroring a default that did not exist, and a save that
+    // carries no model (saving only a key, say) changes nothing that mirrors
+    // one.
+    if (!previousDefault || !nextDefault || previousDefault === nextDefault) return {};
+
+    // Only values that matched the OLD default move. A role pointed at a
+    // different model of the same provider was typed there on purpose, and
+    // overwriting it would throw away a choice the user already made.
+    const roles = { ...s.roles };
+    let moved = false;
+    for (const key of Object.keys(roles) as Role[]) {
+      const m = roles[key];
+      if (m && m.kind === 'cloud' && m.providerId === providerId && m.modelId === previousDefault) {
+        roles[key] = { ...m, modelId: nextDefault };
+        moved = true;
+      }
+    }
+
+    const cloud = s.cloudModel;
+    const cloudFollows = !!cloud && cloud.providerId === providerId && cloud.modelId === previousDefault;
+    if (!moved && !cloudFollows) return {};
+    return {
+      roles,
+      cloudModel: cloudFollows && cloud ? { ...cloud, modelId: nextDefault } : cloud,
+    };
   }),
 
   setModelContext: async (path, tokens) => {

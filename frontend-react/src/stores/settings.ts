@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { tauri, type Settings, type ByokProvider } from '@/lib/tauri';
+import { useModel } from '@/stores/model';
 
 export type { ByokProvider };
 
@@ -172,8 +173,12 @@ export const useSettings = create<SettingsStore>()((set, get) => ({
   },
 
   saveByokProvider: async (p) => {
+    // Read the old default BEFORE the write. Roles and the chat hold a copy of
+    // it, and moving a copy needs to know which one it was copying.
+    const previousDefault = get().byok.find((b) => b.id === p.providerId)?.default_model ?? null;
     await tauri.raw.saveByokProvider(p.providerId, p.enabled, p.apiKey, p.baseUrl, p.defaultModel);
     await get().fetchByok();
+    useModel.getState().followProviderDefault(p.providerId, previousDefault, p.defaultModel ?? null);
   },
 
   removeByokProvider: async (providerId) => {
