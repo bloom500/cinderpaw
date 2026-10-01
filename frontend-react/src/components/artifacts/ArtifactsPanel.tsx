@@ -1,7 +1,7 @@
 import { panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Archive, ArchiveRestore, ArrowLeft, BookOpen, Check, Clock, Download, ExternalLink as OpenIcon, FileBox, FileUp, Loader2, MessageSquare, Pencil, Trash2, X, type LucideIcon } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, Check, ChevronDown, Clock, Download, ExternalLink as OpenIcon, FileBox, FileUp, Loader2, MessageSquare, Pencil, Trash2, X, type LucideIcon } from 'lucide-react';
 import {
   ArtifactAction,
   ArtifactActions,
@@ -29,6 +29,9 @@ function Loading() {
 }
 import { useArtifacts, googlePlan, shownKind, type ArtifactRow } from '@/stores/artifacts';
 import { ContextTab } from './ContextTab';
+import { ArtifactCover } from './ArtifactCover';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { CinderpawMascot } from '@/components/chat/mascot/CinderpawMascot';
 import { artifactKind, artifactSize } from '@/components/chat/ArtifactCard';
 import { useChatContext } from '@/hooks/useChatContext';
 import { ExternalLink } from '@/components/chat/ExternalLink';
@@ -70,12 +73,12 @@ function clampWidth(w: number, rowWidth: number): number {
 function PanelTitle({ icon: Icon, title, sub }: { icon: LucideIcon; title: string; sub?: string }) {
   return (
     <div className="flex min-w-0 flex-1 items-center gap-3">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border-default bg-bg-elevated text-text-secondary">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand">
         <Icon size={20} />
       </span>
       <div className="min-w-0">
-        <h2 className="truncate font-display text-xl leading-tight text-text-primary">{title}</h2>
-        {sub && <p className="truncate text-xs text-text-muted">{sub}</p>}
+        <h2 className="truncate font-display text-2xl leading-tight text-text-primary">{title}</h2>
+        {sub && <p className="line-clamp-2 text-xs text-text-muted">{sub}</p>}
       </div>
     </div>
   );
@@ -98,7 +101,7 @@ export function ArtifactsPanel({
   const {
     rows, loaded, open, busy, error, lastExport, refresh, close, deleteArtifact,
     editing, startEdit, cancelEdit, save, importPdf, showingArchived, showArchived,
-    google, panelTab: tab, setPanelTab: setTab,
+    google, panelTab: tab,
   } = useArtifacts();
   // Delete is for good now, so the header's Delete asks first, in the panel.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -161,7 +164,9 @@ export function ArtifactsPanel({
       className={cn(
         // shrink, not shrink-0: when the window narrows below a saved width, the
         // panel gives way down to its minimum rather than pushing the chat off.
-        'relative flex min-w-[320px] shrink flex-col overflow-hidden border-l border-border-default bg-bg-surface',
+        // The boards draw the panel as a card of its own, lifted off the window's
+        // edges; mt-10 keeps it under the window's close/maximize/minimize.
+        'relative mb-3 mr-3 mt-10 flex min-w-[320px] shrink flex-col overflow-hidden rounded-3xl border border-border-default bg-bg-surface shadow-xl',
         // The frame is another document: without this, crossing it mid-drag
         // hands the pointer to the page inside and the drag stops.
         dragging && '[&_iframe]:pointer-events-none select-none',
@@ -203,42 +208,28 @@ export function ArtifactsPanel({
       {/* flex-wrap: at the panel's narrowest (320px) six 32px actions left the
           title two characters ("Rap…", 20 Sep). Wrapped, the actions drop
           under the title instead of eating it; wide, nothing changes. */}
-      {/* The tabs (spec 2, right panel). The Browser keeps its own panel for now. */}
-      <div role="tablist" aria-label="Side panel" className="flex shrink-0 items-end gap-5 border-b border-border-subtle pl-4 pr-3 pt-6">
-        {(['artifacts', 'context'] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            role="tab"
-            aria-selected={tab === t}
-            onClick={() => setTab(t)}
-            className={cn(
-              'h-10 border-b-2 px-0.5 text-sm transition-colors',
-              tab === t ? 'border-brand font-medium text-text-primary' : 'border-transparent text-text-muted hover:text-text-primary',
-            )}
-          >
-            {t === 'artifacts' ? 'Artifacts' : 'Context'}
-          </button>
-        ))}
-        <div className="flex-1" />
-        <ArtifactClose onClick={onClose} aria-label="Close panel" className="mb-1.5" />
-      </div>
       {tab === 'context' ? <>
-        <div className="flex shrink-0 items-center px-4 py-4">
-          <PanelTitle icon={BookOpen} title="Context" sub="Everything Cinderpaw knows and is using for this conversation." />
+        {/* No tab strip: the sidebar's Artifacts row and the chat's Context
+            button each open their own view, as on the boards. */}
+        <div className="relative flex shrink-0 items-start gap-2 px-5 pb-3 pt-5">
+          <PanelTitle icon={MessageSquare} title="Context" sub="Everything Cinderpaw knows and is using for this conversation." />
+          <span className="-mb-3 -mt-2 shrink-0" aria-hidden><CinderpawMascot state="curious" width={64} /></span>
+          <ArtifactClose onClick={onClose} aria-label="Close panel" />
         </div>
         <ContextTab onCompose={onCompose} onAttach={onAttach} />
       </> : <>
-      <ArtifactHeader className={cn('flex-wrap', open ? 'px-3 py-2.5' : 'px-4 py-4')}>
+      <ArtifactHeader className={cn('flex-wrap', open ? 'px-4 pb-2.5 pt-4' : 'px-5 pb-3 pt-5')}>
         {open ? (
           <div className="flex min-w-[10rem] flex-1 items-center gap-2">
             {!editing && <ArtifactAction tooltip="Back to the list" icon={ArrowLeft} onClick={close} />}
             {/* The board's header: a tile and "Artifact". The name, kind and
                 freshness are the overview's first lines, right under it. */}
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border-default bg-bg-elevated text-brand">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand">
               <FileBox size={16} />
             </span>
-            <ArtifactTitle className="truncate font-display text-lg font-normal">Artifact</ArtifactTitle>
+            {editing || rows.length < 2
+              ? <ArtifactTitle className="shrink-0 font-display text-xl font-normal">Artifact</ArtifactTitle>
+              : <Switcher rows={rows} current={open.row.id} />}
           </div>
         ) : (
           <PanelTitle
@@ -296,6 +287,7 @@ export function ArtifactsPanel({
               onClick={() => setConfirmingDelete(true)}
             />
           )}
+          <ArtifactClose onClick={onClose} aria-label="Close panel" />
         </ArtifactActions>
       </ArtifactHeader>
 
@@ -332,6 +324,43 @@ export function ArtifactsPanel({
       )}
       </>}
     </motion.aside>
+  );
+}
+
+/**
+ * With more than one artifact, the header's "Artifact" is also the way to the
+ * others: "Artifact 2 of 5" opens a menu of them, each with its cover, so the
+ * next one is a click away without going back to the list.
+ */
+function Switcher({ rows, current }: { rows: ArtifactRow[]; current: string }) {
+  const openArtifact = useArtifacts((s) => s.openArtifact);
+  const index = rows.findIndex((r) => r.id === current);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="flex min-w-0 items-baseline gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-bg-hover focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand/40"
+        aria-label="Switch artifact"
+      >
+        <ArtifactTitle className="shrink-0 font-display text-xl font-normal">Artifact</ArtifactTitle>
+        {index >= 0 && <span className="shrink-0 text-xs tabular-nums text-text-muted">{index + 1}/{rows.length}</span>}
+        <ChevronDown size={14} className="shrink-0 self-center text-text-muted" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-80 w-72 overflow-y-auto p-1.5">
+        {rows.map((r) => (
+          <DropdownMenuItem
+            key={r.id}
+            onSelect={() => { if (r.id !== current) void openArtifact(r.id); }}
+            className={cn('flex items-center gap-3 rounded-xl p-1.5', r.id === current && 'bg-brand/10')}
+          >
+            <ArtifactCover title={r.title} kind={r.kind} size="sm" className="h-10 w-14 shrink-0 rounded-lg" />
+            <span className="min-w-0">
+              <span className="block truncate text-sm text-text-primary">{r.title}</span>
+              <span className="block truncate text-2xs text-text-muted">{artifactKind(r.kind).word} · {when(r.updatedAt)}</span>
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -868,22 +897,9 @@ function Overview({ googleRegistered, onOpen }: { googleRegistered: boolean; onO
   return (
     <ScrollArea className="flex-1">
       <div className="flex flex-col gap-4 px-4 pb-6 pt-3">
-        <div className="relative flex h-56 flex-col overflow-hidden rounded-2xl border border-border-default bg-bg-elevated shadow-sm">
-          {row.kind === 'pdf' || row.kind === 'image' || row.kind === 'file' ? (
-            <div className="flex flex-1 items-center justify-center bg-gradient-to-br from-brand/15 via-bg-elevated to-bg-surface">
-              <look.icon size={28} className="text-brand" />
-            </div>
-          ) : (
-            // A thumbnail of the real thing: laid out at 1/0.55 of the card and
-            // scaled down, so it reads as a page rather than as large text.
-            <div className="pointer-events-none min-h-0 flex-1 overflow-hidden bg-white">
-              <div className="flex h-[182%] w-[182%] origin-top-left scale-[0.55] flex-col">
-                <Preview kind={row.kind} title={row.title} content={content} />
-              </div>
-            </div>
-          )}
-          <span className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-bg-elevated to-transparent" />
-        </div>
+        {/* The board's cover: the title, the hills, the mascot at work. A
+            thumbnail of the content read as a blank white box for most things. */}
+        <ArtifactCover title={row.title} kind={row.kind} className="h-52 rounded-2xl border border-border-default shadow-sm" />
 
         <div className="flex flex-col gap-2">
           <h3 className="font-display text-2xl leading-tight text-text-primary">{row.title}</h3>

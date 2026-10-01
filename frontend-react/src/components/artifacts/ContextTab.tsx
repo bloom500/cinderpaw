@@ -10,7 +10,7 @@ import { useChatContext } from '@/hooks/useChatContext';
 import type { DisplayAttachment } from '@/lib/attachmentDisplay';
 import { siteName } from '@/lib/sources';
 import { tauri, type ConnectorView, type Project } from '@/lib/tauri';
-import { modelDisplayName } from '@/lib/modelLogos';
+import { ModelLogo, modelDisplayName } from '@/lib/modelLogos';
 import { useBrowser } from '@/stores/browser';
 import { useModel } from '@/stores/model';
 import { cn } from '@/lib/utils';
@@ -340,6 +340,7 @@ export function ContextTab({ onCompose, onAttach }: {
   const convo = useConversations((s) => s.list.find((c) => c.id === s.currentId));
   const project = useProjects((s) => (currentId ? s.list.find((p) => p.conversation_ids.includes(currentId)) : undefined));
   const model = useModel((s) => (s.cloudModel ? modelDisplayName(s.cloudModel.modelId) : s.loaded?.name ?? null));
+  const cloudId = useModel((s) => s.cloudModel?.modelId);
   const browserUrl = useBrowser((s) => s.url);
   const browserTitle = useBrowser((s) => s.tabs.find((t) => t.id === s.active)?.title ?? '');
   const [apps, setApps] = useState<ConnectorView[]>([]);
@@ -381,7 +382,7 @@ export function ContextTab({ onCompose, onAttach }: {
           </div>
         ) : null}
 
-        {nothing && (
+        {nothing && messageCount === 0 && (
           <p className="px-1 text-sm text-text-muted">
             Nothing here yet. Files you add, pages Cinderpaw reads and memories it uses will show up here.
           </p>
@@ -421,7 +422,7 @@ export function ContextTab({ onCompose, onAttach }: {
           ) : none('In Agent mode Cinderpaw picks the tools it needs for each task.')}
         </Fold>
 
-        <Fold id="ctx-model" icon={Cpu} title="Model" value={<span className="truncate text-sm text-text-secondary">{model ?? 'None chosen'}</span>}>
+        <Fold id="ctx-model" icon={Cpu} title="Model" value={<span className="flex min-w-0 items-center gap-1.5 text-sm text-text-secondary">{cloudId && <ModelLogo modelId={cloudId} className="size-4 shrink-0" />}<span className="truncate">{model ?? 'None chosen'}</span></span>}>
           {none(model ? 'The model answering in this chat. Change it from the picker under the message box.' : 'Pick a model under the message box to start.')}
         </Fold>
 

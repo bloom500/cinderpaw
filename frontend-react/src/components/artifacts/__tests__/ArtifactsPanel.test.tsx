@@ -108,6 +108,9 @@ describe('the viewer', () => {
       },
     });
     const { container } = render(<ArtifactsPanel onClose={() => {}} />);
+    // The overview shows a drawn cover, so the app itself runs only once opened.
+    expect(container.querySelector('iframe')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }));
     const frame = container.querySelector('iframe')!;
     expect(frame.getAttribute('sandbox')).toBe(APP_IFRAME_SANDBOX);
     expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin');
@@ -206,6 +209,7 @@ describe('live edits', () => {
       open: { row: row({ version: 2 }), content: 'second draft', showing: 1, versions: [] },
     });
     render(<ArtifactsPanel onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }));
     op.mockClear();
 
     useArtifacts.getState().onEvent({ id: 'a1', action: 'updated' });
@@ -608,8 +612,9 @@ describe('the Artifact Dock', () => {
 describe('the Context tab', () => {
   it('says what will show up in a new chat, and lists the Chat mode tools as switches', async () => {
     useUI.setState({ inputMode: 'chat', enabledTools: [] });
+    // Opened from the chat's Context button; the panel has no tab strip.
+    useArtifacts.setState({ panelTab: 'context' });
     render(<ArtifactsPanel onClose={() => {}} />);
-    fireEvent.click(screen.getByRole('tab', { name: 'Context' }));
     expect(screen.getByText(/Nothing here yet. Files you add/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('switch', { name: /Web search/ }));
     expect(useUI.getState().enabledTools).toContain('web_search');
