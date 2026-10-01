@@ -47,7 +47,7 @@ export function Kpis({ b }: { b: Of<'kpis'> }) {
         return (
           <div key={k.label} className="relative rounded-2xl border border-border-subtle bg-bg-elevated/40 p-5">
             <p className="pr-10 text-sm text-text-secondary">{k.label}</p>
-            <p className="mt-2 font-display text-4xl leading-none text-text-primary">{k.value}</p>
+            <p className="mt-2 font-display text-2xl leading-tight text-text-primary @2xl:text-4xl @2xl:leading-none">{k.value}</p>
             {k.delta && <p className="mt-2 text-sm text-text-muted">{k.delta}</p>}
             {k.trend && (
               <span className={cn('absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full', tone)}>

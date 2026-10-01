@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ArrowRight, Check, MapPin } from 'lucide-react';
 import { HUES, hash, tint, type Block, type Hue, type Look } from '@/lib/board';
 import { cn } from '@/lib/utils';
@@ -7,18 +7,28 @@ import { Panel } from './charts';
 
 type Of<K extends Block['kind']> = Extract<Block, { kind: K }>;
 
-/** A remote picture, or the hue's wash with an icon: never a broken-image glyph. */
-export function Photo({ src, hue, className, icon }: { src?: string; hue: Hue; className?: string; icon?: string }) {
-  const [failed, setFailed] = useState(false);
-  const Icon = boardIcon(icon);
-  if (!src || failed) {
-    return (
-      <span className={cn('flex items-center justify-center', className)} style={{ background: tint(hue, 14), color: HUES[hue] }}>
-        {Icon && <Icon size={28} strokeWidth={1.5} />}
-      </span>
-    );
-  }
-  return <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} className={cn('block object-cover', className)} />;
+/**
+ * A remote picture, or `fallback` (nothing, by default): never a broken-image
+ * glyph, and never an empty tinted frame where a photo was promised.
+ *
+ * One retry, because the misses are transient: Openverse renders a thumbnail
+ * on first request and answered errors for two of eight asked at once (1 Oct,
+ * the Tokyo board); the same addresses all loaded a minute later.
+ */
+export function Photo({ src, className, fallback = null }: { src?: string; className?: string; fallback?: ReactNode }) {
+  const [tries, setTries] = useState(0);
+  if (!src || tries > 1) return <>{fallback}</>;
+  return (
+    <img
+      key={tries}
+      src={src}
+      alt=""
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => (tries === 0 ? setTimeout(() => setTries(1), 1500) : setTries(2))}
+      className={cn('block object-cover', className)}
+    />
+  );
 }
 
 /** The step number, in the board's style for numbers. */
@@ -59,7 +69,9 @@ export function Columns({ b, look, onPick }: { b: Of<'columns'>; look: Look; onP
   return (
     <div className="flex flex-col gap-3">
       {b.title && <h3 className="font-display text-2xl text-text-primary">{b.title}</h3>}
-      <div className="grid auto-cols-[minmax(11rem,1fr)] grid-flow-col gap-5 overflow-x-auto pb-1">
+      {/* Stacked when the board is narrow (the chat beside the open panel): side by side, the
+          columns were 11rem slivers with titles broken over four lines (1 Oct). */}
+      <div className="grid gap-4 pb-1 @2xl:auto-cols-[minmax(11rem,1fr)] @2xl:grid-flow-col @2xl:gap-5 @2xl:overflow-x-auto">
         {b.items.map((c, i) => {
           const hue = look.tints[i % look.tints.length];
           return (
@@ -70,11 +82,13 @@ export function Columns({ b, look, onPick }: { b: Of<'columns'>; look: Look; onP
               className="relative flex flex-col gap-2 rounded-2xl border border-border-subtle bg-bg-elevated/40 p-5 text-left transition-colors hover:border-brand/40"
             >
               <Num n={i + 1} look={look} hue={hue} />
-              <span className="mt-1 font-display text-2xl leading-tight text-text-primary">{c.title}</span>
+              <span className="mt-1 font-display text-xl leading-tight text-text-primary @2xl:text-2xl">{c.title}</span>
               {c.text && <span className="text-base leading-snug text-text-muted">{c.text}</span>}
-              {c.image
-                ? <Photo src={c.image} hue={hue} icon={c.icon} className="my-2 aspect-[4/3] w-full rounded-xl" />
-                : <Vignette icon={c.icon} hue={hue} seed={`${c.title}${i}`} />}
+              <Photo
+                src={c.image}
+                className="my-2 aspect-[4/3] w-full rounded-xl"
+                fallback={<Vignette icon={c.icon} hue={hue} seed={`${c.title}${i}`} />}
+              />
               {c.points && c.points.length > 0 && (
                 <ul className="mt-auto flex flex-col gap-2 border-t border-border-subtle pt-3">
                   {c.points.map((p) => (
@@ -86,7 +100,7 @@ export function Columns({ b, look, onPick }: { b: Of<'columns'>; look: Look; onP
                 </ul>
               )}
               {i < b.items.length - 1 && (
-                <ArrowRight size={20} className="absolute -right-[17px] top-1/2 z-10 -translate-y-1/2 text-text-muted" aria-hidden />
+                <ArrowRight size={20} className="absolute -right-[17px] top-1/2 z-10 hidden -translate-y-1/2 text-text-muted @2xl:block" aria-hidden />
               )}
             </button>
           );
@@ -166,12 +180,11 @@ export function Timeline({ b, look }: { b: Of<'timeline'>; look: Look }) {
 /** Pictures with a name under each: the Trip board's top strip. */
 export function Photos({ b, look, pin }: { b: Of<'photos'>; look: Look; pin: boolean }) {
   return (
-    <div className={cn('grid gap-4', b.items.length === 2 ? 'grid-cols-2' : b.items.length === 4 ? 'grid-cols-2 @2xl:grid-cols-4' : 'grid-cols-3')}>
-      {b.items.map((p, i) => {
-        const hue = look.tints[i % look.tints.length];
+    <div className={cn('grid gap-4', b.items.length === 2 ? 'grid-cols-2' : b.items.length === 4 ? 'grid-cols-2 @2xl:grid-cols-4' : 'grid-cols-2 @2xl:grid-cols-3')}>
+      {b.items.map((p) => {
         return (
           <div key={p.title} className="overflow-hidden rounded-2xl border border-border-subtle bg-bg-elevated/50">
-            <Photo src={p.image} hue={hue} icon="camera" className="aspect-[4/3] w-full" />
+            <Photo src={p.image} className="aspect-[4/3] w-full" />
             <div className="flex items-start gap-2 px-4 py-3">
               {pin && <MapPin size={20} className="mt-0.5 shrink-0" style={{ color: HUES[look.accent] }} />}
               <span className="flex min-w-0 flex-col">
@@ -209,7 +222,7 @@ export function Calendar({ b, look }: { b: Of<'calendar'>; look: Look }) {
             <div key={`${d.day}${i}`} className="flex flex-col items-center gap-2 px-2.5 py-4 text-center">
               <span className="text-sm font-medium text-text-primary">{d.day}</span>
               {d.date && <span className="-mt-1.5 text-xs text-text-muted">{d.date}</span>}
-              <Photo src={d.image} hue={hue} icon="camera" className="aspect-square w-full rounded-xl" />
+              <Photo src={d.image} className="aspect-square w-full rounded-xl" />
               <span className="text-sm leading-snug text-text-primary">{d.title}</span>
               {d.tag && <span className="rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ background: tint(th, 16), color: HUES[th] }}>{d.tag}</span>}
             </div>

@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { lookOf, parseBoard, type Block } from '../board';
 import { layoutFlow } from '@/components/board/Flow';
 import { BoardView } from '@/components/board/BoardView';
+import { Photo } from '@/components/board/sections';
 
 const FLOW: Extract<Block, { kind: 'flow' }> = {
   kind: 'flow',
@@ -68,5 +69,21 @@ describe('BoardView', () => {
     const { container } = render(<BoardView board={{ title: 'Trip', blocks: [{ kind: 'calendar', days: [{ day: 'Mon', title: 'Walk' }] }] }} seed="z" status="Ready" />);
     expect(container.querySelector('img')).toBeNull();
     expect(screen.getByText('Walk')).toBeTruthy();
+  });
+});
+
+// Two of eight Openverse thumbnails failed on the Tokyo board (1 Oct) and drew
+// empty tinted frames; the same addresses loaded a minute later.
+describe('Photo', () => {
+  it('retries once, then shows its fallback instead of an empty frame', () => {
+    vi.useFakeTimers();
+    const { container } = render(<Photo src="https://x.test/a.jpg" fallback={<span>vignette</span>} />);
+    fireEvent.error(container.querySelector('img')!);
+    act(() => vi.advanceTimersByTime(1500));
+    expect(container.querySelector('img')).not.toBeNull();
+    fireEvent.error(container.querySelector('img')!);
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByText('vignette')).toBeTruthy();
+    vi.useRealTimers();
   });
 });
