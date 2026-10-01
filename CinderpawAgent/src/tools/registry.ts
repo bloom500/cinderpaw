@@ -810,9 +810,13 @@ export class ToolRegistry {
       // tripping it on a local, instant tool's recoverable friction only
       // injects a needless 30–60s OPEN stall. Don't count those; genuine
       // (unrecoverable) failures still trip the breaker exactly as before.
+      // `bad_args` is the same kind of signal: the tool is healthy and the
+      // model's input was wrong. Counting it locked artifact_create for 60 s
+      // after three malformed boards, exactly while the model was correcting
+      // them (1 Oct), and it then spent the minute waiting in a shell.
       if (result.ok) {
         this.#breaker.recordSuccess(name);
-      } else if (result.error !== "recoverable") {
+      } else if (result.error !== "recoverable" && result.error !== "bad_args") {
         this.#breaker.recordFailure(name);
       }
       return result.ok

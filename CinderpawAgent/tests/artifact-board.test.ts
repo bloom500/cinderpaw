@@ -104,3 +104,21 @@ describe("export", () => {
     expect(md).toContain("Inputs → Logic");
   });
 });
+
+// The three shapes DeepSeek v4.1 Flash wrote on 1 Oct, reading `text{text}`
+// in the brief: each was dropped as "(undefined)" and the board never drew.
+describe("a block's kind, however the model wrote it", () => {
+  test("accepts kind, type, and a one-key wrapper", () => {
+    const { board, dropped } = validateBoard({
+      title: "Japonia",
+      blocks: [
+        { type: "text", text: "Tokyo + Kyoto" },
+        { text: "Cinci zile" },
+        { timeline: { items: [{ label: "Zi 1", title: "Tokyo" }, { label: "Zi 4", title: "Kyoto" }] } },
+        { kind: "chips", items: [{ label: "JR Pass" }] },
+      ],
+    });
+    expect(dropped).toEqual([]);
+    expect(board?.blocks.map((b) => b.kind)).toEqual(["text", "text", "timeline", "chips"]);
+  });
+});

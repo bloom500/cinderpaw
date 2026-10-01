@@ -72,9 +72,27 @@ function rows<T>(v: unknown, min: number, max: number, row: (r: Rec) => T | null
 /** Drop the keys whose value is undefined, so the stored JSON stays small and plain. */
 const clean = <T extends Rec>(o: T): T => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
 
-/** One block, normalised, or null when it does not fit its kind. */
-export function validateBlock(b: unknown): Block | null {
+/**
+ * The block with its kind under `kind`, whichever way the model wrote it.
+ * Seen live (1 Oct, DeepSeek v4.1 Flash), reading the brief's `text{text}`
+ * notation: `{type:"text", ...}`, then `{text:"..."}` and `{timeline:{...}}`.
+ */
+function asKinded(b: unknown): Rec | null {
   if (!isRec(b)) return null;
+  if (typeof b.kind === "string") return b;
+  if (typeof b.type === "string") return { ...b, kind: b.type };
+  const keys = Object.keys(b);
+  const k = keys.length === 1 ? keys[0]! : "";
+  if (!(BLOCK_KINDS as readonly string[]).includes(k)) return b;
+  const v = b[k];
+  if (isRec(v)) return { ...v, kind: k };
+  return k === "text" ? { kind: "text", text: v } : b;
+}
+
+/** One block, normalised, or null when it does not fit its kind. */
+export function validateBlock(raw: unknown): Block | null {
+  const b = asKinded(raw);
+  if (!b) return null;
   const title = str(b.title, 120);
   const subtitle = str(b.subtitle, 160);
   switch (b.kind) {
@@ -184,7 +202,7 @@ export function validateBoard(input: unknown, fallbackTitle = ""): { board: Boar
   list.forEach((b, i) => {
     const ok = validateBlock(b);
     if (ok) blocks.push(ok);
-    else dropped.push(`#${i + 1} (${isRec(b) ? String(b.kind) : typeof b})`);
+    else dropped.push(`#${i + 1} (${isRec(b) ? String(b.kind ?? b.type ?? Object.keys(b)[0]) : typeof b})`);
   });
   if (blocks.length === 0) {
     return { board: null, dropped, error: "no block fits its shape" };
@@ -203,7 +221,8 @@ export function validateBoard(input: unknown, fallbackTitle = ""): { board: Boar
 /** The shape, in the fewest words that still let a model write one. Rides in artifact_create. */
 export const BOARD_BRIEF =
   `board = a one-screen visual: a plan, dashboard, diagram or itinerary. Content is JSON ` +
-  `{title, subtitle, icon, status?:"draft"|"in progress"|"ready", blocks:[...]}, blocks drawn by the app in order: ` +
+  `{title, subtitle, icon, status?:"draft"|"in progress"|"ready", blocks:[...]}, blocks drawn by the app in order. ` +
+  `Each block names its kind in "kind": {"kind":"timeline","items":[...]}. Kinds and their fields: ` +
   `text{text} | kpis{items:[{label,value,delta?,trend?:up|down|flat}]} | line{title?,x:[..],series:[{name,values:[..]}]} | ` +
   `bars{title?,items:[{label,value}]} | breakdown{title?,items:[{label,value}]} (shares) | ` +
   `flow{nodes:[{id,title,lines?:[..],icon?}],edges:[{from,to,dashed?}]} | columns{items:[{title,text?,points?:[..],icon?,image?}]} | ` +
