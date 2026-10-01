@@ -56,7 +56,7 @@ function mountReact(): void {
 function writeStartupMarkup(): void {
   document.body.innerHTML = `
     <div id="root"></div>
-    <div id="cinderpaw-startup"><div class="cinderpaw-startup-bear"></div></div>
+    <div id="cinderpaw-startup"><div class="cinderpaw-startup-mascot"></div></div>
   `;
 }
 

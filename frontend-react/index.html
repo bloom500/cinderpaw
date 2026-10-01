@@ -33,7 +33,7 @@
       html[data-theme="light"].has-window-effect,
       html[data-theme="light"].has-window-effect body { background-color: transparent; }
 
-      /* Startup surface: sleepy bear + amber pool + pulsing status line, all
+      /* Startup surface: sleeping mascot + name + running spark, all
           rendered statically so the first paint is the product, not a blank
           page. Layer order mirrors the app scene (globals.css): vignette →
           key light → grain → content. */
@@ -49,7 +49,7 @@
         transition: opacity 0.45s ease, transform 0.45s ease;
         /* Own opaque ground, MANDATORY in glass mode. The body goes
            transparent when the window effect is active, so without this the
-           mounted app showed THROUGH the overlay during the hold — the bear
+           mounted app showed THROUGH the overlay during the hold — the mascot
            floating over the live UI for the whole minimum-hold window
            (Darius, 2026-08-24). The loading scene is its own scene. */
         background-color: #2F2A26;
@@ -80,38 +80,45 @@
         opacity: 0.05;
       }
       html[data-theme="light"] #cinderpaw-startup::after { opacity: 0.04; }
-      /* Sleepy bear — the loading animoji (Darius, 2026-08-24; reference:
-         Apple's bear Animoji). Inline SVG, no assets: radial gradients fake
-         the volume, CSS breathes the head and floats the Zzz. The old
-         wordmark composition was cinematic but the startup finishes too fast
-         to read it; a single character with one gag is the right budget for
-         a screen that lives ~2 seconds. */
-      .cinderpaw-startup-bear {
-        width: clamp(120px, 16vw, 190px);
+      /* The startup scene (Darius, 1 Oct, variant C of three): the mascot
+         asleep, the name under it in the display face, and a spark running
+         along a line. The drawing is the app's own 'sleep' scene, rendered
+         once from CinderpawMascot to static SVG (no React exists yet), and
+         these few rules are the ones from mascot.css that scene uses. */
+      .cinderpaw-startup-mascot {
+        display: block;
+        width: clamp(130px, 15vw, 180px);
         height: auto;
         z-index: 4;
-        filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.35));
+        overflow: visible;
       }
-      .cinderpaw-startup-bear .bear-head {
-        transform-origin: 100px 130px;
-        animation: bear-breathe 3.2s ease-in-out infinite;
+      .cinderpaw-startup-mascot * { transform-box: view-box; }
+      .cinderpaw-startup-mascot .cpm-creature {
+        transform-origin: 64px 110px;
+        animation: cpm-sleep 4.4s ease-in-out infinite;
       }
-      @keyframes bear-breathe {
-        0%, 100% { transform: scale(1); }
-        50%      { transform: scale(1.025); }
+      @keyframes cpm-sleep { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.025, 0.975); } }
+      .cinderpaw-startup-mascot .cpm-float { opacity: 0; animation: cpm-float 2.7s ease-in-out infinite; }
+      .cinderpaw-startup-mascot .cpm-float:nth-child(2) { animation-delay: 0.9s; }
+      .cinderpaw-startup-mascot .cpm-float:nth-child(3) { animation-delay: 1.8s; }
+      @keyframes cpm-float {
+        0%   { opacity: 0; transform: translate(0, 6px) scale(0.7); }
+        25%  { opacity: 1; }
+        100% { opacity: 0; transform: translate(6px, -14px) scale(1.05); }
       }
-      .cinderpaw-startup-bear .zz {
-        opacity: 0;
-        animation: zzz-float 2.7s ease-in-out infinite;
+      /* Young Serif is not loaded yet at first paint; Georgia holds the shape
+         until it is, and the swap happens under the fade. */
+      .cinderpaw-startup-name {
+        position: relative;
+        z-index: 4;
+        margin-top: 0.35em;
+        font-family: 'Young Serif', Georgia, serif;
+        font-size: clamp(30px, 3.2vw, 42px);
+        letter-spacing: -0.01em;
+        color: #F6EFE6;
       }
-      .cinderpaw-startup-bear .zz2 { animation-delay: 0.9s; }
-      .cinderpaw-startup-bear .zz3 { animation-delay: 1.8s; }
-      @keyframes zzz-float {
-        0%   { opacity: 0; transform: translate(6px, 8px) rotate(0deg); }
-        25%  { opacity: 0.95; }
-        100% { opacity: 0; transform: translate(-4px, -16px) rotate(-6deg); }
-      }
-      /* Soft warm pool behind the bear — static; the bear owns the motion. */
+      html[data-theme="light"] .cinderpaw-startup-name { color: #2F2A26; }
+      /* Soft warm pool behind the mascot, in its own orange. */
       .cinderpaw-startup-light {
         position: absolute;
         top: 50%;
@@ -121,34 +128,44 @@
         transform: translate(-50%, -52%);
         z-index: 2;
         pointer-events: none;
-        background: radial-gradient(closest-side, rgba(196, 132, 58, 0.16), transparent 70%);
+        background: radial-gradient(closest-side, rgba(240, 90, 36, 0.14), transparent 70%);
       }
       html[data-theme="light"] .cinderpaw-startup-light {
-        background: radial-gradient(closest-side, rgba(160, 104, 40, 0.12), transparent 70%);
+        background: radial-gradient(closest-side, rgba(240, 90, 36, 0.10), transparent 70%);
       }
-      /* Visible, and announced. This was screen-reader-only, which left the
-         startup screen saying nothing at all to someone looking at it — and on
-         a large workspace that silence lasts long enough to read as a hang.
-         The bear alone cannot distinguish "loading" from "stuck".
-         One quiet line, pulsing, is the whole difference. */
-      .cinderpaw-startup-status {
+      /* Something visibly moving is what tells "starting" from "stuck" on a
+         slow first start; the spark is that signal now, and the word stays
+         for screen readers. */
+      .cinderpaw-startup-ember {
         position: relative;
         z-index: 4;
-        margin-top: 1.6em;
-        font-family: 'Geist Variable', Geist, system-ui, sans-serif;
-        font-size: 0.78rem;
-        font-weight: 500;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-        color: rgba(240, 230, 211, 0.34);
-        animation: cinderpaw-startup-breathe 2200ms ease-in-out infinite;
+        width: 120px;
+        height: 2px;
+        margin-top: 1.4em;
+        border-radius: 2px;
+        overflow: hidden;
+        background: rgba(240, 90, 36, 0.18);
       }
-      html[data-theme="light"] .cinderpaw-startup-status {
-        color: rgba(28, 22, 16, 0.38);
+      .cinderpaw-startup-ember::after {
+        content: '';
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 40%;
+        border-radius: 2px;
+        background: #F05A24;
+        animation: cinderpaw-startup-run 1.6s ease-in-out infinite;
       }
-      @keyframes cinderpaw-startup-breathe {
-        0%, 100% { opacity: 0.55; }
-        50%      { opacity: 1; }
+      @keyframes cinderpaw-startup-run {
+        0%   { transform: translateX(-100%); }
+        100% { transform: translateX(250%); }
+      }
+      .cinderpaw-startup-sr {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
       }
       /* React mounted: the pre-paint script adds `cinderpaw-ready`; the surface
          does an exposure fade (opacity + slight scale) out into the app scene,
@@ -159,14 +176,13 @@
         transform: scale(1.02);
         pointer-events: none;
       }
-      /* Reduced motion: the bear holds still (no breathing, Zzz parked
+      /* Reduced motion: the mascot holds still (no breathing, Zzz parked
          visible), the handoff keeps a plain opacity fade (no scale). */
       @media (prefers-reduced-motion: reduce) {
-        .cinderpaw-startup-bear .bear-head { animation: none; }
-        .cinderpaw-startup-bear .zz { animation: none; opacity: 0.9; }
-        /* Legible and still, not hidden: the line is the only thing on screen
-           telling the person anything. */
-        .cinderpaw-startup-status { animation: none; opacity: 1; }
+        .cinderpaw-startup-mascot .cpm-creature { animation: none; }
+        .cinderpaw-startup-mascot .cpm-float { animation: none; opacity: 1; }
+        /* Still, but full: the track alone would read as a stopped bar. */
+        .cinderpaw-startup-ember::after { animation: none; width: 100%; opacity: 0.6; }
         #cinderpaw-startup { transition: opacity 0.45s ease; }
         html.cinderpaw-ready #cinderpaw-startup { transform: none; }
       }
@@ -245,69 +261,13 @@
     <div id="root"></div>
     <div id="cinderpaw-startup">
       <div class="cinderpaw-startup-light" aria-hidden="true"></div>
-      <!-- The loading animoji: a sleepy bear, drawn inline (no assets — the
-           CSP allows only same-origin + data:). Radial gradients fake the
-           Apple-Animoji volume; CSS breathes the head and floats the Zzz.
-           Deliberately not "Starting Cinderpaw": the status line below is the
-           only text, so the bear carries the identity. -->
-      <svg class="cinderpaw-startup-bear" viewBox="0 0 200 200" aria-hidden="true">
-        <defs>
-          <radialGradient id="bearHead" cx="38%" cy="28%" r="85%">
-            <stop offset="0%" stop-color="#c08a52"/>
-            <stop offset="55%" stop-color="#96633a"/>
-            <stop offset="100%" stop-color="#6b421f"/>
-          </radialGradient>
-          <radialGradient id="bearEar" cx="40%" cy="35%" r="80%">
-            <stop offset="0%" stop-color="#a9713f"/>
-            <stop offset="100%" stop-color="#7a4c24"/>
-          </radialGradient>
-          <radialGradient id="bearInnerEar" cx="45%" cy="40%" r="75%">
-            <stop offset="0%" stop-color="#c99563"/>
-            <stop offset="100%" stop-color="#9a6a3c"/>
-          </radialGradient>
-          <radialGradient id="bearMuzzle" cx="45%" cy="30%" r="80%">
-            <stop offset="0%" stop-color="#efd0a4"/>
-            <stop offset="100%" stop-color="#d3ab77"/>
-          </radialGradient>
-          <radialGradient id="bearNose" cx="38%" cy="30%" r="80%">
-            <stop offset="0%" stop-color="#4a3226"/>
-            <stop offset="100%" stop-color="#1d120b"/>
-          </radialGradient>
-        </defs>
-        <g class="bear-head">
-          <!-- ears -->
-          <circle cx="52" cy="54" r="30" fill="url(#bearEar)"/>
-          <circle cx="148" cy="54" r="30" fill="url(#bearEar)"/>
-          <circle cx="52" cy="56" r="16" fill="url(#bearInnerEar)"/>
-          <circle cx="148" cy="56" r="16" fill="url(#bearInnerEar)"/>
-          <!-- head -->
-          <rect x="22" y="34" width="156" height="132" rx="64" fill="url(#bearHead)"/>
-          <!-- sleepy closed eyes -->
-          <path d="M58 100 q 13 11 26 0" fill="none" stroke="#3a2413" stroke-width="4.5" stroke-linecap="round"/>
-          <path d="M116 100 q 13 11 26 0" fill="none" stroke="#3a2413" stroke-width="4.5" stroke-linecap="round"/>
-          <!-- muzzle -->
-          <ellipse cx="100" cy="140" rx="43" ry="34" fill="url(#bearMuzzle)"/>
-          <!-- nose -->
-          <ellipse cx="100" cy="126" rx="17" ry="12" fill="url(#bearNose)"/>
-          <ellipse cx="94" cy="122" rx="5" ry="3" fill="#6b5142" opacity="0.7"/>
-          <!-- sleepy open mouth -->
-          <path d="M100 138 L100 148" stroke="#4a3226" stroke-width="3.5" stroke-linecap="round"/>
-          <path d="M84 150 q 16 14 32 0 q -16 8 -32 0" fill="#3a2413"/>
-          <!-- cheeks -->
-          <ellipse cx="58" cy="126" rx="12" ry="8" fill="#8a5a2e" opacity="0.5"/>
-          <ellipse cx="142" cy="126" rx="12" ry="8" fill="#8a5a2e" opacity="0.5"/>
-        </g>
-        <!-- floating Zzz -->
-        <g fill="#4a90e2" font-family="'Geist Variable', Geist, system-ui, sans-serif" font-weight="800">
-          <text class="zz"  x="128" y="128" font-size="20">z</text>
-          <text class="zz zz2" x="146" y="102" font-size="27">z</text>
-          <text class="zz zz3" x="168" y="70" font-size="36">z</text>
-        </g>
-      </svg>
-      <!-- Deliberately not "Starting Cinderpaw": the bear above
-           already carries the identity, and repeating it spends the one line the
-           startup screen has on something the eye has just read. -->
-      <div class="cinderpaw-startup-status" role="status">Starting</div>
+      <!-- The app's own mascot, asleep: CinderpawMascot's 'sleep' scene
+           rendered to static SVG (inline, since the CSP allows no assets
+           beyond same-origin + data:). -->
+      <svg aria-hidden="true" data-mascot-state="sleep" class="cpm cpm--sleep cinderpaw-startup-mascot" viewBox="0 0 128 132"><g><ellipse cx="64" cy="111" rx="50" ry="2.6" fill="#000" opacity="0.07"></ellipse><g class="cpm-creature"><path d="M46.1 65.0 L44.7 64.9 L42.1 63.8 L40.8 62.8 L39.0 60.7 L38.2 59.2 L37.7 57.1 L37.9 55.0 L38.4 53.1 L40.5 50.0 L45.6 45.7 L50.3 40.2 L53.0 38.5 L53.9 38.2 L55.4 38.4 L56.6 39.3 L57.1 40.3 L56.4 45.7 L56.7 47.7 L57.8 50.0 L60.0 52.7 L60.3 53.7 L59.6 54.4 L56.0 56.4 L53.1 58.4 L50.9 60.2 L46.8 64.7 L46.1 65.0ZM65.1 110.7 L56.6 110.6 L52.1 109.7 L44.6 109.3 L38.3 108.2 L28.9 108.4 L23.4 107.9 L19.7 106.6 L18.1 105.1 L17.2 102.9 L17.3 100.8 L18.2 98.4 L19.5 96.3 L19.1 95.6 L23.6 95.4 L29.0 79.8 L30.7 80.1 L35.8 77.5 L41.1 76.1 L43.3 70.9 L46.2 66.4 L51.0 61.1 L55.0 57.9 L59.5 55.4 L64.2 53.5 L69.2 52.2 L74.0 51.6 L78.9 51.6 L84.3 52.3 L89.1 53.6 L94.8 55.9 L95.0 54.9 L97.3 52.4 L98.0 50.9 L98.2 49.6 L98.0 45.3 L98.4 44.1 L99.3 43.2 L99.9 42.9 L101.0 43.0 L102.2 43.4 L104.4 45.5 L107.8 50.6 L110.7 53.3 L111.7 54.7 L112.7 57.2 L112.8 60.0 L111.9 62.4 L110.1 64.4 L107.2 66.0 L109.0 68.9 L110.9 73.0 L111.8 76.2 L112.5 80.1 L112.6 84.7 L112.3 87.6 L111.5 90.9 L110.0 94.4 L113.4 96.1 L114.8 97.5 L115.6 98.9 L116.3 101.0 L116.3 102.8 L115.5 105.2 L113.9 107.0 L112.1 108.1 L107.3 109.2 L102.7 109.5 L94.8 109.3 L91.9 108.6 L90.2 107.6 L89.1 106.5 L88.3 106.4 L83.5 107.0 L78.6 107.1 L76.5 109.2 L74.6 110.0 L70.7 110.6 L65.1 110.7Z" fill="#F8581A" fill-rule="evenodd"></path><path d="M92.6 107.3 L91.6 107.1 L91.0 106.1 L91.4 105.1 L92.1 104.7 L91.7 104.1 L92.1 103.2 L91.9 102.8 L92.6 102.1 L92.5 101.3 L92.0 100.3 L92.5 99.2 L96.9 96.7 L100.8 95.4 L102.9 95.1 L102.8 95.4 L102.2 95.8 L100.6 95.9 L99.6 96.5 L100.1 97.2 L100.3 98.4 L100.2 99.0 L99.6 99.1 L99.6 99.5 L100.8 100.1 L100.8 100.9 L101.4 102.4 L101.1 102.9 L100.5 102.8 L100.0 101.9 L99.4 101.8 L99.1 102.0 L98.7 102.9 L97.7 103.0 L97.1 102.6 L97.2 102.0 L96.4 101.2 L95.0 101.0 L94.0 99.9 L93.6 100.0 L93.6 100.3 L94.7 101.8 L94.4 102.1 L93.7 102.0 L93.0 103.0 L94.0 104.3 L94.6 104.2 L95.1 104.5 L95.3 105.4 L96.0 105.1 L96.6 105.6 L96.7 106.1 L96.1 107.1 L95.0 107.2 L93.2 106.4 L92.6 107.3ZM97.5 97.9 L98.2 97.1 L97.4 97.2 L97.2 97.8 L97.5 97.9ZM62.4 110.2 L62.0 109.9 L62.3 108.9 L61.6 108.4 L62.2 107.9 L61.4 105.6 L62.2 105.6 L63.3 105.0 L62.8 104.2 L64.1 103.2 L64.2 102.1 L64.5 101.8 L65.1 101.7 L65.4 102.0 L65.5 102.7 L66.0 102.6 L66.0 101.8 L65.6 101.3 L66.1 101.0 L66.2 98.8 L66.9 98.4 L67.6 98.6 L68.4 98.3 L69.5 98.8 L70.4 99.7 L69.8 100.9 L69.8 101.7 L70.3 102.1 L70.0 103.0 L69.4 103.3 L68.9 103.0 L68.2 103.1 L67.7 103.6 L67.2 103.7 L67.3 104.5 L67.9 104.9 L67.9 105.6 L69.9 105.7 L70.2 106.6 L70.7 105.8 L71.9 106.8 L73.0 106.9 L73.6 106.2 L74.7 106.0 L75.8 106.2 L76.4 105.9 L77.1 106.8 L76.9 107.3 L75.7 108.3 L75.7 108.8 L75.3 109.1 L74.1 109.5 L71.8 109.6 L71.1 109.0 L71.1 107.3 L70.5 107.6 L70.7 108.4 L70.1 108.6 L68.5 107.4 L68.3 106.4 L66.5 105.9 L65.6 106.6 L65.1 106.4 L64.5 106.7 L64.1 107.8 L63.2 108.6 L63.2 108.8 L64.1 109.5 L64.1 109.8 L62.4 110.2ZM110.1 108.2 L109.5 108.2 L109.1 107.5 L108.2 107.8 L107.6 107.3 L108.6 106.4 L108.7 105.8 L109.3 105.6 L108.1 103.7 L108.7 101.4 L109.6 101.0 L110.3 101.9 L111.8 102.5 L112.7 103.9 L112.4 104.2 L111.5 103.5 L110.8 103.8 L111.6 103.9 L112.0 104.5 L111.1 107.6 L110.1 108.2ZM53.0 109.3 L51.4 108.7 L50.8 108.0 L51.5 107.2 L52.2 107.2 L52.5 106.8 L52.5 106.1 L53.1 104.9 L52.6 103.5 L53.9 102.9 L54.7 102.9 L55.1 102.4 L56.6 102.5 L56.8 101.9 L57.7 101.9 L58.0 102.4 L57.5 103.7 L58.1 104.4 L58.7 105.9 L57.9 106.0 L57.2 106.7 L55.7 107.2 L55.1 106.7 L54.7 106.7 L54.5 107.5 L54.9 107.8 L55.1 108.9 L53.0 109.3ZM55.2 104.5 L55.1 103.8 L54.6 104.0 L54.7 104.4 L55.2 104.5ZM55.0 105.9 L54.9 105.2 L54.2 104.8 L54.7 105.8 L55.0 105.9ZM73.6 108.6 L74.1 107.7 L73.9 107.3 L73.2 108.2 L73.3 108.5 L73.6 108.6Z" fill="#FC5E1B" fill-rule="evenodd"></path><path d="M37.8 89.5 L37.5 89.4 L37.5 86.7 L38.1 83.7 L38.9 81.3 L40.8 77.3 L41.1 77.0 L40.7 80.0 L40.6 80.1 L40.5 80.0 L40.4 79.5 L40.1 79.5 L39.0 81.9 L39.1 83.4 L38.9 84.8 L38.7 85.1 L38.7 85.6 L38.0 86.1 L37.8 86.8 L37.9 88.8 L37.8 89.5ZM28.4 82.4 L28.2 82.3 L28.3 82.1 L29.5 81.0 L29.6 80.2 L30.4 80.3 L30.5 80.6 L28.4 82.4ZM43.0 108.8 L42.5 108.8 L41.8 108.3 L41.4 107.7 L41.0 107.7 L40.5 108.2 L39.7 108.0 L39.2 107.2 L38.6 107.2 L38.5 107.7 L38.0 108.1 L37.8 107.6 L36.6 106.6 L36.2 105.2 L36.2 104.0 L37.0 102.0 L38.3 99.8 L40.5 97.5 L38.6 94.1 L37.8 91.0 L37.9 90.7 L39.1 94.2 L40.8 97.5 L39.0 99.5 L38.4 100.5 L38.9 101.6 L39.3 101.8 L39.9 101.6 L40.3 102.1 L39.9 103.2 L39.7 103.4 L39.3 103.0 L39.0 103.1 L38.9 102.8 L38.9 102.2 L38.7 102.1 L38.2 102.4 L37.8 103.6 L37.0 103.2 L36.6 103.6 L36.5 105.4 L37.0 106.5 L38.6 106.9 L38.6 106.6 L37.6 105.8 L38.0 105.1 L39.2 104.7 L39.6 105.3 L40.2 105.6 L41.0 105.2 L41.8 104.4 L41.8 104.0 L41.4 103.7 L41.6 102.8 L41.4 102.4 L40.9 102.1 L40.4 101.1 L41.4 100.2 L41.6 100.2 L41.7 100.4 L41.4 101.4 L42.4 101.9 L42.4 102.1 L42.0 102.6 L42.1 102.9 L43.4 101.9 L44.2 101.7 L44.4 101.2 L44.3 101.0 L44.0 100.8 L43.5 101.0 L43.3 100.8 L43.7 100.4 L44.2 100.7 L44.4 100.4 L43.9 100.0 L44.1 99.5 L44.0 99.3 L43.0 99.0 L43.3 98.6 L43.7 98.5 L44.2 98.9 L45.0 99.1 L45.1 99.3 L44.8 99.7 L45.2 100.0 L45.6 99.6 L46.9 100.3 L47.5 100.1 L48.1 100.2 L48.4 99.9 L47.5 99.0 L45.8 98.1 L43.9 96.3 L42.1 93.3 L41.5 93.8 L40.5 93.2 L40.4 92.2 L40.9 92.1 L41.2 91.7 L41.0 91.4 L40.8 90.0 L40.2 89.3 L40.0 82.2 L40.5 80.2 L40.6 80.5 L40.4 81.9 L40.4 85.8 L40.7 88.5 L41.2 90.3 L41.8 91.9 L42.9 94.1 L44.3 96.0 L45.3 97.1 L46.9 98.3 L48.3 99.0 L51.0 97.5 L54.6 96.2 L56.3 95.8 L57.2 96.6 L57.0 96.9 L53.9 98.1 L51.4 99.8 L50.8 100.5 L49.8 101.9 L49.3 103.2 L49.1 104.5 L48.8 104.4 L49.0 102.4 L48.1 103.3 L47.1 103.3 L46.5 103.1 L46.4 103.3 L46.6 103.7 L46.5 104.0 L46.6 104.4 L47.5 105.4 L47.3 105.8 L47.4 106.7 L46.1 107.8 L45.8 108.5 L45.4 108.0 L44.4 108.1 L43.9 107.9 L43.0 108.8ZM37.8 90.6 L37.6 90.3 L37.8 89.8 L37.9 90.3 L37.8 90.6ZM20.0 96.0 L19.6 95.7 L20.2 95.6 L20.0 96.0ZM50.7 99.4 L51.1 99.2 L51.6 99.3 L52.3 98.5 L53.2 98.1 L53.2 97.8 L52.8 97.3 L52.5 97.3 L50.9 97.9 L49.2 99.0 L49.4 99.3 L50.1 99.2 L50.5 99.5 L50.7 99.4ZM85.5 103.8 L84.7 103.4 L84.2 103.4 L83.9 103.1 L84.4 101.9 L84.3 101.6 L83.5 101.4 L82.8 101.5 L82.2 101.2 L82.2 101.0 L86.1 100.7 L91.4 99.9 L91.4 100.1 L90.1 101.3 L89.4 102.2 L88.9 103.7 L88.6 103.6 L88.7 102.9 L88.5 101.7 L89.1 101.0 L89.0 100.7 L88.4 100.7 L87.8 101.3 L87.2 100.9 L87.0 101.0 L86.5 102.3 L86.6 103.5 L86.3 103.7 L85.5 103.8ZM49.0 105.9 L48.8 105.6 L49.0 105.3 L49.1 105.6 L49.0 105.9ZM51.5 109.4 L50.1 109.4 L49.8 109.3 L49.8 109.0 L50.2 108.6 L49.3 107.3 L48.9 106.1 L49.1 105.9 L49.7 107.4 L51.0 108.8 L51.6 109.2 L51.5 109.4Z" fill="#D94312" fill-rule="evenodd"></path><path d="M38.6 106.9 L36.9 106.4 L36.5 105.4 L36.5 104.1 L36.9 103.3 L37.8 103.6 L38.6 102.1 L38.9 102.2 L38.9 103.0 L39.7 103.3 L40.2 102.2 L39.9 101.7 L38.9 101.6 L38.4 100.7 L38.7 100.0 L40.8 97.4 L39.2 94.3 L38.2 91.6 L37.8 89.6 L37.8 87.2 L38.0 86.1 L38.7 85.6 L38.9 84.8 L39.0 81.9 L40.2 79.5 L40.4 80.1 L40.0 82.4 L40.2 89.3 L40.8 90.0 L41.1 91.7 L40.5 92.2 L40.6 93.2 L41.6 93.8 L41.9 93.3 L42.1 93.4 L44.6 97.1 L45.7 98.1 L47.5 99.0 L48.4 99.9 L48.1 100.2 L47.1 100.3 L45.7 99.6 L45.0 99.9 L44.9 99.1 L43.7 98.6 L43.3 98.6 L43.1 99.0 L43.9 99.3 L43.9 100.0 L44.3 100.4 L44.2 100.7 L43.6 100.5 L43.4 100.9 L44.2 100.8 L44.2 101.6 L42.1 102.9 L42.0 102.6 L42.4 102.0 L41.5 101.4 L41.6 100.2 L40.5 100.9 L40.9 102.1 L41.5 102.7 L41.4 103.7 L41.9 104.2 L40.4 105.6 L39.6 105.3 L39.2 104.7 L38.0 105.1 L37.6 105.8 L38.6 106.5 L38.6 106.9ZM28.6 81.8 L28.4 81.7 L28.7 81.0 L29.5 80.7 L29.5 81.0 L28.6 81.8ZM50.6 99.5 L49.4 99.3 L49.2 99.0 L52.3 97.4 L52.8 97.3 L53.2 97.7 L53.2 98.1 L52.2 98.6 L51.6 99.2 L50.6 99.5ZM81.8 106.8 L80.8 106.5 L80.2 106.9 L79.2 106.7 L78.9 106.0 L79.1 104.5 L78.6 102.3 L78.0 101.8 L78.0 101.3 L82.4 101.3 L84.3 101.6 L84.4 101.9 L83.9 103.1 L85.5 103.8 L86.5 103.5 L86.5 102.3 L87.1 100.9 L87.8 101.3 L88.4 100.7 L89.1 100.9 L88.5 101.7 L88.7 105.7 L88.4 106.1 L81.8 106.8ZM49.5 109.4 L43.4 108.8 L43.9 107.9 L45.3 108.0 L45.8 108.5 L46.2 107.8 L47.4 106.7 L47.5 105.4 L46.5 104.2 L46.5 103.1 L48.1 103.3 L49.0 102.6 L48.8 105.6 L49.3 107.3 L50.2 108.6 L49.5 109.4ZM79.6 104.7 L79.5 104.4 L79.2 104.5 L79.6 104.7ZM42.0 108.7 L38.7 108.1 L38.5 107.4 L39.2 107.3 L39.7 107.9 L40.4 108.2 L41.4 107.7 L42.1 108.5 L42.0 108.7Z" fill="#D84011" fill-rule="evenodd"></path><g style="--px:25.3px;--py:87.1px"><path d="M23.6 97.1 L19.2 97.1 L19.5 96.1 L16.0 93.7 L13.9 91.2 L12.6 88.5 L11.8 85.6 L11.7 81.4 L12.0 79.4 L12.9 77.0 L14.1 74.8 L15.4 73.2 L17.3 71.3 L19.1 70.5 L20.2 70.8 L21.0 71.5 L22.3 75.2 L23.8 77.2 L26.5 78.8 L30.4 80.2 L25.1 96.1 L24.4 96.9 L23.6 97.1Z" fill="#F8581A" fill-rule="evenodd"></path><path d="M18.9 88.2 L18.5 88.2 L18.3 87.7 L18.4 86.1 L19.3 85.0 L19.0 84.7 L18.2 85.1 L18.3 84.3 L19.1 83.8 L19.7 83.9 L20.1 83.2 L21.1 83.0 L21.8 82.4 L21.4 81.1 L21.6 80.7 L22.7 80.7 L23.2 80.3 L24.9 81.2 L25.4 81.8 L25.3 82.0 L24.8 82.4 L23.9 82.3 L22.7 84.0 L20.8 85.8 L18.9 88.2ZM20.5 84.9 L20.5 84.7 L20.1 84.7 L20.5 84.9Z" fill="#FC5E1B" fill-rule="evenodd"></path><path d="M20.0 96.0 L19.6 95.7 L20.1 95.3 L20.3 94.3 L20.7 93.5 L20.5 93.0 L19.3 93.0 L18.8 92.8 L18.7 92.5 L19.2 91.7 L18.5 90.5 L18.0 90.8 L17.5 91.6 L17.3 91.6 L18.1 90.0 L20.5 86.7 L21.6 85.5 L24.2 83.2 L27.4 81.3 L27.4 81.5 L26.8 82.2 L27.0 82.5 L27.5 82.5 L28.5 81.9 L29.5 81.0 L29.6 80.2 L30.4 80.3 L30.3 80.8 L27.7 83.0 L25.0 86.5 L23.6 88.8 L20.6 95.1 L20.0 96.0ZM21.6 91.6 L22.5 90.3 L23.1 88.7 L24.1 87.5 L24.8 86.0 L25.9 84.6 L25.7 84.4 L25.3 84.7 L25.1 84.6 L24.8 83.4 L24.3 83.6 L24.5 84.6 L24.3 85.5 L23.9 85.7 L22.7 85.6 L21.7 85.8 L20.6 86.9 L20.0 88.7 L20.5 89.3 L20.5 89.6 L20.1 89.9 L19.6 89.3 L19.2 89.5 L19.5 89.8 L19.4 90.4 L20.5 90.5 L20.6 90.7 L20.4 91.2 L20.6 91.4 L21.6 91.6ZM16.8 93.1 L16.7 92.9 L16.9 92.6 L16.9 92.8 L16.8 93.1ZM17.9 94.8 L17.3 94.5 L16.4 93.7 L16.6 93.1 L17.1 93.6 L17.8 93.7 L18.0 93.9 L18.2 94.4 L17.9 94.8Z" fill="#D94312" fill-rule="evenodd"></path><path d="M27.5 82.4 L26.9 82.4 L27.0 81.8 L29.5 80.7 L29.5 81.0 L28.6 81.8 L27.5 82.4ZM21.7 91.5 L20.7 91.4 L20.5 90.5 L19.4 90.3 L19.3 89.5 L19.6 89.4 L20.1 89.8 L20.5 89.6 L20.5 89.2 L20.0 88.8 L20.3 87.7 L20.7 86.9 L21.7 85.9 L24.3 85.5 L24.3 83.7 L24.8 83.4 L25.1 84.6 L25.7 84.4 L25.8 84.7 L23.1 88.7 L21.7 91.5ZM19.4 95.6 L18.0 95.0 L18.0 94.0 L16.8 93.3 L17.4 91.8 L18.4 90.5 L19.1 91.6 L18.8 92.7 L20.4 93.1 L20.7 93.5 L20.1 95.3 L19.4 95.6Z" fill="#D84011" fill-rule="evenodd"></path></g><path d="M80.9 100.8 L77.1 100.8 L75.8 99.5 L73.8 98.2 L69.0 96.5 L66.0 96.0 L61.9 96.0 L57.9 96.6 L57.0 96.0 L55.6 94.1 L54.6 91.7 L54.3 90.2 L54.2 87.1 L54.4 85.2 L55.3 82.3 L56.4 80.2 L58.0 78.2 L61.4 75.5 L66.1 73.5 L72.7 72.0 L79.5 71.2 L86.6 71.0 L94.6 71.7 L98.8 72.7 L101.4 73.9 L103.1 75.0 L104.6 76.7 L105.8 78.6 L106.8 81.9 L107.2 85.1 L107.0 87.5 L106.4 90.4 L105.5 92.7 L104.4 94.4 L97.7 96.4 L94.9 97.7 L92.1 99.4 L86.3 100.4 L80.9 100.8ZM96.3 93.4 L99.2 92.4 L101.0 90.8 L102.2 88.6 L102.3 87.7 L101.8 86.9 L100.7 86.7 L98.3 88.8 L96.7 89.5 L95.3 89.8 L93.0 89.3 L90.3 87.5 L89.3 87.9 L88.9 88.8 L89.2 89.9 L90.7 92.0 L93.2 93.3 L96.3 93.4ZM71.6 94.1 L74.6 93.1 L76.7 91.4 L77.8 89.5 L77.9 88.4 L77.5 87.8 L76.3 87.6 L74.0 89.4 L70.9 90.5 L69.3 90.5 L67.6 90.1 L65.4 88.5 L64.5 88.7 L63.9 89.3 L63.7 90.0 L64.0 91.2 L65.7 93.0 L68.9 94.1 L71.6 94.1Z" fill="#FCEFE1" fill-rule="evenodd"></path><ellipse cx="70.9" cy="91.3" rx="9" ry="5.2" fill="#FCEFE1"></ellipse><ellipse cx="95.6" cy="90.5" rx="8.6" ry="5.4" fill="#FCEFE1"></ellipse><g class="cpm-look" style="transform:translate(0px, 0px)"><g style="transform-origin:70.9px 91.3px"><g style="transform-origin:70.9px 91.3px"><path d="M70.8 94.1 L69.6 94.1 L68.0 93.9 L66.9 93.5 L65.5 92.7 L64.5 91.7 L63.9 90.7 L63.8 89.9 L64.1 89.2 L64.7 88.7 L65.5 88.7 L66.0 88.9 L67.1 89.8 L68.0 90.3 L69.5 90.6 L70.5 90.7 L72.4 90.3 L73.7 89.7 L74.7 89.1 L76.2 87.7 L77.0 87.6 L77.5 87.9 L77.8 88.7 L77.6 89.8 L77.1 90.7 L75.8 92.2 L75.0 92.7 L73.4 93.5 L70.8 94.1Z" fill="#282322"></path></g></g><g style="transform-origin:95.6px 90.5px"><g style="transform-origin:95.6px 90.5px"><path d="M95.6 93.4 L94.7 93.4 L93.1 93.2 L91.6 92.5 L90.8 92.0 L89.9 91.1 L89.3 90.0 L89.0 88.9 L89.3 88.0 L89.8 87.6 L90.4 87.6 L91.0 87.9 L92.2 88.9 L93.2 89.5 L94.1 89.7 L95.9 89.8 L97.0 89.5 L98.0 89.1 L99.3 88.2 L100.6 86.8 L101.4 86.8 L101.9 87.0 L102.2 87.7 L102.1 88.7 L101.5 89.9 L100.8 90.9 L99.5 92.1 L98.3 92.8 L96.5 93.3 L95.6 93.4Z" fill="#282322"></path></g></g></g></g><path d="M116.0 53.3 L115.2 53.3 L114.6 53.1 L114.3 52.8 L114.2 52.1 L114.6 51.2 L116.3 48.6 L116.0 48.4 L114.7 48.5 L114.3 48.5 L113.8 47.9 L113.8 47.3 L114.1 46.8 L114.9 46.4 L117.6 46.0 L118.8 46.1 L119.3 46.5 L119.4 47.2 L117.2 50.8 L117.4 51.0 L119.0 50.8 L119.4 50.9 L119.9 51.5 L119.8 52.1 L119.5 52.6 L119.1 52.8 L116.0 53.3Z" fill="#7E5746" class="cpm-float" style="animation-delay:0s"></path><path d="M120.3 63.2 L119.6 63.2 L119.3 63.1 L119.0 62.9 L118.8 62.4 L119.0 61.9 L120.5 59.3 L120.5 59.1 L118.8 59.0 L118.5 58.7 L118.4 58.1 L118.7 57.6 L119.3 57.3 L122.0 56.9 L122.8 56.9 L123.3 57.4 L123.3 58.1 L121.5 61.1 L123.4 61.0 L124.0 61.5 L123.9 62.1 L123.6 62.5 L123.2 62.8 L120.3 63.2Z" fill="#7C5646" class="cpm-float" style="animation-delay:0.3s"></path><path d="M128.7 46.8 L123.1 46.8 L122.4 46.6 L122.1 46.3 L121.8 45.7 L122.1 44.8 L124.7 41.8 L125.7 40.5 L125.4 40.3 L122.8 40.3 L122.2 40.1 L121.8 39.6 L121.8 38.9 L122.0 38.5 L122.3 38.2 L123.1 37.9 L129.0 37.9 L129.6 38.1 L129.9 38.4 L130.1 38.7 L130.1 39.3 L129.7 39.9 L126.1 43.7 L125.8 44.2 L126.1 44.4 L128.8 44.4 L129.4 44.6 L129.6 45.1 L129.7 45.7 L129.4 46.4 L128.7 46.8Z" fill="#7D5746" class="cpm-float" style="animation-delay:0.6s"></path><g transform="translate(10 39)"></g></g></svg>
+      <div class="cinderpaw-startup-name">Cinderpaw</div>
+      <div class="cinderpaw-startup-ember" aria-hidden="true"></div>
+      <div class="cinderpaw-startup-sr" role="status">Starting</div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
