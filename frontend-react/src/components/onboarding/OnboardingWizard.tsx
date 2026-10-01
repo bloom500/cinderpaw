@@ -32,6 +32,7 @@ import { tauri, type DiskEncryptionStatus, type SetupCandidate, type SetupVerify
 import { CinderpawMascot } from '@/components/chat/mascot/CinderpawMascot';
 import type { MascotState } from '@/components/chat/mascot/frames';
 import { BrandLogo } from '@/lib/brandLogos';
+import { ModelLogo } from '@/lib/modelLogos';
 import { ConnectStep } from './ConnectStep';
 import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 
@@ -63,6 +64,9 @@ export function OnboardingWizard() {
   const isLast = step === totalSteps - 1;
   // The names board waits for the one thing it asks; the agent's name has a default.
   const canProceed = step !== 1 || userName.trim().length > 0;
+  // The model board needs the whole width for its cards, so its mascot sits
+  // above them, beside the title, instead of in a column of its own.
+  const hasArt = step !== 2;
 
   return (
     <div
@@ -77,7 +81,7 @@ export function OnboardingWizard() {
           <span className="font-display text-xl text-text-primary">Cinderpaw</span>
         </header>
 
-        <div className="grid flex-1 items-center gap-10 py-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+        <div className={cn('grid flex-1 items-center gap-10 py-6', hasArt && 'lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]')}>
           <div className="min-w-0">
             <StepCounter step={step} total={totalSteps} />
             <AnimatePresence mode="wait">
@@ -136,7 +140,7 @@ export function OnboardingWizard() {
 
           {/* The drawing beside each board. Decoration only, and hidden on a
               narrow window, where the steps need the whole width. */}
-          <div className="hidden justify-center lg:flex" aria-hidden>
+          {hasArt && <div className="hidden justify-center lg:flex" aria-hidden>
             <AnimatePresence mode="wait">
               <motion.div
                 key={step}
@@ -145,12 +149,12 @@ export function OnboardingWizard() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.25, ease: 'easeOut' }}
               >
-                {step === 2 ? <ModelArt /> : step === 3 ? <ConnectArt /> : step === 4 ? <WorkspaceArt /> : (
-                  <CinderpawMascot state={ART[step] ?? 'wave'} width={340} />
+                {step === 3 ? <ConnectArt /> : step === 4 ? <WorkspaceArt /> : (
+                  <CinderpawMascot state={ART[step] ?? 'wave'} width={320} />
                 )}
               </motion.div>
             </AnimatePresence>
-          </div>
+          </div>}
         </div>
       </div>
     </div>
@@ -182,18 +186,18 @@ function StepCounter({ step, total }: { step: number; total: number }) {
 export function StepIntro({ title, lead, body }: { title: ReactNode; lead: string; body: string }) {
   return (
     <div>
-      <h1 id="onboarding-title" className="font-display text-5xl leading-[1.02] tracking-tight text-text-primary sm:text-6xl">
+      <h1 id="onboarding-title" className="font-display text-4xl leading-[1.02] tracking-tight text-text-primary sm:text-5xl [@media(min-height:900px)]:sm:text-6xl">
         {title}
       </h1>
-      <p className="mt-4 font-display text-2xl leading-snug text-text-primary sm:text-3xl">{lead}</p>
-      <p className="mt-3 max-w-xl text-lg leading-relaxed text-text-muted">{body}</p>
+      <p className="mt-3 font-display text-xl leading-snug text-text-primary sm:text-2xl [@media(min-height:900px)]:sm:text-3xl">{lead}</p>
+      <p className="mt-2 max-w-xl text-base leading-relaxed text-text-muted [@media(min-height:900px)]:text-lg">{body}</p>
     </div>
   );
 }
 
 function FeatureCards({ items }: { items: { icon: LucideIcon; title: string; line: string }[] }) {
   return (
-    <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
       {items.map(({ icon: Icon, title, line }) => (
         <div key={title} className="rounded-2xl border border-border-default bg-bg-surface px-3 py-4 text-center">
           <Icon size={28} className="mx-auto text-brand" />
@@ -295,27 +299,6 @@ function WorkspaceStep() {
 }
 
 // ── The drawings beside the boards ──────────────────────────────────────────
-
-/** A raised tile with a label, floating beside the mascot. */
-function Tile({ children, label, className }: { children: ReactNode; label: string; className?: string }) {
-  return (
-    <span className={cn('absolute flex w-28 flex-col items-center gap-1.5 rounded-2xl border border-border-default bg-bg-elevated px-3 py-3 shadow-lg', className)}>
-      {children}
-      <span className="font-display text-sm text-text-primary">{label}</span>
-    </span>
-  );
-}
-
-function ModelArt() {
-  return (
-    <div className="relative h-[420px] w-[440px]">
-      <span className="absolute bottom-0 right-0"><CinderpawMascot state="curious" width={300} /></span>
-      <Tile label="Cloud" className="left-6 top-4 -rotate-6"><Cloud size={28} className="text-brand" /></Tile>
-      <Tile label="Hugging Face" className="left-0 top-44 rotate-3"><BrandLogo id="huggingface" name="Hugging Face" /></Tile>
-      <Tile label="Local" className="bottom-6 right-0 rotate-6"><Laptop size={28} className="text-text-secondary" /></Tile>
-    </div>
-  );
-}
 
 /** The services the Connect board can really connect, around the mascot. */
 const ORBIT: { id: string; name: string }[] = [
@@ -512,11 +495,14 @@ export function ProviderStep() {
 
   return (
     <div>
-      <StepIntro
-        title="Choose your model"
-        lead="Cloud, Hugging Face, or Local. Pick what fits your workflow."
-        body="Cinderpaw works with hosted providers and local models on your machine. You can change this anytime in Models."
-      />
+      <div className="flex items-start justify-between gap-6">
+        <StepIntro
+          title="Choose your model"
+          lead="Cloud, Hugging Face, or Local. Pick what fits your workflow."
+          body="Cinderpaw works with hosted providers and local models on your machine. You can change this anytime in Models."
+        />
+        <span className="hidden shrink-0 sm:block" aria-hidden><CinderpawMascot state="curious" width={150} /></span>
+      </div>
 
       <div className="mt-6"><DetectedSection /></div>
 
@@ -765,8 +751,6 @@ function LocalBranch() {
 }
 
 function CloudBranch() {
-  const navigate = useNavigate();
-  const defer = useOnboarding((s) => s.defer);
   const [selected, setSelected] = useState<string | null>(null);
   // Provider catalog comes from the shared useCatalog store (Phase 1
   // DoD). One fetch per app lifetime; other tabs (Phase 2 Connectors,
@@ -794,36 +778,35 @@ function CloudBranch() {
     : [];
 
   const def = visibleCurated.find((p) => p.id === selected) ?? null;
+  // Four on the board; the rest only when the person asks for them, so the
+  // page grows (and scrolls) only by their own click.
+  const [more, setMore] = useState(false);
+  const tile = (on: boolean) => cn(
+    'flex min-w-0 items-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition-colors',
+    on ? 'border-brand bg-brand/10 text-text-primary' : 'border-border-default bg-bg-surface text-text-secondary hover:bg-bg-hover',
+  );
 
   return (
-    <div className="rounded-lg border border-border-subtle bg-bg-primary/40 p-4 space-y-4">
-      <div className="grid grid-cols-2 gap-2">
-        {visibleCurated.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            onClick={() => setSelected(p.id)}
-            className={cn(
-              'flex items-center justify-between px-3 py-2 rounded-lg border text-sm transition-colors',
-              selected === p.id ? 'border-brand bg-brand/10 text-text-primary' : 'border-border-subtle text-text-secondary hover:bg-bg-hover',
-            )}
-          >
-            <span>{p.name}</span>
-            {p.free && <span className="text-micro px-1.5 py-0.5 rounded-full bg-success/15 text-success shrink-0">free tier</span>}
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {visibleCurated.slice(0, 4).map((p) => (
+          <button key={p.id} type="button" onClick={() => setSelected(p.id)} className={tile(selected === p.id)}>
+            <ModelLogo provider={p.id} className="size-5 shrink-0" />
+            <span className="truncate">{p.name}</span>
+            {p.free && <span className="ml-auto shrink-0 rounded-full bg-success/15 px-1.5 py-0.5 text-micro text-success">free</span>}
           </button>
         ))}
-        {genericOnly.map((c) => (
-          <button
-            key={c.id}
-            type="button"
-            onClick={() => setSelected(c.id)}
-            className={cn(
-              'flex items-center justify-between px-3 py-2 rounded-lg border text-sm transition-colors',
-              selected === c.id ? 'border-brand bg-brand/10 text-text-primary' : 'border-border-subtle text-text-secondary hover:bg-bg-hover',
-            )}
-          >
-            <span>{c.name}</span>
-            {c.free_tier_note && <span className="text-micro px-1.5 py-0.5 rounded-full bg-success/15 text-success shrink-0">free tier</span>}
+        {genericOnly.length > 0 && (
+          <button type="button" onClick={() => setMore((m) => !m)} aria-expanded={more} className={tile(false)}>
+            <span className="truncate">{more ? 'Show less' : 'View more'}</span>
+            <ChevronRight size={14} className={cn('ml-auto shrink-0 transition-transform', more && 'rotate-90')} />
+          </button>
+        )}
+        {more && genericOnly.map((c) => (
+          <button key={c.id} type="button" onClick={() => setSelected(c.id)} className={tile(selected === c.id)}>
+            <ModelLogo provider={c.id} className="size-5 shrink-0" />
+            <span className="truncate">{c.name}</span>
+            {c.free_tier_note && <span className="ml-auto shrink-0 rounded-full bg-success/15 px-1.5 py-0.5 text-micro text-success">free</span>}
           </button>
         ))}
       </div>
@@ -850,14 +833,6 @@ function CloudBranch() {
           </div>
         );
       })()}
-
-      <button
-        type="button"
-        onClick={() => { defer(); navigate('/models?tab=cloud'); }}
-        className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary transition-colors"
-      >
-        More providers in Models → Cloud <ChevronRight size={12} />
-      </button>
     </div>
   );
 }
@@ -1017,7 +992,7 @@ function DoneStep() {
           { icon: Settings, title: 'Automate', line: 'Turn ideas into actions with powerful tools.' },
         ]}
       />
-      <ul className="mt-6 flex flex-wrap gap-x-6 gap-y-2">
+      <ul className="mt-5 flex flex-wrap gap-x-6 gap-y-2">
         {ticks.map(([ok, label, todo]) => (
           <li key={label} className="flex items-center gap-2 text-sm">
             <span className={cn('flex size-6 items-center justify-center rounded-full', ok ? 'bg-brand text-on-brand' : 'bg-bg-hover text-text-muted')}>
@@ -1027,7 +1002,7 @@ function DoneStep() {
           </li>
         ))}
       </ul>
-      <div className="mt-6 space-y-3">
+      <div className="mt-5 grid gap-2 sm:grid-cols-2">
         <DiskEncryptionNotice />
         <InstallCountNotice />
       </div>
@@ -1052,24 +1027,30 @@ function DoneStep() {
 function InstallCountNotice() {
   const on = useOnboarding((s) => s.countInstall);
   const setOn = useOnboarding((s) => s.setCountInstall);
+  const [open, setOpen] = useState(false);
+  // What is sent stays in the one visible line; only the how-to-check moves
+  // behind Details, so the board does not scroll and the promise is not hidden.
   return (
-    <label className="flex items-start gap-3 text-left mx-auto max-w-md rounded-xl border border-border-subtle bg-bg-primary/50 px-4 py-3 cursor-pointer">
-      <input
-        type="checkbox"
-        checked={on}
-        onChange={(e) => setOn(e.target.checked)}
-        className="mt-0.5 size-4 accent-brand"
-      />
-      <span className="text-xs text-text-muted leading-relaxed">
-        <span className="text-text-primary font-medium">Count this install, once.</span>{' '}
-        When you open chat, Cinderpaw sends one message containing its version
-        number and your operating system, nothing else, never again, and
-        nothing about you or what you do here. It is how we know how many
-        people actually run it. Untick and nothing is sent at all. Either way,{' '}
-        <code className="text-micro">~/.cinderpaw/.install-counted</code> is
-        written with exactly what happened, so you can check.
-      </span>
-    </label>
+    <div className="rounded-xl border border-border-subtle bg-bg-surface px-3.5 py-2.5 text-xs leading-relaxed text-text-muted">
+      <label className="flex cursor-pointer items-start gap-2.5">
+        <input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-brand" />
+        <span>
+          <span className="font-medium text-text-primary">Count this install, once.</span>{' '}
+          Sends the version and your operating system one time, nothing about you.{' '}
+          <button type="button" onClick={(e) => { e.preventDefault(); setOpen((o) => !o); }} className="text-brand hover:underline" aria-expanded={open}>
+            {open ? 'Less' : 'Details'}
+          </button>
+        </span>
+      </label>
+      {open && (
+        <p className="mt-1.5 pl-6">
+          It is sent when you open chat, never again. It is how we know how many
+          people actually run Cinderpaw. Untick and nothing is sent at all. Either
+          way, <code className="text-micro">~/.cinderpaw/.install-counted</code> is
+          written with exactly what happened, so you can check.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -1114,18 +1095,23 @@ function DiskEncryptionNotice() {
     },
   }[status.state];
 
+  return <DiskLine variant={variant} />;
+}
+
+function DiskLine({ variant }: { variant: { Icon: LucideIcon; accent: string; ring: string; title: string; body: string } }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div
-      className={cn(
-        'mx-auto max-w-md text-left rounded-lg border p-4 flex gap-3',
-        variant.ring,
-      )}
-    >
-      <variant.Icon size={20} className={cn('shrink-0 mt-0.5', variant.accent)} />
-      <div className="space-y-1">
-        <p className="text-sm font-medium text-text-primary">{variant.title}</p>
-        <p className="text-xs text-text-muted leading-relaxed">{variant.body}</p>
-      </div>
+    <div className={cn('rounded-xl border px-3.5 py-2.5 text-xs leading-relaxed text-text-muted', variant.ring)}>
+      <p className="flex items-start gap-2.5">
+        <variant.Icon size={16} className={cn('mt-px shrink-0', variant.accent)} />
+        <span>
+          <span className="font-medium text-text-primary">{variant.title}.</span>{' '}
+          <button type="button" onClick={() => setOpen((o) => !o)} className="text-brand hover:underline" aria-expanded={open}>
+            {open ? 'Less' : 'Details'}
+          </button>
+        </span>
+      </p>
+      {open && <p className="mt-1.5 pl-6">{variant.body}</p>}
     </div>
   );
 }

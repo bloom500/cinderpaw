@@ -34,9 +34,10 @@ describe('ConnectStep', () => {
     expect(screen.getByText('Google Docs')).toBeTruthy();
   });
 
-  it('keeps the other chat apps behind "N more", and never offers one that is coming soon', async () => {
+  it('keeps the other chat apps behind "N more", in a window of their own, never one that is coming soon', async () => {
     render(<ConnectStep />);
     await userEvent.click(await screen.findByRole('button', { name: /1 more/ }));
+    expect(screen.getByRole('dialog', { name: 'More apps to connect' })).toBeTruthy();
     expect(screen.getByText('Matrix')).toBeTruthy();
     expect(screen.queryByText('Tlon')).toBeNull();
   });

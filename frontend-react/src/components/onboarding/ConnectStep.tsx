@@ -85,7 +85,6 @@ export function ConnectStep() {
   const savedById = new Map(saved.map((s) => [s.id, s]));
   const firstChats = pick(chats, CHAT_IDS);
   const moreChats = chats.filter((c) => !(CHAT_IDS as readonly string[]).includes(c.id));
-  const shownChats = allChats ? [...firstChats, ...moreChats] : firstChats;
 
   return (
     <div className="flex flex-col">
@@ -103,14 +102,14 @@ export function ConnectStep() {
         {/* Send-only (drive.file), and it signs in the first time a document is
             sent, in the Browser panel, which this wizard covers: so no button here. */}
         <Card id="google_docs" name="Google Docs" line="Connects the first time you send a document" connected={false} />
-        {shownChats.map((c) => {
+        {firstChats.map((c) => {
           const s = savedById.get(c.id);
           return (
             <Card key={c.id} id={c.id} name={c.name} line={c.description} connected={!!s?.enabled}
               onConnect={() => setOpen({ kind: 'chat', entry: c })} />
           );
         })}
-        {!allChats && moreChats.length > 0 && (
+        {moreChats.length > 0 && (
           <button
             type="button"
             onClick={() => setAllChats(true)}
@@ -120,6 +119,20 @@ export function ConnectStep() {
           </button>
         )}
       </div>
+
+      {/* The rest open in their own window rather than below, so the board
+          itself never grows into a scroll. */}
+      <Dialog open={allChats} onOpenChange={setAllChats}>
+        <DialogContent className="max-w-2xl">
+          <DialogTitle>More apps to connect</DialogTitle>
+          <div className="flex flex-wrap gap-2.5">
+            {moreChats.map((c) => (
+              <Card key={c.id} id={c.id} name={c.name} line={c.description} connected={!!savedById.get(c.id)?.enabled}
+                onConnect={() => { setAllChats(false); setOpen({ kind: 'chat', entry: c }); }} />
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div className="mt-5 flex flex-wrap items-center gap-4 rounded-2xl bg-bg-surface px-4 py-3.5">
         <ShieldCheck size={28} className="shrink-0 text-brand" />

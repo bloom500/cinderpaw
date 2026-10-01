@@ -76,7 +76,7 @@ describe('ProviderStep', () => {
   it('saving a curated provider calls saveByokProvider with its id (enabled)', async () => {
     mockSave.mockResolvedValue(undefined);
     renderStep();
-    await userEvent.click(await screen.findByText('OpenAI'));
+    await userEvent.click(await screen.findByRole('button', { name: /OpenAI/ }));
     await userEvent.type(screen.getByPlaceholderText('sk-...'), 'sk-test');
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
     expect(mockSave).toHaveBeenCalledWith(

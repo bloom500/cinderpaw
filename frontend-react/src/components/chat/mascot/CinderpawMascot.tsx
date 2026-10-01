@@ -467,6 +467,13 @@ export function CinderpawMascot({ state, flip = false, width = BASE_W }: { state
           <Moving part={scene.parts.tail} colors={colors} className={pose.wag ? 'cpm-wag' : undefined} />
           <Moving part={scene.parts.arm} colors={colors} className="cpm-wave-arm" />
           <path d={scene.face} fill={colors.cream} fillRule="evenodd" />
+          {/* The traced face has a hole where each eye is drawn. The eye on top
+              moves (blink, glance, squint), and whatever it uncovers showed the
+              orange body through the hole. A cream patch under each eye, held
+              still, keeps the face cream in every frame. */}
+          {scene.eyes.map((e, i) => (
+            <ellipse key={i} cx={e.at[0]} cy={e.at[1]} rx={e.rx + 2} ry={e.ry + 2} fill={colors.cream} />
+          ))}
 
           <g
             className={look === 'scan' ? 'cpm-look cpm-look--scan' : 'cpm-look'}
