@@ -61,7 +61,9 @@ type Pending =
   | { kind: 'save'; id: string }
   | { kind: 'restore'; id: string }
   | { kind: 'compare'; id: string; version: number }
-  | { kind: 'import' };
+  | { kind: 'import' }
+  /** A read for a chat card: answered to the caller, never shown in the panel. */
+  | { kind: 'peek'; resolve: (r: { row: ArtifactRow; content: string }) => void; reject: (why: string) => void };
 
 export type ArtifactAction =
   | 'list' | 'get' | 'versions' | 'export' | 'delete' | 'write' | 'restore' | 'import'
@@ -109,7 +111,7 @@ interface ArtifactsStore {
    * a Google Doc, a PDF stays a PDF. First time, it logs them in through the
    * built-in browser and then finishes the send on its own.
    */
-  sendToGoogle: () => Promise<void>;
+  sendToGoogle: (target?: { title: string; kind: string; content: string }) => Promise<void>;
   /** Non-null while the person is editing the open artifact. */
   editing: EditSession | null;
   /**
@@ -126,7 +128,11 @@ interface ArtifactsStore {
   refresh: () => Promise<void>;
   openArtifact: (id: string) => Promise<void>;
   showVersion: (version: number) => Promise<void>;
-  exportArtifact: (id: string) => Promise<void>;
+  /**
+   * `as: 'pdf'` offers a PDF first (the chat card's "Download PDF"); `row` is
+   * for a caller that knows the artifact when the list has not been loaded.
+   */
+  exportArtifact: (id: string, opts?: { as?: 'pdf'; row?: { title: string; kind: string } }) => Promise<void>;
   /** For good: rows and files. The panel confirms before calling it. */
   deleteArtifact: (id: string) => Promise<void>;
   renameArtifact: (id: string, title: string) => Promise<void>;
@@ -206,10 +212,13 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   review: null,
   google: null,
 
-  sendToGoogle: async () => {
+  sendToGoogle: async (target) => {
     const open = get().open;
-    if (!open) return;
-    const plan = googlePlan(shownKind(open.row.kind, open.content));
+    const doc = target
+      ? { row: { title: target.title, kind: target.kind }, content: target.content, encoding: undefined }
+      : open;
+    if (!doc) return;
+    const plan = googlePlan(shownKind(doc.row.kind, doc.content));
     if (!plan) return;
     set({ google: { busy: true } });
     try {
@@ -218,8 +227,8 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
         // the person has approved; the artifact stays open underneath.
         await tauri.google.connect();
       }
-      const name = `${fileName(open.row.title)}${plan.convert ? '' : extensionFor(open.row.kind)}`;
-      const link = await tauri.google.upload(name, plan.mime, open.content, open.encoding === 'base64' ? 'base64' : null, plan.convert);
+      const name = `${fileName(doc.row.title)}${plan.convert ? '' : extensionFor(doc.row.kind)}`;
+      const link = await tauri.google.upload(name, plan.mime, doc.content, doc.encoding === 'base64' ? 'base64' : null, plan.convert);
       set({ google: { link } });
     } catch (e) {
       set({ google: { error: String(e) } });
@@ -273,8 +282,8 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     }
   },
 
-  exportArtifact: async (id) => {
-    const row = get().rows.find((r) => r.id === id) ?? get().open?.row;
+  exportArtifact: async (id, opts) => {
+    const row = get().rows.find((r) => r.id === id) ?? get().open?.row ?? opts?.row;
     // The version on screen, when it is not the newest: the file that leaves
     // must be the one the person is looking at.
     const open = get().open;
@@ -285,22 +294,24 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     let dest: string | undefined;
     try {
       const picked = await saveDialog({
-        defaultPath: row ? `${fileName(row.title)}${extensionFor(row.kind)}` : undefined,
+        defaultPath: row ? `${fileName(row.title)}${opts?.as === 'pdf' ? '.pdf' : extensionFor(row.kind)}` : undefined,
         // The native format first, then what the sidecar can convert a text
         // artifact into: it picks the conversion from the extension of the
         // path chosen here (export.ts `exportAs`), so a name ending in .docx
         // is a Word file, not the source bytes renamed.
         filters: row
-          ? [
-              { name: row.kind.toUpperCase(), extensions: [extensionFor(row.kind).slice(1)] },
-              ...(CONVERTIBLE.has(row.kind)
-                ? [
-                    { name: 'PDF', extensions: ['pdf'] },
-                    { name: 'Word', extensions: ['docx'] },
-                    { name: 'Excel', extensions: ['xlsx'] },
-                  ]
-                : []),
-            ]
+          ? opts?.as === 'pdf' && CONVERTIBLE.has(row.kind)
+            ? [{ name: 'PDF', extensions: ['pdf'] }]
+            : [
+                { name: row.kind.toUpperCase(), extensions: [extensionFor(row.kind).slice(1)] },
+                ...(CONVERTIBLE.has(row.kind)
+                  ? [
+                      { name: 'PDF', extensions: ['pdf'] },
+                      { name: 'Word', extensions: ['docx'] },
+                      { name: 'Excel', extensions: ['xlsx'] },
+                    ]
+                  : []),
+              ]
           : undefined,
       });
       if (picked === null) return; // the dialog opened and they cancelled
@@ -460,18 +471,9 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     // a list that is right about the row and wrong about the order is harder to
     // trust than one that costs a cheap round trip.
     void get().refresh();
-    // Made or changed by the conversation you are looking at: show it, the way
-    // a finished piece of work is handed over, not left for you to go find.
-    // Only that conversation. A report written on Telegram or in another chat
-    // must not pull the panel open over what you are doing here.
-    if (e.onScreen && e.action !== 'deleted') {
-      set({ panelOpen: true, panelTab: 'artifacts' });
-      // Never swap the artifact out from under someone typing in another one.
-      if (get().open?.row.id !== e.id && !get().editing) {
-        void get().openArtifact(e.id);
-        return;
-      }
-    }
+    // Made or changed by the conversation you are looking at: the chat shows
+    // it as a card in the reply (ArtifactCard), so the panel stays shut until
+    // the person opens it. It used to open on its own beside the same document.
     // Made somewhere you are not looking (another chat, Telegram, a call):
     // the done toast says so and opens it (spec 7.4). It used to arrive
     // silently, found only by opening Artifacts.
@@ -512,6 +514,13 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     // the current panel is showing.
     if (!p) return;
     pending.delete(e.id);
+
+    if (p.kind === 'peek') {
+      const row = e.items?.[0];
+      if (e.ok && row && typeof e.content === 'string') p.resolve({ row, content: e.content });
+      else p.reject(e.error ?? 'That artifact came back empty.');
+      return;
+    }
 
     if (!e.ok) {
       // A refused save is a question for the person, not an error: the panel
@@ -584,6 +593,11 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
           error: null,
           lastExport: { path: e.path ?? '', note: e.note ?? '' },
         });
+        // From a chat card the panel may be shut, and then nothing says where
+        // the file went. With the panel on this artifact, its own line does.
+        if (!get().panelOpen || get().open?.row.id !== p.id) {
+          useNotifications.getState().push('success', 'Saved', e.path || e.note || 'Your file is ready');
+        }
         return;
       case 'delete':
         set({ busy: false, error: null, ...(get().open?.row.id === p.id ? { open: null, editing: null, review: null } : {}) });
@@ -678,9 +692,34 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(bin);
 }
 
+const peeked = new Map<string, { row: ArtifactRow; content: string }>();
+
+/**
+ * An artifact's text, for a chat card. Unlike `openArtifact` it never touches
+ * the panel's open document, and the answer is kept per version: a chat of
+ * fifty replies must not ask the engine fifty times each time it scrolls.
+ */
+export async function peekArtifact(id: string, version: number): Promise<{ row: ArtifactRow; content: string }> {
+  const key = `${id}@${version}`;
+  const hit = peeked.get(key);
+  if (hit) return hit;
+  const got = await new Promise<{ row: ArtifactRow; content: string }>((resolve, reject) => {
+    const reqId = nextId();
+    pending.set(reqId, { kind: 'peek', resolve, reject });
+    tauri.artifacts.op(reqId, 'get', { artifactId: id, version }).catch((e) => {
+      pending.delete(reqId);
+      reject(String(e));
+    });
+  });
+  if (peeked.size >= 30) peeked.delete(peeked.keys().next().value as string);
+  peeked.set(key, got);
+  return got;
+}
+
 /** Test seam: forget every in-flight request between cases. */
 export function resetArtifactRequests(): void {
   pending.clear();
+  peeked.clear();
   wanted = null;
   earlyVersions = null;
 }

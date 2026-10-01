@@ -12,7 +12,8 @@ import {
 import { Markdown } from '@/lib/markdown';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SelectMenu } from '@/components/ui/select-menu';
-import { APP_IFRAME_SANDBOX } from '@/lib/artifactSandbox';
+import { LiveFrame } from './LiveFrame';
+import { summaryOf } from '@/lib/artifactSections';
 // The editor is ~400 KB (128 KB gzipped) of ProseMirror that most sessions never open. Loaded on
 // the first Edit or What changed, not with the app.
 const DocumentEditor = lazy(() => import('./ArtifactEditor').then((m) => ({ default: m.DocumentEditor })));
@@ -830,50 +831,6 @@ function Preview({ kind, title, content }: { kind: string; title: string; conten
       </pre>
     </ScrollArea>
   );
-}
-
-/**
- * The sandboxed frame, and the one thing it tells the page while it is mounted.
- *
- * `data-live-frame` on <html> is there for the window glass to switch to its
- * no-displacement form (see globals.css). A counter, not a boolean, so two
- * frames closing in either order never leave the mark set or clear it early.
- * An attribute rather than a class, for the reason in lib/panelMotion.ts: a
- * class change on <html> restyles the whole page.
- */
-let liveFrames = 0;
-function LiveFrame({ title, content }: { title: string; content: string }) {
-  useEffect(() => {
-    liveFrames += 1;
-    document.documentElement.toggleAttribute('data-live-frame', true);
-    return () => {
-      liveFrames -= 1;
-      if (liveFrames === 0) document.documentElement.toggleAttribute('data-live-frame', false);
-    };
-  }, []);
-  return (
-    <iframe
-      title={title}
-      srcDoc={content}
-      sandbox={APP_IFRAME_SANDBOX}
-      className="flex-1 border-0 bg-white"
-    />
-  );
-}
-
-/** The first lines of a text artifact, as plain words: the overview's summary. */
-export function summaryOf(kind: string, content: string): string {
-  // Markdown already reads as itself in the hero; a page (document, html, Word) is a thumbnail.
-  if (!['document', 'html', 'docx'].includes(kind)) return '';
-  const text = content
-    .replace(/<h1[^>]*>[\s\S]*?<\/h1>/i, ' ') // the page's own title repeats the artifact's
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/^\s*#+\s.*$/m, ' ') // the first heading repeats the title
-    .replace(/[#*_`>|~]+|-{2,}/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return text.length > 220 ? `${text.slice(0, 220).replace(/\s\S*$/, '')}…` : text;
 }
 
 /**

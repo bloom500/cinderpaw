@@ -234,6 +234,15 @@ already recorded, so it costs no model call and cannot make things up.
 with up to four next-request chips. Never HTML; misfit data is a plain list. Card pictures (named, or a linked page's preview image)
 are fetched once through the egress door and kept in `~/.cinderpaw/cache/images`.
 
+## Documents as cards in the chat
+
+A finished artifact is a card in the reply, not only a row. A plan with three or more `##`
+sections shows as a section list and the chosen section (its first `![](https://...)` as the
+picture); a chart or diagram (an `app`) is the live page, interactive; anything else is a cover
+and a few words. Buttons: Open (an editor for text kinds), Download (PDF for prose), Share (only
+when Google is connected). `fetch_url` ends a page's text with `Picture: <url>` so the agent can
+put a real picture in a section. The side panel no longer opens by itself on a new artifact.
+
 ## Keeping its place on a long task
 
 Long runs fail by forgetting, not by being wrong. Four mechanisms, each covering

@@ -1,6 +1,7 @@
 import { act, cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ArtifactsPanel, summaryOf } from '../ArtifactsPanel';
+import { ArtifactsPanel } from '../ArtifactsPanel';
+import { summaryOf } from '@/lib/artifactSections';
 import { useArtifacts, resetArtifactRequests, googlePlan, shownKind, type ArtifactRow } from '@/stores/artifacts';
 import { APP_IFRAME_SANDBOX } from '@/lib/artifactSandbox';
 import { tauri } from '@/lib/tauri';
@@ -241,10 +242,11 @@ describe('live edits', () => {
 describe('handing the work over', () => {
   beforeEach(() => useArtifacts.setState({ panelOpen: false }));
 
-  it('an artifact made in the conversation on screen opens the panel on it', async () => {
+  it('an artifact made in the conversation on screen stays a card in the chat: the panel does not open by itself', async () => {
     useArtifacts.getState().onEvent({ id: 'new1', action: 'created', onScreen: true });
-    expect(useArtifacts.getState().panelOpen).toBe(true);
-    await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'get' && c[2]?.artifactId === 'new1')).toBe(true));
+    await waitFor(() => expect(op).toHaveBeenCalled());
+    expect(useArtifacts.getState().panelOpen).toBe(false);
+    expect(op.mock.calls.every((c) => c[1] === 'list')).toBe(true);
   });
 
   it('one made anywhere else does not open the panel, and the done toast offers it', async () => {

@@ -12,6 +12,7 @@
 import { guardWebText } from "../../security/injection.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 import { decodeEntities } from "./ddg-lite.ts";
+import { previewImageIn } from "../image-cache.ts";
 
 const MAX_RESPONSE_CHARS = 32_768;
 
@@ -54,7 +55,7 @@ export function createFetchUrlTool(allowedDomains: string[]): Tool {
     description:
       "Read a web page for its INFORMATION (HTTP GET, on this machine): a " +
       "web_search result, or any public HTTPS address (private addresses are " +
-      "blocked). Returns the page's visible text, or any other response body as " +
+      "blocked). Returns the page's visible text (ending in `Picture: <https url>` when it has a lead image), or any other response body as " +
       "it came. Nothing shows on the user's screen. If it comes back empty or " +
       "nearly so (a site built in JavaScript), open the page in `browser`; for a " +
       "page that needs a login, a form or clicks, or when the user asked for the " +
@@ -96,9 +97,14 @@ export function createFetchUrlTool(allowedDomains: string[]): Tool {
       }
 
       const raw = await res.text();
-      const text = looksLikeHtml(raw, res.headers["content-type"]) ? htmlToText(raw) : raw;
+      const isHtml = looksLikeHtml(raw, res.headers["content-type"]);
+      const text = isHtml ? htmlToText(raw) : raw;
       const truncated = text.length > MAX_RESPONSE_CHARS;
-      const body = truncated ? text.slice(0, MAX_RESPONSE_CHARS) + "\n\n[truncated]" : text;
+      // The page's own picture (og:image), which text extraction throws away: the only way
+      // the agent can learn a picture's address to put in a plan.
+      const picture = isHtml ? previewImageIn(raw, url) : null;
+      const body = (truncated ? text.slice(0, MAX_RESPONSE_CHARS) + "\n\n[truncated]" : text)
+        + (picture ? `\n\nPicture: ${picture}` : "");
 
       return {
         ok: true,

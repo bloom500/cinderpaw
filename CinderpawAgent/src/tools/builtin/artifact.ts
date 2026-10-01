@@ -172,7 +172,9 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       "you can change later by name, from any surface: chat, a voice call, or a " +
       "connected chat app.\n\n" +
       "Kinds: markdown (prose: reports, plans, notes, drafts, comparisons; it renders " +
-      "headings, lists and tables, and exports to PDF or Word), document (only for prose " +
+      "headings, lists and tables, and exports to PDF or Word; a plan or guide with a ## per part " +
+      "shows in the chat as a card of sections, and a part can carry a picture: ![caption](https://...) with an " +
+      "address from a fetch_url `Picture:` line, never an invented one), document (only for prose " +
       "you write as HTML), app (see below), table (JSON " +
       "rows), code, json, html, file, pdf (write the content as markdown: # headings, " +
       "paragraphs, - lists; it becomes a real A4 PDF the user can sign and fill in the panel).\n\n" +
