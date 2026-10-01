@@ -338,6 +338,7 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
       // from turn 2 onwards ran with turn 1's dead signal and could not be
       // stopped — nor could the workers it spawned.
       book.signal = ctx.signal;
+      book.onTool = ctx.innerTool;
 
       const r = await book.run(code);
       schedulePersist(sessionId, book);

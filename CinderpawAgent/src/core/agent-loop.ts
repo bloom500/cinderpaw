@@ -2063,6 +2063,7 @@ export class AgentLoop {
         const result = await this.#registry.call(call.name, call.args, sessionId, {
           ...(toolSignal ? { signal: toolSignal } : {}),
           onProgress: (e) => ctx.emit({ ...e, id: messageId }),
+          onInnerTool: (e) => ctx.emit({ ...e, id: messageId, traceId, sessionId }),
         });
         ctx.emit({ type: "tool_done", id: messageId, tool: call.name, result, traceId, sessionId });
 

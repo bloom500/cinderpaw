@@ -197,7 +197,8 @@ export function createShowWidgetTool(): Tool {
       "`progress` (done, total, label), `table` (columns: 2-4 {title, subtitle?, image?}, rows: {label, cells[]} " +
       "with one cell per column), `verdict` (text, one per answer: your take under a comparison), " +
       "`followups` (next: 1-4 short strings, next requests the user might send, in their voice; only after a finished task, last). " +
-      `Icons: ${WIDGET_ICONS.join(", ")}. Say in your text what the widget shows; do not repeat its contents.`,
+      `Icons: ${WIDGET_ICONS.join(", ")}. Say in your text what the widget shows; do not repeat its contents. ` +
+      "A board, dashboard, itinerary or plan the user asked for is not a widget: make it with artifact_create, kind `board`.",
     permissions: [],
     networkAccess: false,
   };

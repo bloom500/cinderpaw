@@ -49,7 +49,7 @@
 
 import { createContext, runInContext } from "node:vm";
 import type { ToolRegistry } from "../tools/registry.ts";
-import type { ToolResult } from "../types.ts";
+import type { InnerToolEvent, ToolResult } from "../types.ts";
 import { WAIT_MAX_MS, type ChildRegistry } from "./children.ts";
 
 /** How long one cell may run before it is abandoned. */
@@ -190,6 +190,8 @@ export class Notebook {
    * re-points it before each cell (see notebook.ts).
    */
   #signal?: AbortSignal;
+  /** This turn's reporter for the tools a cell calls; reset per turn like `#signal`. */
+  #onTool?: (e: InnerToolEvent) => void;
   #log: string[] = [];
   /**
    * Tool names invoked, newest last, capped at {@link MAX_TRACKED_CALLS}.
@@ -254,9 +256,12 @@ export class Notebook {
         if (this.#calls.length > MAX_TRACKED_CALLS) {
           this.#calls.splice(0, this.#calls.length - MAX_TRACKED_CALLS);
         }
+        const report = this.#onTool;
+        report?.({ type: "tool_start", tool: name, args: args ?? {} });
         const res: ToolResult = await opts.registry.call(name, args ?? {}, opts.sessionId, {
           signal: this.#signal,
         });
+        report?.({ type: "tool_done", tool: name, result: res });
         // Sever the result too: handing back an object with host
         // `Object.prototype` would reopen the `.constructor` route we just
         // closed. Own properties still read normally with a null prototype.
@@ -380,6 +385,11 @@ export class Notebook {
    */
   set signal(s: AbortSignal | undefined) {
     this.#signal = s;
+  }
+
+  /** Same per-turn re-pointing for the reporter of the tools a cell calls. */
+  set onTool(f: ((e: InnerToolEvent) => void) | undefined) {
+    this.#onTool = f;
   }
 
   /**

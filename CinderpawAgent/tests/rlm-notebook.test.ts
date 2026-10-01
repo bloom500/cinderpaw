@@ -1156,3 +1156,20 @@ describe("boot wiring — a worker can actually be granted notify_parent", () =>
     expect(registered).toBeLessThan(snapshotted);
   });
 });
+
+// A document made in a cell must reach the chat as its own tool call, or the
+// chat shows one "notebook" row and no card (1 Oct: a whole marketing plan,
+// eight pictures, and nothing on screen but the text).
+describe("notebook reports the tools a cell calls", () => {
+  it("emits tool_start and tool_done around each call, with the real result", async () => {
+    const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1" });
+    const seen: Array<{ type: string; tool: string; ok?: boolean }> = [];
+    nb.onTool = (e) =>
+      seen.push({ type: e.type, tool: e.tool, ...(e.type === "tool_done" ? { ok: e.result.ok } : {}) });
+    await nb.run(`await read_file({ path: "a.md" });`);
+    expect(seen).toEqual([
+      { type: "tool_start", tool: "read_file" },
+      { type: "tool_done", tool: "read_file", ok: true },
+    ]);
+  });
+});

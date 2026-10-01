@@ -145,6 +145,15 @@ export interface ToolProgressPayload {
   traceId?: string;
 }
 
+/**
+ * A tool called from inside another tool. The notebook runs artifact_create,
+ * find_images and the rest from a cell, and without these the chat saw one
+ * "notebook" row: no artifact card, no search hits, nothing it made.
+ */
+export type InnerToolEvent =
+  | { type: "tool_start"; tool: string; args: Record<string, unknown> }
+  | { type: "tool_done"; tool: string; result: ToolResult };
+
 export interface ToolProgressEvent extends ToolProgressPayload {
   type: "tool_progress";
   sessionId: string;
@@ -187,6 +196,8 @@ export interface ToolContext {
    * `sessionId`, and `tool`; tools emit stage/message/progress payloads.
    */
   progress?: (event: ToolProgressPayload) => void;
+  /** Report a tool this tool called itself; see `InnerToolEvent`. */
+  innerTool?: (event: InnerToolEvent) => void;
   /**
    * Interactive-questions bridge. Present only when the transport supports
    * ask_user (Tauri does). Tools that emit questions (currently just
@@ -325,6 +336,8 @@ export interface ToolCallOptions {
   timeoutMs?: number;
   /** Progress events emitted by long-running tools during this call. */
   onProgress?: (event: ToolProgressEvent) => void;
+  /** Tools this call runs itself (the notebook's cells), reported as the loop reports its own. */
+  onInnerTool?: (event: InnerToolEvent) => void;
   /**
    * Tools already tried in the current fallback chain. Internal.
    *

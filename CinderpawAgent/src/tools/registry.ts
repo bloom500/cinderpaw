@@ -574,6 +574,7 @@ export class ToolRegistry {
             opts.onProgress?.(full);
           }
         : undefined,
+      innerTool: opts.onInnerTool,
     };
 
     const policy = tool.manifest.retry;

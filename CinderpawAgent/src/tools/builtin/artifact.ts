@@ -178,6 +178,9 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
   const manifest: ToolManifest = {
     name: "artifact_create",
     description:
+      // The first sentence is all the drawer index shows, so "board" has to be in it (1 Oct:
+      // asked for a board, the model never saw the word and drew a widget table instead).
+      "Make a document, chart or board (plan, itinerary, dashboard, diagram) the user keeps. " +
       "Put the result HERE instead of in the reply whenever it is longer than " +
       "about 15 lines, stands on its own, or is something the user will want to " +
       "edit, re-read or reuse after this conversation: a report, a summary, a " +
