@@ -871,7 +871,7 @@ function Overview({ googleRegistered, onOpen }: { googleRegistered: boolean; onO
         <div className="relative flex h-56 flex-col overflow-hidden rounded-2xl border border-border-default bg-bg-elevated shadow-sm">
           {row.kind === 'pdf' || row.kind === 'image' || row.kind === 'file' ? (
             <div className="flex flex-1 items-center justify-center bg-gradient-to-br from-brand/15 via-bg-elevated to-bg-surface">
-              <look.icon size={40} className="text-brand" />
+              <look.icon size={28} className="text-brand" />
             </div>
           ) : (
             // A thumbnail of the real thing: laid out at 1/0.55 of the card and

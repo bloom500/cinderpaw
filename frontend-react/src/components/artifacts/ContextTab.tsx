@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Activity, Brain, ChevronDown, ChevronRight, Cpu, File, FileCode2, FileImage, FileText, Folder, Globe, LayoutGrid, MoreHorizontal, Paperclip, Plus, ShieldCheck, Wrench, type LucideIcon } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-shell';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -238,7 +238,7 @@ function Fold({ id, icon: Icon, title, count, value, alert, defaultOpen, onAdd, 
     <section aria-label={title}>
       <details id={id} open={defaultOpen} className="group rounded-xl border border-border-default bg-bg-elevated">
         <summary className="flex h-12 cursor-pointer list-none items-center gap-3 rounded-xl px-3.5 hover:bg-text-primary/5 [&::-webkit-details-marker]:hidden">
-          <Icon size={18} className="shrink-0 text-text-secondary" />
+          <Icon size={16} className="shrink-0 text-text-secondary" />
           <span className="text-sm font-medium text-text-primary">{title}</span>
           {!!count && <span className="rounded-md bg-bg-active px-1.5 py-0.5 text-2xs text-text-muted">{count}</span>}
           {value}
