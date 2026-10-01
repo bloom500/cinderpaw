@@ -241,7 +241,9 @@ sections shows as a section list and the chosen section (its first `![](https://
 picture); a chart or diagram (an `app`) is the live page, interactive; anything else is a cover
 and a few words. Buttons: Open (an editor for text kinds), Download (PDF for prose), Share (only
 when Google is connected). `fetch_url` ends a page's text with `Picture: <url>` so the agent can
-put a real picture in a section. The side panel no longer opens by itself on a new artifact.
+put a real picture in a section, and `find_images` (in the drawer) looks pictures up in Openverse,
+Wikimedia Commons and iNaturalist, plus Pexels and Unsplash when `CINDERPAW_PEXELS_KEY` /
+`CINDERPAW_UNSPLASH_KEY` are set, returning each with its credit. The side panel no longer opens by itself on a new artifact.
 
 ## Keeping its place on a long task
 

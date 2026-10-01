@@ -100,6 +100,7 @@ import { createCalculatorTool } from "./tools/builtin/calculator.ts";
 import { createShowWidgetTool } from "./tools/builtin/show-widget.ts";
 import { createWebSearchTool } from "./tools/builtin/web-search.ts";
 import { createFetchUrlTool } from "./tools/builtin/fetch-url.ts";
+import { createFindImagesTool } from "./tools/builtin/find-images.ts";
 import { createReadWebpageTool } from "./tools/builtin/read-webpage.ts";
 import { createDeepResearchTool } from "./tools/builtin/deep-research.ts";
 import { createToolHealthTool } from "./tools/builtin/tool-health.ts";
@@ -869,6 +870,8 @@ export async function boot(transportOverride?: Transport) {
   const fetchDomains = (readEnv("CINDERPAW_FETCH_DOMAINS") ?? "")
     .split(",").map((d) => d.trim()).filter(Boolean);
   registry.register(createFetchUrlTool(fetchDomains.length > 0 ? fetchDomains : ["*"]));
+  // find_images: photo libraries with their credit. Drawered (tiers.ts); keyless sources work on a clean install.
+  registry.register(createFindImagesTool());
   // read_webpage: Jina Reader — extracts clean markdown from any URL (no API key needed)
   const jinaApiKey = readEnv("CINDERPAW_JINA_API_KEY");
   registry.register(createReadWebpageTool(jinaApiKey));

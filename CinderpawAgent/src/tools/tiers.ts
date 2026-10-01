@@ -72,6 +72,8 @@ export const EXTENDED_TOOLS = new Set<string>([
   // it on this machine; read_webpage sends every address to Jina's service.
   // The local one is advertised, the third-party one is the fallback.
   "read_webpage",
+  // Asked for by name once a task wants a picture: one line in the capability index, no schema per completion.
+  "find_images",
   "calculator",
   "time_date",
   "http_request",
