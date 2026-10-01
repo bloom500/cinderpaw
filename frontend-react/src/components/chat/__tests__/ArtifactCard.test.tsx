@@ -158,6 +158,18 @@ describe('ArtifactCard', () => {
     expect(screen.getByRole('button', { name: 'Open Launch week' })).toBeTruthy();
   });
 
+  it('a board artifact is drawn as the board, with its own header, a PDF download and the arrow', async () => {
+    const board = { title: 'Performance Charts', subtitle: 'Monthly metrics', icon: 'bar-chart', blocks: [{ kind: 'kpis', items: [{ label: 'CTR', value: '4.8%', trend: 'up' }] }] };
+    engineReturns(JSON.stringify(board), { ...ROW, id: 'b1', kind: 'board', title: 'Performance Charts' });
+    render(<ArtifactCard f={{ id: 'b1', title: 'Performance Charts', kind: 'board', version: 1, path: null }} />);
+    expect(await screen.findByText('Monthly metrics')).toBeTruthy();
+    expect(screen.getByText('4.8%')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
+    expect(useArtifacts.getState().exportArtifact).toHaveBeenCalledWith('b1', { as: 'pdf', row: { title: 'Performance Charts', kind: 'board' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Open Performance Charts' }));
+    expect(useArtifacts.getState().openArtifact).toHaveBeenCalledWith('b1');
+  });
+
   it('an export receipt stays a small row: Open only', () => {
     render(<ArtifactCard f={{ ...PLAN, path: 'D:/x/Launch week.pdf' }} />);
     expect(screen.getByRole('button', { name: 'Open Launch week' })).toBeTruthy();

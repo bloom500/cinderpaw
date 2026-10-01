@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AppWindow, ArrowRight, Code, Download, FileBox, FileText, Image as ImageIcon, Share2, Table } from 'lucide-react';
+import { AppWindow, ArrowRight, Code, Download, FileBox, FileText, Image as ImageIcon, LayoutDashboard, Share2, Table } from 'lucide-react';
+import { BoardView } from '@/components/board/BoardView';
+import { parseBoard } from '@/lib/board';
 import type { ArtifactFact } from '@/hooks/useLiveToolActivity';
 import { googlePlan, peekArtifact, shownKind, useArtifacts, type ArtifactRow } from '@/stores/artifacts';
 import { ArtifactCover } from '@/components/artifacts/ArtifactCover';
@@ -21,6 +23,7 @@ const KINDS: Record<string, { icon: typeof FileBox; word: string }> = {
   code:     { icon: Code,      word: 'Code' },
   json:     { icon: Code,      word: 'Data' },
   image:    { icon: ImageIcon, word: 'Image' },
+  board:    { icon: LayoutDashboard, word: 'Board' },
 };
 const OTHER = { icon: FileBox, word: 'File' };
 
@@ -42,9 +45,9 @@ export function artifactLine(f: Pick<ArtifactFact, 'kind' | 'version'>): string 
 }
 
 /** Kinds whose text the card can read and draw; the rest get their cover. */
-const READABLE = new Set(['document', 'markdown', 'app', 'html', 'table', 'code', 'json']);
+const READABLE = new Set(['document', 'markdown', 'app', 'html', 'table', 'code', 'json', 'board']);
 /** Kinds the sidecar turns into a PDF on export (mirrors CONVERTIBLE in the store). */
-const PDF_ABLE = new Set(['document', 'markdown', 'table', 'code', 'json']);
+const PDF_ABLE = new Set(['document', 'markdown', 'table', 'code', 'json', 'board']);
 /** Section columns on the card; the rest are chips in the footer. */
 const COLUMNS = 4;
 const CHIPS = 4;
@@ -242,6 +245,7 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
   }, []);
 
   const content = peek.state === 'ready' ? peek.content : '';
+  const board = useMemo(() => (f.kind === 'board' && content ? parseBoard(content) : null), [f.kind, content]);
   const shown = shownKind(f.kind, content);
   const sections = useMemo(() => (shown === 'markdown' || shown === 'document' ? sectionsOf(shown, content) : []), [shown, content]);
   const sectioned = peek.state === 'ready' && sections.length >= MIN_SECTIONS;
@@ -280,6 +284,43 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
   const asPdf = PDF_ABLE.has(f.kind);
   const canShare = googleOk && peek.state === 'ready' && googlePlan(shown) !== null;
   const iconButton = 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border-default bg-bg-elevated text-text-secondary transition-colors hover:bg-text-primary/5 hover:text-text-primary disabled:opacity-60';
+
+  // A board draws its own header and footer (the 1 Oct boards); the card adds its buttons to that footer.
+  if (board && peek.state === 'ready') {
+    return (
+      <div ref={ref}>
+        <BoardView
+          board={board}
+          seed={`${f.id}:${board.title}`}
+          status={statusOf(f.version, peek.row.updatedAt)}
+          onSection={() => openInPanel(f.id)}
+          actions={
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                aria-label="Download PDF"
+                title="Download PDF"
+                onClick={() => void useArtifacts.getState().exportArtifact(f.id, { as: 'pdf', row: { title: f.title, kind: f.kind } })}
+                className={iconButton}
+              >
+                <Download size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={() => openInPanel(f.id)}
+                aria-label={`Open ${f.title}`}
+                title="Open in Artifacts"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand text-white transition-colors hover:bg-brand-hover"
+              >
+                <ArrowRight size={19} />
+              </button>
+            </>
+          }
+        />
+      </div>
+    );
+  }
 
   return (
     <div ref={ref} className="@container overflow-hidden rounded-3xl border border-border-default bg-bg-surface shadow-[0_10px_30px_-14px_rgba(120,60,20,0.22)]">

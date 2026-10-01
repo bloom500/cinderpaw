@@ -13,6 +13,8 @@ import { Markdown } from '@/lib/markdown';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SelectMenu } from '@/components/ui/select-menu';
 import { LiveFrame } from './LiveFrame';
+import { BoardView } from '@/components/board/BoardView';
+import { parseBoard } from '@/lib/board';
 import { summaryOf } from '@/lib/artifactSections';
 // The editor is ~400 KB (128 KB gzipped) of ProseMirror that most sessions never open. Loaded on
 // the first Edit or What changed, not with the app.
@@ -650,8 +652,10 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
   // The overview (Darius's Artifact board, 30 Sep) first; Open shows the whole thing.
   // A PDF is usually a form to fill or sign: it opens straight into its editor.
   // A deep dive from a chat card (a section chip) skips the overview too.
-  const [full, setFull] = useState(open?.row.kind === 'pdf' || focus !== null);
-  useEffect(() => setFull(open?.row.kind === 'pdf' || useArtifacts.getState().focus !== null), [open?.row.id]);
+  // A board is already its own overview: it opens as itself.
+  const direct = (kind?: string) => kind === 'pdf' || kind === 'board';
+  const [full, setFull] = useState(direct(open?.row.kind) || focus !== null);
+  useEffect(() => setFull(direct(open?.row.kind) || useArtifacts.getState().focus !== null), [open?.row.id]);
   const viewer = useRef<HTMLDivElement>(null);
   // Scroll to the asked-for heading once the document is on screen, then forget it.
   useEffect(() => {
@@ -804,7 +808,7 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
         </Suspense>
       ) : (
         <div ref={viewer} className="contents">
-          <Preview kind={shownKind(row.kind, content)} title={row.title} content={content} />
+          <Preview kind={shownKind(row.kind, content)} title={row.title} content={content} id={row.id} />
         </div>
       )}
     </>
@@ -825,7 +829,20 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
  * `srcdoc` rather than a URL: there is no origin to serve it from, and none is
  * wanted.
  */
-function Preview({ kind, title, content }: { kind: string; title: string; content: string }) {
+function Preview({ kind, title, content, id = '' }: { kind: string; title: string; content: string; id?: string }) {
+  // A board is the deep dive of its chat card: the same board, at the panel's width.
+  if (kind === 'board') {
+    const board = parseBoard(content);
+    if (board) {
+      return (
+        <ScrollArea className="flex-1">
+          <div className="p-3">
+            <BoardView board={board} seed={`${id}:${board.title}`} status="Ready" />
+          </div>
+        </ScrollArea>
+      );
+    }
+  }
   // A Word file arrives as preview HTML built by the sidecar, and is framed
   // like any other HTML: it came from a stranger's file.
   if (kind === 'app' || kind === 'html' || kind === 'document' || kind === 'docx') {

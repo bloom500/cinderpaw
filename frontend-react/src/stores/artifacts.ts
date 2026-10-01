@@ -680,11 +680,11 @@ export function googlePlan(kind: string): { mime: string; convert: boolean } | n
 }
 
 /** The text kinds the sidecar can turn into a PDF, a Word or an Excel file. */
-const CONVERTIBLE = new Set(['document', 'markdown', 'app', 'table', 'code', 'json', 'html']);
+const CONVERTIBLE = new Set(['document', 'markdown', 'app', 'table', 'code', 'json', 'html', 'board']);
 
 /** Mirrors `EXT` in the sidecar's artifacts/store.ts. */
 function extensionFor(kind: string): string {
-  return ({ document: '.html', markdown: '.md', app: '.html', table: '.json', code: '.txt', json: '.json', html: '.html', pdf: '.pdf', docx: '.docx', image: '.png' } as Record<string, string>)[kind] ?? '.bin';
+  return ({ document: '.html', markdown: '.md', app: '.html', table: '.json', code: '.txt', json: '.json', html: '.html', pdf: '.pdf', docx: '.docx', image: '.png', board: '.board.json' } as Record<string, string>)[kind] ?? '.bin';
 }
 
 /** A title as a filename, same rules as the sidecar's safeFileName. */
