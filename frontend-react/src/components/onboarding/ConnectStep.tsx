@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Plus } from 'lucide-react';
+import { Check, ChevronDown, Plus, ShieldCheck } from 'lucide-react';
 import { tauri, type ConnectorCatalogEntry, type ConnectorView, type McpCatalogEntry } from '@/lib/tauri';
 import { BrandLogo } from '@/lib/brandLogos';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { CatalogCard } from '@/pages/ExtensionsPage';
 import { ConnectorCard } from '@/pages/ConnectorsPage';
-import { CinderpawMascot } from '@/components/chat/mascot/CinderpawMascot';
 import { useOnboarding } from '@/stores/onboarding';
+import { StepIntro } from './OnboardingWizard';
 import { cn } from '@/lib/utils';
 
 /** "Your tools": these MCP presets first, when the catalog has them (spec 7.3). */
@@ -27,15 +27,15 @@ function Card({ id, name, line, connected, onConnect }: {
   onConnect?: () => void;
 }) {
   return (
-    <div className={cn(
-      'flex items-center gap-3.5 rounded-2xl border bg-bg-surface py-3.5 pl-4 pr-3.5',
-      connected ? 'border-success/40' : 'border-border-default',
-    )}>
-      <BrandLogo id={id} name={name} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold text-text-primary">{name}</span>
-        <span className="block truncate text-2xs text-text-disabled" title={line}>{line}</span>
-      </span>
+    <div
+      title={line}
+      className={cn(
+        'flex items-center gap-2.5 rounded-2xl border bg-bg-surface py-2 pl-2 pr-2.5',
+        connected ? 'border-success/40' : 'border-border-default',
+      )}
+    >
+      <BrandLogo id={id} name={name} className="size-8 border-0" />
+      <span className="truncate font-display text-sm text-text-primary">{name}</span>
       {connected ? (
         <span className="flex shrink-0 items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-2xs font-medium text-success">
           <Check size={12} /> Connected
@@ -45,9 +45,9 @@ function Card({ id, name, line, connected, onConnect }: {
           type="button"
           onClick={onConnect}
           aria-label={`Connect ${name}`}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border-default text-text-muted hover:border-brand/50 hover:text-brand"
+          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-bg-hover text-text-muted hover:text-brand"
         >
-          <Plus size={16} />
+          <Plus size={14} />
         </button>
       ) : null}
     </div>
@@ -89,13 +89,13 @@ export function ConnectStep() {
 
   return (
     <div className="flex flex-col">
-      <h2 className="font-display text-3xl font-normal text-text-primary">Connect your world.</h2>
-      <p className="mt-2 max-w-xl text-base text-text-muted">
-        Bring in the tools you already use, so Cinderpaw can work in them, not only talk about them.
-      </p>
+      <StepIntro
+        title="Connect your world"
+        lead="Bring your tools, files, and conversations into one place."
+        body="Connect apps so your agent can search, create, and act with your approval."
+      />
 
-      <p className="mt-6 text-2xs font-semibold uppercase tracking-wider text-text-disabled">Your tools</p>
-      <div className="mt-2 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+      <div className="mt-6 flex flex-wrap gap-2.5">
         {tools.map((t) => (
           <Card key={t.id} id={t.id} name={t.name} line={t.description} connected={installed.has(t.id)}
             onConnect={() => setOpen({ kind: 'tool', entry: t })} />
@@ -103,10 +103,6 @@ export function ConnectStep() {
         {/* Send-only (drive.file), and it signs in the first time a document is
             sent, in the Browser panel, which this wizard covers: so no button here. */}
         <Card id="google_docs" name="Google Docs" line="Connects the first time you send a document" connected={false} />
-      </div>
-
-      <p className="mt-5 text-2xs font-semibold uppercase tracking-wider text-text-disabled">Where you chat</p>
-      <div className="mt-2 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         {shownChats.map((c) => {
           const s = savedById.get(c.id);
           return (
@@ -118,22 +114,22 @@ export function ConnectStep() {
           <button
             type="button"
             onClick={() => setAllChats(true)}
-            className="flex items-center justify-center gap-1.5 rounded-2xl border border-dashed border-border-default py-3.5 text-sm text-text-muted hover:text-text-secondary"
+            className="flex items-center gap-1.5 rounded-2xl border border-dashed border-border-default px-4 text-sm text-text-muted hover:text-text-secondary"
           >
             {moreChats.length} more <ChevronDown size={14} />
           </button>
         )}
       </div>
 
-      <div className="mt-6 flex items-end gap-3">
-        <span aria-hidden className="relative -mb-2 h-16 w-16 shrink-0 overflow-hidden">
-          <span className="absolute left-0 top-0 origin-top-left scale-50"><CinderpawMascot state="wave" /></span>
+      <div className="mt-5 flex flex-wrap items-center gap-4 rounded-2xl bg-bg-surface px-4 py-3.5">
+        <ShieldCheck size={28} className="shrink-0 text-brand" />
+        <span className="min-w-0 flex-1">
+          <span className="block font-display text-base text-text-primary">Secure and private</span>
+          <span className="block text-xs text-text-muted">
+            Cinderpaw only reaches what you approve. Review or remove a connection anytime in Settings, under Accounts.
+          </span>
         </span>
-        <p className="mb-2 max-w-sm rounded-2xl rounded-bl-sm border border-border-default bg-bg-elevated px-3.5 py-2.5 text-sm text-text-primary">
-          Connect one or two now. The rest can wait in Settings, under Accounts.
-        </p>
-        <span className="flex-1" />
-        <button type="button" onClick={next} className="mb-2 px-3 py-2 text-sm font-medium text-text-muted hover:text-text-secondary">
+        <button type="button" onClick={next} className="px-2 py-1 text-sm font-medium text-text-muted underline underline-offset-4 hover:text-text-secondary">
           Skip for now
         </button>
       </div>

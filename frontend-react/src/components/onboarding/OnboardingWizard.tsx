@@ -1,32 +1,24 @@
 /**
- * OnboardingWizard — first-run experience.
+ * OnboardingWizard — first-run experience, drawn from Darius's five boards
+ * (Moodboard/Components/onboarding 1-5.png, 1 Oct 2026).
  *
- * 5 steps, each with a single clear purpose:
- *   1. Welcome          — greet the user, set expectations
- *   2. Personalize      — ask for the user's name + a name for the agent
- *   3. Provider         — "Choose your brain": local one-click model or BYOK
- *   4. Showcase         — 3 example capabilities (read-only cards)
- *   5. Done             — final CTA: open the chat
+ *   1. Welcome          — what Cinderpaw is, in four cards
+ *   2. Provider         — Cloud, Hugging Face or Local, with the real setup under each
+ *   3. Connect          — the real integrations, "+" opens the same form Settings uses
+ *   4. Workspace        — a drawing of the app, so the first screen after this is familiar
+ *   5. Done             — what was set up (only what really was), then the chat
  *
- * Why so short: the user just opened the app. They don't want to fill in
- * 5 forms about workspace, model, permissions, etc. — that's the agent's
- * job to figure out. The only thing a first-time user can meaningfully
- * decide is: "what should I call this thing, and what should it call me?"
- *
- * Why these specific inputs:
- *   - userName: lets the agent address the user by name (personal touch)
- *   - agentName: lets the user feel ownership ("my assistant Bob")
- *   Both names are also injected into the agent's system prompt as a
- *   USER block so the model can use them naturally.
+ * The name step is gone on purpose: the boards have none, and the agent asks
+ * in the first conversation. Names can still be changed in Settings.
  *
  * Skippable. If the user dismisses, defaults are used and they can
  * re-open the wizard from Settings later.
  */
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, ArrowLeft, Sparkles, X, FileText, Search, Terminal, Cloud, HardDrive, Download, Check, ExternalLink, Loader2, ChevronRight, ShieldCheck, ShieldAlert, Shield, Eye, EyeOff } from 'lucide-react';
+import { ArrowRight, ArrowLeft, ArrowUp, AudioLines, BarChart3, Brain, Check, ChevronRight, Cloud, Cpu, Database, Download, ExternalLink, Eye, EyeOff, FileText, Globe, Gpu, Laptop, Layers, Loader2, MemoryStick, Paperclip, PenLine, Search, Settings, Shield, ShieldAlert, ShieldCheck, Sparkles, Star, Wrench, type LucideIcon } from 'lucide-react';
 import { useOnboarding } from '@/stores/onboarding';
 import { useSystemInfo } from '@/stores/systemInfo';
 import { useDownload } from '@/stores/download';
@@ -38,6 +30,8 @@ import { useNotifications } from '@/stores/notifications';
 import { recommendModel } from '@/lib/hardwareRecommendation';
 import { tauri, type DiskEncryptionStatus, type SetupCandidate, type SetupVerifyOutcome } from '@/lib/tauri';
 import { CinderpawMascot } from '@/components/chat/mascot/CinderpawMascot';
+import type { MascotState } from '@/components/chat/mascot/frames';
+import { BrandLogo } from '@/lib/brandLogos';
 import { ConnectStep } from './ConnectStep';
 import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 
@@ -47,123 +41,163 @@ const stepVariants = {
   exit: { opacity: 0, y: -12 },
 };
 
+/** The mascot's pose on each board, in step order. */
+const ART: MascotState[] = ['wave', 'curious', 'excited', 'idle', 'celebrate'];
+
+const PRIMARY_BUTTON =
+  'inline-flex items-center gap-2.5 rounded-2xl bg-brand px-7 py-3.5 text-base font-medium text-on-brand shadow-lg shadow-brand/25 transition-colors hover:bg-brand/90';
+
 export function OnboardingWizard() {
+  const navigate = useNavigate();
   const active = useOnboarding((s) => s.active);
   const step = useOnboarding((s) => s.step);
   const totalSteps = useOnboarding((s) => s.totalSteps);
   const prev = useOnboarding((s) => s.prev);
+  const next = useOnboarding((s) => s.next);
   const skip = useOnboarding((s) => s.skip);
+  const finish = useOnboarding((s) => s.finish);
 
   if (!active) return null;
+  const isFirst = step === 0;
+  const isLast = step === totalSteps - 1;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-bg-primary/95 backdrop-blur-xs"
+      className="fixed inset-0 z-50 overflow-y-auto bg-bg-primary"
       role="dialog"
       aria-modal="true"
       aria-labelledby="onboarding-title"
     >
-      <div className="w-full max-w-2xl mx-4 bg-bg-elevated border border-border-default rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Top bar: progress + skip */}
-        <header className="flex items-center justify-between px-6 py-4 border-b border-border-subtle">
-          <ProgressDots step={step} total={totalSteps} />
-          <button
-            type="button"
-            onClick={skip}
-            className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded transition-colors"
-            aria-label="Skip onboarding"
-          >
-            <X size={14} className="inline -mt-0.5 mr-1" /> Skip
-          </button>
+      <div className="mx-auto flex min-h-full max-w-6xl flex-col px-4 py-6 sm:px-10 sm:py-8">
+        <header className="flex items-center gap-2" aria-hidden>
+          <CinderpawMascot state="idle" width={32} />
+          <span className="font-display text-xl text-text-primary">Cinderpaw</span>
         </header>
 
-        {/* Step content */}
-        <div className="flex-1 overflow-y-auto px-6 py-8">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={step}
-              variants={stepVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              transition={{ duration: 0.18, ease: 'easeOut' }}
-            >
-              {step === 0 && <WelcomeStep />}
-              {step === 1 && <PersonalizeStep />}
-              {step === 2 && <ProviderStep />}
-              {step === 3 && <ConnectStep />}
-              {step === 4 && <ShowcaseStep />}
-              {step === 5 && <DoneStep />}
-            </motion.div>
-          </AnimatePresence>
-        </div>
+        <div className="grid flex-1 items-center gap-10 py-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+          <div className="min-w-0">
+            <StepCounter step={step} total={totalSteps} />
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={step}
+                variants={stepVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+                className="mt-6"
+              >
+                {step === 0 && <WelcomeStep />}
+                {step === 1 && <ProviderStep />}
+                {step === 2 && <ConnectStep />}
+                {step === 3 && <WorkspaceStep />}
+                {step === 4 && <DoneStep />}
+              </motion.div>
+            </AnimatePresence>
 
-        {/* Bottom bar: back / next */}
-        <footer className="flex items-center justify-between px-6 py-4 border-t border-border-subtle">
-          <button
-            type="button"
-            onClick={prev}
-            disabled={step === 0}
-            className="text-sm text-text-muted hover:text-text-primary px-3 py-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            <ArrowLeft size={14} className="inline -mt-0.5 mr-1" /> Back
-          </button>
-          <StepNavigation step={step} totalSteps={totalSteps} />
-        </footer>
+            <nav className="mt-8 flex flex-wrap items-center gap-4">
+              {!isFirst && (
+                <button type="button" onClick={prev} className={cn(SECONDARY_BUTTON, 'rounded-2xl px-5 py-3 text-base')}>
+                  <ArrowLeft size={16} /> Back
+                </button>
+              )}
+              {isLast ? (
+                <button
+                  type="button"
+                  // Navigate to /chat explicitly rather than relying on it being the
+                  // route behind the overlay — the provider step can leave the router
+                  // elsewhere (e.g. a deep-link to /models). Finish closes the wizard.
+                  onClick={() => { navigate('/chat'); void finish(); }}
+                  className={PRIMARY_BUTTON}
+                >
+                  Start exploring <ArrowRight size={16} />
+                </button>
+              ) : (
+                <button type="button" onClick={next} className={PRIMARY_BUTTON}>
+                  {isFirst ? 'Get started' : 'Continue'} <ArrowRight size={16} />
+                </button>
+              )}
+              {isFirst && (
+                <button
+                  type="button"
+                  onClick={skip}
+                  className="text-base text-text-muted underline underline-offset-4 hover:text-text-primary"
+                  aria-label="Skip onboarding"
+                >
+                  Skip
+                </button>
+              )}
+            </nav>
+          </div>
+
+          {/* The drawing beside each board. Decoration only, and hidden on a
+              narrow window, where the steps need the whole width. */}
+          <div className="hidden justify-center lg:flex" aria-hidden>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={step}
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+              >
+                {step === 1 ? <ModelArt /> : step === 2 ? <ConnectArt /> : step === 3 ? <WorkspaceArt /> : (
+                  <CinderpawMascot state={ART[step] ?? 'wave'} width={340} />
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-function ProgressDots({ step, total }: { step: number; total: number }) {
+function StepCounter({ step, total }: { step: number; total: number }) {
   return (
-    <div className="flex items-center gap-1.5" aria-label={`Step ${step + 1} of ${total}`}>
-      {Array.from({ length: total }, (_, i) => (
-        <div
-          key={i}
-          className={cn(
-            'h-1.5 rounded-full transition-all duration-300',
-            i === step ? 'w-8 bg-brand' : i < step ? 'w-1.5 bg-brand/50' : 'w-1.5 bg-border-default',
-          )}
-        />
-      ))}
+    <div className="flex items-center gap-5" aria-label={`Step ${step + 1} of ${total}`}>
+      <span className="text-xs font-medium tracking-[0.22em] text-text-muted">{step + 1} OF {total}</span>
+      <span className="flex items-center" aria-hidden>
+        {Array.from({ length: total }, (_, i) => (
+          <Fragment key={i}>
+            {i > 0 && <span className={cn('h-px w-5', i <= step ? 'bg-brand/50' : 'bg-border-default')} />}
+            <span
+              className={cn(
+                'rounded-full transition-all duration-300',
+                i === step ? 'size-3.5 bg-brand' : i < step ? 'size-2 bg-brand/50' : 'size-2 bg-border-default',
+              )}
+            />
+          </Fragment>
+        ))}
+      </span>
     </div>
   );
 }
 
-function StepNavigation({ step, totalSteps }: { step: number; totalSteps: number }) {
-  const navigate = useNavigate();
-  const next = useOnboarding((s) => s.next);
-  const finish = useOnboarding((s) => s.finish);
-  const userName = useOnboarding((s) => s.userName);
-  const isLast = step === totalSteps - 1;
-  const isPersonalize = step === 1;
-  const canProceed = !isPersonalize || userName.trim().length > 0;
-
-  if (isLast) {
-    return (
-      <button
-        type="button"
-        // Navigate to /chat explicitly rather than relying on it being the
-        // route behind the overlay — the provider step can leave the router
-        // elsewhere (e.g. a deep-link to /models). Finish closes the wizard.
-        onClick={() => { navigate('/chat'); void finish(); }}
-        className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-on-brand hover:bg-brand/90 transition-colors"
-      >
-        Open chat <ArrowRight size={14} className="inline -mt-0.5 ml-1" />
-      </button>
-    );
-  }
-
+/** A board's title, its serif lead line, and the plain sentence under it. */
+export function StepIntro({ title, lead, body }: { title: ReactNode; lead: string; body: string }) {
   return (
-    <button
-      type="button"
-      onClick={next}
-      disabled={!canProceed}
-      className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-on-brand hover:bg-brand/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-    >
-      Continue <ArrowRight size={14} className="inline -mt-0.5 ml-1" />
-    </button>
+    <div>
+      <h1 id="onboarding-title" className="font-display text-5xl leading-[1.02] tracking-tight text-text-primary sm:text-6xl">
+        {title}
+      </h1>
+      <p className="mt-4 font-display text-2xl leading-snug text-text-primary sm:text-3xl">{lead}</p>
+      <p className="mt-3 max-w-xl text-lg leading-relaxed text-text-muted">{body}</p>
+    </div>
+  );
+}
+
+function FeatureCards({ items }: { items: { icon: LucideIcon; title: string; line: string }[] }) {
+  return (
+    <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {items.map(({ icon: Icon, title, line }) => (
+        <div key={title} className="rounded-2xl border border-border-default bg-bg-surface px-3 py-4 text-center">
+          <Icon size={28} className="mx-auto text-brand" />
+          <p className="mt-2.5 font-display text-base text-text-primary">{title}</p>
+          <p className="mt-1 text-xs leading-relaxed text-text-muted">{line}</p>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -171,178 +205,139 @@ function StepNavigation({ step, totalSteps }: { step: number; totalSteps: number
 
 function WelcomeStep() {
   return (
-    <div className="text-center space-y-6">
-      {/* #25: the mascot that lives on the chat input greets the user here
-          first — same component, brand continuity from minute one. */}
-      <motion.div
-        initial={{ scale: 0.8, rotate: -10 }}
-        animate={{ scale: 1, rotate: 0 }}
-        transition={{ type: 'spring', duration: 0.5 }}
-        className="flex justify-center"
-        aria-hidden
-      >
-        <CinderpawMascot state="wave" width={112} />
-      </motion.div>
-      <h1 id="onboarding-title" className="text-3xl font-semibold text-text-primary">
-        Welcome to Cinderpaw
-      </h1>
-      <p className="text-base text-text-muted max-w-md mx-auto leading-relaxed">
-        A local AI agent that helps you with your files, projects, and tasks,
-        without sending your data to the cloud.
-      </p>
+    <div>
+      <StepIntro
+        title={<>Welcome to<br />Cinderpaw</>}
+        lead="A little wild. A lot to learn."
+        body="Your adaptive AI companion for exploring, creating, and automating work."
+      />
+      <FeatureCards
+        items={[
+          { icon: Layers, title: 'Models', line: 'Use the best models for your goals.' },
+          { icon: Wrench, title: 'Tools', line: 'Get things done with powerful tools.' },
+          { icon: Database, title: 'Memory', line: 'Remembers what matters to you.' },
+          { icon: AudioLines, title: 'Voice', line: 'Chat naturally, with your voice.' },
+        ]}
+      />
     </div>
   );
 }
 
-// ── Step 2: Personalize ─────────────────────────────────────────────────────
+// ── Step 4: Workspace ───────────────────────────────────────────────────────
 
-function PersonalizeStep() {
-  const userName = useOnboarding((s) => s.userName);
-  const setUserName = useOnboarding((s) => s.setUserName);
-  const agentName = useOnboarding((s) => s.agentName);
-  const setAgentName = useOnboarding((s) => s.setAgentName);
-
+function WorkspaceStep() {
   return (
-    <div className="space-y-8">
-      <div>
-        <h2 className="text-2xl font-semibold text-text-primary mb-2">
-          Let's get to know each other
-        </h2>
-        <p className="text-sm text-text-muted">
-          The names you pick here are the ones I'll use when we talk.
-        </p>
-      </div>
-
-      <div className="space-y-5">
-        <Field
-          label="What should I call you?"
-          hint="I'll use this to address you in our conversation."
-        >
-          <input
-            type="text"
-            value={userName}
-            onChange={(e) => setUserName(e.target.value)}
-            placeholder="e.g. Darius"
-            autoFocus
-            maxLength={40}
-            className="w-full text-base px-3 py-2.5 rounded-lg border border-border-default bg-bg-primary text-text-primary placeholder:text-text-muted/50 focus:outline-hidden focus:ring-2 focus:ring-brand/50 focus:border-brand transition-colors"
-            aria-label="Your name"
-          />
-        </Field>
-
-        <Field
-          label="What should you call me?"
-          hint={'You can leave "Cinderpaw" or pick something else.'}
-        >
-          <input
-            type="text"
-            value={agentName}
-            onChange={(e) => setAgentName(e.target.value)}
-            placeholder="Cinderpaw"
-            maxLength={40}
-            className="w-full text-base px-3 py-2.5 rounded-lg border border-border-default bg-bg-primary text-text-primary placeholder:text-text-muted/50 focus:outline-hidden focus:ring-2 focus:ring-brand/50 focus:border-brand transition-colors"
-            aria-label="Agent name"
-          />
-        </Field>
-      </div>
-
-      <Preview userName={userName} agentName={agentName} />
-    </div>
+    <StepIntro
+      title={<>Meet your<br />workspace</>}
+      lead="Everything you need, without the clutter."
+      body="Chat, browse, build artifacts, manage models, and track tasks from one calm interface."
+    />
   );
 }
 
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
+// ── The drawings beside the boards ──────────────────────────────────────────
+
+/** A raised tile with a label, floating beside the mascot. */
+function Tile({ children, label, className }: { children: ReactNode; label: string; className?: string }) {
   return (
-    <label className="block space-y-1.5">
-      <span className="text-sm font-medium text-text-primary block">{label}</span>
-      {hint && <span className="text-xs text-text-muted block">{hint}</span>}
+    <span className={cn('absolute flex w-28 flex-col items-center gap-1.5 rounded-2xl border border-border-default bg-bg-elevated px-3 py-3 shadow-lg', className)}>
       {children}
-    </label>
+      <span className="font-display text-sm text-text-primary">{label}</span>
+    </span>
   );
 }
 
-function Preview({ userName, agentName }: { userName: string; agentName: string }) {
-  const safeName = userName.trim() || 'you';
-  const safeAgent = agentName.trim() || 'Cinderpaw';
+function ModelArt() {
   return (
-    <div className="rounded-lg bg-bg-primary/50 border border-border-subtle p-4 text-sm space-y-2">
-      <p className="text-text-muted text-xs uppercase tracking-wider font-medium">
-        Preview
-      </p>
-      <p className="text-text-primary">
-        <span className="text-text-muted">{safeName}:</span>{' '}
-        Hi, I have a question.
-      </p>
-      <p className="text-text-primary">
-        <span className="text-brand">{safeAgent}:</span>{' '}
-        Sure, {safeName}! What can I help you with?
-      </p>
+    <div className="relative h-[420px] w-[440px]">
+      <span className="absolute bottom-0 right-0"><CinderpawMascot state="curious" width={300} /></span>
+      <Tile label="Cloud" className="left-6 top-4 -rotate-6"><Cloud size={28} className="text-brand" /></Tile>
+      <Tile label="Hugging Face" className="left-0 top-44 rotate-3"><BrandLogo id="huggingface" name="Hugging Face" /></Tile>
+      <Tile label="Local" className="bottom-6 right-0 rotate-6"><Laptop size={28} className="text-text-secondary" /></Tile>
     </div>
   );
 }
 
-// ── Step 4: Showcase ────────────────────────────────────────────────────────
+/** The services the Connect board can really connect, around the mascot. */
+const ORBIT: { id: string; name: string }[] = [
+  { id: 'google_docs', name: 'Google Docs' }, { id: 'slack', name: 'Slack' }, { id: 'telegram', name: 'Telegram' },
+  { id: 'notion', name: 'Notion' }, { id: 'github', name: 'GitHub' }, { id: 'discord', name: 'Discord' },
+];
 
-function ShowcaseStep() {
+function ConnectArt() {
+  const r = 190;
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-semibold text-text-primary mb-2">
-          What I can do for you
-        </h2>
-        <p className="text-sm text-text-muted">
-          A few examples. You don't have to remember anything, just talk to me normally.
-        </p>
-      </div>
-
-      <div className="grid gap-3">
-        <ShowcaseCard
-          icon={<FileText size={20} />}
-          title="Read and write files"
-          example={'“Summarize README.md” or “Create a notes.md file with today\'s ideas”'}
-        />
-        <ShowcaseCard
-          icon={<Search size={20} />}
-          title="Search the web"
-          example={'“Look up the best practices for Rust error handling”'}
-        />
-        <ShowcaseCard
-          icon={<Terminal size={20} />}
-          title="Run commands, tests, builds"
-          example={'“Run the tests and show me what failed”'}
-        />
-      </div>
+    <div className="relative size-[440px]">
+      <span className="absolute inset-8 rounded-full border-2 border-dashed border-brand/25" />
+      {ORBIT.map((o, i) => {
+        const a = (i / ORBIT.length) * Math.PI * 2 - Math.PI / 2;
+        return (
+          <span
+            key={o.id}
+            className="absolute -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-bg-elevated p-2 shadow-lg"
+            style={{ left: 220 + Math.cos(a) * r, top: 220 + Math.sin(a) * r }}
+          >
+            <BrandLogo id={o.id} name={o.name} />
+          </span>
+        );
+      })}
+      <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"><CinderpawMascot state="excited" width={220} /></span>
     </div>
   );
 }
 
-function ShowcaseCard({
-  icon,
-  title,
-  example,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  example: string;
-}) {
+/** The app, drawn small: the sidebar, the home screen and the Context panel. */
+function WorkspaceArt() {
+  const nav: [LucideIcon, string][] = [[PenLine, 'New Chat'], [FileText, 'Artifacts'], [Globe, 'Browser'], [Layers, 'Models']];
+  const context: [LucideIcon, string, string][] = [[Globe, 'Current Page', 'cinderpaw.com'], [FileText, 'Selected Text', '3 snippets'], [Database, 'Relevant Memory', '2 memories']];
   return (
-    <div className="flex gap-3 p-3.5 rounded-lg border border-border-subtle bg-bg-primary/30 hover:bg-bg-primary/60 transition-colors">
-      <div className="shrink-0 w-9 h-9 rounded-md bg-brand/10 text-brand flex items-center justify-center">
-        {icon}
+    <div className="relative w-[520px] pb-16 pt-14">
+      <Callout className="left-4 top-0">All in one place. Chat, browse, build from the sidebar.</Callout>
+      <Callout className="right-0 top-0">Helpful context, within reach.</Callout>
+      <div className="flex overflow-hidden rounded-2xl border border-border-default bg-bg-elevated text-micro shadow-xl">
+        <div className="w-32 shrink-0 space-y-1 border-r border-border-subtle p-3">
+          {nav.map(([Icon, label], i) => (
+            <p key={label} className={cn('flex items-center gap-2 rounded-lg px-2 py-1.5', i === 0 ? 'bg-brand/10 text-brand' : 'text-text-secondary')}>
+              <Icon size={12} /> {label}
+            </p>
+          ))}
+          <p className="flex items-center gap-2 px-2 py-1.5 text-text-secondary"><Settings size={12} /> Settings</p>
+        </div>
+        <div className="flex flex-1 flex-col items-center gap-3 p-4">
+          <CinderpawMascot state="idle" width={44} />
+          <p className="font-display text-base text-text-primary">Good morning!</p>
+          <div className="w-full rounded-xl border border-border-default bg-bg-surface p-2.5">
+            <p className="text-text-muted">Ask anything…</p>
+            <p className="mt-3 flex items-center gap-2 text-text-muted">
+              <Paperclip size={12} /><Globe size={12} /><span className="flex-1" />
+              <span className="rounded-md bg-brand/15 p-1 text-brand"><ArrowUp size={12} /></span>
+            </p>
+          </div>
+          <div className="grid w-full grid-cols-2 gap-2">
+            <p className="rounded-xl border border-border-subtle p-2"><span className="flex items-center gap-1.5 text-text-primary"><Brain size={12} className="text-brand" /> Agent Pulse</span><span className="text-text-muted">What your agent is doing.</span></p>
+            <p className="rounded-xl border border-border-subtle p-2"><span className="flex items-center gap-1.5 text-text-primary"><Database size={12} className="text-brand" /> Memory Peek</span><span className="text-text-muted">Relevant context.</span></p>
+          </div>
+        </div>
+        <div className="w-36 shrink-0 space-y-1.5 border-l border-border-subtle p-3">
+          <p className="font-medium text-text-primary">Context</p>
+          {context.map(([Icon, title, line]) => (
+            <p key={title} className="flex items-start gap-2 rounded-lg border border-border-subtle p-1.5">
+              <Icon size={12} className="mt-0.5 shrink-0 text-text-secondary" />
+              <span><span className="block text-text-primary">{title}</span><span className="text-text-muted">{line}</span></span>
+            </p>
+          ))}
+        </div>
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-text-primary">{title}</p>
-        <p className="text-xs text-text-muted mt-0.5 leading-relaxed">{example}</p>
-      </div>
+      <Callout className="bottom-0 left-28">A calm place to create. Chat, plan, and act with powerful tools.</Callout>
     </div>
+  );
+}
+
+function Callout({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <span className={cn('absolute max-w-[220px] rounded-xl border border-border-default bg-bg-elevated px-3 py-2 text-xs leading-snug text-text-secondary shadow-md', className)}>
+      {children}
+    </span>
   );
 }
 
@@ -437,42 +432,95 @@ export function pointChatAt(providerId: string, providerName: string, modelId: s
 }
 
 export function ProviderStep() {
-  const [choice, setChoice] = useState<'local' | 'cloud' | null>(null);
+  const navigate = useNavigate();
+  const defer = useOnboarding((s) => s.defer);
+  const sysInfo = useSystemInfo((s) => s.info);
+  const fetchSysInfo = useSystemInfo((s) => s.fetch);
+  useEffect(() => { void fetchSysInfo(); }, [fetchSysInfo]);
+  // Cloud first, on purpose. Cinderpaw's tools fumble on anything under ~27B,
+  // and most machines cannot run 27B, so "local" is the right first day only
+  // for a machine that fits the top tier; the LocalBranch says so per tier.
+  const localFits = recommendModel(sysInfo)?.sizeClass === '13–14B';
+  const [choice, setChoice] = useState<'cloud' | 'hub' | 'local'>('cloud');
+
+  const hardware: [LucideIcon, string, string][] = sysInfo
+    ? [
+        [Cpu, 'CPU', `${sysInfo.cores} cores`],
+        [Gpu, 'GPU', sysInfo.gpu_name || 'None'],
+        [MemoryStick, 'RAM', `${Math.round(sysInfo.ram_total_mb / 1024)} GB`],
+      ]
+    : [];
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-semibold text-text-primary mb-2">Choose your brain</h2>
-        <p className="text-sm text-text-muted">
-          I need a model to think with. Run one privately on your machine, or plug in a cloud key.
-          You can skip this and set it up later in Models.
-        </p>
-      </div>
+    <div>
+      <StepIntro
+        title="Choose your model"
+        lead="Cloud, Hugging Face, or Local. Pick what fits your workflow."
+        body="Cinderpaw works with hosted providers and local models on your machine. You can change this anytime in Models."
+      />
 
-      <DetectedSection />
+      <div className="mt-6"><DetectedSection /></div>
 
-      {/* Cloud first, on purpose. Cinderpaw's tools fumble on anything under
-          ~27B, and most machines cannot run 27B, so "local" is the right
-          first day only for a big machine; the LocalBranch says so per tier. */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="mt-6 grid gap-3 sm:grid-cols-3">
         <ForkCard
-          icon={<Cloud size={20} />}
-          title="Use a cloud key"
-          subtitle="Instant · strongest · some free tiers"
+          icon={<Cloud size={28} className="text-brand" />}
+          title="Cloud"
+          subtitle="Get started quickly with top models in the cloud."
+          badge="Fast & easy"
           selected={choice === 'cloud'}
           onClick={() => setChoice('cloud')}
         />
         <ForkCard
-          icon={<HardDrive size={20} />}
-          title="Run locally"
-          subtitle="Private · free · needs a big machine"
+          icon={<BrandLogo id="huggingface" name="Hugging Face" className="size-8 border-0 bg-transparent" />}
+          title="Hugging Face"
+          subtitle="Browse and use thousands of open source models."
+          badge="Wide selection"
+          selected={choice === 'hub'}
+          onClick={() => setChoice('hub')}
+        />
+        <ForkCard
+          icon={<Laptop size={28} className="text-text-secondary" />}
+          title="Local"
+          subtitle="Run models on your own machine, for more control."
           selected={choice === 'local'}
           onClick={() => setChoice('local')}
-        />
+        >
+          {hardware.length > 0 && (
+            <span className="mt-3 grid grid-cols-3 divide-x divide-border-subtle rounded-xl border border-border-subtle text-left">
+              {hardware.map(([Icon, label, value]) => (
+                <span key={label} className="min-w-0 px-1.5 py-1">
+                  <span className="flex items-center gap-1 text-micro font-medium text-text-secondary"><Icon size={12} /> {label}</span>
+                  <span className="block truncate text-micro text-text-muted" title={value}>{value}</span>
+                </span>
+              ))}
+            </span>
+          )}
+        </ForkCard>
       </div>
 
-      {choice === 'local' && <LocalBranch />}
-      {choice === 'cloud' && <CloudBranch />}
+      <p className="mt-3 flex items-center gap-2 rounded-full bg-brand/10 px-4 py-2 text-sm text-text-primary">
+        <Star size={16} className="fill-brand text-brand" />
+        <span><span className="font-medium text-brand">Recommended:</span> start with {localFits ? 'Local, your machine can run a model big enough' : 'Cloud'}</span>
+      </p>
+
+      <div className="mt-4">
+        {choice === 'cloud' && <CloudBranch />}
+        {choice === 'local' && <LocalBranch />}
+        {choice === 'hub' && (
+          <div className="rounded-lg border border-border-subtle bg-bg-primary/40 p-4 space-y-3">
+            <p className="text-sm text-text-secondary leading-relaxed">
+              Pick any open model from Hugging Face and Cinderpaw downloads it for you. The Models page shows which ones fit this machine.
+            </p>
+            <button
+              type="button"
+              onClick={() => { defer(); navigate('/models?tab=browse'); }}
+              className="flex items-center gap-1 text-sm font-medium text-brand hover:underline"
+            >
+              Browse Hugging Face models <ChevronRight size={14} />
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -562,9 +610,9 @@ function DetectedSection() {
 }
 
 function ForkCard({
-  icon, title, subtitle, selected, onClick,
+  icon, title, subtitle, badge, selected, onClick, children,
 }: {
-  icon: React.ReactNode; title: string; subtitle: string; selected: boolean; onClick: () => void;
+  icon: ReactNode; title: string; subtitle: string; badge?: string; selected: boolean; onClick: () => void; children?: ReactNode;
 }) {
   return (
     <button
@@ -572,17 +620,19 @@ function ForkCard({
       onClick={onClick}
       aria-pressed={selected}
       className={cn(
-        'text-left p-4 rounded-xl border transition-colors',
-        selected
-          ? 'border-brand bg-brand/10'
-          : 'border-border-subtle bg-bg-primary/30 hover:bg-bg-primary/60',
+        'flex flex-col items-center rounded-2xl border-2 bg-bg-surface p-4 text-center transition-colors',
+        selected ? 'border-brand' : 'border-transparent hover:border-border-default',
       )}
     >
-      <div className={cn('w-9 h-9 rounded-md flex items-center justify-center mb-2', selected ? 'bg-brand/20 text-brand' : 'bg-bg-hover text-text-secondary')}>
-        {icon}
-      </div>
-      <p className="text-sm font-medium text-text-primary">{title}</p>
-      <p className="text-xs text-text-muted mt-0.5">{subtitle}</p>
+      <span className="flex size-14 items-center justify-center rounded-2xl bg-bg-elevated">{icon}</span>
+      <span className="mt-3 font-display text-lg text-text-primary">{title}</span>
+      <span className="mt-1 text-sm leading-snug text-text-muted">{subtitle}</span>
+      {badge && (
+        <span className="mt-3 flex items-center gap-1.5 rounded-full bg-bg-hover px-3 py-1 text-xs text-text-secondary">
+          <span className={cn('size-1.5 rounded-full', selected ? 'bg-success' : 'bg-text-muted')} /> {badge}
+        </span>
+      )}
+      {children}
     </button>
   );
 }
@@ -864,38 +914,63 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
   );
 }
 
-// ── Step 4: Done ────────────────────────────────────────────────────────────
+// ── Step 5: Done ────────────────────────────────────────────────────────────
 
 function DoneStep() {
-  const userName = useOnboarding((s) => s.userName);
-  const agentName = useOnboarding((s) => s.agentName);
-  const safeName = userName.trim() || 'you';
-  const safeAgent = agentName.trim() || 'Cinderpaw';
+  // The ticks say what is true, not what the board drew: a person who skipped
+  // the model step sees it unticked and where to finish it, instead of a
+  // "Model selected" that leaves the first message answered with "no model".
+  const cloudModel = useModel((s) => s.cloudModel);
+  const loaded = useModel((s) => s.loaded);
+  const downloaded = useDownload((s) => s.done);
+  const byok = useSettings((s) => s.byok);
+  const hasModel = !!cloudModel || !!loaded || downloaded || byok.some((p) => p.enabled && p.has_api_key);
+  const [hasTools, setHasTools] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void Promise.all([
+      tauri.mcp.list().catch(() => []),
+      tauri.connectors.list().catch(() => []),
+    ]).then(([tools, chats]) => {
+      if (alive) setHasTools(tools.length > 0 || chats.some((c) => c.enabled));
+    });
+    return () => { alive = false; };
+  }, []);
+
+  const ticks: [boolean, string, string][] = [
+    [hasModel, 'Model selected', 'Pick a model in Models'],
+    [hasTools, 'Tools connected', 'Connect apps in Settings'],
+    [true, 'Workspace ready', ''],
+  ];
 
   return (
-    <div className="text-center space-y-6">
-      <motion.div
-        initial={{ scale: 0, rotate: -90 }}
-        animate={{ scale: 1, rotate: 0 }}
-        transition={{ type: 'spring', duration: 0.6, delay: 0.1 }}
-        className="text-6xl"
-        aria-hidden
-      >
-        🎉
-      </motion.div>
-      <h2 className="text-2xl font-semibold text-text-primary">
-        You're all set, {safeName}!
-      </h2>
-      <p className="text-base text-text-muted max-w-md mx-auto leading-relaxed">
-        I'm <span className="text-brand font-medium">{safeAgent}</span>, ready to go.
-        Ask me anything and we'll see what I can do.
-      </p>
-      <DiskEncryptionNotice />
-      <InstallCountNotice />
-
-      <div className="flex items-center justify-center gap-1.5 text-xs text-text-muted">
-        <Sparkles size={12} />
-        <span>You can change names anytime in Settings</span>
+    <div>
+      <StepIntro
+        title={<>You’re ready<br />to explore</>}
+        lead="Your adaptive workspace is set up."
+        body="Start a conversation, build an artifact, or let Cinderpaw help with research, writing, and automation."
+      />
+      <FeatureCards
+        items={[
+          { icon: Search, title: 'Research', line: 'Find, summarize, and explore information.' },
+          { icon: PenLine, title: 'Create', line: 'Write, design, and build artifacts.' },
+          { icon: BarChart3, title: 'Analyze', line: 'Make sense of data and find insights.' },
+          { icon: Settings, title: 'Automate', line: 'Turn ideas into actions with powerful tools.' },
+        ]}
+      />
+      <ul className="mt-6 flex flex-wrap gap-x-6 gap-y-2">
+        {ticks.map(([ok, label, todo]) => (
+          <li key={label} className="flex items-center gap-2 text-sm">
+            <span className={cn('flex size-6 items-center justify-center rounded-full', ok ? 'bg-brand text-on-brand' : 'bg-bg-hover text-text-muted')}>
+              <Check size={14} />
+            </span>
+            <span className={ok ? 'text-text-primary' : 'text-text-muted'}>{ok ? label : todo}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-6 space-y-3">
+        <DiskEncryptionNotice />
+        <InstallCountNotice />
       </div>
     </div>
   );
