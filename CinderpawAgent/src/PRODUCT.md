@@ -232,18 +232,8 @@ already recorded, so it costs no model call and cannot make things up.
 `show_widget` draws data as a themed widget: `facts`, `checklist`, `cards`,
 `breakdown`, `progress`, `table`, `verdict`; `followups` ends a finished task
 with up to four next-request chips. Never HTML; misfit data is a plain list. Card pictures (named, or a linked page's preview image)
-are fetched once through the egress door and kept in `~/.cinderpaw/cache/images`.
-
-## Documents as cards in the chat
-
-A finished artifact is a card in the reply, not only a row. A plan with three or more `##`
-sections shows as a section list and the chosen section (its first `![](https://...)` as the
-picture); a chart or diagram (an `app`) is the live page, interactive; anything else is a cover
-and a few words. Buttons: Open (an editor for text kinds), Download (PDF for prose), Share (only
-when Google is connected). `fetch_url` ends a page's text with `Picture: <url>` so the agent can
-put a real picture in a section, and `find_images` (in the drawer) looks pictures up in Openverse,
-Wikimedia Commons and iNaturalist, plus Pexels and Unsplash when `CINDERPAW_PEXELS_KEY` /
-`CINDERPAW_UNSPLASH_KEY` are set, returning each with its credit. The side panel no longer opens by itself on a new artifact.
+are fetched once through the egress door and kept in `~/.cinderpaw/cache/images`. A finished artifact is a card in the reply.
+`find_images` returns credited photos; Pexels/Unsplash need `CINDERPAW_PEXELS_KEY` / `CINDERPAW_UNSPLASH_KEY`.
 
 ## Keeping its place on a long task
 

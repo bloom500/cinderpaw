@@ -86,7 +86,7 @@ export function Columns({ b, look, onPick }: { b: Of<'columns'>; look: Look; onP
                 </ul>
               )}
               {i < b.items.length - 1 && (
-                <ArrowRight size={18} className="absolute -right-[17px] top-1/2 z-10 -translate-y-1/2 text-text-muted" aria-hidden />
+                <ArrowRight size={20} className="absolute -right-[17px] top-1/2 z-10 -translate-y-1/2 text-text-muted" aria-hidden />
               )}
             </button>
           );
@@ -110,7 +110,7 @@ export function Pillars({ b, look }: { b: Of<'pillars'>; look: Look }) {
               <div className="flex items-start gap-3.5">
                 {Icon && (
                   <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full" style={{ background: tint(hue, 16), color: HUES[hue] }}>
-                    <Icon size={26} strokeWidth={1.7} />
+                    <Icon size={28} strokeWidth={1.7} />
                   </span>
                 )}
                 <span className="flex flex-col gap-1">
@@ -120,7 +120,7 @@ export function Pillars({ b, look }: { b: Of<'pillars'>; look: Look }) {
               </div>
               <ul className="mt-4 flex flex-col gap-3 border-t pt-4" style={{ borderColor: tint(hue, 20) }}>
                 {p.checks.map((c) => (
-                  <li key={c} className="flex gap-3 text-[15px] leading-snug text-text-secondary">
+                  <li key={c} className="flex gap-3 text-base leading-snug text-text-secondary">
                     <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full" style={{ background: tint(hue, 18), color: HUES[hue] }}>
                       <Check size={14} strokeWidth={2.5} />
                     </span>
@@ -173,7 +173,7 @@ export function Photos({ b, look, pin }: { b: Of<'photos'>; look: Look; pin: boo
           <div key={p.title} className="overflow-hidden rounded-2xl border border-border-subtle bg-bg-elevated/50">
             <Photo src={p.image} hue={hue} icon="camera" className="aspect-[4/3] w-full" />
             <div className="flex items-start gap-2 px-4 py-3">
-              {pin && <MapPin size={18} className="mt-0.5 shrink-0" style={{ color: HUES[look.accent] }} />}
+              {pin && <MapPin size={20} className="mt-0.5 shrink-0" style={{ color: HUES[look.accent] }} />}
               <span className="flex min-w-0 flex-col">
                 <span className="truncate font-display text-lg leading-tight text-text-primary">{p.title}</span>
                 {p.subtitle && <span className="truncate text-sm text-text-muted">{p.subtitle}</span>}
@@ -228,8 +228,8 @@ export function Chips({ items, hues }: { items: { label: string; icon?: string }
         const hue = hues[i % hues.length];
         const Icon = boardIcon(c.icon);
         return (
-          <span key={c.label} className="flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[15px]" style={{ background: tint(hue, 13), color: HUES[hue] }}>
-            {Icon && <Icon size={17} strokeWidth={1.8} />}
+          <span key={c.label} className="flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-base" style={{ background: tint(hue, 13), color: HUES[hue] }}>
+            {Icon && <Icon size={16} strokeWidth={1.8} />}
             <span className="text-text-primary/85">{c.label}</span>
           </span>
         );

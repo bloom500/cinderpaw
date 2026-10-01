@@ -217,6 +217,8 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_TREE_ITEM_MAX_CHARS` | int | `null` |  | Max item size in chars. |
 | `CINDERPAW_PII_REDACTION` | string | `"on"` |  | Master switch for PII redaction in memory writes; "off" disables (inverse-toggle var). |
 | `CINDERPAW_JINA_API_KEY` | string | `null` |  | Jina Reader key for read_webpage / deep_research. |
+| `CINDERPAW_PEXELS_KEY` | string | `null` | yes | Free Pexels API key. When set, find_images tries Pexels first (the best lifestyle photos); without it the keyless sources carry the tool. |
+| `CINDERPAW_UNSPLASH_KEY` | string | `null` | yes | Free Unsplash access key. When set, find_images tries Unsplash too; without it the keyless sources carry the tool. |
 | `CINDERPAW_SEARXNG_URL` | string | `null` | yes | Base URL of a SearXNG instance backing web_search (e.g. http://127.0.0.1:8888). A loopback/private origin here is trusted by the egress SSRF guard for web_search ONLY — set it only to an instance you run. |
 | `CINDERPAW_DDG_MIN_INTERVAL_MS` | int | `5000` |  | Minimum gap between DuckDuckGo queries on the keyless web_search fallback. DDG throttles by rate, not volume: measured from one IP, 12 back-to-back queries got 7 served then a >10min anti-bot block, while the same queries paced 3s/5s/10s apart all succeeded. The limit is per-IP and shared with everything else on the connection, so raise this if you see rate_limited; ~3s is the floor. 0 disables pacing. Ignored when CINDERPAW_SEARXNG_URL is set. |
 | `CINDERPAW_RSI_PASSIVE` | bool | `true` |  | RSI supervisor passive mode. "false" disables (read via injected env in passive-supervisor.ts). |
@@ -450,6 +452,7 @@ CINDERPAW_OLLAMA_NUM_CTX
 CINDERPAW_OPENROUTER_PROVIDER
 CINDERPAW_PATH_TOUCH
 CINDERPAW_PERMISSION_MODE
+CINDERPAW_PEXELS_KEY
 CINDERPAW_PII_REDACTION
 CINDERPAW_PROACTIVE_ENABLED
 CINDERPAW_PROVIDER
@@ -513,6 +516,7 @@ CINDERPAW_TRUSTED_LOCAL_ORIGINS
 CINDERPAW_TTFT_DEADLINE_MS
 CINDERPAW_TURN_BUDGET_MS
 CINDERPAW_UNATTENDED_CONTINUATIONS
+CINDERPAW_UNSPLASH_KEY
 CINDERPAW_VERSION
 CINDERPAW_WHATSAPP_MODULE
 CINDERPAW_WORKER_PORT

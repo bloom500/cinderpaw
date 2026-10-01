@@ -86,7 +86,7 @@ export function Flow({ b, look }: { b: FlowBlock; look: Look }) {
               >
                 {Icon && (
                   <span className="mb-2 flex h-11 w-11 items-center justify-center rounded-xl" style={{ background: tint(hue[id], 16), color: HUES[hue[id]] }}>
-                    <Icon size={22} strokeWidth={1.8} />
+                    <Icon size={20} strokeWidth={1.8} />
                   </span>
                 )}
                 <span className="text-xl font-medium leading-tight text-text-primary">{n.title}</span>
@@ -108,7 +108,7 @@ export function Flow({ b, look }: { b: FlowBlock; look: Look }) {
                 ref={(el) => { refs.current[id] = el; }}
                 className="flex items-center gap-4 rounded-2xl border border-border-default bg-bg-elevated/60 px-6 py-4"
               >
-                {Icon && <Icon size={30} strokeWidth={1.5} className="shrink-0 text-text-secondary" />}
+                {Icon && <Icon size={28} strokeWidth={1.5} className="shrink-0 text-text-secondary" />}
                 <span className="flex flex-col">
                   <span className="text-xl font-medium leading-tight text-text-primary">{n.title}</span>
                   {n.lines && n.lines.length > 0 && <span className="text-base text-text-muted">{n.lines.join(' • ')}</span>}

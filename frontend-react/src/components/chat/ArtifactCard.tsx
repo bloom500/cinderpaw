@@ -108,7 +108,7 @@ function SectionOverview({ sections, subtitle, onSection }: { sections: DocSecti
   const lead = digest(introBody).lead;
   return (
     <div className="flex flex-col gap-4 px-5 pb-5">
-      {lead && <p className="text-[15px] leading-relaxed text-text-secondary">{lead}</p>}
+      {lead && <p className="text-base leading-relaxed text-text-secondary">{lead}</p>}
       {pictures.length === 1 && (
         <button type="button" onClick={() => onSection(pictures[0].title)} className="overflow-hidden rounded-2xl border border-border-subtle">
           <Picture src={pictures[0].image!} className="aspect-[21/9]" />
@@ -313,7 +313,7 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
                 title="Open in Artifacts"
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand text-white transition-colors hover:bg-brand-hover"
               >
-                <ArrowRight size={19} />
+                <ArrowRight size={20} />
               </button>
             </>
           }
@@ -326,7 +326,7 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
     <div ref={ref} className="@container overflow-hidden rounded-3xl border border-border-default bg-bg-surface shadow-[0_10px_30px_-14px_rgba(120,60,20,0.22)]">
       <div className="flex items-start gap-4 p-5 pb-4">
         <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-brand/10 text-brand">
-          <Icon size={26} />
+          <Icon size={28} />
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="line-clamp-2 font-display text-2xl leading-tight text-text-primary" title={f.title}>{f.title}</span>
@@ -401,7 +401,7 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
           title="Open in Artifacts"
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand text-white transition-colors hover:bg-brand-hover"
         >
-          <ArrowRight size={18} />
+          <ArrowRight size={20} />
         </button>
       </div>
     </div>

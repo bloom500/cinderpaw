@@ -51,7 +51,7 @@ export function Kpis({ b }: { b: Of<'kpis'> }) {
             {k.delta && <p className="mt-2 text-sm text-text-muted">{k.delta}</p>}
             {k.trend && (
               <span className={cn('absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full', tone)}>
-                <Trend size={17} />
+                <Trend size={16} />
               </span>
             )}
           </div>

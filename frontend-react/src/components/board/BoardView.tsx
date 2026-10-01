@@ -40,7 +40,7 @@ function Tile({ look, icon }: { look: Look; icon?: string }) {
   const shape = look.tile === 'blob' ? 'rounded-[42%_58%_55%_45%/48%_44%_56%_52%]' : look.tile;
   return (
     <span className={cn('flex h-16 w-16 shrink-0 items-center justify-center', shape)} style={{ background: tint(look.accent, 15), color: HUES[look.accent] }}>
-      <Icon size={30} strokeWidth={1.7} />
+      <Icon size={28} strokeWidth={1.7} />
     </span>
   );
 }
@@ -50,7 +50,7 @@ function Status({ text, look }: { text: string; look: Look }) {
   const warm = /draft|progress/i.test(text);
   return (
     <span
-      className={cn('flex shrink-0 items-center gap-2 rounded-full px-4 py-1.5 text-[15px] font-medium', !warm && 'bg-success/12 text-success')}
+      className={cn('flex shrink-0 items-center gap-2 rounded-full px-4 py-1.5 text-base font-medium', !warm && 'bg-success/12 text-success')}
       style={warm ? { background: tint(look.accent, 14), color: HUES[look.accent] } : undefined}
     >
       <span className={cn('h-2.5 w-2.5 rounded-full', !warm && 'bg-success')} style={warm ? { background: HUES[look.accent] } : undefined} />
