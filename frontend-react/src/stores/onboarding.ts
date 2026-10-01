@@ -1,9 +1,9 @@
 /**
  * useOnboarding — first-run wizard state.
  *
- * Five boards (1 Oct 2026): welcome, a model, connections, the workspace,
- * done. The names are no longer asked here; they stay in this record and are
- * set from Settings.
+ * Six boards (1 Oct 2026): welcome, names, a model, connections, the
+ * workspace, done. The names are written to this record on finish and read
+ * by the agent's system prompt; the user's name can be changed in Settings.
  *
  * Persistence: on `finish()` or `skip()`, the state is written to
  * `~/.cinderpaw/onboarding.json` via the Tauri fs API. On next launch the
@@ -42,7 +42,7 @@ import { tauri } from '@/lib/tauri';
  * distinct wizard steps, add them here — `totalSteps`, the progress
  * dots, and the next/prev bounds all derive from this list.
  */
-const STEP_IDS = ['welcome', 'provider', 'connect', 'workspace', 'done'] as const;
+const STEP_IDS = ['welcome', 'names', 'provider', 'connect', 'workspace', 'done'] as const;
 const TOTAL_STEPS: number = STEP_IDS.length;
 const FIRST_STEP: number = 0;
 const LAST_STEP: number = STEP_IDS.length - 1;

@@ -3,13 +3,13 @@
  * (Moodboard/Components/onboarding 1-5.png, 1 Oct 2026).
  *
  *   1. Welcome          — what Cinderpaw is, in four cards
- *   2. Provider         — Cloud, Hugging Face or Local, with the real setup under each
- *   3. Connect          — the real integrations, "+" opens the same form Settings uses
- *   4. Workspace        — a drawing of the app, so the first screen after this is familiar
- *   5. Done             — what was set up (only what really was), then the chat
+ *   2. Names            — what the user is called and what the agent is called
+ *   3. Provider         — Cloud, Hugging Face or Local, with the real setup under each
+ *   4. Connect          — the real integrations, "+" opens the same form Settings uses
+ *   5. Workspace        — a drawing of the app, so the first screen after this is familiar
+ *   6. Done             — what was set up (only what really was), then the chat
  *
- * The name step is gone on purpose: the boards have none, and the agent asks
- * in the first conversation. Names can still be changed in Settings.
+ * Both names are injected into the agent's system prompt as a USER block.
  *
  * Skippable. If the user dismisses, defaults are used and they can
  * re-open the wizard from Settings later.
@@ -42,7 +42,7 @@ const stepVariants = {
 };
 
 /** The mascot's pose on each board, in step order. */
-const ART: MascotState[] = ['wave', 'curious', 'excited', 'idle', 'celebrate'];
+const ART: MascotState[] = ['wave', 'love', 'curious', 'excited', 'idle', 'celebrate'];
 
 const PRIMARY_BUTTON =
   'inline-flex items-center gap-2.5 rounded-2xl bg-brand px-7 py-3.5 text-base font-medium text-on-brand shadow-lg shadow-brand/25 transition-colors hover:bg-brand/90';
@@ -56,10 +56,13 @@ export function OnboardingWizard() {
   const next = useOnboarding((s) => s.next);
   const skip = useOnboarding((s) => s.skip);
   const finish = useOnboarding((s) => s.finish);
+  const userName = useOnboarding((s) => s.userName);
 
   if (!active) return null;
   const isFirst = step === 0;
   const isLast = step === totalSteps - 1;
+  // The names board waits for the one thing it asks; the agent's name has a default.
+  const canProceed = step !== 1 || userName.trim().length > 0;
 
   return (
     <div
@@ -88,10 +91,11 @@ export function OnboardingWizard() {
                 className="mt-6"
               >
                 {step === 0 && <WelcomeStep />}
-                {step === 1 && <ProviderStep />}
-                {step === 2 && <ConnectStep />}
-                {step === 3 && <WorkspaceStep />}
-                {step === 4 && <DoneStep />}
+                {step === 1 && <NamesStep />}
+                {step === 2 && <ProviderStep />}
+                {step === 3 && <ConnectStep />}
+                {step === 4 && <WorkspaceStep />}
+                {step === 5 && <DoneStep />}
               </motion.div>
             </AnimatePresence>
 
@@ -113,7 +117,7 @@ export function OnboardingWizard() {
                   Start exploring <ArrowRight size={16} />
                 </button>
               ) : (
-                <button type="button" onClick={next} className={PRIMARY_BUTTON}>
+                <button type="button" onClick={next} disabled={!canProceed} className={cn(PRIMARY_BUTTON, 'disabled:cursor-not-allowed disabled:opacity-40')}>
                   {isFirst ? 'Get started' : 'Continue'} <ArrowRight size={16} />
                 </button>
               )}
@@ -141,7 +145,7 @@ export function OnboardingWizard() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.25, ease: 'easeOut' }}
               >
-                {step === 1 ? <ModelArt /> : step === 2 ? <ConnectArt /> : step === 3 ? <WorkspaceArt /> : (
+                {step === 2 ? <ModelArt /> : step === 3 ? <ConnectArt /> : step === 4 ? <WorkspaceArt /> : (
                   <CinderpawMascot state={ART[step] ?? 'wave'} width={340} />
                 )}
               </motion.div>
@@ -223,7 +227,62 @@ function WelcomeStep() {
   );
 }
 
-// ── Step 4: Workspace ───────────────────────────────────────────────────────
+// ── Step 2: Names ───────────────────────────────────────────────────────────
+
+const NAME_INPUT =
+  'mt-2 w-full rounded-2xl border border-border-default bg-bg-surface px-4 py-3.5 font-display text-xl text-text-primary placeholder:text-text-muted/50 focus:border-brand focus:outline-hidden focus:ring-2 focus:ring-brand/40';
+
+function NamesStep() {
+  const userName = useOnboarding((s) => s.userName);
+  const setUserName = useOnboarding((s) => s.setUserName);
+  const agentName = useOnboarding((s) => s.agentName);
+  const setAgentName = useOnboarding((s) => s.setAgentName);
+  const you = userName.trim() || 'you';
+  const me = agentName.trim() || 'Cinderpaw';
+
+  return (
+    <div>
+      <StepIntro
+        title={<>Let’s get<br />acquainted</>}
+        lead="What should we call each other?"
+        body="I’ll use these names whenever we talk. You can change yours later in Settings."
+      />
+      <div className="mt-8 grid gap-4 sm:grid-cols-2">
+        <label className="block">
+          <span className="text-sm font-medium text-text-secondary">Your name</span>
+          <input
+            type="text"
+            value={userName}
+            onChange={(e) => setUserName(e.target.value)}
+            placeholder="e.g. Darius"
+            autoFocus
+            maxLength={40}
+            className={NAME_INPUT}
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-text-secondary">My name</span>
+          <input
+            type="text"
+            value={agentName}
+            onChange={(e) => setAgentName(e.target.value)}
+            placeholder="Cinderpaw"
+            maxLength={40}
+            className={NAME_INPUT}
+          />
+        </label>
+      </div>
+      <div className="mt-6 space-y-2 rounded-2xl bg-bg-surface p-4 text-sm">
+        <p className="ml-auto w-fit rounded-2xl rounded-br-sm bg-brand/10 px-3.5 py-2 text-text-primary">Hi, I have a question.</p>
+        <p className="w-fit rounded-2xl rounded-bl-sm border border-border-default bg-bg-elevated px-3.5 py-2 text-text-primary">
+          <span className="font-medium text-brand">{me}:</span> Sure, {you}! What can I help you with?
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Step 5: Workspace ───────────────────────────────────────────────────────
 
 function WorkspaceStep() {
   return (

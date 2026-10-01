@@ -193,7 +193,7 @@ export function GeneralTab() {
         <div>
           <p className="text-sm font-medium text-text-primary">Welcome tour</p>
           <p className="text-xs text-text-muted mt-0.5">
-            Re-run the first-time setup: a model, your connections, a tour of the workspace.
+            Re-run the first-time setup: names, a model, your connections, a tour of the workspace.
           </p>
         </div>
         <button
