@@ -87,3 +87,54 @@ export function summaryOf(kind: string, content: string): string {
     .trim();
   return text.length > 220 ? `${text.slice(0, 220).replace(/\s\S*$/, '')}…` : text;
 }
+
+/** Markdown to the words a reader sees: no emphasis marks, links as their text. */
+export function plainText(md: string): string {
+  return md
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[*_`~]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * The line under a title on the card ("Kyoto · 7-day itinerary"): the first
+ * short plain line after the `#` title of a Markdown document, or the page's
+ * meta description. Empty when the document has none; the card then says what
+ * kind of thing it is instead.
+ */
+export function subtitleOf(shown: string, content: string): string {
+  if (shown === 'markdown') {
+    const lines = content.split(/\r?\n/).map((l) => l.trim());
+    const start = lines.findIndex((l) => /^#\s/.test(l));
+    for (const l of lines.slice(start + 1)) {
+      if (!l) continue;
+      if (/^(#|[-*+]\s|\d+\.\s|!\[|\||```|>)/.test(l)) return '';
+      const text = plainText(l);
+      return text.length <= 90 ? text : '';
+    }
+    return '';
+  }
+  if (shown === 'app' || shown === 'html' || shown === 'document') {
+    const m = /<meta\s+name=["']description["']\s+content=["']([^"']{1,90})["']/i.exec(content);
+    return m ? m[1].trim() : '';
+  }
+  return '';
+}
+
+/** The pill in the card's corner, from what the store knows: never a claim it cannot back. */
+export function statusOf(version: number, updatedAt: number | undefined, now = Date.now()): string {
+  if (version <= 1 || !updatedAt) return 'Generated';
+  const min = Math.max(0, Math.round((now - updatedAt) / 60_000));
+  const ago = min < 1 ? 'just now' : min < 60 ? `${min}m ago` : min < 60 * 24 ? `${Math.round(min / 60)}h ago` : `${Math.round(min / 1440)}d ago`;
+  return `Updated ${ago}`;
+}
+
+/** A section at a glance: its first paragraph and up to three of its points. */
+export function digest(body: string): { lead: string; points: string[] } {
+  const blocks = body.split(/\n\s*\n/);
+  const para = blocks.find((b) => b.trim() && !/^\s*([-*+]\s|\d+\.\s|\||#|```|>)/.test(b));
+  const points = [...body.matchAll(/^\s*(?:[-*+]|\d+\.)\s+(.+)$/gm)].slice(0, 3).map((m) => plainText(m[1]));
+  return { lead: para ? plainText(para) : '', points };
+}

@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ArtifactCard, artifactLine } from '../ArtifactCard';
 import { MessageToolWidgets } from '../MessageToolWidgets';
@@ -68,16 +68,37 @@ describe('artifactLine', () => {
 });
 
 describe('ArtifactCard', () => {
-  it('shows a plan as its sections: a list, and the one chosen with its picture', async () => {
+  it('shows a plan as numbered sections with their first lines, its picture, a subtitle and a status', async () => {
     engineReturns(PLAN_MD);
     render(<ArtifactCard f={PLAN} />);
-    const tabs = await screen.findByRole('tablist', { name: 'Sections' });
-    expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['Summary', 'Day 1', 'Budget']);
-    expect(screen.getByText('We launch on Monday.')).toBeTruthy();
-
-    await userEvent.click(within(tabs).getByRole('tab', { name: 'Day 1' }));
+    expect(await screen.findByText('We launch on Monday.')).toBeTruthy();
     expect(screen.getByText('Press day.')).toBeTruthy();
+    expect(screen.getByText('Generated')).toBeTruthy();
+    expect(screen.getByText('Document, 3 sections')).toBeTruthy();
     expect(document.querySelector('img')?.getAttribute('src')).toBe('https://example.com/harbour.jpg');
+  });
+
+  it('a section opens the panel straight at it: the deep dive', async () => {
+    engineReturns(PLAN_MD);
+    render(<ArtifactCard f={PLAN} />);
+    await userEvent.click(await screen.findByRole('button', { name: /Budget/ }));
+    expect(useArtifacts.getState().panelOpen).toBe(true);
+    expect(useArtifacts.getState().openArtifact).toHaveBeenCalledWith('a1', 'Budget');
+  });
+
+  it('sections past the fourth are chips in the footer, each a deep dive', async () => {
+    engineReturns('# Big\n\n' + ['A', 'B', 'C', 'D', 'E', 'F'].map((t) => `## ${t}\ntext ${t}`).join('\n\n'));
+    render(<ArtifactCard f={PLAN} />);
+    await screen.findByText('text A');
+    expect(screen.queryByText('text E')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'E' }));
+    expect(useArtifacts.getState().openArtifact).toHaveBeenCalledWith('a1', 'E');
+  });
+
+  it('the line under the # title is the subtitle', async () => {
+    engineReturns('# Trip\n\n_Kyoto · 7-day itinerary_\n\n## Day 1\na\n\n## Day 2\nb\n\n## Day 3\nc');
+    render(<ArtifactCard f={PLAN} />);
+    expect(await screen.findByText('Kyoto · 7-day itinerary')).toBeTruthy();
   });
 
   it('draws a chart as the live page, in the same sandbox as the panel', async () => {
@@ -94,12 +115,12 @@ describe('ArtifactCard', () => {
   it('reading the text never changes what the panel has open', async () => {
     engineReturns(PLAN_MD);
     render(<ArtifactCard f={PLAN} />);
-    await screen.findByRole('tablist');
+    await screen.findByText('We launch on Monday.');
     expect(useArtifacts.getState().open).toBeNull();
     expect(useArtifacts.getState().panelOpen).toBe(false);
   });
 
-  it('opens the artifact in the side panel from Open in Editor', async () => {
+  it('the orange arrow opens the artifact in the side panel', async () => {
     engineReturns(PLAN_MD);
     render(<ArtifactCard f={PLAN} />);
     await userEvent.click(screen.getByRole('button', { name: 'Open Launch week' }));
@@ -123,7 +144,7 @@ describe('ArtifactCard', () => {
   it('with no Google connected there is no Share button', async () => {
     engineReturns(PLAN_MD);
     render(<ArtifactCard f={PLAN} />);
-    await screen.findByRole('tablist');
+    await screen.findByText('We launch on Monday.');
     expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
   });
 

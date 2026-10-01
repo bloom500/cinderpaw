@@ -126,7 +126,14 @@ interface ArtifactsStore {
   togglePanel: () => void;
   setPanelTab: (tab: 'artifacts' | 'context') => void;
   refresh: () => Promise<void>;
-  openArtifact: (id: string) => Promise<void>;
+  /**
+   * `section` is the deep dive from a chat card: the panel opens on the whole
+   * document, scrolled to the heading with that text, instead of the overview.
+   */
+  openArtifact: (id: string, section?: string) => Promise<void>;
+  /** The heading a deep dive asked for, until the viewer has scrolled to it. */
+  focus: string | null;
+  clearFocus: () => void;
   showVersion: (version: number) => Promise<void>;
   /**
    * `as: 'pdf'` offers a PDF first (the chat card's "Download PDF"); `row` is
@@ -211,6 +218,8 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   conflict: null,
   review: null,
   google: null,
+  focus: null,
+  clearFocus: () => set({ focus: null }),
 
   sendToGoogle: async (target) => {
     const open = get().open;
@@ -257,9 +266,9 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     }
   },
 
-  openArtifact: async (id) => {
+  openArtifact: async (id, section) => {
     wanted = id;
-    set({ busy: true, error: null, lastExport: null });
+    set({ busy: true, error: null, lastExport: null, focus: section ?? null });
     try {
       await send({ kind: 'open', id }, 'get', { artifactId: id });
       await send({ kind: 'versions', id }, 'versions', { artifactId: id });

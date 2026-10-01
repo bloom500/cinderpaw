@@ -645,12 +645,26 @@ const EDITABLE_KINDS = new Set(['document', 'markdown', 'app', 'table', 'code', 
 function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
   const {
     open, lastExport, showVersion, editing, setDraft, conflict, save, cancelEdit, busy,
-    review, showChanges, hideChanges, restore, applyPdf,
+    review, showChanges, hideChanges, restore, applyPdf, focus, clearFocus,
   } = useArtifacts();
   // The overview (Darius's Artifact board, 30 Sep) first; Open shows the whole thing.
   // A PDF is usually a form to fill or sign: it opens straight into its editor.
-  const [full, setFull] = useState(open?.row.kind === 'pdf');
-  useEffect(() => setFull(open?.row.kind === 'pdf'), [open?.row.id]);
+  // A deep dive from a chat card (a section chip) skips the overview too.
+  const [full, setFull] = useState(open?.row.kind === 'pdf' || focus !== null);
+  useEffect(() => setFull(open?.row.kind === 'pdf' || useArtifacts.getState().focus !== null), [open?.row.id]);
+  const viewer = useRef<HTMLDivElement>(null);
+  // Scroll to the asked-for heading once the document is on screen, then forget it.
+  useEffect(() => {
+    if (!full || !focus || !open) return;
+    const want = focus.trim().toLowerCase();
+    const id = window.setTimeout(() => {
+      const h = Array.from(viewer.current?.querySelectorAll('h1, h2, h3') ?? [])
+        .find((el) => (el.textContent ?? '').trim().toLowerCase() === want);
+      h?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+      clearFocus();
+    }, 80);
+    return () => window.clearTimeout(id);
+  }, [full, focus, open?.content]);
   if (!open) return null;
   const { row, content, showing, versions } = open;
 
@@ -789,7 +803,9 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
           />
         </Suspense>
       ) : (
-        <Preview kind={shownKind(row.kind, content)} title={row.title} content={content} />
+        <div ref={viewer} className="contents">
+          <Preview kind={shownKind(row.kind, content)} title={row.title} content={content} />
+        </div>
       )}
     </>
   );

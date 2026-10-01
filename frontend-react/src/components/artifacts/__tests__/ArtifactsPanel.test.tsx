@@ -732,6 +732,26 @@ describe('the artifact overview', () => {
     expect(await screen.findByRole('button', { name: 'Overview' })).toBeInTheDocument();
   });
 
+  it('a deep dive from a chat card skips the overview, scrolls to the section, then forgets it', async () => {
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    useArtifacts.setState({
+      loaded: true, editing: null, google: null, focus: 'Budget',
+      open: { row: row({ kind: 'markdown', version: 1 }), content: '# Trip\n\n## Day 1\nWalk.\n\n## Budget\nTen.', showing: 1, versions: [] },
+    });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    expect(screen.getByRole('button', { name: 'Overview' })).toBeInTheDocument();
+    await waitFor(() => expect(useArtifacts.getState().focus).toBeNull());
+    expect((scrolled.mock.instances[0] as unknown as HTMLElement).textContent).toBe('Budget');
+  });
+
+  it('openArtifact with a section remembers it for the viewer', async () => {
+    await useArtifacts.getState().openArtifact('a1', 'Day 2');
+    expect(useArtifacts.getState().focus).toBe('Day 2');
+    await useArtifacts.getState().openArtifact('a1');
+    expect(useArtifacts.getState().focus).toBeNull();
+  });
+
   it('summaryOf reads the words of a page, not its tags or its title', () => {
     expect(summaryOf('document', '<h1>Q3</h1><p>Up <b>12%</b>.</p>')).toBe('Up 12% .');
     expect(summaryOf('markdown', '# T\n\ntext')).toBe('');
