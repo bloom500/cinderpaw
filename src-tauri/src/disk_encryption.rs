@@ -26,8 +26,12 @@ impl DiskEncryptionStatus {
 
 #[tauri::command]
 #[specta::specta]
-pub fn disk_encryption_status() -> DiskEncryptionStatus {
-    detect()
+pub async fn disk_encryption_status() -> DiskEncryptionStatus {
+    // `manage-bde` takes ~5 s on Windows. As a sync command it ran on the
+    // window's main thread and froze the whole app on onboarding's last board.
+    tauri::async_runtime::spawn_blocking(detect)
+        .await
+        .unwrap_or_else(|e| DiskEncryptionStatus::new("unknown", format!("check failed: {e}")))
 }
 
 #[cfg(windows)]
