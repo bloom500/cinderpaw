@@ -143,7 +143,7 @@ export function BoardView({ board, seed, status, actions, onSection, className }
 
       {(chips.length > 0 || actions) && (
         <footer className="relative flex items-center gap-3 border-t border-border-subtle px-6 py-4 @2xl:px-8">
-          <div className="flex min-w-0 flex-1 gap-3 overflow-x-auto">
+          <div className="flex min-w-0 flex-1 flex-wrap gap-3">
             <Chips items={chips} hues={chipHues} />
           </div>
           {actions}

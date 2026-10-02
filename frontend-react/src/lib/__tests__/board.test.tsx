@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { lookOf, parseBoard, type Block } from '../board';
-import { layoutFlow } from '@/components/board/Flow';
+import { layoutFlow, perRow } from '@/components/board/Flow';
 import { BoardView } from '@/components/board/BoardView';
 import { Photo } from '@/components/board/sections';
 
@@ -46,6 +46,17 @@ describe('lookOf: the same board looks the same, two boards do not', () => {
 describe('layoutFlow', () => {
   it('puts the solid chain in a row in walking order and the dashed-only node below', () => {
     expect(layoutFlow(FLOW)).toEqual({ main: ['in', 'lo', 'au', 'out'], side: ['ext'] });
+  });
+});
+
+// 2 Oct: six steps in an 880px board scrolled sideways and cut "Evanghelizează" to "Evangheli".
+describe('perRow', () => {
+  it('keeps one row when the cards fit, else splits into even rows instead of scrolling', () => {
+    expect(perRow(4, 1100)).toBe(4);
+    expect(perRow(6, 880)).toBe(3);
+    expect(perRow(7, 880)).toBe(4);
+    expect(perRow(6, 300)).toBe(1);
+    expect(perRow(6, 0)).toBe(6);
   });
 });
 
