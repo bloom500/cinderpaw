@@ -295,7 +295,7 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
   // ponytail: capped at 1600px so an ultrawide does not stretch four KPIs a metre apart.
   if (board && peek.state === 'ready') {
     return (
-      <div ref={ref} style={BOARD_BREAKOUT}>
+      <div ref={ref} data-board-breakout style={BOARD_BREAKOUT}>
         <BoardView
           board={board}
           seed={`${f.id}:${board.title}`}

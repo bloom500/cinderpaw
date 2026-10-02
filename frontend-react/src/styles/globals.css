@@ -1010,6 +1010,11 @@ html.has-window-effect[data-theme="light"] .app-pane {
   content-visibility: auto;
   contain-intrinsic-size: auto 120px;
 }
+/* content-visibility clips paint to the row, and a board breaks out of the
+   reading column to the chat area's width: its row is laid out normally. */
+.message-row:has([data-board-breakout]) {
+  content-visibility: visible;
+}
 
 /* The `live-frame` and `panel-moving` overrides for `.app-pane` used to live
    here. Both existed only to strip url(#liquid-glass-soft) from the pane for
