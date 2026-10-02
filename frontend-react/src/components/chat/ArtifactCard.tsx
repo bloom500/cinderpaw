@@ -132,7 +132,13 @@ function SectionOverview({ sections, subtitle, onSection }: { sections: DocSecti
           ))}
         </div>
       )}
-      <div className="grid auto-cols-[minmax(10.5rem,1fr)] grid-flow-col gap-3 overflow-x-auto pb-1">
+      {/* Two per row on a narrow card, all of them from 40rem. Side by side at
+          10.5rem each, four columns needed 708px in a 660px card and the
+          fourth was cut off behind a sideways scroll (2 Oct). */}
+      <div
+        className="grid grid-cols-2 gap-3 @[40rem]:grid-cols-(--cols)"
+        style={{ '--cols': `repeat(${Math.min(parts.length, COLUMNS)}, minmax(0, 1fr))` } as React.CSSProperties}
+      >
         {parts.slice(0, COLUMNS).map((s, i) => {
           const { lead: first, points } = digest(s.body);
           return (
@@ -143,7 +149,7 @@ function SectionOverview({ sections, subtitle, onSection }: { sections: DocSecti
               className="flex flex-col gap-2 rounded-2xl border border-border-subtle bg-bg-elevated/50 p-4 text-left transition-colors hover:border-brand/40"
             >
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand/10 text-sm font-medium text-brand">{i + 1}</span>
-              <span className="font-display text-lg leading-snug text-text-primary">{s.title}</span>
+              <span className="break-words font-display text-lg leading-snug text-text-primary">{s.title}</span>
               {first && <span className="line-clamp-4 text-sm leading-relaxed text-text-muted">{first}</span>}
               {points.length > 0 && (
                 <ul className="mt-auto flex flex-col gap-1.5 border-t border-border-subtle pt-2.5">
@@ -308,7 +314,7 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
                 disabled={busy}
                 aria-label="Download PDF"
                 title="Download PDF"
-                onClick={() => void useArtifacts.getState().exportArtifact(f.id, { as: 'pdf', row: { title: f.title, kind: f.kind } })}
+                onClick={() => void useArtifacts.getState().exportArtifact(f.id, { as: 'pdf', row: { title: f.title, kind: f.kind }, version: f.version })}
                 className={iconButton}
               >
                 <Download size={16} />
@@ -350,13 +356,13 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
       {body}
 
       <div className="flex items-center gap-2 border-t border-border-subtle px-5 py-3">
-        <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto">
+        <div className="flex min-w-0 flex-1 flex-wrap gap-2">
           {chips.map((s, i) => (
             <button
               key={s.title}
               type="button"
               onClick={() => openInPanel(f.id, s.title)}
-              className={cn('shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition-opacity hover:opacity-80', TINTS[i % TINTS.length])}
+              className={cn('max-w-full truncate rounded-full px-3.5 py-1.5 text-sm font-medium transition-opacity hover:opacity-80', TINTS[i % TINTS.length])}
             >
               {s.title}
             </button>
@@ -381,7 +387,7 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
           disabled={busy}
           aria-label={asPdf ? 'Download PDF' : 'Download'}
           title={asPdf ? 'Download PDF' : 'Download'}
-          onClick={() => void useArtifacts.getState().exportArtifact(f.id, { as: asPdf ? 'pdf' : undefined, row: { title: f.title, kind: f.kind } })}
+          onClick={() => void useArtifacts.getState().exportArtifact(f.id, { as: asPdf ? 'pdf' : undefined, row: { title: f.title, kind: f.kind }, version: f.version })}
           className={iconButton}
         >
           <Download size={16} />

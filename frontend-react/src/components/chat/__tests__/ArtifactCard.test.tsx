@@ -132,13 +132,13 @@ describe('ArtifactCard', () => {
     engineReturns(PLAN_MD);
     const { unmount } = render(<ArtifactCard f={PLAN} />);
     await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
-    expect(useArtifacts.getState().exportArtifact).toHaveBeenCalledWith('a1', { as: 'pdf', row: { title: 'Launch week', kind: 'markdown' } });
+    expect(useArtifacts.getState().exportArtifact).toHaveBeenCalledWith('a1', { as: 'pdf', row: { title: 'Launch week', kind: 'markdown' }, version: 1 });
     unmount();
 
     engineReturns('<canvas></canvas>', { ...ROW, id: 'c1', kind: 'app' });
     render(<ArtifactCard f={CHART} />);
     await userEvent.click(screen.getByRole('button', { name: 'Download' }));
-    expect(useArtifacts.getState().exportArtifact).toHaveBeenLastCalledWith('c1', { as: undefined, row: { title: 'Sales by month', kind: 'app' } });
+    expect(useArtifacts.getState().exportArtifact).toHaveBeenLastCalledWith('c1', { as: undefined, row: { title: 'Sales by month', kind: 'app' }, version: 1 });
   });
 
   it('with no Google connected there is no Share button', async () => {
@@ -165,7 +165,7 @@ describe('ArtifactCard', () => {
     expect(await screen.findByText('Monthly metrics')).toBeTruthy();
     expect(screen.getByText('4.8%')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
-    expect(useArtifacts.getState().exportArtifact).toHaveBeenCalledWith('b1', { as: 'pdf', row: { title: 'Performance Charts', kind: 'board' } });
+    expect(useArtifacts.getState().exportArtifact).toHaveBeenCalledWith('b1', { as: 'pdf', row: { title: 'Performance Charts', kind: 'board' }, version: 1 });
     await userEvent.click(screen.getByRole('button', { name: 'Open Performance Charts' }));
     expect(useArtifacts.getState().openArtifact).toHaveBeenCalledWith('b1');
   });
