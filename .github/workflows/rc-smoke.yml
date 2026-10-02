@@ -1,0 +1,98 @@
+name: RC smoke
+
+# Installs a published pre-release the way a stranger would, on a machine that
+# has never seen Cinderpaw, and checks what only an installed build can show:
+# the window's CSP (dev has none), the bundled sidecar, the first-run screen.
+#
+# Run it by pushing any commit to a `smoke/...` branch (the workflow file must
+# be on the default branch for workflow_dispatch, and this one is not yet), or
+# by hand once it is. It tests the newest `-rc` pre-release unless told a tag.
+on:
+  push:
+    branches: ["smoke/**"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to test (default: the newest -rc pre-release)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pick the release
+        shell: pwsh
+        run: |
+          $tag = "${{ inputs.tag }}"
+          if (-not $tag) {
+            $tag = gh release list --repo "${{ github.repository }}" --limit 30 --json tagName,isPrerelease `
+              --jq '[.[] | select(.isPrerelease and (.tagName | contains("-rc")))][0].tagName'
+          }
+          if (-not $tag) { throw "No -rc pre-release to test" }
+          Write-Host "Testing $tag"
+          "TAG=$tag" >> $env:GITHUB_ENV
+      - name: Install it like a stranger (NSIS, silent, per user)
+        shell: pwsh
+        run: |
+          gh release download $env:TAG --repo "${{ github.repository }}" --pattern '*-setup.exe' --dir dl
+          $setup = Get-ChildItem dl/*-setup.exe | Select-Object -First 1
+          if (-not $setup) { throw "The release has no Windows installer" }
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $app = Get-ChildItem "$env:LOCALAPPDATA\Cinderpaw", "$env:ProgramFiles\Cinderpaw" -Filter *.exe -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch 'uninstall|agent' } | Select-Object -First 1
+          if (-not $app) { throw "Installed, but no app .exe found" }
+          Write-Host "App: $($app.FullName)"
+          "APP_EXE=$($app.FullName)" >> $env:GITHUB_ENV
+      - name: Smoke
+        shell: pwsh
+        run: |
+          npm install --no-save --no-package-lock --prefix scripts/rc-smoke playwright-core@1
+          node scripts/rc-smoke/windows.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-windows
+          path: smoke-out
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Pick the release
+        run: |
+          tag="${{ inputs.tag }}"
+          if [ -z "$tag" ]; then
+            tag=$(gh release list --repo "${{ github.repository }}" --limit 30 --json tagName,isPrerelease \
+              --jq '[.[] | select(.isPrerelease and (.tagName | contains("-rc")))][0].tagName')
+          fi
+          [ -n "$tag" ] || { echo "No -rc pre-release to test"; exit 1; }
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+      - name: Install, open, and look
+        run: |
+          mkdir -p smoke-out
+          gh release download "$TAG" --repo "${{ github.repository }}" --pattern '*aarch64.dmg' --dir dl
+          hdiutil attach dl/*.dmg -nobrowse -mountpoint /Volumes/cp
+          cp -R /Volumes/cp/*.app /Applications/
+          xattr -cr /Applications/Cinderpaw.app || true
+          open /Applications/Cinderpaw.app
+          sleep 45
+          screencapture -x smoke-out/macos-first-run.png || true
+          pgrep -lf Cinderpaw | tee smoke-out/processes.txt
+          pgrep -f cinderpaw-agent > /dev/null || { echo "::error::the sidecar is not running"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-macos
+          path: smoke-out
