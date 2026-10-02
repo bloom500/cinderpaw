@@ -1,10 +1,6 @@
 <p align="center">
-  <img src="frontend-react/public/README%20banner.jpeg" alt="Cinderpaw — it practices while you sleep" width="100%" />
+  <img src="frontend-react/public/README%20banner.jpeg" alt="Cinderpaw. A little wild. A lot to learn." width="100%" />
 </p>
-
-# Cinderpaw
-
-**It practices while you sleep.**
 
 <p align="center">
   <a href="https://github.com/bloom500/cinderpaw/releases/latest"><img src="https://img.shields.io/github/v/release/bloom500/cinderpaw?style=for-the-badge&color=blue&label=version" alt="Version" /></a>
@@ -25,12 +21,15 @@
 
 ---
 
-Cinderpaw is a little AI that lives on your computer and helps you get things
-done. You talk to it like you would talk to a person.
+Cinderpaw is a helper that lives on your computer, does real work with your
+files and apps, remembers what matters to you, and tests ways to get better at
+it. You talk to it like you would talk to a person.
 
-It opens your files, reads web pages for you, answers messages on WhatsApp or
-Discord, writes the document, and then actually sends it. You can call it on the
-phone and just say the thing out loud.
+It opens your files, browses the web in a browser you can watch, answers
+messages on Telegram, Discord, Slack or WhatsApp, makes the document, the PDF,
+the spreadsheet or the small app you asked for, and then actually sends it. You
+can call it and just say the thing out loud; while you talk it can open apps,
+play music, copy, paste and take screenshots.
 
 Here is the part that is different. When you stop working, Cinderpaw goes back
 over what happened and tries to find a better way to do it next time. It keeps
@@ -38,24 +37,36 @@ what worked and throws away what did not. So the Cinderpaw you have in March is
 not the one you installed in January. It has been practising.
 
 It also remembers you. Tell it once how you like your emails written, and you do
-not have to say it again in six weeks.
+not have to say it again in six weeks. Every fact it keeps is listed in plain
+sentences, each with a **Forget** button.
 
-The creature on the screen is a bear cub called Cubby. It arrives knowing
-nothing about you, chews the furniture a bit, and grows into yours. We got quite
-attached to it. You will too.
+The little orange creature on the screen is Cubby, the face of your helper. Cubby
+shows you what is going on without a log to read: thinking, working, waiting for
+you, done. Playful on the outside, real work underneath.
+
+### Where it stands, 2 October 2026
+
+The newest build is the pre-release
+[**v2026.9.18-rc3**](https://github.com/bloom500/cinderpaw/releases/tag/v2026.9.18-rc3),
+and everything in [What's new](#whats-new) below is in it. The release marked
+*Latest* on GitHub, and so every download link and install command below that
+fetches "latest", is still **v2026.08.11**, from when the app was called Feral.
+The first full Cinderpaw release follows once the pre-release has been checked
+on real machines. If you want the new app today, take the rc3 installer by hand.
 
 ### Two honest things before you download
 
 **It needs a good brain.** Cinderpaw is the body: the hands, the memory, the
-habits. The thinking comes from a model, and a small one will fumble. Bring a
-key from OpenAI, Anthropic, Google or a dozen others and it flies. Run a big
+habits. The thinking comes from a model, and a small one will fumble. Sign in
+with OpenRouter in one click, or bring a key from OpenAI, Anthropic, Google or
+any of dozens of other providers, and it flies. Run a big
 model on your own machine and it flies without the internet. Run a tiny local
 model and it will stumble, and that is us being honest rather than you doing
 something wrong.
 
 **Practising costs something on a cloud model.** Thinking about its own work is
 still thinking, and on a paid model that is your money, so it is OFF until you
-say yes. Flip it on in **Settings → Dreams**, where you can also cap what it may
+say yes. Flip it on in **Settings → Learning**, where you can also cap what it may
 spend. On a model running on your own machine it is free, so it just does it.
 
 **New here?** [What we promise](PROMISES.md) · [How to use it](docs/USER_GUIDE.md) · [Install it](#quick-install)
@@ -154,48 +165,47 @@ See [docs/HEADLESS.md](docs/HEADLESS.md) for running the gateway as a systemd se
 
 ## What's new
 
-*Power-user preview. We're looking for testers and contributors.
+*In the pre-release [v2026.9.18-rc3](https://github.com/bloom500/cinderpaw/releases/tag/v2026.9.18-rc3)
+(2 October 2026). We're looking for testers and contributors.
 [Start here](docs/CONTRIBUTING.md) if you want to help.*
 
-- 📞 **Call Cinderpaw and talk to it.** Press the phone button and it answers out
-  loud, in your language, interrupting and being interrupted the way a call
-  works. It keeps every tool it has while it talks: your files, your memory of
-  past conversations, the web. And it shows you the work as it happens: a browser,
-  a terminal, a search widget lighting up for whatever it is actually doing.
-- 🌙 **Self-improvement, unstuck.** The nightly loop had been promoting nothing
-  since 10 July on every install, because three graders marked correct answers
-  wrong (`H₂O` against `h2o`, JSON inside a code fence, and speed limits that
-  measure the network rather than the candidate). Fixed and measured: champion
-  score 24.2 → 41.0 on the first run. And when self-improvement is off because
-  your model is a paid cloud one, Cinderpaw now says so on screen instead of in a
-  log, with the switch and your spend cap next to it.
-- 🔁 **A second cloud provider to fall over to** before dropping to the local
-  engine, so one provider's bad ten minutes no longer ends the work.
+- 🧡 **A new look, and a face.** Warm light and dark themes, Geist and Young
+  Serif, and Cubby with 73 animations that follow what the agent is doing.
+  Background can be **Glass** (your desktop shows through) or **Solid**.
+- 🔑 **Sign in with OpenRouter** instead of pasting a key: one button, your
+  browser opens, and the key goes straight to the system keychain. On a computer
+  with no model at all, that button is the home screen. 24 more providers in the
+  cloud list, and a small machine is told to start with a cloud model, and why.
+- 🌐 **A browser beside the chat**, with tabs, an ad blocker (Brave's engine),
+  downloads and a wide mode. The agent uses it by itself, you watch it work, and
+  a click of yours pauses it.
+- 📄 **Artifacts.** Documents, PDFs, Word and Excel files, charts and small
+  interactive apps the agent makes, kept in a panel after the conversation ends.
+  Edit, rename, export, send to Google Docs; fill in and sign PDFs yourself.
+- 📞 **Call it.** Speech-to-speech with Gemini Live, OpenAI Realtime, or Jev,
+  which acts on your computer while you are still talking: open apps and
+  folders, play Spotify, copy, paste, screenshot. Park a call in a small **pill**
+  instead of hanging up.
+- 🤝 **Cowork teammates.** Named helpers the agent creates, each with only its
+  own tools, talking in a group chat you can read, and asking you before a gated
+  step.
+- 💬 **21 chat platforms.** Telegram, Discord, Slack, WhatsApp and more; files
+  travel both ways where the platform allows.
+- 🧠 **Memory you can read.** Facts listed as sentences, each with **Forget**.
+  Procedures it learned show up in the skills menu with the evidence behind them.
+- 🛡️ **A prompt-injection gate** checks tool calls before they run.
+- ⌨️ **Small things that add up.** Generated chat titles, Undo instead of "Are you
+  sure?", the app reopens where you left, drop a file anywhere, **Send to >
+  Cinderpaw** from Windows Explorer, **Alt+Space** from anywhere.
+- 🔥 **A campfire mini-game.** While a long task runs, a small fire appears on
+  the edge of the composer; click it and play until the work is done.
+- 🌙 **Self-improvement, honest about cost.** On a paid cloud model it stays off
+  until you say yes, and the screen says so, with the switch and your spend cap.
 
-- 🛑 **It stops when it's provably stuck.** If a tool returns byte-identical
-  output for the same arguments twenty times, repeating it can't make progress,
-  so the turn ends and names the tool, instead of burning up to 500 iterations
-  on the same call. A tool whose output keeps changing (a build still running) is
-  left alone: waiting isn't looping.
-- 🔁 **Tool fallbacks actually fire.** A tool that declares a standby now falls
-  back to it for the failures it was meant to cover, even when it also declares
-  retries. Previously those two paths disagreed and you got the original error.
-- 🧾 **The reliability claims now have tests behind them.** Surviving a restart,
-  switching provider mid-session, resuming memory and writing memory each have
-  regression tests proving the behaviour end to end, including a
-  write → process restart → read round-trip. Previously several of these were
-  backed by code review alone.
-
-- 🧬 **Sub-agents.** The agent can hand a slice of work to a fresh sub-agent (`delegate_task`), run several in parallel, and stream their progress back live. A depth guard keeps it from recursively spawning itself.
-- 🙋 **It asks before it guesses.** Hit a real fork in the road and Cinderpaw stops to ask you (`ask_user`) instead of guessing, and the question reaches you wherever you are: the desktop app, the `cinderpaw chat` TUI, or right in your Discord/Slack/WhatsApp channel.
-- 🎓 **On-device LoRA training.** Fine-tune a personal adapter on your own hardware (Unsloth, with a graceful fallback), gated behind an A/B eval so a worse adapter never ships. Needs an NVIDIA GPU to train.
-- 📦 **One-command install.** A single command detects your OS and sets everything up on Windows, macOS, and Linux (see [Quick install](#quick-install) above).
-- 💬 **Connectors, with personas.** Talk to your agent from **WhatsApp** (QR pairing), **Discord**, and **Slack**; each connector can run its own persona (`--persona`), so the same Cinderpaw is a support bot in one channel and your personal agent in another.
-- 🤖 **Agent unleashed.** The sandbox is allow-by-default: open web access (SSRF-guarded, rate-limited, audited), filesystem access across your home directory (with a hard deny-wall on `~/.cinderpaw`, `~/.ssh`, and anything you list in `CINDERPAW_FS_DENY`), and shell access out of the box. Every knob still exists if you want to lock it down.
-- 🧠 **Memory Layers + RSI.** See everything Cinderpaw remembers, grouped by recency; Cinderpaw tunes its own parameters while you're away and keeps only what measurably works.
-- 🔑 **BYOK (Bring Your Own Key).** OpenAI, Anthropic, Google Gemini, DeepSeek, Groq, Mistral, OpenRouter, Kimi, GLM, MiniMax, or any custom endpoint.
-
-Full details in the [CHANGELOG](CHANGELOG.md). Upgrading from **0.1.7 or older**? Read the [updater key migration notes](docs/UPDATER_KEY_MIGRATION.md) first.
+The interface is English-only in this release; talking to Cinderpaw in your own
+language, by text or voice, works as before. Full details in the
+[CHANGELOG](CHANGELOG.md). Upgrading from **0.1.7 or older**? Read the
+[updater key migration notes](docs/UPDATER_KEY_MIGRATION.md) first.
 
 ---
 
@@ -217,7 +227,7 @@ Grab the latest installer from [Releases](https://github.com/bloom500/cinderpaw/
 > ```
 > Then open Cinderpaw normally. This removes the quarantine flag macOS puts on downloaded apps — nothing is actually damaged.
 
-> **macOS after an update:** if you saved cloud API keys before updating, macOS may ask for your Mac login password to let the new version access an item stored in `ai.bloom.cinderpaw.byok`. That's your saved API keys in the macOS Keychain — the name still says `cinderpaw` on purpose, because that is where your existing keys are, and renaming the Keychain item without moving them would lose them — enter your Mac login password and click **Always Allow** (or just re-enter the key in Settings → Cloud Keys). This happens because Cinderpaw isn't Apple-notarized yet, so each update looks like a new app to the Keychain. It will go away once Cinderpaw ships with an Apple Developer certificate.
+> **macOS after an update:** if you saved cloud API keys before updating, macOS may ask for your Mac login password to let the new version access an item stored in `ai.bloom.cinderpaw.byok`. That's your saved API keys in the macOS Keychain — the name still says `cinderpaw` on purpose, because that is where your existing keys are, and renaming the Keychain item without moving them would lose them — enter your Mac login password and click **Always Allow** (or just re-enter the key in Models → Cloud). This happens because Cinderpaw isn't Apple-notarized yet, so each update looks like a new app to the Keychain. It will go away once Cinderpaw ships with an Apple Developer certificate.
 
 ### Hardware requirements
 
@@ -235,8 +245,8 @@ Every model card shows a **0–100 fitness score** for *your* hardware before yo
 
 1. **Install and open Cinderpaw.** A short welcome wizard introduces the app — pick a name for yourself and your agent.
 2. **Get a model** (either path works):
-   - **Local:** open **Models → Browse**, pick a model, and click download — Cinderpaw pre-selects the quantization that best fits your hardware. Already have GGUF files? Drop them in via **Models → Local**.
-   - **Cloud (BYOK):** open **Settings → Cloud Keys** and paste an API key — OpenAI, Anthropic, Google Gemini, DeepSeek, Groq, Mistral, OpenRouter, Kimi, GLM, MiniMax, or any custom OpenAI-compatible endpoint. Keys are stored locally and never proxied through anyone's server.
+   - **Local:** open **Models → Hugging Face**, pick a model, and click download — Cinderpaw pre-selects the quantization that best fits your hardware. Already have GGUF files? Drop them in via **Models → Local**.
+   - **Cloud (BYOK):** press **Sign in with OpenRouter**, or open **Models → Cloud** and paste an API key — OpenAI, Anthropic, Google Gemini, DeepSeek, Groq, Mistral, OpenRouter, Kimi, GLM, MiniMax and two dozen more, or any custom OpenAI-compatible endpoint. Keys are stored locally and never proxied through anyone's server.
 3. **Chat.** Or flip the composer toggle to **Agent mode** to unleash the sidecar: tool-use, persistent memory, file access, and web research.
 
 For deep research, ask the agent something like *"Research the current state of open-source LLMs"* — it calls `deep_research` on its own and comes back with a cited Markdown report.
@@ -275,15 +285,19 @@ The full list of what we promise, what we deliberately do not promise, and how t
 |---|---|
 | **Chat** | Persistent conversations with any local or cloud model. Projects keep related chats grouped and sane. |
 | **Agent Mode** | A full TypeScript sidecar agent with tool-use, 4-layer memory, and an agentic loop. It thinks. Sometimes too much. |
-| **Memory Layers** | See everything Cinderpaw remembers about you — grouped by recency (Today / This Week / This Month / Older). Live RSI status and dream cycle history. |
+| **Memory** | See everything Cinderpaw remembers about you as plain sentences, each with **Forget**. Live self-improvement status and dream history in **Settings → Learning**. |
 | **RSI (Self-Improvement)** | Cinderpaw tunes its own parameters while you're away. Evolutionary algorithm tests configs, keeps what works. Early-stage, functional. |
-| **Connectors** | Talk to your agent from WhatsApp (QR pairing), Discord, or Slack. Same brain, same memory — running on your machine, not a cloud. |
+| **Connectors** | Talk to your agent from 21 chat platforms, among them Telegram, WhatsApp (QR pairing), Discord and Slack. Same brain, same memory, running on your machine, not a cloud. |
+| **Browser** | A real browser beside the chat, with tabs and Brave's ad blocker. The agent drives it, you watch, and a click of yours pauses it. |
+| **Artifacts** | Documents, PDFs, Word and Excel files, charts and small apps the agent makes, kept after the chat ends. Edit, export, send to Google Docs, sign PDFs. |
+| **Voice calls** | Talk to it out loud (Gemini Live, OpenAI Realtime or Jev). It keeps its tools while it talks, and a call can wait in a small pill. |
+| **Cowork** | Named teammates with their own tools, a group chat you can read, and a stop for your yes before gated steps. |
 | **Deep Research** | Multi-step autonomous web research: searches, reads pages, extracts findings, synthesizes a cited Markdown report. Like having a very caffeinated research assistant who never sleeps. |
 | **Local Models** | Load GGUF models from disk. One-click load/unload with live Active status and hardware fitness scoring. |
 | **Model Fitness Scoring** | Every local model gets a 0–100 score across memory fit, quality, speed, and context window — so you stop loading models that make your CPU cry. |
 | **Browse HuggingFace** | Search and download models inside the app. No terminal. No manual file moves. No accidentally running `rm -rf`. |
 | **SkillHub** | Install, discover, and import skills that extend what the AI can do. Community tab ships with curated third-party skills. |
-| **Cloud Keys (BYOK)** | Add your own API keys for OpenAI, Anthropic, Google Gemini, Kimi, GLM, MiniMax, DeepSeek, Groq, Mistral, OpenRouter, or any custom endpoint. The AI equivalent of "I have a guy." |
+| **Cloud models (BYOK)** | Sign in with OpenRouter, or add your own key for OpenAI, Anthropic, Google Gemini, Kimi, GLM, MiniMax, DeepSeek, Groq, Mistral and two dozen more, or any custom endpoint, in **Models → Cloud**. The AI equivalent of "I have a guy." |
 | **Privacy Tags** | Complete `<private>...</private>` blocks are removed from the agent loop's episodic text. They are not a guarantee against storage in other memory, transcript, or tool paths. |
 | **Tool Health Monitor** | ECC-style per-tool success rates and latency tracking. The agent can literally diagnose its own failing tools. |
 | **Workspace Scanner** | Detect hardcoded secrets, API keys, and code security anti-patterns before you accidentally push them to GitHub and ruin your week. |
@@ -521,6 +535,13 @@ When launched by the desktop app, the sidecar is pointed at Cinderpaw's **own bu
 - [x] Local API server — 47 documented routes, OpenAI- and Ollama-compatible (see [docs/API.md](docs/API.md))
 - [x] Sub-agents — the agent delegates self-contained tasks to parallel sub-agents (`delegate_task`)
 - [x] On-device LoRA training — fine-tune a personal adapter locally, A/B-eval gated
+- [x] Built-in browser with an ad blocker, driven by the agent
+- [x] Artifacts — documents, PDFs, Office files, charts and small apps
+- [x] Voice calls — speech-to-speech, with tools
+- [x] Cowork teammates and 21 chat platforms
+- [x] Prompt-injection gate on tool calls
+- [ ] First full Cinderpaw release (pre-release rc3 is out)
+- [ ] More than 70 interface languages
 - [ ] RAG on local documents — chat with your PDFs without sending them anywhere
 
 ---
@@ -544,7 +565,7 @@ Contributions are welcome — code, docs, bug reports, model recommendations, or
 You don't need the desktop app, a GPU, or a model to work on the agent:
 
 ```bash
-cd CinderpawAgent && bun install && bun test    # 2400+ tests, ~60s
+cd CinderpawAgent && bun install && bun test    # 4,600+ tests
 ```
 
 That's the fastest loop in the repo and where most of the interesting work is. If you want real impact, the biggest open gap is **end-to-end tests against a live provider** — the entire suite currently mocks `fetch`, and that single gap is the main limit on Cinderpaw's release maturity.
@@ -570,11 +591,11 @@ Cinderpaw was previously source-available under BSL 1.1. It moved to Apache 2.0 
 ---
 
 <p align="center">
-  <img src="frontend-react/public/LOGO%20NO%20BG.png" alt="Cinderpaw mascot" width="64" />
+  <img src="frontend-react/src/assets/logo.svg" alt="Cinderpaw logo" width="64" />
 </p>
 
 <p align="center">
   <em>Built with 🖤🧡 by <a href="https://github.com/bloom500">Bloom Lab</a></em>
 </p>
 
-*Cinderpaw does not phone home, does not collect telemetry, and has never once asked you to "sign up to unlock the full experience." That would be very un-Cinderpaw of it.*
+*Cinderpaw collects no telemetry. It counts an install once, if you leave that box ticked at the end of setup ([what it sends](PROMISES.md#the-promises)), and it has never once asked you to "sign up to unlock the full experience." That would be very un-Cinderpaw of it.*
