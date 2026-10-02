@@ -45,7 +45,13 @@ const arr = (v: unknown): Rec[] => (Array.isArray(v) ? v.filter(isRec) : []);
 function sound(b: Rec): boolean {
   switch (b.kind) {
     case 'text': return typeof b.text === 'string';
-    case 'line': return Array.isArray(b.x) && arr(b.series).every((s) => Array.isArray(s.values) && s.values.every((v) => typeof v === 'number'));
+    // As strict as the sidecar: a series shorter than its labels drew no last
+    // point, and reading it threw, which took the whole window down.
+    case 'line': {
+      const x = Array.isArray(b.x) ? b.x : [];
+      const series = arr(b.series);
+      return x.length >= 2 && series.length > 0 && series.every((s) => Array.isArray(s.values) && s.values.length === x.length && s.values.every((v) => typeof v === 'number' && Number.isFinite(v)));
+    }
     case 'flow': return arr(b.nodes).length >= 2 && Array.isArray(b.edges);
     case 'calendar': return arr(b.days).length > 0;
     case 'bars': case 'breakdown': return arr(b.items).length > 0 && arr(b.items).every((i) => typeof i.value === 'number');

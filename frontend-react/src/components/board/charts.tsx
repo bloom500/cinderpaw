@@ -78,10 +78,14 @@ function smoothPath(pts: [number, number][]): string {
 
 export function Line({ b, look, id }: { b: Of<'line'>; look: Look; id: string }) {
   const W = 640, H = 240, L = 44, R = 26, T = 12, B = 30;
-  const max = niceMax(Math.max(...b.series.flatMap((s) => s.values), 0));
+  const all = b.series.flatMap((s) => s.values);
+  const max = niceMax(Math.max(...all, 0));
+  // A loss or a fall below zero stays inside the chart: the axis runs down to it.
+  const low = Math.min(...all, 0);
+  const min = low < 0 ? -niceMax(-low) : 0;
   const x = (i: number) => L + (i / Math.max(1, b.x.length - 1)) * (W - L - R);
-  const y = (v: number) => T + (1 - v / max) * (H - T - B);
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * max);
+  const y = (v: number) => T + ((max - v) / (max - min)) * (H - T - B);
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => min + f * (max - min));
   const every = Math.max(1, Math.ceil(b.x.length / 7));
   const hues = [look.accent, ...look.tints.filter((h) => h !== look.accent)];
   const grad = `area-${id}`;
@@ -96,7 +100,7 @@ export function Line({ b, look, id }: { b: Of<'line'>; look: Look; id: string })
         </defs>
         {ticks.map((t) => (
           <g key={t}>
-            <line x1={L} x2={W - R} y1={y(t)} y2={y(t)} stroke="var(--border-default)" strokeDasharray={t ? '4 5' : undefined} />
+            <line x1={L} x2={W - R} y1={y(t)} y2={y(t)} stroke="var(--border-default)" strokeDasharray={t === min ? undefined : '4 5'} />
             <text x={L - 10} y={y(t) + 4} textAnchor="end" fontSize="12" fill="var(--text-muted)">{compact(t)}</text>
           </g>
         ))}

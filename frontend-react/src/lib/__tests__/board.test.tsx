@@ -20,6 +20,13 @@ describe('parseBoard', () => {
     expect(b?.blocks).toEqual([{ kind: 'text', text: 'hi' }]);
   });
 
+  // A series shorter than its labels threw while drawing and took the window down.
+  it('drops a line chart whose series do not match its labels', () => {
+    const line = (values: unknown[]) => ({ kind: 'line', x: ['a', 'b', 'c'], series: [{ values }] });
+    const b = parseBoard(JSON.stringify({ title: 'T', blocks: [line([]), line([1, 2]), line([1, 2, 3]), { kind: 'text', text: 'ok' }] }));
+    expect(b?.blocks.map((x) => x.kind)).toEqual(['line', 'text']);
+  });
+
   it('is null for text that is not a board', () => {
     expect(parseBoard('# a markdown file')).toBeNull();
     expect(parseBoard(JSON.stringify({ blocks: [] }))).toBeNull();
@@ -69,6 +76,14 @@ describe('BoardView', () => {
     // Once as a node, once as a chip.
     expect(screen.getAllByText('Logic')).toHaveLength(2);
     expect(screen.getAllByText('External Tools')).toHaveLength(1);
+  });
+
+  it('keeps a line that falls below zero inside the chart', () => {
+    const { container } = render(<BoardView board={{ title: 'P&L', blocks: [{ kind: 'line', x: ['Q1', 'Q2', 'Q3'], series: [{ values: [4, -6, 10] }] }] }} seed="n" status="Ready" />);
+    const dots = Array.from(container.querySelectorAll('circle')).map((c) => Number(c.getAttribute('cy')));
+    const ys = (container.querySelector('path[stroke-width="3"]')?.getAttribute('d') ?? '').match(/-?\d+(\.\d+)?/g)!.map(Number).filter((_, i) => i % 2 === 1);
+    // Inside the 240-high drawing (before: the -6 landed at y 328, under the labels and off the card).
+    for (const v of [...dots, ...ys]) expect(v).toBeLessThanOrEqual(240);
   });
 
   it("uses the board's own status word when it gave one", () => {
