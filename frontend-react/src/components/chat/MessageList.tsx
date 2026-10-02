@@ -94,7 +94,7 @@ export function MessageList({ onFollowUp }: {
       <MessageScroller.Root className="h-full relative">
         {/* No `scroll-smooth`: programmatic follow on every streamed frame
             turns into overlapping animations, visible jank on long chats. */}
-        <MessageScroller.Viewport aria-label="Conversation" className="h-full overflow-y-auto overscroll-contain thin-scrollbar outline-hidden">
+        <MessageScroller.Viewport aria-label="Conversation" className="@container h-full overflow-y-auto overscroll-contain thin-scrollbar outline-hidden">
           {/* Clears the dock's measured height, not a flat 12rem: the dock grows
               with the workers card, the error notice and a multi-line draft,
               and a flat pad let the last reply slide under it. */}

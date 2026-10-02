@@ -51,6 +51,9 @@ const PDF_ABLE = new Set(['document', 'markdown', 'table', 'code', 'json', 'boar
 /** Section columns on the card; the rest are chips in the footer. */
 const COLUMNS = 4;
 const CHIPS = 4;
+const BOARD_WIDTH = 'min(calc(100cqw - 48px), 1600px)';
+const BOARD_BREAKOUT = { width: BOARD_WIDTH, marginLeft: `calc(50% - ${BOARD_WIDTH} / 2)` };
+
 /** The boards' chip tints, in order. */
 const TINTS = ['bg-brand/10 text-brand', 'bg-error/10 text-error', 'bg-info/10 text-info', 'bg-success/10 text-success'];
 
@@ -286,9 +289,13 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
   const iconButton = 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border-default bg-bg-elevated text-text-secondary transition-colors hover:bg-text-primary/5 hover:text-text-primary disabled:opacity-60';
 
   // A board draws its own header and footer (the 1 Oct boards); the card adds its buttons to that footer.
+  // It breaks out of the 700px reading column to the chat area's own width
+  // (MessageList's scroller is the container), so it never runs under the
+  // sidebar or the side panel, and still lands centred on the column.
+  // ponytail: capped at 1600px so an ultrawide does not stretch four KPIs a metre apart.
   if (board && peek.state === 'ready') {
     return (
-      <div ref={ref}>
+      <div ref={ref} style={BOARD_BREAKOUT}>
         <BoardView
           board={board}
           seed={`${f.id}:${board.title}`}
