@@ -131,15 +131,19 @@ interface ArtifactsStore {
    * document, scrolled to the heading with that text, instead of the overview.
    */
   openArtifact: (id: string, section?: string) => Promise<void>;
-  /** The heading a deep dive asked for, until the viewer has scrolled to it. */
-  focus: string | null;
+  /**
+   * The heading a deep dive asked for, and in which artifact, until the viewer
+   * has scrolled to it. The id keeps it off whatever was on screen before the
+   * asked-for artifact arrived.
+   */
+  focus: { id: string; section: string } | null;
   clearFocus: () => void;
   showVersion: (version: number) => Promise<void>;
   /**
    * `as: 'pdf'` offers a PDF first (the chat card's "Download PDF"); `row` is
    * for a caller that knows the artifact when the list has not been loaded.
    */
-  exportArtifact: (id: string, opts?: { as?: 'pdf'; row?: { title: string; kind: string } }) => Promise<void>;
+  exportArtifact: (id: string, opts?: { as?: 'pdf'; row?: { title: string; kind: string }; version?: number }) => Promise<void>;
   /** For good: rows and files. The panel confirms before calling it. */
   deleteArtifact: (id: string) => Promise<void>;
   renameArtifact: (id: string, title: string) => Promise<void>;
@@ -268,7 +272,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
 
   openArtifact: async (id, section) => {
     wanted = id;
-    set({ busy: true, error: null, lastExport: null, focus: section ?? null });
+    set({ busy: true, error: null, lastExport: null, focus: section ? { id, section } : null });
     try {
       await send({ kind: 'open', id }, 'get', { artifactId: id });
       await send({ kind: 'versions', id }, 'versions', { artifactId: id });
@@ -292,11 +296,12 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   },
 
   exportArtifact: async (id, opts) => {
-    const row = get().rows.find((r) => r.id === id) ?? get().open?.row ?? opts?.row;
+    // Only when the panel has THIS artifact: from a chat card it may hold another one.
+    const open = get().open?.row.id === id ? get().open : null;
+    const row = get().rows.find((r) => r.id === id) ?? open?.row ?? opts?.row;
     // The version on screen, when it is not the newest: the file that leaves
-    // must be the one the person is looking at.
-    const open = get().open;
-    const version = open && open.row.id === id && open.showing !== open.row.version ? open.showing : undefined;
+    // must be the one the person is looking at (a card's own version, or the panel's).
+    const version = opts?.version ?? (open && open.showing !== open.row.version ? open.showing : undefined);
     // The person picks where it goes, in the OS dialog, for every kind. Export
     // used to drop the file in the workspace root and print the path; a PDF
     // to sign usually wants to be on the desktop or in Downloads.
@@ -714,8 +719,16 @@ export async function peekArtifact(id: string, version: number): Promise<{ row: 
   if (hit) return hit;
   const got = await new Promise<{ row: ArtifactRow; content: string }>((resolve, reject) => {
     const reqId = nextId();
-    pending.set(reqId, { kind: 'peek', resolve, reject });
+    // An engine that restarted mid-request never answers: the card falls back
+    // to its cover instead of pulsing as "loading" for the rest of the session.
+    const timer = setTimeout(() => {
+      pending.delete(reqId);
+      reject('The engine did not answer.');
+    }, 20_000);
+    const done = () => clearTimeout(timer);
+    pending.set(reqId, { kind: 'peek', resolve: (r) => { done(); resolve(r); }, reject: (why) => { done(); reject(why); } });
     tauri.artifacts.op(reqId, 'get', { artifactId: id, version }).catch((e) => {
+      done();
       pending.delete(reqId);
       reject(String(e));
     });

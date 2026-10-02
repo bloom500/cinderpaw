@@ -736,7 +736,7 @@ describe('the artifact overview', () => {
     const scrolled = vi.fn();
     Element.prototype.scrollIntoView = scrolled;
     useArtifacts.setState({
-      loaded: true, editing: null, google: null, focus: 'Budget',
+      loaded: true, editing: null, google: null, focus: { id: 'a1', section: 'Budget' },
       open: { row: row({ kind: 'markdown', version: 1 }), content: '# Trip\n\n## Day 1\nWalk.\n\n## Budget\nTen.', showing: 1, versions: [] },
     });
     render(<ArtifactsPanel onClose={() => {}} />);
@@ -747,9 +747,31 @@ describe('the artifact overview', () => {
 
   it('openArtifact with a section remembers it for the viewer', async () => {
     await useArtifacts.getState().openArtifact('a1', 'Day 2');
-    expect(useArtifacts.getState().focus).toBe('Day 2');
+    expect(useArtifacts.getState().focus).toEqual({ id: 'a1', section: 'Day 2' });
     await useArtifacts.getState().openArtifact('a1');
     expect(useArtifacts.getState().focus).toBeNull();
+  });
+
+  // 2 Oct review: the focus was consumed by whatever was on screen while the
+  // asked-for artifact was still loading, and a chip on the card of the
+  // artifact whose overview was already open did nothing at all.
+  it('a deep dive waits for its own artifact, and works from an open overview', async () => {
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    const doc = (id: string, title: string) => ({ row: row({ id, title, kind: 'markdown', version: 1 }), content: `# ${title}\n\n## Day 1\nWalk.\n\n## Budget\nTen.`, showing: 1, versions: [] });
+    useArtifacts.setState({ loaded: true, editing: null, google: null, focus: null, open: doc('a1', 'Trip') });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open' })); // a1 in full, with its own "Budget"
+    act(() => useArtifacts.setState({ focus: { id: 'b2', section: 'Budget' } }));
+    await new Promise((r) => setTimeout(r, 150));
+    expect(useArtifacts.getState().focus).not.toBeNull(); // not spent on a1
+    expect(scrolled).not.toHaveBeenCalled();
+    act(() => useArtifacts.setState({ open: doc('b2', 'Other') }));
+    await waitFor(() => expect(useArtifacts.getState().focus).toBeNull());
+    expect(scrolled).toHaveBeenCalledTimes(1);
+    fireEvent.click(await screen.findByRole('button', { name: 'Overview' })); // back to b2's overview
+    act(() => useArtifacts.setState({ focus: { id: 'b2', section: 'Day 1' } }));
+    await waitFor(() => expect(scrolled).toHaveBeenCalledTimes(2));
   });
 
   it('summaryOf reads the words of a page, not its tags or its title', () => {

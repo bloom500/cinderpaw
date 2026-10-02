@@ -654,13 +654,15 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
   // A deep dive from a chat card (a section chip) skips the overview too.
   // A board is already its own overview: it opens as itself.
   const direct = (kind?: string) => kind === 'pdf' || kind === 'board';
-  const [full, setFull] = useState(direct(open?.row.kind) || focus !== null);
-  useEffect(() => setFull(direct(open?.row.kind) || useArtifacts.getState().focus !== null), [open?.row.id]);
+  const [full, setFull] = useState(direct(open?.row.kind) || (!!open && focus?.id === open.row.id));
+  useEffect(() => setFull(direct(open?.row.kind) || (!!open && useArtifacts.getState().focus?.id === open.row.id)), [open?.row.id]);
+  // A deep dive into the artifact already on screen, its overview included.
+  useEffect(() => { if (open && focus?.id === open.row.id) setFull(true); }, [focus, open?.row.id]);
   const viewer = useRef<HTMLDivElement>(null);
-  // Scroll to the asked-for heading once the document is on screen, then forget it.
+  // Scroll to the asked-for heading once THAT document is on screen, then forget it.
   useEffect(() => {
-    if (!full || !focus || !open) return;
-    const want = focus.trim().toLowerCase();
+    if (!full || !focus || !open || focus.id !== open.row.id) return;
+    const want = focus.section.trim().toLowerCase();
     const id = window.setTimeout(() => {
       const h = Array.from(viewer.current?.querySelectorAll('h1, h2, h3') ?? [])
         .find((el) => (el.textContent ?? '').trim().toLowerCase() === want);
@@ -668,7 +670,7 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
       clearFocus();
     }, 80);
     return () => window.clearTimeout(id);
-  }, [full, focus, open?.content]);
+  }, [full, focus, open?.content, open?.row.id]);
   if (!open) return null;
   const { row, content, showing, versions } = open;
 
