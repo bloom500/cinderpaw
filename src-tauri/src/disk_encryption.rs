@@ -112,7 +112,8 @@ mod tests {
 
     #[test]
     fn returns_a_valid_state() {
-        let s = disk_encryption_status();
+        // The command is async now (spawn_blocking), so the test drives it to the end.
+        let s = tauri::async_runtime::block_on(disk_encryption_status());
         assert!(
             matches!(s.state.as_str(), "on" | "off" | "unknown"),
             "unexpected state: {} ({})",
