@@ -850,6 +850,7 @@ const raw = {
     invoke<number>('get_model_size_info', { repoId, filename }),
   getSystemInfo:         ()    => invoke<SystemInfo>('get_system_info'),
   diskEncryptionStatus:  ()    => invoke<DiskEncryptionStatus>('disk_encryption_status'),
+  artifactFramePut:      (html: string) => invoke<string>('artifact_frame_put', { html }),
   bugReportLogPreview:   ()    => invoke<string>('bug_report_log_preview'),
   submitBugReport:       (description: string, includeLog: boolean) =>
     invoke<void>('submit_bug_report', { description, includeLog }),
@@ -1475,6 +1476,8 @@ export const tauri = {
       action: 'list' | 'get' | 'versions' | 'export' | 'delete' | 'write' | 'restore' | 'import' | 'rename' | 'archive' | 'unarchive',
       opts: { artifactId?: string; version?: number; dest?: string; content?: string } = {},
     ): Promise<void> => raw.cinderpawArtifactOp(id, action, opts),
+    /** A page the agent wrote, handed to the `cinderpaw-frame` scheme; returns the token its frame loads. */
+    frame: (html: string): Promise<string> => raw.artifactFramePut(html),
   },
   browser: {
     ui: (op: string, params: Record<string, unknown> = {}) => raw.browserUi(op, params),

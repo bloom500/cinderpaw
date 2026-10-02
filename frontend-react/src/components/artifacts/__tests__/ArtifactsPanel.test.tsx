@@ -94,7 +94,7 @@ describe('the list', () => {
 });
 
 describe('the viewer', () => {
-  it('runs an app with scripts but WITHOUT our origin', () => {
+  it('runs an app with scripts but WITHOUT our origin', async () => {
     // The security boundary. This webview can call invoke(); an artifact that
     // shared our origin would be a stored-XSS primitive pointed at the Tauri
     // command surface, and the HTML is model-written, sometimes from a page the
@@ -112,10 +112,37 @@ describe('the viewer', () => {
     // The overview shows a drawn cover, so the app itself runs only once opened.
     expect(container.querySelector('iframe')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Open' }));
-    const frame = container.querySelector('iframe')!;
+    // No host in a test: the srcdoc fallback.
+    const frame = await waitFor(() => { const el = container.querySelector('iframe'); if (!el) throw new Error('no frame yet'); return el; });
     expect(frame.getAttribute('sandbox')).toBe(APP_IFRAME_SANDBOX);
     expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin');
     expect(frame.getAttribute('srcdoc')).toContain('chart');
+  });
+
+  // 2 Oct: a srcdoc frame inherits the window's CSP, and the installed app's
+  // `script-src 'self'` blocked every chart. With a host, the page loads from
+  // its own scheme, still in the same sandbox.
+  it("loads an app from the host's frame scheme, not srcdoc, when there is a host", async () => {
+    const internals = (window as unknown as { __TAURI_INTERNALS__?: Record<string, unknown> });
+    const before = internals.__TAURI_INTERNALS__;
+    internals.__TAURI_INTERNALS__ = { ...before, convertFileSrc: (p: string, scheme: string) => `http://${scheme}.localhost/${p}` };
+    (tauri.artifacts as unknown as Record<string, unknown>).frame = vi.fn().mockResolvedValue('tok123');
+    try {
+      useArtifacts.setState({
+        loaded: true,
+        open: { row: row({ kind: 'app', title: 'Revenue' }), content: '<p>chart</p>', showing: 2, versions: [] },
+      });
+      const { container } = render(<ArtifactsPanel onClose={() => {}} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+      const frame = await waitFor(() => { const el = container.querySelector('iframe[src]'); if (!el) throw new Error('no frame yet'); return el; });
+      expect(frame.getAttribute('src')).toBe('http://cinderpaw-frame.localhost/tok123');
+      expect(frame.hasAttribute('srcdoc')).toBe(false);
+      expect(frame.getAttribute('sandbox')).toBe(APP_IFRAME_SANDBOX);
+      expect(tauri.artifacts.frame).toHaveBeenCalledWith('<p>chart</p>');
+    } finally {
+      delete (tauri.artifacts as unknown as Record<string, unknown>).frame;
+      internals.__TAURI_INTERNALS__ = before;
+    }
   });
 
   it('says out loud when an older version is on screen', () => {

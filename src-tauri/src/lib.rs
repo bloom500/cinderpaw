@@ -8,6 +8,7 @@ mod commands;
 mod connectors;
 mod conversations;
 mod admin_bridge;
+mod artifact_frame;
 mod deep_link;
 mod desktop_control;
 mod disk_encryption;
@@ -571,6 +572,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             stop_generation,
             get_system_info,
             disk_encryption::disk_encryption_status,
+            artifact_frame::artifact_frame_put,
             bug_report_log_preview,
             submit_bug_report,
             count_install,
@@ -960,6 +962,8 @@ Everything is there and nothing is at risk. Cinderpaw will                      
         .plugin(tauri_plugin_notification::init())
         // The built-in browser's reader view lives on a page of our own.
         .register_uri_scheme_protocol("cinderpaw-reader", browser::reader_protocol)
+        // Artifact pages (charts, apps) on an origin of their own, with their own CSP.
+        .register_uri_scheme_protocol("cinderpaw-frame", artifact_frame::frame_protocol)
         .manage(state)
         .setup(move |app| {
             specta_builder_for_setup.mount_events(app);
