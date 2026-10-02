@@ -89,7 +89,8 @@ const POSES: Record<MascotState, Pose> = {
   calling:    { scene: 'think', motion: 'bob', props: ['headset'], fx: ['talkwaves'] },
   done:       { scene: 'cheer', motion: 'bounce', fx: ['check'], wag: true },
   running:    { scene: 'laptop', motion: 'breathe', eyes: 'focused', fx: ['gear'], wag: true },
-  wave:       { scene: 'wave', motion: 'breathe', marks: true, wag: true },
+  // No marks on the wave scene: its two dashes beside the raised paw read as fingers (2 Oct).
+  wave:       { scene: 'wave', motion: 'breathe', wag: true },
   sleep:      { scene: 'sleep', motion: 'sleep', marks: true },
   surprised:  { scene: 'surprised', motion: 'jolt', marks: true },
   curious:    { scene: 'think', motion: 'breathe', look: 'side', wag: true },
@@ -107,7 +108,7 @@ const POSES: Record<MascotState, Pose> = {
   spawning:   { scene: 'cheer', motion: 'bounce', fx: ['mini'] },
   asking:     { scene: 'think', motion: 'breathe', fx: ['question'], wag: true },
   waiting:    { scene: 'think', motion: 'breathe', look: 'up', fx: ['hourglass'], wag: true },
-  speaking:   { scene: 'wave', motion: 'bob', marks: true, fx: ['talkwaves'] },
+  speaking:   { scene: 'wave', motion: 'bob', fx: ['talkwaves'] },
   listening:  { scene: 'sit', motion: 'breathe', props: ['headset'], fx: ['listenwaves'] },
   blocked:    { scene: 'think', motion: 'breathe', fx: ['lock'] },
   scheduling: { scene: 'think', motion: 'breathe', look: 'up', fx: ['calendar'] },
