@@ -131,6 +131,8 @@ export function ReplyHead({ writing }: { writing: boolean }) {
 }
 
 const NO_HELPERS: RlmWorker[] = [];
+/** The artifact tools whose result is something the reply made; the rest of them are steps. */
+const MAKES = new Set(['artifact_create', 'artifact_edit']);
 
 // Memoized: the store rebuilds only the last (streaming) message object each
 // token, so completed messages keep their reference and skip the expensive
@@ -259,7 +261,6 @@ export const MessageItem = memo(function MessageItem({
   }
 
   const showThinking = message.thinking != null && reasoningMode !== 'off';
-  const made = (message.toolActivity ?? []).filter((a) => a.kind === 'artifact');
   const pieces = timeline(message.content, message.toolActivity ?? []);
   const isTruncated = message.truncated === true;
   const askUser = message.askUser;
@@ -278,7 +279,19 @@ export const MessageItem = memo(function MessageItem({
   // Follow-ups are neither a step nor drawn in place: the last set closes the reply.
   const isFollowUps = (a: (typeof activity)[number]) => a.widget?.kind === 'followups';
   const drawn = new Set(activity.filter((a, i) => a.widget && !isFollowUps(a) && (a.tool !== 'todo_write' || i === lastPlan)).map((a) => a.id));
-  const isStep = (a: (typeof activity)[number]) => a.kind !== 'artifact' && !drawn.has(a.id) && !isFollowUps(a);
+  // A card is what the reply MADE: one per artifact, its last create or edit.
+  // Reading, listing or exporting one is a step (every artifact tool returns
+  // an id and a title, so a read used to draw a big card of a document the
+  // person never asked for), and a board created then edited is one card.
+  const lastMade = new Map<string, string>();
+  for (const a of activity) {
+    if (MAKES.has(a.tool) && a.artifact && a.status === 'done' && !a.error) lastMade.set(a.artifact.id, a.id);
+  }
+  const cards = new Set(lastMade.values());
+  // A create or edit still running, or failed, stays a tool row beside the cards: that is where progress and the error are drawn.
+  const isMade = (a: (typeof activity)[number]) => cards.has(a.id) || (MAKES.has(a.tool) && (a.status !== 'done' || !!a.error));
+  const made = activity.filter(isMade);
+  const isStep = (a: (typeof activity)[number]) => !isMade(a) && !drawn.has(a.id) && !isFollowUps(a);
   const followUps = activity.filter(isFollowUps).at(-1)?.widget;
   // The pages this turn's searches found: a link to one is a source chip, and
   // the ones the answer cited close it as a list once it is done.
@@ -316,7 +329,7 @@ export const MessageItem = memo(function MessageItem({
           }
           const plain = p.tools.filter(isStep);
           const widgets = p.tools.filter((a) => drawn.has(a.id));
-          const artifacts = p.tools.filter((a) => a.kind === 'artifact');
+          const artifacts = p.tools.filter(isMade);
           return (
             <div key={p.tools[0]!.id} className="flex flex-col gap-2">
               {plain.length > 0 && (
