@@ -51,7 +51,11 @@ const PDF_ABLE = new Set(['document', 'markdown', 'table', 'code', 'json', 'boar
 /** Section columns on the card; the rest are chips in the footer. */
 const COLUMNS = 4;
 const CHIPS = 4;
-const BOARD_WIDTH = 'min(calc(100cqw - 48px), 1600px)';
+const BOARD_WIDTH = 'min(calc(100cqw - 48px), 1040px)';
+/** A board in the chat is a preview: laid out at its full width, then drawn
+ *  smaller as a whole. `zoom` re-lays text and charts at the smaller size, so
+ *  they stay sharp, and photos only gain density. The panel shows it at 1:1. */
+const BOARD_ZOOM = 0.72;
 const BOARD_BREAKOUT = { width: BOARD_WIDTH, marginLeft: `calc(50% - ${BOARD_WIDTH} / 2)` };
 
 /** The boards' chip tints, in order. */
@@ -298,39 +302,40 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
   // It breaks out of the 700px reading column to the chat area's own width
   // (MessageList's scroller is the container), so it never runs under the
   // sidebar or the side panel, and still lands centred on the column.
-  // ponytail: capped at 1600px so an ultrawide does not stretch four KPIs a metre apart.
   if (board && peek.state === 'ready') {
     return (
       <div ref={ref} data-board-breakout style={BOARD_BREAKOUT}>
-        <BoardView
-          board={board}
-          seed={`${f.id}:${board.title}`}
-          status={statusOf(f.version, peek.row.updatedAt)}
-          onSection={() => openInPanel(f.id)}
-          actions={
-            <>
-              <button
-                type="button"
-                disabled={busy}
-                aria-label="Download PDF"
-                title="Download PDF"
-                onClick={() => void useArtifacts.getState().exportArtifact(f.id, { as: 'pdf', row: { title: f.title, kind: f.kind }, version: f.version })}
-                className={iconButton}
-              >
-                <Download size={16} />
-              </button>
-              <button
-                type="button"
-                onClick={() => openInPanel(f.id)}
-                aria-label={`Open ${f.title}`}
-                title="Open in Artifacts"
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand text-white transition-colors hover:bg-brand-hover"
-              >
-                <ArrowRight size={20} />
-              </button>
-            </>
-          }
-        />
+        <div style={{ zoom: BOARD_ZOOM }}>
+          <BoardView
+            board={board}
+            seed={`${f.id}:${board.title}`}
+            status={statusOf(f.version, peek.row.updatedAt)}
+            onSection={() => openInPanel(f.id)}
+            actions={
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  aria-label="Download PDF"
+                  title="Download PDF"
+                  onClick={() => void useArtifacts.getState().exportArtifact(f.id, { as: 'pdf', row: { title: f.title, kind: f.kind }, version: f.version })}
+                  className={iconButton}
+                >
+                  <Download size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openInPanel(f.id)}
+                  aria-label={`Open ${f.title}`}
+                  title="Open in Artifacts"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand text-white transition-colors hover:bg-brand-hover"
+                >
+                  <ArrowRight size={20} />
+                </button>
+              </>
+            }
+          />
+        </div>
       </div>
     );
   }
