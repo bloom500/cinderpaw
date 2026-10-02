@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { CinderpawMascot, logoUrl } from "./brand";
 import { OnboardingChat } from "./OnboardingChat";
 import { startSession, type Screen } from "./session";
 
@@ -17,15 +18,25 @@ export function App() {
     history.replaceState(null, "", location.pathname);
   }, []);
 
-  if (screen === "loading") return <main className="center"><p className="muted">One moment...</p></main>;
+  // The Desktop app's loading screen: the mascot asleep, the name, a spark on a line.
+  if (screen === "loading") {
+    return (
+      <main className="center" aria-busy="true">
+        <CinderpawMascot state="sleep" width={150} />
+        <p className="wordmark">Cinderpaw</p>
+        <span className="ember-line" aria-label="One moment" />
+      </main>
+    );
+  }
   if (screen === "signed-out" || screen === "expired") {
     return (
       <main className="center">
+        <CinderpawMascot state="curious" width={150} />
         {screen === "expired" && <p className="muted">That sign-in link has expired. The shortcut makes a fresh one.</p>}
         <h1>Open Cinderpaw from its shortcut to sign in.</h1>
         <p className="muted">Look for it in {shortcutPlace()}:</p>
         <div className="shortcut" aria-hidden="true">
-          <span className="icon">🔥</span>
+          <img src={logoUrl} alt="" />
           <span>Cinderpaw</span>
         </div>
       </main>

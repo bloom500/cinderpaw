@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { answerAsk, chatFailure, finishToolIn, saveSecret, stopChat, streamChat, whatsappQr, type ChatFailure, type SecretAsk } from "./chatStream";
+import { CinderpawMascot, type MascotState } from "./brand";
 import { COPY } from "./copy";
 import { Reply } from "./Reply";
 import {
@@ -49,6 +50,7 @@ export function OnboardingChat() {
   const [answering, setAnswering] = useState(false);
   const [secretAsk, setSecretAsk] = useState<SecretAsk | null>(null);
   const [plainAsk, setPlainAsk] = useState<{ requestId: string; question: string; options: string[] } | null>(null);
+  const [cheer, setCheer] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const stoppedRef = useRef(false);
 
@@ -99,6 +101,8 @@ export function OnboardingChat() {
     await say(COPY.itWorks);
     await say(COPY.awake(n));
     go("done", n);
+    setCheer(true);
+    setTimeout(() => setCheer(false), 2600);
   }
 
   /** Talk to the real agent (spec §6.1): same engine, same "chat" session as the terminal. */
@@ -272,8 +276,23 @@ export function OnboardingChat() {
     fail(r);
   }
 
+  // The mascot follows the conversation: it waves hello, thinks while a key is
+  // tried or the agent works, asks when a card waits, and cheers once it is awake.
+  const mood: MascotState = cheer ? "celebrate" : busy || answering ? "thinking" : secretAsk || plainAsk ? "asking" : step === "done" ? "idle" : "wave";
+
   return (
     <main className="chat">
+      <header className="topbar">
+        <CinderpawMascot state={mood} width={34} />
+        <span>Cinderpaw</span>
+      </header>
+      <section className="hero">
+        <CinderpawMascot state={mood} width={120} />
+        <div>
+          <h1>{step === "done" && name ? COPY.readyTitle(name) : COPY.heroTitle}</h1>
+          <p className="muted">{step === "done" ? COPY.readyLine : COPY.heroLine}</p>
+        </div>
+      </section>
       <div className="thread" aria-live="polite">
         {lines.map((l, i) => (
           <div key={i} className={`bubble ${l.who}`}>
@@ -311,7 +330,7 @@ export function OnboardingChat() {
             )}
           </div>
         ))}
-        {busy && <div className="bubble agent typing" aria-label="Cinderpaw is typing">…</div>}
+        {busy && <div className="bubble agent typing" aria-label="Cinderpaw is typing"><i /><i /><i /></div>}
         {/* In the conversation, not the composer: pinned down there it covered
             the text box and the chat scrolled behind it (seen live 25 Sep). */}
         {step === "done" && (

@@ -3,6 +3,10 @@
 // at grade 6 or below.
 
 export const COPY = {
+  heroTitle: "Let's get you started",
+  heroLine: "A few quick questions, and then I'm ready to help.",
+  readyTitle: (name: string) => `Hi, ${name}!`,
+  readyLine: "Ask me anything. I can also join your chat apps, like Discord or WhatsApp.",
   hello: "Hey! I'm Cinderpaw. I'm going to live on your computer and help you out. What should I call you?",
   namePlaceholder: "Your name",
   nameSend: "That's me",

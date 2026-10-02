@@ -1,30 +1,103 @@
+/* The browser app wears the Desktop app's brand (frontend-react/src/styles/
+   globals.css): the same warm ink and paper, the same ember, Geist for the
+   words and Young Serif for the few big ones. Fonts are vendored (OFL, see
+   src/fonts) and inlined into app.css by vite.config.ts, because the engine
+   serves exactly three files. */
+@font-face {
+  font-family: "Geist Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/geist-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Geist Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/geist-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Young Serif";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/young-serif-latin-ext-400.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Young Serif";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/young-serif-latin-400.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
-  --bg: #1c1612;
-  --text: #f4ece1;
-  --muted: #b8a898;
-  --ember: #ff7a3d;
+  --bg: #2f2a26;
+  --surface: #36302b;
+  --elevated: #3a3430;
+  --border: #4a413a;
+  --border-subtle: #3f3732;
+  --text: #f6efe6;
+  --text-2: #e6dace;
+  --muted: #cdbfb2;
+  --brand: #b15129;
+  --brand-hover: #c65a2e;
+  --brand-text: #ff934c;
+  --on-brand: #ffffff;
+  --glow: rgba(240, 90, 36, 0.11);
+  --shadow: 0 18px 40px -22px rgba(0, 0, 0, 0.55);
+  --font-sans: "Geist Variable", Geist, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Young Serif", Georgia, serif;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #fbf6ef;
-    --text: #2a1f17;
-    --muted: #6f6053;
-    --ember: #c2410c;
+    --bg: #f6efe6;
+    --surface: #fbf7f1;
+    --elevated: #fffdfa;
+    --border: #e4d6c8;
+    --border-subtle: #ece1d5;
+    --text: #2f2a26;
+    --text-2: #4a3d34;
+    --muted: #6f5747;
+    --brand-hover: #9a4421;
+    --brand-text: #9a4421;
+    --glow: rgba(240, 90, 36, 0.09);
+    --shadow: 0 18px 40px -24px rgba(120, 60, 20, 0.35);
     color-scheme: light;
   }
 }
+
 body {
   margin: 0;
-  background: var(--bg);
+  min-height: 100vh;
+  /* The edge-to-edge top bar is 100vw wide, which counts a scrollbar. */
+  overflow-x: clip;
   color: var(--text);
-  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 16px/1.55 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  /* The warm pool of light the app's loading screen stands in. */
+  background: radial-gradient(110vmin 70vmin at 50% -10%, var(--glow), transparent 70%) fixed, var(--bg);
 }
 h1 {
-  font-size: 1.5rem;
+  font: 400 clamp(1.9rem, 4.5vw, 2.6rem) / 1.08 var(--font-display);
+  letter-spacing: -0.01em;
   margin: 0;
-  max-width: 28ch;
+  max-width: 22ch;
+  text-wrap: balance;
 }
+.muted {
+  color: var(--muted);
+  margin: 0;
+}
+
+/* ── one screen in the middle: loading, signed out ───────────────────────── */
 .center {
   min-height: 100vh;
   box-sizing: border-box;
@@ -32,37 +105,95 @@ h1 {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 16px;
+  gap: 14px;
+  padding: 24px 16px;
   text-align: center;
 }
-.muted {
-  color: var(--muted);
+.center > * {
+  animation: rise 0.5s var(--ease) both;
+}
+.center > :nth-child(2) { animation-delay: 60ms; }
+.center > :nth-child(3) { animation-delay: 120ms; }
+.center > :nth-child(4) { animation-delay: 180ms; }
+.center > :nth-child(5) { animation-delay: 240ms; }
+.wordmark {
+  font: 400 clamp(1.8rem, 3.4vw, 2.4rem) / 1 var(--font-display);
   margin: 0;
+}
+/* The spark running along a line: "starting", not "stuck" (the app's loading screen). */
+.ember-line {
+  position: relative;
+  width: 120px;
+  height: 2px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--brand) 22%, transparent);
+}
+.ember-line::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 36px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--brand-text), transparent);
+  animation: spark 1.6s ease-in-out infinite;
 }
 .shortcut {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 16px 20px;
-  border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
+  gap: 12px;
+  margin-top: 6px;
+  padding: 12px 18px 12px 12px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--elevated);
+  box-shadow: var(--shadow);
+  font-weight: 500;
 }
-.icon {
-  font-size: 40px;
+.shortcut img {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
 }
 
-/* ── onboarding chat ─────────────────────────────────────────────────── */
+/* ── the onboarding chat ─────────────────────────────────────────────────── */
 .chat {
-  max-width: 640px;
+  max-width: 680px;
   margin: 0 auto;
   min-height: 100vh;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  padding: 24px 16px;
+  padding: 0 16px 16px;
   gap: 16px;
+}
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Edge to edge, so the bar has no edges of its own over the warm light. */
+  margin-inline: calc(50% - 50vw);
+  padding: 14px max(16px, calc(50vw - 324px)) 10px;
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  font: 400 1.25rem/1 var(--font-display);
+}
+.hero {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 8px 0 4px;
+  animation: rise 0.6s var(--ease) both;
+}
+.hero h1 {
+  font-size: clamp(1.7rem, 4vw, 2.3rem);
+}
+.hero .muted {
+  margin-top: 6px;
 }
 .thread {
   flex: 1;
@@ -72,37 +203,53 @@ h1 {
 }
 .bubble {
   max-width: 85%;
-  padding: 10px 14px;
-  border-radius: 16px;
+  padding: 11px 15px;
+  border-radius: 20px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   align-items: flex-start;
   overflow-wrap: anywhere;
+  animation: rise 0.32s var(--ease) both;
 }
 .bubble p {
   margin: 0;
 }
 .bubble.agent {
   align-self: flex-start;
-  background: color-mix(in srgb, var(--text) 8%, transparent);
-  border-bottom-left-radius: 4px;
+  background: var(--elevated);
+  border: 1px solid var(--border-subtle);
+  border-bottom-left-radius: 6px;
 }
 .bubble.person {
   align-self: flex-end;
-  background: var(--ember);
-  color: #1c1612;
-  border-bottom-right-radius: 4px;
+  background: var(--brand);
+  color: var(--on-brand);
+  border-bottom-right-radius: 6px;
+  animation-name: rise-right;
 }
+/* Three dots that breathe: the agent is writing. */
 .typing {
-  color: var(--muted);
-  letter-spacing: 2px;
+  flex-direction: row;
+  gap: 5px;
+  padding: 15px 16px;
 }
+.typing i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  animation: dot 1.2s ease-in-out infinite;
+}
+.typing i:nth-child(2) { animation-delay: 0.15s; }
+.typing i:nth-child(3) { animation-delay: 0.3s; }
+
 .controls {
   position: sticky;
   bottom: 0;
-  padding: 12px 0 4px;
-  background: var(--bg);
+  padding: 14px 0 6px;
+  background: linear-gradient(transparent, var(--bg) 22px);
+  animation: rise 0.3s var(--ease) both;
 }
 .choices {
   display: flex;
@@ -113,49 +260,75 @@ h1 {
   flex-direction: row;
   flex-wrap: wrap;
 }
+/* The composer: one card, the field and its button inside it, like the app's. */
 .textform {
   display: flex;
   gap: 8px;
+  align-items: center;
+  padding: 6px 6px 6px 16px;
+  border-radius: 22px;
+  border: 1px solid var(--border);
+  background: var(--elevated);
+  box-shadow: var(--shadow);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.textform:focus-within {
+  border-color: color-mix(in srgb, var(--brand) 70%, var(--border));
+  box-shadow: var(--shadow), 0 0 0 3px color-mix(in srgb, var(--brand) 22%, transparent);
 }
 .textform input {
   flex: 1;
   min-width: 0;
   font: inherit;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
+  padding: 8px 0;
+  border: 0;
   background: transparent;
   color: var(--text);
+  outline: none;
+}
+.textform input::placeholder {
+  color: color-mix(in srgb, var(--muted) 75%, transparent);
 }
 .button {
   font: inherit;
   font-weight: 600;
-  padding: 10px 16px;
+  padding: 10px 18px;
   border-radius: 999px;
-  border: 0;
-  background: var(--ember);
-  color: #1c1612;
+  border: 1px solid transparent;
+  background: var(--brand);
+  color: var(--on-brand);
   cursor: pointer;
   text-decoration: none;
   text-align: center;
+  transition: background 0.15s, border-color 0.15s, transform 0.12s;
+}
+.button:hover:not(:disabled) {
+  background: var(--brand-hover);
+}
+.button:active:not(:disabled) {
+  transform: scale(0.98);
 }
 .button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 .button.big {
-  padding: 14px 20px;
+  padding: 14px 22px;
   font-size: 1.05rem;
 }
 .button.quiet {
-  background: transparent;
+  background: var(--elevated);
   color: var(--text);
-  border: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
+  border-color: var(--border);
+  font-weight: 500;
+}
+.button.quiet:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--border));
 }
 .button:focus-visible,
-.link:focus-visible,
-.textform input:focus-visible {
-  outline: 2px solid var(--ember);
+.link:focus-visible {
+  outline: 2px solid var(--brand-text);
   outline-offset: 2px;
 }
 .link {
@@ -166,7 +339,11 @@ h1 {
   padding: 0;
   color: var(--muted);
   text-decoration: underline;
+  text-underline-offset: 3px;
   cursor: pointer;
+}
+.link:hover {
+  color: var(--text);
 }
 .details {
   margin: 0;
@@ -178,7 +355,7 @@ h1 {
    under them (a failure sentence hidden behind the key field is invisible). */
 .end {
   /* Tall enough for the open provider list (max 30vh) plus the field. */
-  scroll-margin-bottom: calc(30vh + 80px);
+  scroll-margin-bottom: calc(30vh + 90px);
 }
 .choices.wrap {
   max-height: 30vh;
@@ -204,15 +381,18 @@ h1 {
   color: var(--muted);
 }
 .tool.bad {
-  color: var(--ember);
+  color: var(--brand-text);
 }
 .secret-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 14px;
-  border: 1px solid var(--ember);
+  gap: 10px;
+  padding: 14px;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--brand) 55%, var(--border));
+  background: var(--elevated);
+  box-shadow: var(--shadow);
+  animation: rise 0.32s var(--ease) both;
 }
 
 /* The code as a picture: square modules, black on white, its own white border. */
@@ -221,7 +401,7 @@ h1 {
   width: min(280px, 100%);
   height: auto;
   image-rendering: pixelated;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 
 /* The agent's Markdown, kept quiet: the bubble is the frame. */
@@ -231,7 +411,7 @@ h1 {
 .md > :last-child { margin-bottom: 0; }
 .md p, .md ul, .md ol, .md pre, .md table { margin: 0 0 0.6em; }
 .md ul, .md ol { padding-left: 1.3em; }
-.md h1, .md h2, .md h3 { font-size: 1em; margin: 0.8em 0 0.4em; }
+.md h1, .md h2, .md h3 { font: 400 1.1em/1.3 var(--font-display); margin: 0.8em 0 0.4em; }
 .md code {
   font-family: ui-monospace, Consolas, monospace;
   font-size: 0.92em;
@@ -239,8 +419,33 @@ h1 {
   border-radius: 4px;
   background: color-mix(in srgb, var(--text) 10%, transparent);
 }
-.md pre { overflow-x: auto; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--text) 8%, transparent); }
+.md pre { overflow-x: auto; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--text) 8%, transparent); }
 .md pre code { padding: 0; background: none; }
-.md a { color: var(--ember); }
+.md a { color: var(--brand-text); }
 .md table { border-collapse: collapse; display: block; overflow-x: auto; }
-.md th, .md td { border: 1px solid color-mix(in srgb, var(--text) 20%, transparent); padding: 4px 8px; text-align: left; }
+.md th, .md td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
+
+/* ── motion ──────────────────────────────────────────────────────────────── */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes rise-right {
+  from { opacity: 0; transform: translate(10px, 6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes dot {
+  0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+@keyframes spark {
+  from { transform: translateX(-40px); }
+  to { transform: translateX(124px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
