@@ -259,6 +259,9 @@ export function openDatabase(path: string): CinderpawDb {
   }
 
   try {
+    // A rollback must inspect the version before changing even the journal
+    // mode, let alone running SQL against tables owned by a newer build.
+    assertCompatibleMemorySchema(db);
     // WAL improves concurrent read/write behavior for the proactive loop (V2)
     // and keeps the audit writer from blocking the agent loop.
     db.exec("PRAGMA journal_mode = WAL;");
@@ -340,8 +343,24 @@ function addColumnIfMissing(
  */
 export const CURRENT_MEMORY_SCHEMA_VERSION = 3;
 
+function assertCompatibleMemorySchema(db: Database): void {
+  const meta = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get();
+  if (!meta) return; // Fresh databases and pre-meta releases migrate normally.
+  const row = db.query("SELECT value FROM meta WHERE key = 'schema_version'")
+    .get() as { value: string } | undefined;
+  const onDisk = row ? Number(row.value) : 0;
+  if (onDisk > CURRENT_MEMORY_SCHEMA_VERSION) {
+    throw new Error(
+      `cinderpaw: on-disk memory schema version (${onDisk}) is newer than this ` +
+        `build supports (${CURRENT_MEMORY_SCHEMA_VERSION}). ` +
+        `Refusing to start — please upgrade Cinderpaw.`,
+    );
+  }
+}
+
 /** The migration, for tests that build a raw `bun:sqlite` database. */
 export function migrateForTests(db: Database): void {
+  assertCompatibleMemorySchema(db);
   migrate(db);
 }
 
@@ -1074,14 +1093,5 @@ function migrate(db: Database): void {
     db.prepare(
       "INSERT OR REPLACE INTO meta (key, value, updated_at) VALUES (?, ?, ?)",
     ).run("schema_version", String(CURRENT_MEMORY_SCHEMA_VERSION), Date.now());
-  } else if (onDisk > CURRENT_MEMORY_SCHEMA_VERSION) {
-    // Forward-compat guard. The on-disk DB was written by a newer sidecar;
-    // we will corrupt memory if we keep opening it. Surface a clear error
-    // instead of a cryptic SQLite fault.
-    throw new Error(
-      `cinderpaw: on-disk memory schema version (${onDisk}) is newer than this ` +
-        `build supports (${CURRENT_MEMORY_SCHEMA_VERSION}). ` +
-        `Refusing to start — please upgrade Cinderpaw.`,
-    );
   }
 }

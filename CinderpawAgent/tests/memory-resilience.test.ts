@@ -323,6 +323,43 @@ describe("memory/resilience: embedding model swap", () => {
 });
 
 describe("memory/resilience: version upgrade", () => {
+  test("refusing a newer schema leaves the database unchanged and releases the writer lock", () => {
+    const { Database } = require("bun:sqlite") as typeof import("bun:sqlite");
+    const raw = new Database(dbPath);
+    raw.exec(`
+      CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
+      INSERT INTO meta VALUES ('schema_version', '9999', 0);
+      CREATE TABLE future_memory (content TEXT NOT NULL);
+      INSERT INTO future_memory VALUES ('keep this memory');
+    `);
+    raw.close();
+    const before = readFileSync(dbPath);
+    try {
+      expect(() => openDatabase(dbPath)).toThrow(/newer than this build supports/);
+      expect(readFileSync(dbPath).equals(before)).toBe(true);
+      expect(existsSync(writerLockPath(dbPath))).toBe(false);
+    } finally {
+      teardown();
+    }
+  });
+
+  test("a newer schema is refused before older migration SQL can fail on its changed tables", () => {
+    const { Database } = require("bun:sqlite") as typeof import("bun:sqlite");
+    const raw = new Database(dbPath);
+    raw.exec(`
+      CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
+      INSERT INTO meta VALUES ('schema_version', '9999', 0);
+      CREATE TABLE audit_log (future_column TEXT);
+    `);
+    raw.close();
+    try {
+      expect(() => openDatabase(dbPath)).toThrow(/newer than this build supports/);
+      expect(existsSync(writerLockPath(dbPath))).toBe(false);
+    } finally {
+      teardown();
+    }
+  });
+
   test("schema migration runs on reopen; CURRENT_MEMORY_SCHEMA_VERSION is stamped in meta", () => {
     const db = openDatabase(dbPath);
     const row = db.raw
