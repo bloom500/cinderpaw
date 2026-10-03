@@ -54,5 +54,7 @@ describe('no em dash reaches the screen', () => {
       });
     }
     expect(offenders).toEqual([]);
-  });
+    // This walks the whole source tree. Cold filesystem reads during native
+    // builds took 20.7s on Windows; it is an audit, not an interaction deadline.
+  }, 30_000);
 });
