@@ -12,10 +12,9 @@
   Keep this in step with verify.sh. If the two ever disagree about what
   "green" means, that is the bug — not a preference.
 
-  Rust note: BOTH cargo packages are tested. `cinderpaw` is the Tauri host
-  (src-tauri) and `cinderpaw-core` is the engine crate; running only one
-  leaves roughly half the Rust suite unmeasured, which is how `-p cinderpaw`
-  survived the rebrand as a silently dead step.
+  Rust note: all three cargo packages are tested: `cinderpaw` is the Tauri
+  host (src-tauri), `cinderpaw-core` is the engine, and `cinderpaw-cli` is
+  the command-line interface.
 
   Running it in a FRESH worktree: install first (`bun install` in both
   CinderpawAgent and frontend-react). Even then a fresh resolve can pull
@@ -73,12 +72,33 @@ function Invoke-Step {
 
 $agent = Join-Path $Root 'CinderpawAgent'
 $react = Join-Path $Root 'frontend-react'
+$web = Join-Path $Root 'web-app'
 $tui = Join-Path $Root 'tui'
 
 Invoke-Step 'CinderpawAgent tests'     $agent { bun test --timeout 20000 }
 Invoke-Step 'CinderpawAgent typecheck' $agent { bunx tsc --noEmit }
 Invoke-Step 'React tests'              $react { bunx vitest run --pool=threads --maxWorkers=1 }
 Invoke-Step 'React typecheck'          $react { bunx tsc --noEmit }
+Invoke-Step 'Web app dependencies'    $web { bun install --frozen-lockfile }
+Invoke-Step 'Web app tests'           $web { bun test }
+Invoke-Step 'Web app typecheck'       $web { bun run typecheck }
+Invoke-Step 'Game export script tests' $Root { node --test src-tauri/scripts/build-game.test.mjs }
+
+$godotExe = $env:CINDERPAW_GODOT
+if (-not $godotExe) {
+  $godotCommand = Get-Command godot -ErrorAction SilentlyContinue
+  if ($godotCommand) { $godotExe = $godotCommand.Source }
+}
+if ($godotExe) {
+  Invoke-Step 'Campfire game tests' $Root {
+    & $godotExe --headless --path (Join-Path $Root 'games/ember') --import
+    if ($LASTEXITCODE -ne 0) { throw "Godot import failed (exit $LASTEXITCODE)" }
+    & $godotExe --headless --path (Join-Path $Root 'games/ember') -s res://tests/run_tests.gd
+  }
+}
+else {
+  Write-Host "`n==> Campfire game tests: skipped, Godot is not installed (set CINDERPAW_GODOT)" -ForegroundColor Yellow
+}
 
 if (-not $SkipRust) {
   # The Tauri host crate's build script needs the compiled sidecar to exist at
@@ -92,6 +112,7 @@ if (-not $SkipRust) {
   Invoke-Step 'Rust check'             $Root { cargo check }
   Invoke-Step 'Rust tests (host)'      $Root { cargo test -p cinderpaw }
   Invoke-Step 'Rust tests (core)'      $Root { cargo test -p cinderpaw-core }
+  Invoke-Step 'Rust tests (CLI)'       $Root { cargo test -p cinderpaw-cli }
 }
 else {
   Write-Host "`n==> Rust steps SKIPPED (-SkipRust)" -ForegroundColor Yellow

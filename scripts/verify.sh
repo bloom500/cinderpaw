@@ -31,6 +31,7 @@ fi
 run "Rust check" bash -c "cd \"$ROOT\" && cargo check"
 run "Rust tests (host)" bash -c "cd \"$ROOT\" && cargo test -p cinderpaw"
 run "Rust tests (core)" bash -c "cd \"$ROOT\" && cargo test -p cinderpaw-core"
+run "Rust tests (CLI)" bash -c "cd \"$ROOT\" && cargo test -p cinderpaw-cli"
 run "TUI tests" bash -c "cd \"$ROOT/tui\" && go test ./..."
 run "TUI build" bash -c "cd \"$ROOT/tui\" && go build ./..."
 
