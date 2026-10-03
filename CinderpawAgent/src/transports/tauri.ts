@@ -109,7 +109,8 @@ export class TauriTransport implements Transport {
 
     // Errors thrown by the handler must not break the stdin reader. Track the
     // promise so a stdin close waits for it before exiting.
-    const work = Promise.resolve(this.#onMessage?.(msg))
+    const work = Promise.resolve()
+      .then(() => this.#onMessage?.(msg))
       .catch((err: unknown) => {
         this.send({
           type: "error",
