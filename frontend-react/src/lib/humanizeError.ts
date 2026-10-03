@@ -65,6 +65,16 @@ const RULES: Rule[] = [
     actionLabel: 'Open Models',
   },
   {
+    // The engine's 503 for "nothing chosen" carries a status code, so the 5xx rule
+    // at the bottom used to call it "the provider is overloaded" and send people
+    // to wait when the fix is to pick a model.
+    test: /no model selected|model_not_ready/i,
+    title: 'No model is chosen yet',
+    message: 'Cinderpaw has no model to answer with. Pick one in the model switcher under the message box, or open Models.',
+    action: 'models',
+    actionLabel: 'Open Models',
+  },
+  {
     test: /stream stalled|stopped responding|idle.?timeout/i,
     title: 'The model stopped answering',
     message:

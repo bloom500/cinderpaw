@@ -14,12 +14,15 @@ vi.mock('@/lib/tauri', () => ({
       getByokSettings:   vi.fn(),
       saveByokProvider:  vi.fn(),
       testByokProvider:  vi.fn(),
+      cinderpawSetModel: vi.fn(),
+      cinderpawGetModelConfig: vi.fn(),
     },
   },
 }));
 
 import { useSettings } from '@/stores/settings';
 import { useModel } from '@/stores/model';
+import { useCinderpawStore } from '@/stores/cinderpaw';
 import { tauri } from '@/lib/tauri';
 
 const mockGet      = vi.mocked(tauri.settings.get);
@@ -27,6 +30,8 @@ const mockSave     = vi.mocked(tauri.settings.save);
 const mockGetByok  = vi.mocked(tauri.raw.getByokSettings);
 const mockSaveByok = vi.mocked(tauri.raw.saveByokProvider);
 const mockTestByok = vi.mocked(tauri.raw.testByokProvider);
+const mockSetAgentModel = vi.mocked(tauri.raw.cinderpawSetModel);
+const mockGetAgentModel = vi.mocked(tauri.raw.cinderpawGetModelConfig);
 
 const sample = {
   models_dir: '/home/.cinderpaw/models',
@@ -45,7 +50,8 @@ const sample = {
 
 const reset = () => {
   useSettings.setState({ settings: null, byok: [], loading: false, saving: false, saved: false });
-  useModel.setState({ roles: {}, cloudModel: null });
+  useModel.setState({ roles: {}, cloudModel: null, loaded: null });
+  useCinderpawStore.setState({ modelConfig: null });
 };
 
 describe('useSettings', () => {
@@ -164,5 +170,82 @@ describe('useSettings', () => {
     );
     expect(useModel.getState().cloudModel?.modelId).toBe(NEW);
   });
-});
 
+  describe('saving a provider when the agent has no model', () => {
+    const LOCAL = { provider: 'openai_compatible', model: 'cinderpaw-local', base_url: 'http://127.0.0.1:11435', display_name: 'Local' };
+    const CLOUD = { provider: 'openrouter', model: 'other/model', base_url: 'https://openrouter.ai/api', display_name: 'Other' };
+    const save = (enabled = true, defaultModel: string | null = 'inclusionai/ling-3.1-flash') => {
+      mockSaveByok.mockResolvedValue(undefined);
+      mockGetByok.mockResolvedValue([] as any);
+      mockSetAgentModel.mockResolvedValue(undefined as any);
+      mockGetAgentModel.mockResolvedValue(CLOUD as any);
+      return useSettings.getState().saveByokProvider({ providerId: 'openrouter', enabled, apiKey: 'k', baseUrl: null, defaultModel });
+    };
+
+    it('points the agent at it, so the first message does not go to an empty local engine', async () => {
+      useCinderpawStore.setState({ modelConfig: LOCAL });
+      await save();
+      expect(mockSetAgentModel).toHaveBeenCalledWith('byok', 'inclusionai/ling-3.1-flash', 'openrouter', null);
+    });
+
+    it('leaves a model the person already chose alone', async () => {
+      useCinderpawStore.setState({ modelConfig: CLOUD });
+      await save();
+      expect(mockSetAgentModel).not.toHaveBeenCalled();
+    });
+
+    it('leaves a loaded local model alone', async () => {
+      useCinderpawStore.setState({ modelConfig: LOCAL });
+      useModel.setState({ loaded: { name: 'qwen', path: 'q.gguf' } as any });
+      await save();
+      expect(mockSetAgentModel).not.toHaveBeenCalled();
+    });
+
+    it('does nothing for a provider that is switched off or has no model', async () => {
+      useCinderpawStore.setState({ modelConfig: LOCAL });
+      await save(false);
+      await save(true, null);
+      expect(mockSetAgentModel).not.toHaveBeenCalled();
+    });
+
+    describe('changing the default of the provider the agent is already using', () => {
+      const OLD = 'inclusionai/ling-3.1-flash';
+      const NEW = '~deepseek/deepseek-flash-latest';
+      const onOpenRouter = (model: string) => ({ provider: 'openrouter', model, base_url: 'https://openrouter.ai/api', display_name: model });
+      const change = async (agentModel: string, providerId = 'openrouter') => {
+        mockGetByok.mockResolvedValue([{ id: 'openrouter', name: 'OpenRouter', enabled: true, has_api_key: true, default_model: OLD, base_url: null }] as any);
+        await useSettings.getState().fetchByok();
+        useCinderpawStore.setState({ modelConfig: providerId === 'openrouter' ? onOpenRouter(agentModel) : CLOUD });
+        mockSaveByok.mockResolvedValue(undefined);
+        mockSetAgentModel.mockResolvedValue(undefined as any);
+        mockGetAgentModel.mockResolvedValue(onOpenRouter(NEW) as any);
+        await useSettings.getState().saveByokProvider({ providerId: 'openrouter', enabled: true, apiKey: '', baseUrl: null, defaultModel: NEW });
+      };
+
+      it('moves the agent when it was mirroring the old default, so Primary shows the new one', async () => {
+        await change(OLD);
+        expect(mockSetAgentModel).toHaveBeenCalledWith('byok', NEW, 'openrouter', null);
+      });
+
+      it('leaves an agent on a model the person picked by hand', async () => {
+        await change('some/other-model');
+        expect(mockSetAgentModel).not.toHaveBeenCalled();
+      });
+
+      it('leaves an agent that is on a different provider', async () => {
+        await change(OLD, 'google');
+        expect(mockSetAgentModel).not.toHaveBeenCalled();
+      });
+    });
+
+    it('still reports the save as done when the switch itself fails', async () => {
+      useCinderpawStore.setState({ modelConfig: LOCAL });
+      mockSaveByok.mockResolvedValue(undefined);
+      mockGetByok.mockResolvedValue([] as any);
+      mockSetAgentModel.mockRejectedValue('sidecar offline');
+      await expect(useSettings.getState().saveByokProvider({
+        providerId: 'openrouter', enabled: true, apiKey: 'k', baseUrl: null, defaultModel: 'm',
+      })).resolves.toBeUndefined();
+    });
+  });
+});

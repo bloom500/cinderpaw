@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { tauri, type Settings, type ByokProvider } from '@/lib/tauri';
 import { useModel } from '@/stores/model';
+import { useCinderpawStore } from '@/stores/cinderpaw';
 
 export type { ByokProvider };
 
@@ -51,6 +52,38 @@ interface SettingsStore {
   saveByokProvider: (p: ByokProviderUpdate) => Promise<void>;
   removeByokProvider: (providerId: string) => Promise<void>;
   testByokProvider: (p: ByokTestPayload) => Promise<ByokTestResult>;
+}
+
+// The bundled local engine, as the sidecar addresses it (localhost or 127.0.0.1).
+const LOCAL_ENGINE = /^https?:\/\/(localhost|127\.0\.0\.1):11435/;
+
+/**
+ * Keep the agent in step with the provider the person just saved.
+ *
+ * Two cases, and a model the person chose by hand is never replaced in either:
+ *
+ * 1. A key saved while the agent has no model. Saving only wrote the key down;
+ *    the sidecar kept pointing at the local engine, which has nothing loaded on a
+ *    new install, so the first message answered 503 and nothing said why.
+ * 2. A new default for the provider the agent is already on, when the agent was
+ *    simply following the old default. Roles and the chat model already follow
+ *    it, but Primary shows the agent's own model until one is chosen, so it kept
+ *    showing the old model after the default had moved.
+ */
+async function pointAgentAtNewProvider(p: ByokProviderUpdate, previousDefault: string | null): Promise<void> {
+  if (!p.enabled || !p.defaultModel) return;
+  const cfg = useCinderpawStore.getState().modelConfig;
+  if (!cfg) return;
+  const onEmptyLocalEngine =
+    (cfg.provider === 'cinderpaw-local' || LOCAL_ENGINE.test(cfg.base_url ?? '')) && !useModel.getState().loaded;
+  const followingOldDefault =
+    !!previousDefault && previousDefault !== p.defaultModel && cfg.provider === p.providerId && cfg.model === previousDefault;
+  if (!onEmptyLocalEngine && !followingOldDefault) return;
+  try {
+    await useCinderpawStore.getState().setModel({ source: 'byok', providerId: p.providerId, model: p.defaultModel });
+  } catch {
+    // The key is saved either way; setModel keeps the reason in modelError.
+  }
 }
 
 export const useSettings = create<SettingsStore>()((set, get) => ({
@@ -179,6 +212,7 @@ export const useSettings = create<SettingsStore>()((set, get) => ({
     await tauri.raw.saveByokProvider(p.providerId, p.enabled, p.apiKey, p.baseUrl, p.defaultModel);
     await get().fetchByok();
     useModel.getState().followProviderDefault(p.providerId, previousDefault, p.defaultModel ?? null);
+    await pointAgentAtNewProvider(p, previousDefault);
   },
 
   removeByokProvider: async (providerId) => {

@@ -47,4 +47,12 @@ describe('StreamErrorNotice', () => {
     expect(humanizeError('something odd').title).toBe('Something went wrong');
     expect(humanizeError('ECONNREFUSED').title).toBe('Could not reach the model');
   });
+
+  it('says a missing model is a missing model, not an overloaded provider', () => {
+    const raw = 'inference endpoint http://127.0.0.1:11435/v1/chat/completions returned 503: {"error":{"message":"no model selected — choose one in Models","type":"model_not_ready"}}';
+    const e = humanizeError(raw);
+    expect(e.title).toBe('No model is chosen yet');
+    expect(e.action).toBe('models');
+    expect(humanizeError('HTTP 503 service unavailable').title).toBe('The provider had a problem');
+  });
 });
