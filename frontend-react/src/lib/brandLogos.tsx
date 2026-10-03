@@ -12,9 +12,11 @@ import { cn } from '@/lib/utils';
  * Drawn with <img>, so a file can never run anything, and two files' gradient
  * ids cannot collide. A name with no file gets its initial on a quiet tile.
  */
-const FILES = import.meta.glob('../assets/brands/*.svg', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
+// A few brands publish their mark only as a PNG (Feishu, Higgsfield); those sit
+// beside the SVGs and draw the same way.
+const FILES = import.meta.glob('../assets/brands/*.{svg,png}', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
 const LOGOS: Record<string, string> = Object.fromEntries(
-  Object.entries(FILES).map(([path, url]) => [path.slice(path.lastIndexOf('/') + 1, -'.svg'.length), url]),
+  Object.entries(FILES).map(([path, url]) => [path.slice(path.lastIndexOf('/') + 1, path.lastIndexOf('.')), url]),
 );
 
 /** Catalog ids that are the same company. */

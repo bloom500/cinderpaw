@@ -95,6 +95,8 @@ export interface Maker {
   label: string;
   /** The mark's own colour; absent means "the text colour", for black marks. */
   color?: string;
+  /** A bundled image for a company the vector logo set does not carry. */
+  image?: string;
 }
 
 const MAKERS: [RegExp, Maker][] = [
@@ -133,7 +135,9 @@ export function MakerTile({ maker, fallback, className }: { maker: Maker | null;
       className={cn('inline-flex size-12 shrink-0 items-center justify-center rounded-2xl border border-border-subtle bg-bg-elevated text-text-primary', className)}
       style={maker?.color ? { color: maker.color } : undefined}
     >
-      {maker?.key
+      {maker?.image
+        ? <img src={maker.image} alt="" className="size-6 rounded-md object-contain" />
+        : maker?.key
         ? <ModelLogo provider={maker.key} className="size-6" />
         : <span className="text-lg font-semibold">{(maker?.label ?? fallback ?? '?').charAt(0).toUpperCase()}</span>}
     </span>

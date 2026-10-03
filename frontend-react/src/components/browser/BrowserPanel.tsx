@@ -7,6 +7,7 @@ import { tauri } from '@/lib/tauri';
 import { SEARCH_ENGINES, useBrowser } from '@/stores/browser';
 import { useUI } from '@/stores/ui';
 import { ENGINE_LOGOS } from '@/lib/engineLogos';
+import bingMark from '@/assets/brands/bing.png';
 import { cn, readLocal, writeLocal, SECONDARY_BUTTON } from '@/lib/utils';
 import { emit, listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
@@ -30,13 +31,16 @@ function clampWidth(w: number, rowWidth: number): number {
   return Math.min(max, Math.max(MIN_WIDTH, Math.round(w)));
 }
 
+/** Search engines whose mark is only published as a picture, not as a path. */
+const ENGINE_IMAGES: Record<string, string> = { bing: bingMark };
+
 /** What a new tab offers: a search, and the places people go first. */
-const SHORTCUTS: Array<{ label: string; url: string }> = [
-  { label: 'Wikipedia', url: 'https://wikipedia.org' },
-  { label: 'YouTube', url: 'https://youtube.com' },
-  { label: 'Gmail', url: 'https://mail.google.com' },
-  { label: 'GitHub', url: 'https://github.com' },
-  { label: 'Reddit', url: 'https://reddit.com' },
+const SHORTCUTS: Array<{ label: string; url: string; mark: string }> = [
+  { label: 'Wikipedia', url: 'https://wikipedia.org', mark: 'wikipedia' },
+  { label: 'YouTube', url: 'https://youtube.com', mark: 'youtube' },
+  { label: 'Gmail', url: 'https://mail.google.com', mark: 'gmail' },
+  { label: 'GitHub', url: 'https://github.com', mark: 'github' },
+  { label: 'Reddit', url: 'https://reddit.com', mark: 'reddit' },
 ];
 
 /**
@@ -842,7 +846,8 @@ export function BrowserPanel({ chat, onCompose }: {
                   onClick={() => void open(s.url)}
                   className="flex flex-col items-center gap-2 rounded-xl border border-border-subtle bg-bg-elevated/60 px-2 py-3 text-xs text-text-secondary hover:border-border-default hover:bg-bg-hover hover:text-text-primary"
                 >
-                  <Favicon url={s.url} label={s.label} />
+                  {/* Bundled marks: asking each site for /favicon.ico told five companies a tab was opened. */}
+                  <span className="flex size-8 items-center justify-center text-text-primary"><EngineMark engine={s.mark} size={28} /></span>
                   <span className="truncate">{s.label}</span>
                 </button>
               ))}
@@ -1111,6 +1116,9 @@ function Favicon({ url, label, px = 32 }: { url: string; label: string; px?: num
 function EngineMark({ engine, size, px }: { engine: string; size?: number; px?: number }) {
   size = size ?? px ?? 20;
   const logo = ENGINE_LOGOS[engine];
+  if (!logo && ENGINE_IMAGES[engine]) {
+    return <img src={ENGINE_IMAGES[engine]} alt="" aria-hidden width={size} height={size} className="rounded-md" />;
+  }
   if (!logo) {
     return (
       <span

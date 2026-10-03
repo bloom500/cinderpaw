@@ -7,6 +7,8 @@ import { BTN_PRIMARY, CARD, MakerTile, Pill, SectionHeader, Status, type Maker }
 import { useSettings, type ByokProviderUpdate } from '@/stores/settings';
 import { useCatalog } from '@/stores/catalog';
 import type { ByokProvider } from '@/lib/tauri';
+import chutesMark from '@/assets/brands/chutes.png';
+import gmiMark from '@/assets/brands/gmi.png';
 
 /** One provider row as the UI renders it. Canonical identity/URL/key-format
  *  data comes from the gateway catalog (`useCatalog` →
@@ -68,6 +70,30 @@ const PROVIDER_MARK: Record<string, Maker> = {
   mistral: { key: 'mistral', label: 'Mistral', color: '#FA520F' },
   openrouter: { key: 'openrouter', label: 'OpenRouter', color: '#6467F2' },
   nvidia: { key: 'nvidia', label: 'NVIDIA', color: '#76B900' },
+  chutes: { key: '', label: 'Chutes', image: chutesMark },
+  gmi: { key: '', label: 'GMI Cloud', image: gmiMark },
+  baseten: { key: 'baseten', label: 'Baseten' },
+  byteplus: { key: 'byteplus', label: 'BytePlus' },
+  cerebras: { key: 'cerebras', label: 'Cerebras' },
+  cohere: { key: 'cohere', label: 'Cohere', color: '#39594D' },
+  deepinfra: { key: 'deepinfra', label: 'DeepInfra' },
+  featherless: { key: 'featherless', label: 'Featherless' },
+  fireworks: { key: 'fireworks', label: 'Fireworks' },
+  huggingface: { key: 'huggingface', label: 'Hugging Face', color: '#FF9D00' },
+  kilocode: { key: 'kilocode', label: 'Kilo Code' },
+  longcat: { key: 'longcat', label: 'LongCat' },
+  moonshot: { key: 'moonshot', label: 'Moonshot AI' },
+  novita: { key: 'novita', label: 'Novita' },
+  opencode: { key: 'opencode', label: 'OpenCode Zen' },
+  qianfan: { key: 'qianfan', label: 'Baidu Qianfan' },
+  qwen: { key: 'qwen', label: 'Alibaba Qwen', color: '#615CED' },
+  stepfun: { key: 'stepfun', label: 'StepFun' },
+  'tencent-tokenhub': { key: 'tencent', label: 'Tencent Hunyuan' },
+  together: { key: 'together', label: 'Together AI' },
+  venice: { key: 'venice', label: 'Venice' },
+  volcengine: { key: 'volcengine', label: 'Volcengine' },
+  xai: { key: 'xai', label: 'xAI' },
+  xiaomi: { key: 'xiaomi', label: 'Xiaomi MiMo' },
 };
 
 function ProviderMark({ def, className }: { def: ProviderDef; className?: string }) {

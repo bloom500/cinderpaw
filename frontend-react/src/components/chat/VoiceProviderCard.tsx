@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Mic, Cloud, Loader2, Check } from 'lucide-react';
+import { Mic, Loader2, Check } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -16,6 +16,7 @@ import { tauri } from '@/lib/tauri';
 import { useNotifications } from '@/stores/notifications';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { ModelLogo } from '@/lib/modelLogos';
 
 /**
  * First-mic-tap (and long-press) chooser for the speech-to-text backend:
@@ -153,14 +154,14 @@ export function VoiceProviderCard({
           <OptionRow
             active={choice === 'groq'}
             onClick={() => setChoice('groq')}
-            icon={<Cloud size={20} />}
+            icon={<ModelLogo provider="groq" className="size-5" />}
             title={t('voice.provider.cloud.title')}
             desc={t('voice.provider.cloud.desc')}
           />
           <OptionRow
             active={choice === 'openrouter'}
             onClick={() => setChoice('openrouter')}
-            icon={<Cloud size={20} />}
+            icon={<ModelLogo provider="openrouter" className="size-5" />}
             title={t('voice.provider.openrouter.title')}
             desc={t('voice.provider.openrouter.desc')}
           />
