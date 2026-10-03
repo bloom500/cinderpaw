@@ -10,6 +10,9 @@ import { createRoot } from 'react-dom/client';
 import { MotionConfig } from 'framer-motion';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { startFrameLog } from './lib/frameLog';
+// Import through Vite so font URLs resolve relative to the package's CSS.
+// Tailwind's CSS import inlining otherwise leaves bare ./files URLs in dist.
+import '@fontsource-variable/geist';
 import './styles/globals.css';
 
 // The first frame's theme is stamped by public/cinderpaw-prepaint.js, which runs
