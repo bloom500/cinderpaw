@@ -2,6 +2,7 @@ package app
 
 import (
 	"cinderpaw-tui/api"
+	"cinderpaw-tui/ui"
 	"fmt"
 	"strings"
 	"testing"
@@ -247,7 +248,7 @@ func TestFormatRuntimeEventDreamCycle(t *testing.T) {
 		{ev: api.RuntimeEvent{Kind: "connector_event", Message: "telegram: reply sent to @dan"}, want: "telegram: reply sent to @dan"},
 		{ev: api.RuntimeEvent{Kind: "model_set", Model: "gpt-4o"}, want: "routed to gpt-4o"},
 		{ev: api.RuntimeEvent{Kind: "model_set", Model: "stepfun-ai/step-3.7-flash"}, want: "routed to step-3.7-flash"},
-		{ev: api.RuntimeEvent{Kind: "fallback", Message: "primary unreachable, switching to local"}, want: "✗ primary unreachable, switching to local"},
+		{ev: api.RuntimeEvent{Kind: "fallback", Message: "primary unreachable, switching to local"}, want: ui.G.Err + " primary unreachable, switching to local"},
 		// Unknown kind — forward-compatible fallback to Message
 		{ev: api.RuntimeEvent{Kind: "unknown_new_feature", Message: "something happened"}, want: "something happened"},
 	}

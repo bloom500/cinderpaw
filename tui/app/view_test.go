@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cinderpaw-tui/ui"
 	"strings"
 	"testing"
 	"time"
@@ -31,7 +32,7 @@ func TestClampLenRuneSafe(t *testing.T) {
 
 // TestRenderToolPillIndentation pins the gutter-indentation contract:
 // renderToolPill joins its lines with "\n"+gutter, so every continuation
-// line (Note, error ErrMsg, Preview) must start with the "  ⎿" marker at
+// line (Note, error ErrMsg, Preview) must start with the selected result marker at
 // a fixed offset. The shared `gutter` prefix itself is the caller's
 // (buildChatContent's) responsibility, not asserted here.
 func TestRenderToolPillIndentation(t *testing.T) {
@@ -79,8 +80,9 @@ func TestRenderToolPillIndentation(t *testing.T) {
 			}
 			for _, l := range lines[1:] {
 				stripped := stripAnsi(l)
-				if !strings.HasPrefix(stripped, "  ⎿") {
-					t.Fatalf("continuation line missing '  ⎿' prefix: %q (raw %q)", stripped, l)
+				prefix := "  " + ui.G.Result
+				if !strings.HasPrefix(stripped, prefix) {
+					t.Fatalf("continuation line missing %q prefix: %q (raw %q)", prefix, stripped, l)
 				}
 			}
 		})
