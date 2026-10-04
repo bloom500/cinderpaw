@@ -29,7 +29,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { minimalEnv, type ExecFn, type ExecResult } from "./code-sandbox.ts";
@@ -116,8 +116,51 @@ export interface ModuleCell {
   destroy(name: string): Promise<void>;
 }
 
+/** Runs a command and returns its stdout as bytes, killing it past `maxBytes`.
+ *  The text `ExecFn` would corrupt a tar stream. */
+export type SpawnBytes = (
+  cmd: string[],
+  maxBytes: number,
+  timeoutMs: number,
+) => Promise<{ ok: true; bytes: Uint8Array } | { ok: false; reason: string }>;
+
+/** What an executor cell (AgentLoop spec S1.3b) is built from. Every tree is
+ *  COPIED in, never mounted. */
+export interface ExecutorCellSpec {
+  /** Unique container name; the handle and the sweep find it by name/label. */
+  name: string;
+  /** Holds OUR `bun.lock`: the image's dependency set. Never a tree the
+   *  executor wrote. */
+  depsDir: string;
+  /** Agent source, copied root-owned to `/app/src`: readable, not writable,
+   *  by the agent's user. */
+  sourceDir: string;
+  /** The task's starting files, copied to `/app/work` as the agent's user. */
+  workspaceDir: string;
+  /** Files planted in the agent's home (`/tmp/home`), as the agent's user. */
+  homeDir?: string;
+}
+
+export interface TarCaps {
+  maxBytes: number;
+  maxEntries: number;
+}
+
+export interface ExecutorCell {
+  readonly name: string;
+  /** The `docker exec -i` argv for a process in the cell. Spawned by the
+   *  caller, which owns its stdin/stdout. Only the env given here (plus
+   *  HOME) reaches the process. */
+  processArgv(p: { user: "agent" | "root"; argv: string[]; env: Record<string, string>; workdir?: string }): string[];
+  /** The workspace, out of the cell, through `readSafeTar`, into a fresh
+   *  host directory. The content is untrusted data. */
+  extractWorkspace(caps: TarCaps): Promise<{ ok: true; dir: string; files: number; bytes: number } | { ok: false; reason: string }>;
+  destroy(): Promise<void>;
+}
+
 export interface DockerIsolationOptions {
   exec: ExecFn;
+  spawnBytes?: SpawnBytes;
   limits?: Partial<IsolationLimits>;
   /** Where the throwaway image build context is written. */
   scratchDir?: string;
@@ -134,6 +177,14 @@ export interface DockerIsolationOptions {
 const IMAGE_WORKDIR = "/app/work";
 const IMAGE_REPO = "cinderpaw-code-rsi";
 
+/** Executor cells (AgentLoop spec S1.3b): the agent runs as this uid, so its
+ *  own shell cannot reach root-owned processes (the model relay) through
+ *  `/proc/<pid>/fd`, nor rewrite its source in `/app/src`. */
+const AGENT_UID = "1000:1000";
+const AGENT_HOME = "/tmp/home";
+const AGENT_SRC = "/app/src";
+const EXECUTOR_LABEL = "cinderpaw=agent-exec";
+
 const timedOut = (): ExecResult => ({ exitCode: -1, stdout: "", stderr: "killed: sandbox wall clock", timedOut: true });
 
 export class DockerIsolation implements IsolationBackend, ModuleCell {
@@ -143,9 +194,11 @@ export class DockerIsolation implements IsolationBackend, ModuleCell {
   readonly #scratch: string;
   readonly #base: string;
   readonly #log: (line: string) => void;
+  readonly #spawnBytes: SpawnBytes;
 
   constructor(opts: DockerIsolationOptions) {
     this.#exec = opts.exec;
+    this.#spawnBytes = opts.spawnBytes ?? spawnBytes;
     this.#limits = { ...DEFAULT_ISOLATION_LIMITS, ...opts.limits };
     this.#scratch = opts.scratchDir ?? join(tmpdir(), "cinderpaw-code-rsi-image");
     // The same bun that runs this agent, not a floating `1-slim`: a
@@ -289,6 +342,112 @@ export class DockerIsolation implements IsolationBackend, ModuleCell {
     }
   }
 
+  // ── executor cells (AgentLoop spec S1.3b) ──────────────────────────────
+
+  /**
+   * A long-lived cell for one AgentLoop task: the same walls as `run()` (no
+   * network, no capabilities, read-only root, caps), three tmpfs trees and
+   * nothing mounted from the host. The caller spawns processes into it with
+   * `processArgv` and must `destroy()` it on every path; `sweepExecutorCells`
+   * clears any a crashed host left behind.
+   */
+  async openExecutorCell(spec: ExecutorCellSpec): Promise<{ ok: true; cell: ExecutorCell } | { ok: false; reason: string }> {
+    const avail = await this.available();
+    if (!avail.ok) return avail;
+    const image = await this.ensureImage(spec.depsDir);
+    if (!image.ok) return image;
+
+    const L = this.#limits;
+    const [uid, gid] = AGENT_UID.split(":");
+    const created = await this.#exec(
+      [
+        "docker", "create",
+        "--name", spec.name,
+        "--network", "none",
+        "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges",
+        "--read-only",
+        "--tmpfs", `${IMAGE_WORKDIR}:rw,exec,size=${L.scratch},uid=${uid},gid=${gid},mode=0755`,
+        "--tmpfs", "/tmp:rw,exec,size=512m,mode=1777",
+        "--tmpfs", `${AGENT_SRC}:rw,size=256m,mode=0755`,
+        "--memory", L.memory,
+        "--cpus", String(L.cpus),
+        "--pids-limit", String(L.pids),
+        "--workdir", IMAGE_WORKDIR,
+        "--label", EXECUTOR_LABEL,
+        image.tag,
+        "sleep", "infinity",
+      ],
+      { cwd: tmpdir(), timeoutMs: 60_000 },
+    );
+    if (created.exitCode !== 0) return { ok: false, reason: `docker create failed: ${lastLine(created.stderr)}` };
+
+    const remove = () => this.#exec(["docker", "rm", "-f", spec.name], { cwd: tmpdir(), timeoutMs: 60_000 });
+    const step = async (what: string, argv: string[], stdin?: Uint8Array): Promise<string | null> => {
+      const r = await this.#exec(argv, { cwd: tmpdir(), timeoutMs: 120_000, stdin });
+      return r.exitCode === 0 ? null : `${what} failed: ${lastLine(r.stderr) || `exit ${r.exitCode}`}`;
+    };
+    const failed =
+      (await step("docker start", ["docker", "start", spec.name])) ??
+      // Root writes the source: the agent's user can read it, not change it.
+      (await step("copying the agent source in", ["docker", "exec", "-i", spec.name, "tar", "-x", "-C", AGENT_SRC], await tarOf(spec.sourceDir))) ??
+      (await step("creating the agent home", ["docker", "exec", "--user", AGENT_UID, spec.name, "mkdir", "-p", AGENT_HOME])) ??
+      (spec.homeDir
+        ? await step("copying the agent home in", ["docker", "exec", "-i", "--user", AGENT_UID, spec.name, "tar", "-x", "-C", AGENT_HOME], await tarOf(spec.homeDir))
+        : null) ??
+      (await step("copying the workspace in", ["docker", "exec", "-i", "--user", AGENT_UID, spec.name, "tar", "-x", "-C", IMAGE_WORKDIR], await tarOf(spec.workspaceDir)));
+    if (failed) {
+      await remove();
+      return { ok: false, reason: failed };
+    }
+
+    const name = spec.name;
+    const spawn = this.#spawnBytes;
+    const cell: ExecutorCell = {
+      name,
+      processArgv: (p) => [
+        "docker", "exec", "-i",
+        "--user", p.user === "agent" ? AGENT_UID : "0:0",
+        "-w", p.workdir ?? IMAGE_WORKDIR,
+        "-e", `HOME=${p.user === "agent" ? AGENT_HOME : "/tmp"}`,
+        ...Object.entries(p.env).flatMap(([k, v]) => ["-e", `${k}=${v}`]),
+        name,
+        ...p.argv,
+      ],
+      async extractWorkspace(caps) {
+        // Headers and padding ride on top of the content: 1 KiB per entry is
+        // an upper bound, so the stream cap never cuts a tar the caps allow.
+        const streamCap = caps.maxBytes + (caps.maxEntries + 4) * 1024;
+        const out = await spawn(["docker", "exec", name, "tar", "-c", "-C", IMAGE_WORKDIR, "."], streamCap, 120_000);
+        if (!out.ok) return out;
+        const tarred = readSafeTar(out.bytes, caps);
+        if (!tarred.ok) return tarred;
+        const dir = mkdtempSync(join(tmpdir(), "cp-exec-out-"));
+        let bytes = 0;
+        for (const [rel, body] of Object.entries(tarred.files)) {
+          const target = join(dir, ...rel.split("/"));
+          mkdirSync(dirname(target), { recursive: true });
+          writeFileSync(target, body);
+          bytes += body.length;
+        }
+        return { ok: true, dir, files: Object.keys(tarred.files).length, bytes };
+      },
+      destroy: async () => {
+        await remove();
+      },
+    };
+    return { ok: true, cell };
+  }
+
+  /** Remove every executor cell, running or not. For the start of a
+   *  campaign: a host that crashed leaves `sleep infinity` containers behind. */
+  async sweepExecutorCells(): Promise<void> {
+    const r = await this.#exec(["docker", "ps", "-aq", "--filter", `label=${EXECUTOR_LABEL}`], { cwd: tmpdir(), timeoutMs: 30_000 });
+    for (const id of r.stdout.split("\n").map((l) => l.trim()).filter(Boolean)) {
+      await this.#exec(["docker", "rm", "-f", id], { cwd: tmpdir(), timeoutMs: 60_000 });
+    }
+  }
+
   async #baseImage(): Promise<{ ok: true; tag: string } | { ok: false; reason: string }> {
     const p = await this.prepare();
     return p.ok ? { ok: true, tag: this.#base } : p;
@@ -387,6 +546,130 @@ async function tarOf(dir: string): Promise<Uint8Array> {
     files[rel] = readFileSync(full);
   }
   return new Bun.Archive(files).bytes();
+}
+
+/** Default `SpawnBytes`: stdout read as it streams, the process killed the
+ *  moment it passes `maxBytes`, so an oversized tar never lands in memory. */
+const spawnBytes: SpawnBytes = async (cmd, maxBytes, timeoutMs) => {
+  const proc = Bun.spawn({ cmd, env: minimalEnv(), stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  const stderr = new Response(proc.stderr).text();
+  const timer = setTimeout(() => proc.kill(), timeoutMs);
+  try {
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for await (const chunk of proc.stdout) {
+      total += chunk.length;
+      if (total > maxBytes) {
+        proc.kill();
+        return { ok: false, reason: `output passed ${maxBytes} bytes; stopped` };
+      }
+      chunks.push(chunk);
+    }
+    const code = await proc.exited;
+    if (code !== 0) return { ok: false, reason: lastLine(await stderr) || `exit ${code}` };
+    const bytes = new Uint8Array(total);
+    let at = 0;
+    for (const c of chunks) {
+      bytes.set(c, at);
+      at += c.length;
+    }
+    return { ok: true, bytes };
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+
+/** A path every host can write without surprise: plain ASCII segments, no
+ *  `..`, no drive or stream colon, no trailing dot, no reserved device name. */
+function safeRelPath(rel: string): boolean {
+  if (rel.length === 0 || rel.length > 200) return false;
+  return rel.split("/").every(
+    (seg) => /^[A-Za-z0-9._-]+$/.test(seg) && seg !== "." && seg !== ".." && !seg.endsWith(".") && !WINDOWS_RESERVED.test(seg.split(".")[0]!),
+  );
+}
+
+/**
+ * Parse a tar that came out of a cell. Hostile by assumption: anything but a
+ * regular file or a directory (links, devices, fifos, PAX or GNU long-name
+ * headers) refuses the whole archive, as do unsafe names, duplicates, case
+ * collisions, a file where a directory is (or the reverse), a bad checksum,
+ * and passing the caps. Fail closed: a workspace is all or nothing.
+ *
+ * ponytail: names over 100 characters arrive as GNU long-name entries and are
+ * refused; accept them when a task genuinely needs deep paths.
+ */
+export function readSafeTar(
+  bytes: Uint8Array,
+  caps: TarCaps,
+): { ok: true; files: Record<string, Uint8Array> } | { ok: false; reason: string } {
+  const text = (at: number, len: number) => {
+    const slice = bytes.subarray(at, at + len);
+    const end = slice.indexOf(0);
+    return new TextDecoder().decode(end === -1 ? slice : slice.subarray(0, end));
+  };
+  const fail = (reason: string) => ({ ok: false as const, reason: `workspace refused: ${reason}` });
+  const files: Record<string, Uint8Array> = {};
+  const fileKeys = new Set<string>();
+  const dirKeys = new Set<string>();
+  let entries = 0;
+  let total = 0;
+
+  const claimAncestors = (rel: string): string | null => {
+    const parts = rel.toLowerCase().split("/");
+    for (let i = 1; i < parts.length; i++) {
+      const a = parts.slice(0, i).join("/");
+      if (fileKeys.has(a)) return `"${rel}" sits under a file`;
+      dirKeys.add(a);
+    }
+    return null;
+  };
+
+  for (let off = 0; off + 512 <= bytes.length; ) {
+    const header = bytes.subarray(off, off + 512);
+    if (header.every((b) => b === 0)) break;
+    let sum = 0;
+    for (let i = 0; i < 512; i++) sum += i >= 148 && i < 156 ? 32 : header[i]!;
+    if (Number.parseInt(text(off + 148, 8).trim(), 8) !== sum) return fail("corrupted header");
+    const size = Number.parseInt(text(off + 124, 12).trim() || "0", 8);
+    if (!Number.isFinite(size) || size < 0) return fail("bad size field");
+    const type = header[156] === 0 ? "0" : String.fromCharCode(header[156]!);
+    let name = text(off, 100);
+    if (text(off + 257, 6) === "ustar" && text(off + 263, 2) === "00") {
+      const prefix = text(off + 345, 155);
+      if (prefix) name = `${prefix}/${name}`;
+    }
+    const dataAt = off + 512;
+    if (dataAt + size > bytes.length) return fail("truncated archive");
+    off = dataAt + Math.ceil(size / 512) * 512;
+
+    if (++entries > caps.maxEntries) return fail(`more than ${caps.maxEntries} entries`);
+    let rel = name;
+    while (rel.startsWith("./")) rel = rel.slice(2);
+    if (type === "5") {
+      rel = rel.replace(/\/+$/, "");
+      if (rel === "" || rel === ".") continue;
+      if (!safeRelPath(rel)) return fail(`unsafe name "${name}"`);
+      if (fileKeys.has(rel.toLowerCase())) return fail(`"${rel}" is both a file and a directory`);
+      const bad = claimAncestors(rel);
+      if (bad) return fail(bad);
+      dirKeys.add(rel.toLowerCase());
+      continue;
+    }
+    if (type !== "0") return fail(`"${name}" is not a plain file (tar type ${type})`);
+    if (!safeRelPath(rel)) return fail(`unsafe name "${name}"`);
+    const key = rel.toLowerCase();
+    if (fileKeys.has(key)) return fail(`"${rel}" appears twice (or twice up to letter case)`);
+    if (dirKeys.has(key)) return fail(`"${rel}" is both a file and a directory`);
+    const bad = claimAncestors(rel);
+    if (bad) return fail(bad);
+    total += size;
+    if (total > caps.maxBytes) return fail(`more than ${caps.maxBytes} bytes`);
+    fileKeys.add(key);
+    files[rel] = bytes.slice(dataAt, dataAt + size);
+  }
+  return { ok: true, files };
 }
 
 function lastLine(s: string): string {
