@@ -677,6 +677,22 @@ function migrate(db: Database): void {
   // Default 0 = every pre-existing row is the owner's, which it was.
   addColumnIfMissing(db, "episodic", "private", "INTEGER NOT NULL DEFAULT 0");
 
+  // `episodic.all()` reads `WHERE private = 0 ORDER BY timestamp DESC, id DESC
+  // LIMIT ?`, and neither existing index applies: `idx_episodic_session` is
+  // `(session_id, timestamp)` and `idx_episodic_workspace` is
+  // `(workspace_id, timestamp)`, and the query predicates on neither. So every
+  // call scanned the whole table and sorted it, then threw all but `limit` rows
+  // away. It is not called once: the fractal tree calls it once per extracted
+  // fact (5-10 times at the end of every turn), which is why the same
+  // conversation got slower the longer it got.
+  //
+  // `private` leads the key so the filter is a seek, and the DESC pair matches
+  // the inner ORDER BY exactly so SQLite walks the index and stops at the LIMIT.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_episodic_recent
+      ON episodic (private, timestamp DESC, id DESC);
+  `);
+
   // Observational memory (27 Sep 2026): dated notes the Observer writes after a
   // conversation, the Reflector's weekly digests of them, and the user card.
   // `episodic` holds what was SAID; these hold what is worth remembering about
