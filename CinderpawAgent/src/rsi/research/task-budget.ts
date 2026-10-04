@@ -84,7 +84,20 @@ export class BudgetBroker {
     return this.#exhausted;
   }
 
-  async complete(body: ChatBody): Promise<BrokerResult> {
+  /** One call at a time: the limit check and the charge must not interleave,
+   *  or N parallel requests all pass the check before any is charged. */
+  complete(body: ChatBody): Promise<BrokerResult> {
+    const next = this.#queue.then(() => this.#completeNow(body));
+    this.#queue = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }
+
+  #queue: Promise<void> = Promise.resolve();
+
+  async #completeNow(body: ChatBody): Promise<BrokerResult> {
     const b = this.#budget;
     const m = this.#model;
     if (this.#exhausted) return { ok: false, reason: `budget exhausted: ${this.#exhausted}` };
@@ -99,7 +112,9 @@ export class BudgetBroker {
     const outputLeft = b.maxOutputTokens - this.#used.outputTokens;
     if (outputLeft <= 0) return this.#exhaust("output tokens");
 
-    const sent: ChatBody = { ...body, max_tokens: Math.min(body.max_tokens ?? outputLeft, outputLeft) };
+    // The model is pinned here, not chosen by the executor: the price above
+    // is this model's, and `n` > 1 would bill several answers as one.
+    const sent: ChatBody = { ...body, model: m.id, n: 1, max_tokens: Math.min(body.max_tokens ?? outputLeft, outputLeft) };
     let answer: ChatAnswer;
     try {
       answer = await m.call(sent);
@@ -117,6 +132,8 @@ export class BudgetBroker {
     u.inputTokens += input;
     u.outputTokens += output;
     u.toolCalls += Array.isArray(message?.tool_calls) ? message.tool_calls.length : 0;
+    // Models without native tools write calls as text (egress/conformance.ts).
+    if (typeof message?.content === "string") u.toolCalls += message.content.split("<tool_call>").length - 1;
     u.usd += (input * m.usdPerMInput + output * m.usdPerMOutput) / 1_000_000;
 
     if (u.inputTokens > b.maxInputTokens) this.#exhausted = "input tokens";

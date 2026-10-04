@@ -109,6 +109,49 @@ describe("limits stop the task", () => {
   });
 });
 
+describe("found by the S1.3b review", () => {
+  test("parallel calls are served one at a time, so none slips past a limit another already used", async () => {
+    const seen: ChatBody[] = [];
+    const slow: BrokerModel = {
+      id: "stub",
+      usdPerMInput: 0,
+      usdPerMOutput: 0,
+      async call(body) {
+        seen.push(body);
+        await Bun.sleep(20);
+        return { choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 600, completion_tokens: 10 } };
+      },
+    };
+    const b = new BudgetBroker(budget({ maxInputTokens: 1_000 }), slow);
+    const results = await Promise.all([b.complete(ask()), b.complete(ask()), b.complete(ask())]);
+    expect(seen).toHaveLength(2);
+    expect(results.map((r) => r.ok)).toEqual([true, true, false]);
+  });
+
+  test("the executor cannot pick another model or ask for several answers", async () => {
+    const { m, seen } = model();
+    const b = new BudgetBroker(budget(), m);
+    await b.complete({ ...ask(), model: "some-expensive-model", n: 8 });
+    expect(seen[0]!.model).toBe("stub");
+    expect(seen[0]!.n).toBe(1);
+  });
+
+  test("tool calls written as <tool_call> text count like native ones", async () => {
+    const text: BrokerModel = {
+      id: "stub",
+      usdPerMInput: 0,
+      usdPerMOutput: 0,
+      call: async () => ({
+        choices: [{ message: { content: 'a <tool_call>{"name":"x","args":{}}</tool_call> b <tool_call>{"name":"y","args":{}}</tool_call>' } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+    };
+    const b = new BudgetBroker(budget(), text);
+    await b.complete(ask());
+    expect(b.usage().toolCalls).toBe(2);
+  });
+});
+
 describe("money safety", () => {
   test("a USD limit of 0 allows only a free model: a priced one is refused before any call", async () => {
     const { m, seen } = model({ usdPerMInput: 0.2, usdPerMOutput: 0.8 });
