@@ -66,6 +66,14 @@ export const DEFAULT_ISOLATION_LIMITS: IsolationLimits = {
 
 export type Availability = { ok: true; note: string } | { ok: false; reason: string };
 
+/** `lockfile` (default): dependencies installed from the copied tree's
+ *  `bun.lock`, for L3 candidates. `base`: the plain base image, for trees
+ *  whose content is untrusted (an evaluated workspace): a lockfile the
+ *  executor wrote must never be installed, and the build step has network. */
+export interface RunOptions {
+  image?: "lockfile" | "base";
+}
+
 export interface IsolationBackend {
   readonly name: string;
   /** Can this backend run a candidate right now? The reason is shown to the
@@ -77,7 +85,7 @@ export interface IsolationBackend {
    * A step that times out kills the sandbox; it and every later step are
    * reported as `timedOut`. The sandbox is destroyed on every path.
    */
-  run(pkgDir: string, steps: IsolatedStep[]): Promise<ExecResult[]>;
+  run(pkgDir: string, steps: IsolatedStep[], opts?: RunOptions): Promise<ExecResult[]>;
 }
 
 /** What an L4 module host needs from a cell. */
@@ -209,8 +217,8 @@ export class DockerIsolation implements IsolationBackend, ModuleCell {
     return { ok: true, tag };
   }
 
-  async run(pkgDir: string, steps: IsolatedStep[]): Promise<ExecResult[]> {
-    const image = await this.ensureImage(pkgDir);
+  async run(pkgDir: string, steps: IsolatedStep[], opts: RunOptions = {}): Promise<ExecResult[]> {
+    const image = opts.image === "base" ? await this.#baseImage() : await this.ensureImage(pkgDir);
     if (!image.ok) return steps.map(() => ({ exitCode: -1, stdout: "", stderr: `isolation: ${image.reason}`, timedOut: false }));
 
     const L = this.#limits;
@@ -279,6 +287,11 @@ export class DockerIsolation implements IsolationBackend, ModuleCell {
     } finally {
       await this.#exec(["docker", "rm", "-f", cid], { cwd: tmpdir(), timeoutMs: 60_000 });
     }
+  }
+
+  async #baseImage(): Promise<{ ok: true; tag: string } | { ok: false; reason: string }> {
+    const p = await this.prepare();
+    return p.ok ? { ok: true, tag: this.#base } : p;
   }
 
   // ── L4 module cells ────────────────────────────────────────────────────
