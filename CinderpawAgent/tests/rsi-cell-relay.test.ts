@@ -119,6 +119,36 @@ describe("the relay as a plain process", () => {
     expect(res.headers.get("set-cookie")).toBeNull();
   });
 
+  test("a model that takes longer than Bun's 10 s idle default still gets its answer through", async () => {
+    const r = await hostRelay();
+    const pending = chat(r.url, {});
+    const req = await r.next("request");
+    await Bun.sleep(12_000);
+    r.answer({ type: "response", id: req.id, status: 200, contentType: "text/plain", body: "slow but here" });
+    expect(await (await pending).text()).toBe("slow but here");
+  }, 30_000);
+
+  test("past the cap on waiting requests, more are refused on the spot (503)", async () => {
+    const r = await hostRelay();
+    const waiting = Array.from({ length: 8 }, () => chat(r.url, {}));
+    await r.next("request", 7);
+    const extra = await chat(r.url, {});
+    expect(extra.status).toBe(503);
+    expect(r.lines.filter((l) => l.type === "request")).toHaveLength(8);
+    r.proc.stdin.end();
+    await Promise.all(waiting);
+  });
+
+  test("the size cap counts bytes, not characters", async () => {
+    const r = await hostRelay();
+    // 1.5 M three-byte characters: 4.5 MB on the wire, under 4 Mi characters.
+    // Bun's own body limit may answer 413 or drop the connection; either way
+    // it is refused and nothing reaches the host.
+    const status = await chat(r.url, { m: "€".repeat(1_500_000) }).then((res) => res.status, () => "reset");
+    expect([413, "reset"]).toContain(status);
+    expect(r.lines.filter((l) => l.type === "request")).toHaveLength(0);
+  });
+
   test("when the host goes away, a waiting request gets 502 and the relay exits", async () => {
     const r = await hostRelay();
     const pending = chat(r.url, {});

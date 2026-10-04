@@ -28,6 +28,10 @@
 import { createInterface } from "node:readline";
 
 const MAX_BODY = 4 * 1024 * 1024;
+/** Requests waiting on the host at once. The sidecar asks one at a time plus
+ *  a background writer; a flood from the agent's shell stops here instead of
+ *  piling up in the host's line buffer and broker queue. */
+const MAX_PENDING = 8;
 
 const pending = new Map<number, (r: Response) => void>();
 let nextId = 1;
@@ -37,13 +41,19 @@ const send = (o: unknown) => process.stdout.write(`${JSON.stringify(o)}\n`);
 const server = Bun.serve({
   hostname: "127.0.0.1",
   port: 0,
-  async fetch(req) {
+  // Bun refuses a larger body itself, before reading it whole.
+  maxRequestBodySize: MAX_BODY,
+  async fetch(req, srv) {
+    // Bun's HTTP idle default is 10 s (bun-types serve.d.ts), and a model can
+    // think longer. A 12 s wait passed without this line (measured); it stays
+    // because the documented default says otherwise.
+    srv.timeout(req, 0);
     const path = new URL(req.url).pathname;
     if (req.method !== "POST" || path !== "/v1/chat/completions") return new Response("not found", { status: 404 });
-    const declared = Number(req.headers.get("content-length") ?? 0);
-    if (declared > MAX_BODY) return new Response("request too large", { status: 413 });
-    const body = await req.text();
-    if (body.length > MAX_BODY) return new Response("request too large", { status: 413 });
+    if (pending.size >= MAX_PENDING) return new Response("model relay busy", { status: 503 });
+    const raw = new Uint8Array(await req.arrayBuffer());
+    if (raw.byteLength > MAX_BODY) return new Response("request too large", { status: 413 });
+    const body = new TextDecoder().decode(raw);
     const id = nextId++;
     const answered = new Promise<Response>((resolve) => pending.set(id, resolve));
     send({ type: "request", id, body });
