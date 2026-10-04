@@ -92,8 +92,10 @@ describe("the relay as a plain process", () => {
 
   test("an oversized body is refused on the spot", async () => {
     const r = await hostRelay();
-    const res = await chat(r.url, { messages: ["x".repeat(5_000_000)] });
-    expect(res.status).toBe(413);
+    // Bun's own body limit answers 413 or drops the connection (seen under
+    // full-suite load); either way it is refused and nothing goes out.
+    const status = await chat(r.url, { messages: ["x".repeat(5_000_000)] }).then((res) => res.status, () => "reset");
+    expect([413, "reset"]).toContain(status);
     expect(r.lines.filter((l) => l.type === "request")).toHaveLength(0);
   });
 

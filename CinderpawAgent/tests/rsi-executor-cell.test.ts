@@ -52,7 +52,7 @@ describe("readSafeTar: what comes out of a cell", () => {
   });
 
   test("names that could escape or misbehave on a Windows host are refused", () => {
-    for (const bad of ["../x", "/etc/passwd", "a/../../b", "a\\b", "C:x", "con.txt", "NUL", "lpt1.log", "trailing.", "has space", "a:stream"]) {
+    for (const bad of ["../x", "/etc/passwd", "a/../../b", "a\\b", "C:x", "con.txt", "NUL", "lpt1.log", "trailing.", "a:stream"]) {
       const r = readSafeTar(tar(entry(bad, "x")), caps);
       expect({ bad, ok: r.ok }).toEqual({ bad, ok: false });
     }
@@ -76,6 +76,19 @@ describe("readSafeTar: what comes out of a cell", () => {
     expect(readSafeTar(tar(entry("big", "x".repeat(2_000))), { maxBytes: 1_000, maxEntries: 10 }).ok).toBe(false);
     const many = Array.from({ length: 11 }, (_, i) => entry(`f${i}`, "x"));
     expect(readSafeTar(tar(...many), { maxBytes: 1_000_000, maxEntries: 10 }).ok).toBe(false);
+  });
+
+  test("ordinary names with @, + or an inner space pass; a leading or trailing space does not", () => {
+    const ok = readSafeTar(tar(entry("@types/x.d.ts", "1"), entry("my file.txt", "2"), entry("a+b.txt", "3")), caps);
+    expect(ok.ok).toBe(true);
+    expect(readSafeTar(tar(entry(" lead.txt", "x")), caps).ok).toBe(false);
+    expect(readSafeTar(tar(entry("trail.txt ", "x")), caps).ok).toBe(false);
+  });
+
+  test("a file named __proto__ is kept as a file, not swallowed by the object", () => {
+    const r = readSafeTar(tar(entry("__proto__", "x"), entry("constructor", "y")), caps);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(Object.keys(r.files).sort()).toEqual(["__proto__", "constructor"]);
   });
 
   test("a corrupted header is refused, not guessed", () => {
@@ -180,6 +193,56 @@ describe("the executor cell over a fake docker", () => {
     if (!r.ok) throw new Error(r.reason);
     const out = await r.cell.extractWorkspace(caps);
     expect(out.ok).toBe(false);
+  });
+
+  test("no docker binary at all (spawn throws): the readable reason, not an exception", async () => {
+    const exec = async (): Promise<ExecResult> => {
+      throw new Error("Executable not found in $PATH: \"docker\"");
+    };
+    const r = await new DockerIsolation({ exec }).openExecutorCell(spec());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toContain("Docker is not installed");
+  });
+
+  test("a throw while filling the cell still removes the container", async () => {
+    const { exec, calls } = fakeDocker();
+    const r = await new DockerIsolation({ exec }).openExecutorCell({ ...spec(), sourceDir: join(tmpdir(), "does-not-exist-cp") });
+    expect(r.ok).toBe(false);
+    expect(calls.some((c) => c[1] === "rm" && c.includes("cp-exec-test"))).toBe(true);
+  });
+
+  test("the workspace is read out as the agent's user, after every agent process is stopped", async () => {
+    const { exec, calls } = fakeDocker();
+    const seen: string[][] = [];
+    const spawnBytes: SpawnBytes = async (cmd) => {
+      seen.push(cmd);
+      return { ok: true, bytes: tar(entry("out.txt", "x")) };
+    };
+    const r = await new DockerIsolation({ exec, spawnBytes }).openExecutorCell(spec());
+    if (!r.ok) throw new Error(r.reason);
+    await r.cell.extractWorkspace(caps);
+    const stop = calls.findIndex((c) => c.includes("kill -9 -1"));
+    expect(stop).toBeGreaterThan(-1);
+    expect(calls[stop]).toContain("1000:1000");
+    expect(seen[0]).toContain("1000:1000");
+  });
+
+  test("root processes start outside the agent's tree, with a home the agent cannot write", async () => {
+    const { exec } = fakeDocker();
+    const r = await new DockerIsolation({ exec }).openExecutorCell(spec());
+    if (!r.ok) throw new Error(r.reason);
+    const argv = r.cell.processArgv({ user: "root", argv: ["bun", "x.ts"], env: {} });
+    expect(argv[argv.indexOf("-w") + 1]).toBe("/");
+    expect(argv).toContain("HOME=/root");
+  });
+
+  test("a failed removal is logged, not swallowed", async () => {
+    const lines: string[] = [];
+    const { exec } = fakeDocker((c) => (c[1] === "rm" ? { exitCode: 1, stdout: "", stderr: "daemon gone", timedOut: false } : undefined));
+    const r = await new DockerIsolation({ exec, log: (l) => lines.push(l) }).openExecutorCell(spec());
+    if (!r.ok) throw new Error(r.reason);
+    await r.cell.destroy();
+    expect(lines.join("\n")).toContain("daemon gone");
   });
 
   test("sweep removes only containers carrying the executor label", async () => {

@@ -29,7 +29,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { minimalEnv, type ExecFn, type ExecResult } from "./code-sandbox.ts";
@@ -125,7 +125,9 @@ export type SpawnBytes = (
 ) => Promise<{ ok: true; bytes: Uint8Array } | { ok: false; reason: string }>;
 
 /** What an executor cell (AgentLoop spec S1.3b) is built from. Every tree is
- *  COPIED in, never mounted. */
+ *  COPIED in, never mounted, and copied whole (only `.git` and symlinks are
+ *  skipped): the caller passes trees with no secrets in them. The three tmpfs
+ *  trees count against the cell's `memory` limit; size it above their sum. */
 export interface ExecutorCellSpec {
   /** Unique container name; the handle and the sweep find it by name/label. */
   name: string;
@@ -152,8 +154,11 @@ export interface ExecutorCell {
    *  caller, which owns its stdin/stdout. Only the env given here (plus
    *  HOME) reaches the process. */
   processArgv(p: { user: "agent" | "root"; argv: string[]; env: Record<string, string>; workdir?: string }): string[];
-  /** The workspace, out of the cell, through `readSafeTar`, into a fresh
-   *  host directory. The content is untrusted data. */
+  /** Stops every agent process, then copies the workspace out through
+   *  `readSafeTar` into a fresh host directory. DATA ONLY: the content is the
+   *  executor's (a `.git/config`, `bunfig.toml` or `package.json` script can
+   *  be hostile). Nothing on the host may run git, bun, npm or make in it;
+   *  it is read, hashed, or copied into another cell. */
   extractWorkspace(caps: TarCaps): Promise<{ ok: true; dir: string; files: number; bytes: number } | { ok: false; reason: string }>;
   destroy(): Promise<void>;
 }
@@ -208,10 +213,16 @@ export class DockerIsolation implements IsolationBackend, ModuleCell {
   }
 
   async available(): Promise<Availability> {
-    const r = await this.#exec(["docker", "version", "--format", "{{.Server.Os}}/{{.Client.Os}}"], {
-      cwd: tmpdir(),
-      timeoutMs: 15_000,
-    });
+    let r: ExecResult;
+    try {
+      r = await this.#exec(["docker", "version", "--format", "{{.Server.Os}}/{{.Client.Os}}"], {
+        cwd: tmpdir(),
+        timeoutMs: 15_000,
+      });
+    } catch (e) {
+      // No docker binary at all: Bun.spawn throws instead of exiting non-zero.
+      r = { exitCode: -1, stdout: "", stderr: e instanceof Error ? e.message : String(e), timedOut: false };
+    }
     if (r.timedOut) return { ok: false, reason: "Docker did not answer in 15 seconds. Is Docker Desktop still starting?" };
     if (r.exitCode !== 0) {
       const err = (r.stderr + r.stdout).toLowerCase();
@@ -382,65 +393,98 @@ export class DockerIsolation implements IsolationBackend, ModuleCell {
     );
     if (created.exitCode !== 0) return { ok: false, reason: `docker create failed: ${lastLine(created.stderr)}` };
 
-    const remove = () => this.#exec(["docker", "rm", "-f", spec.name], { cwd: tmpdir(), timeoutMs: 60_000 });
+    const name = spec.name;
+    const remove = async () => {
+      const r = await this.#exec(["docker", "rm", "-f", name], { cwd: tmpdir(), timeoutMs: 60_000 }).catch((e: unknown) => ({
+        exitCode: -1,
+        stdout: "",
+        stderr: e instanceof Error ? e.message : String(e),
+        timedOut: false,
+      }));
+      if (r.exitCode !== 0) this.#log(`isolation: could not remove executor cell ${name}: ${lastLine(r.stderr) || `exit ${r.exitCode}`}; sweepExecutorCells clears it`);
+    };
     const step = async (what: string, argv: string[], stdin?: Uint8Array): Promise<string | null> => {
       const r = await this.#exec(argv, { cwd: tmpdir(), timeoutMs: 120_000, stdin });
       return r.exitCode === 0 ? null : `${what} failed: ${lastLine(r.stderr) || `exit ${r.exitCode}`}`;
     };
-    const failed =
-      (await step("docker start", ["docker", "start", spec.name])) ??
-      // Root writes the source: the agent's user can read it, not change it.
-      (await step("copying the agent source in", ["docker", "exec", "-i", spec.name, "tar", "-x", "-C", AGENT_SRC], await tarOf(spec.sourceDir))) ??
-      (await step("creating the agent home", ["docker", "exec", "--user", AGENT_UID, spec.name, "mkdir", "-p", AGENT_HOME])) ??
-      (spec.homeDir
-        ? await step("copying the agent home in", ["docker", "exec", "-i", "--user", AGENT_UID, spec.name, "tar", "-x", "-C", AGENT_HOME], await tarOf(spec.homeDir))
-        : null) ??
-      (await step("copying the workspace in", ["docker", "exec", "-i", "--user", AGENT_UID, spec.name, "tar", "-x", "-C", IMAGE_WORKDIR], await tarOf(spec.workspaceDir)));
+    let failed: string | null;
+    try {
+      failed =
+        (await step("docker start", ["docker", "start", name])) ??
+        // Root writes the source: the agent's user can read it, not change it.
+        (await step("copying the agent source in", ["docker", "exec", "-i", name, "tar", "-x", "-C", AGENT_SRC], await tarOf(spec.sourceDir))) ??
+        (await step("creating the agent home", ["docker", "exec", "--user", AGENT_UID, name, "mkdir", "-p", AGENT_HOME])) ??
+        (spec.homeDir
+          ? await step("copying the agent home in", ["docker", "exec", "-i", "--user", AGENT_UID, name, "tar", "-x", "-C", AGENT_HOME], await tarOf(spec.homeDir))
+          : null) ??
+        (await step("copying the workspace in", ["docker", "exec", "-i", "--user", AGENT_UID, name, "tar", "-x", "-C", IMAGE_WORKDIR], await tarOf(spec.workspaceDir)));
+    } catch (e) {
+      // An unreadable source file or a spawn error: the container exists, so
+      // it must still go.
+      failed = `filling the executor cell failed: ${e instanceof Error ? e.message : String(e)}`;
+    }
     if (failed) {
       await remove();
       return { ok: false, reason: failed };
     }
 
-    const name = spec.name;
+    const exec = this.#exec;
     const spawn = this.#spawnBytes;
     const cell: ExecutorCell = {
       name,
       processArgv: (p) => [
         "docker", "exec", "-i",
         "--user", p.user === "agent" ? AGENT_UID : "0:0",
-        "-w", p.workdir ?? IMAGE_WORKDIR,
-        "-e", `HOME=${p.user === "agent" ? AGENT_HOME : "/tmp"}`,
+        // Root never starts inside the agent's tree, nor with a writable
+        // HOME: bun reads bunfig.toml and .env from both, and the agent could
+        // plant one there.
+        "-w", p.workdir ?? (p.user === "agent" ? IMAGE_WORKDIR : "/"),
+        "-e", `HOME=${p.user === "agent" ? AGENT_HOME : "/root"}`,
         ...Object.entries(p.env).flatMap(([k, v]) => ["-e", `${k}=${v}`]),
         name,
         ...p.argv,
       ],
       async extractWorkspace(caps) {
-        // Headers and padding ride on top of the content: 1 KiB per entry is
-        // an upper bound, so the stream cap never cuts a tar the caps allow.
-        const streamCap = caps.maxBytes + (caps.maxEntries + 4) * 1024;
-        const out = await spawn(["docker", "exec", name, "tar", "-c", "-C", IMAGE_WORKDIR, "."], streamCap, 120_000);
+        // Stop every agent process first: killing the docker client does not
+        // stop what it started, and a tree that changes mid-read fails tar.
+        // `kill -9 -1` as the agent's uid reaches only the agent's processes.
+        await exec(["docker", "exec", "--user", AGENT_UID, name, "sh", "-c", "kill -9 -1"], { cwd: tmpdir(), timeoutMs: 30_000 }).catch(() => undefined);
+        // Headers and padding ride on top of the content: 1 KiB per entry plus
+        // GNU tar's 10 KiB record is an upper bound, so the stream cap never
+        // cuts a tar the caps allow.
+        const streamCap = caps.maxBytes + (caps.maxEntries + 4) * 1024 + 10_240;
+        // Read as the agent's user: root holds no capabilities in the cell and
+        // cannot read a 0600 file the agent made.
+        const out = await spawn(["docker", "exec", "--user", AGENT_UID, name, "tar", "-c", "-C", IMAGE_WORKDIR, "."], streamCap, 120_000);
         if (!out.ok) return out;
         const tarred = readSafeTar(out.bytes, caps);
         if (!tarred.ok) return tarred;
         const dir = mkdtempSync(join(tmpdir(), "cp-exec-out-"));
         let bytes = 0;
-        for (const [rel, body] of Object.entries(tarred.files)) {
-          const target = join(dir, ...rel.split("/"));
-          mkdirSync(dirname(target), { recursive: true });
-          writeFileSync(target, body);
-          bytes += body.length;
+        try {
+          for (const [rel, body] of Object.entries(tarred.files)) {
+            const target = join(dir, ...rel.split("/"));
+            mkdirSync(dirname(target), { recursive: true });
+            writeFileSync(target, body);
+            bytes += body.length;
+          }
+        } catch (e) {
+          // e.g. a path past Windows' MAX_PATH once the temp prefix is added.
+          rmSync(dir, { recursive: true, force: true });
+          return { ok: false, reason: `workspace could not be written on this host: ${e instanceof Error ? e.message : String(e)}` };
         }
         return { ok: true, dir, files: Object.keys(tarred.files).length, bytes };
       },
-      destroy: async () => {
-        await remove();
-      },
+      destroy: remove,
     };
     return { ok: true, cell };
   }
 
   /** Remove every executor cell, running or not. For the start of a
-   *  campaign: a host that crashed leaves `sleep infinity` containers behind. */
+   *  campaign: a host that crashed leaves `sleep infinity` containers behind.
+   *  ponytail: it removes ALL executor cells on this Docker, including a
+   *  second campaign's; campaigns run one at a time on a machine (spec §7).
+   *  Label cells per campaign if that ever changes. */
   async sweepExecutorCells(): Promise<void> {
     const r = await this.#exec(["docker", "ps", "-aq", "--filter", `label=${EXECUTOR_LABEL}`], { cwd: tmpdir(), timeoutMs: 30_000 });
     for (const id of r.stdout.split("\n").map((l) => l.trim()).filter(Boolean)) {
@@ -581,12 +625,20 @@ const spawnBytes: SpawnBytes = async (cmd, maxBytes, timeoutMs) => {
 
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
-/** A path every host can write without surprise: plain ASCII segments, no
- *  `..`, no drive or stream colon, no trailing dot, no reserved device name. */
+/** A path every host can write without surprise: plain ASCII segments (with
+ *  `@`, `+`, `,` and inner spaces, so `@types/x.d.ts` and `my file.txt` pass),
+ *  no `..`, no drive or stream colon, no backslash, no leading or trailing
+ *  space, no trailing dot, no reserved device name. */
 function safeRelPath(rel: string): boolean {
   if (rel.length === 0 || rel.length > 200) return false;
   return rel.split("/").every(
-    (seg) => /^[A-Za-z0-9._-]+$/.test(seg) && seg !== "." && seg !== ".." && !seg.endsWith(".") && !WINDOWS_RESERVED.test(seg.split(".")[0]!),
+    (seg) =>
+      /^[A-Za-z0-9._@+,-][A-Za-z0-9._@+, -]*$/.test(seg) &&
+      !seg.endsWith(" ") &&
+      seg !== "." &&
+      seg !== ".." &&
+      !seg.endsWith(".") &&
+      !WINDOWS_RESERVED.test(seg.split(".")[0]!.trimEnd()),
   );
 }
 
@@ -610,7 +662,8 @@ export function readSafeTar(
     return new TextDecoder().decode(end === -1 ? slice : slice.subarray(0, end));
   };
   const fail = (reason: string) => ({ ok: false as const, reason: `workspace refused: ${reason}` });
-  const files: Record<string, Uint8Array> = {};
+  // No prototype: a file named `__proto__` must be a key, not a setter.
+  const files: Record<string, Uint8Array> = Object.create(null);
   const fileKeys = new Set<string>();
   const dirKeys = new Set<string>();
   let entries = 0;
