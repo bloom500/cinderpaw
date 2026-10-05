@@ -133,7 +133,7 @@ export interface BuildRepairSet {
   checks: CheckRegistry;
 }
 
-function makeTask(template: Template, seed: number): { item: BuildRepairTask; checks: LeafCheck[] } {
+function makeTask(template: Template, seed: number, budget: TaskBudget): { item: BuildRepairTask; checks: LeafCheck[] } {
   const { repo: healthy, dep, env, mod } = healthyRepo(rngOf(seed));
   const repo = TEMPLATES[template](healthy, { dep, env, mod });
   const reference = REPAIRS.find((r) => r.id === REFERENCE[template])!.apply(repo);
@@ -153,7 +153,7 @@ function makeTask(template: Template, seed: number): { item: BuildRepairTask; ch
       `This TypeScript repository does not build. The build check reports:\n${problems}\n\n` +
       "Repair the repository so it builds. Change only what the failure needs; leave every other file as it is.",
     workspaceImage: sha256Canonical(repo),
-    budget: BUDGET,
+    budget,
     verifier: { kind: "composite", checkId: id },
   };
   const leaf = (p: Probe): LeafCheck => ({ kind: "command", argv: probeArgv(p), timeoutMs: CHECK_MS });
@@ -166,14 +166,16 @@ function makeTask(template: Template, seed: number): { item: BuildRepairTask; ch
 /** F1 at `perTemplate` tasks per template (12+ per partition, spec S1.4).
  *  Seeds that repeat a workspace already in the set are skipped, so no two
  *  tasks are the same repository. */
-export function buildRepairSet(perTemplate = 12, seedBase = 1000): BuildRepairSet {
+export function buildRepairSet(perTemplate = 12, seedBase = 1000, budget: TaskBudget = BUDGET): BuildRepairSet {
   const family: TaskFamily = {
     schemaVersion: TASK_FAMILY_SCHEMA,
     id: FAMILY_ID,
     version: "1",
     templates: Object.values(PLAN).flat(),
     partitions: PLAN,
-    budget: BUDGET,
+    // A paid campaign passes its own per-task dollar limit; the budget is in
+    // the family hash, so it is a different family in the manifest.
+    budget,
   };
   const tasks: BuildRepairTask[] = [];
   const checks: Record<string, CheckRegistry[string]> = {};
@@ -181,7 +183,7 @@ export function buildRepairSet(perTemplate = 12, seedBase = 1000): BuildRepairSe
   let seed = seedBase;
   for (const template of family.templates as Template[]) {
     for (let made = 0; made < perTemplate; seed++) {
-      const { item, checks: leaves } = makeTask(template, seed);
+      const { item, checks: leaves } = makeTask(template, seed, budget);
       if (seen.has(item.task.workspaceImage)) continue;
       seen.add(item.task.workspaceImage);
       tasks.push(item);
