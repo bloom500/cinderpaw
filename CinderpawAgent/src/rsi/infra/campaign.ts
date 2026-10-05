@@ -61,10 +61,15 @@ export interface RunCost {
  *  them as a list and never writes its own score (spec §10). */
 export interface ArmRun {
   cost: { tokens: number; usd: number; wallMs?: number };
-  solve(task: FixtureTask): boolean;
+  /** May be async: an AgentLoop arm runs a cell per task (S1.5). A throw
+   *  stops the campaign, it is never a failed task. */
+  solve(task: FixtureTask): boolean | Promise<boolean>;
   /** Tokens spent INSIDE `solve`, read by the runner after scoring. Astra's
    *  metric counts the cost of finishing the task, not only of learning. */
   solveCost?: () => number;
+  /** Dollars spent inside `solve` so far. Read after EVERY task, so a paid
+   *  arm stops at the cap mid-partition, not after it. */
+  solveUsd?: () => number;
 }
 
 export type ArmFn = (ctx: {
@@ -85,6 +90,10 @@ export interface CampaignManifest {
   usdCap: number;
   /** Absolute wall-clock ceiling for the whole campaign, milliseconds. */
   wallMsCap: number;
+  /** AgentLoop campaigns only (spec S1.5): what graded and what ran, so a
+   *  changed check or executor is a different manifest. Absent on the S3
+   *  fixture campaigns, whose hashes stay as they were. */
+  agentLoop?: { familyHash: string; evaluatorHash: string; executorHash: string };
 }
 
 export interface CampaignResult {
@@ -125,14 +134,21 @@ export function trainingSet(manifest: CampaignManifest): readonly FixtureTask[] 
 }
 
 /** Fraction of promotion tasks the arm solves. The runner scores; the arm
- *  is asked one task at a time and is never told the total. */
-function scoreOn(run: ArmRun, tasks: readonly FixtureTask[]): number {
-  if (tasks.length === 0) return 0;
+ *  is asked one task at a time and is never told the total. `over` is asked
+ *  after each task and stops the scoring with its reason. */
+async function scoreOn(
+  run: ArmRun,
+  tasks: readonly FixtureTask[],
+  over: () => string | undefined,
+): Promise<{ score: number; stopped?: string }> {
+  if (tasks.length === 0) return { score: 0 };
   let solved = 0;
   for (const t of tasks) {
-    if (run.solve(t)) solved++;
+    if (await run.solve(t)) solved++;
+    const why = over();
+    if (why) return { score: solved / tasks.length, stopped: why };
   }
-  return solved / tasks.length;
+  return { score: solved / tasks.length };
 }
 
 /**
@@ -191,8 +207,26 @@ export async function runPairedCampaign(
         stopped = `wall-clock cap ${manifest.wallMsCap}ms exhausted`;
         break seeds;
       }
-      scores[name] = scoreOn(run, scoreTasks);
-      addCost(ledger[name]!, { tokens: run.solveCost?.() ?? 0, usd: 0, wallMs: 0 });
+      // The solve spend joins the ledger in `finally` below, so until then
+      // the ledger holds everything else.
+      const capFor = () => {
+        const spent = totalUsd(ledger) + (run.solveUsd?.() ?? 0);
+        return spent > manifest.usdCap ? `usd cap $${manifest.usdCap} exhausted while "${name}" was scored` : undefined;
+      };
+      let scored: { score: number; stopped?: string };
+      try {
+        scored = await scoreOn(run, scoreTasks, capFor);
+      } catch (err) {
+        stopped = `arm "${name}" threw while scored on seed ${seed}: ${String(err)}`;
+        break seeds;
+      } finally {
+        addCost(ledger[name]!, { tokens: run.solveCost?.() ?? 0, usd: run.solveUsd?.() ?? 0, wallMs: 0 });
+      }
+      if (scored.stopped) {
+        stopped = scored.stopped;
+        break seeds;
+      }
+      scores[name] = scored.score;
     }
     samples.push({ baseline: scores[baselineName]!, candidate: scores[candidateName]! });
   }

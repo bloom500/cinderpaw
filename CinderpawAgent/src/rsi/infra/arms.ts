@@ -44,6 +44,16 @@ import { REPAIRS, checkRepo, rngOf, type Fixture, type Repair, type Repo } from 
 import { selectExperiment, type Attempt } from "../l3-code/experiment-selector.ts";
 import { SkillLibrary, induceFromReceipts } from "../../memory/fractal/skill-library.ts";
 import { UtilityLedger, utilityScore } from "../../memory/fractal/utility.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { IsolationBackend } from "../l3-code/isolation.ts";
+import { EVALUATOR_VERSION, evaluate, runCanaries, type Canary, type CheckRegistry, type Verdict } from "../research/agent-evaluator.ts";
+import type { ExecutorRun } from "../research/agent-executor.ts";
+import { writeRepo, type BuildRepairSet } from "../research/families/build-repair.ts";
+import { familyHash, partitionOf, type AgentTask } from "../research/task-family.ts";
+import { sha256Canonical } from "./hash-chain.ts";
+import type { CampaignManifest, Partition } from "./campaign.ts";
 
 /** What the arm remembers about one attempt. Kept in the same shape as an
  *  L3 receipt so M0 can read it unchanged. */
@@ -274,3 +284,106 @@ export const ARMS: Readonly<Record<ArmKind, ArmFn>> = {
 };
 
 export const armWith = makeArm;
+
+/**
+ * AgentLoop spec S1.5: an arm that is one live agent (one genome), not a
+ * repair catalog. It learns nothing between tasks (E0/E1 compare genomes);
+ * on each promotion task the REAL agent runs in an executor cell and the
+ * evaluator grades what it left behind in its own cell.
+ *
+ * What counts:
+ *   - `done` is graded; `budget_exhausted` and `timeout` are failed tasks
+ *     (spec §4.4); `error` is a failed task too, kept in `runs` with its
+ *     reason so the report can tell a crashing genome from a harness fault.
+ *   - `refused` (no cell, priced model on a 0 cap) and a workspace the
+ *     evaluator cannot grade throw: that is the harness, not the agent, and
+ *     the campaign stops on it instead of scoring zeros.
+ *   - The canary pair runs before the first task of every run; a wrong
+ *     canary throws (spec §10, evaluator corruption).
+ */
+export interface AgentLoopArmOptions {
+  /** taskId -> the task and the repository it starts from. */
+  tasks: ReadonlyMap<string, { task: AgentTask; repo: Repo }>;
+  checks: CheckRegistry;
+  canaries: readonly Canary[];
+  evalCell: IsolationBackend;
+  executorHash: string;
+  /** Runs the agent on one task in a cell: `runExecutor` with the genome,
+   *  model and cell bound by the caller. */
+  execute(task: AgentTask, workspaceDir: string): Promise<{ run: ExecutorRun; workspaceDir?: string }>;
+}
+
+export interface AgentLoopArmRun extends ArmRun {
+  /** Every executor run and verdict of this run, in task order. */
+  runs: ExecutorRun[];
+  verdicts: Verdict[];
+}
+
+export function agentLoopArm(opts: AgentLoopArmOptions): ArmFn {
+  return async () => {
+    const problems = await runCanaries(opts.evalCell, opts.checks, opts.canaries);
+    if (problems.length) throw new Error(problems.join("; "));
+    const runs: ExecutorRun[] = [];
+    const verdicts: Verdict[] = [];
+    let tokens = 0;
+    let usd = 0;
+    const run: AgentLoopArmRun = {
+      cost: { tokens: 0, usd: 0 },
+      runs,
+      verdicts,
+      solveCost: () => tokens,
+      solveUsd: () => usd,
+      solve: async (fixture) => {
+        const entry = opts.tasks.get(fixture.id);
+        if (!entry) throw new Error(`no AgentLoop task "${fixture.id}"`);
+        const start = mkdtempSync(join(tmpdir(), "cp-arm-ws-"));
+        let after: string | undefined;
+        try {
+          writeRepo(entry.repo, start);
+          const out = await opts.execute(entry.task, start);
+          after = out.workspaceDir;
+          runs.push(out.run);
+          tokens += out.run.usage.inputTokens + out.run.usage.outputTokens;
+          usd += out.run.usage.usd;
+          if (out.run.terminal === "refused") throw new Error(`executor refused ${fixture.id}: ${out.run.reason}`);
+          if (out.run.terminal !== "done" || !after) return false;
+          const graded = await evaluate({
+            cell: opts.evalCell,
+            task: entry.task,
+            executorHash: opts.executorHash,
+            workspaceDir: after,
+            checks: opts.checks,
+          });
+          if (!graded.ok) throw new Error(`cannot grade ${fixture.id}: ${graded.reason}`);
+          verdicts.push(graded.verdict);
+          return graded.verdict.passed;
+        } finally {
+          rmSync(start, { recursive: true, force: true });
+          if (after) rmSync(after, { recursive: true, force: true });
+        }
+      },
+    };
+    return run;
+  };
+}
+
+/** The manifest fields and task map for an AgentLoop campaign over one
+ *  family: partitions by template (never by task), and the three hashes
+ *  that make a changed check or executor a different manifest. */
+export function agentLoopPlan(set: BuildRepairSet, executorHash: string): {
+  partitions: CampaignManifest["partitions"];
+  agentLoop: NonNullable<CampaignManifest["agentLoop"]>;
+  tasks: AgentLoopArmOptions["tasks"];
+} {
+  const partitions: Record<Partition, FixtureTask[]> = { development: [], promotion: [], final: [], transfer: [] };
+  for (const { task } of set.tasks) partitions[partitionOf(set.family, task.templateId)].push({ id: task.id, family: task.templateId });
+  return {
+    partitions,
+    agentLoop: {
+      familyHash: familyHash(set.family),
+      evaluatorHash: sha256Canonical({ version: EVALUATOR_VERSION, checks: set.checks }),
+      executorHash,
+    },
+    tasks: new Map(set.tasks.map((t) => [t.task.id, t])),
+  };
+}
