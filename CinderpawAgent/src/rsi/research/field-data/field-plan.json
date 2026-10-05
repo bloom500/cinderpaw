@@ -59,7 +59,10 @@
       "53"
     ]
   },
-  "partitionsApprovedBy": null,
+  "partitionsApprovedBy": {
+    "by": "Darius",
+    "date": "2026-10-05"
+  },
   "blocklist": {
     "version": "1",
     "families": [

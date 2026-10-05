@@ -19,8 +19,8 @@
  *      `field-data/` is not among them. `dataHash` goes into the manifest, so a
  *      changed blocklist or extract is a different campaign.
  *   4. `partitionsApprovedBy` is the owner's sign-off on the family split
- *      (spec Q4 / OD7). The split here is the agent's draft until he signs;
- *      it is hashed, so signing it makes a new manifest.
+ *      (spec Q4 / OD7): signed by Darius on 5 Oct 2026. Any change to the
+ *      split needs his signature again; it is hashed into the manifest.
  *
  * Licence (spec Q16, read 5 Oct 2026): O*NET 31.0 is CC BY 4.0; the
  * attribution and modification notice live in `field-data/field-plan.json` and

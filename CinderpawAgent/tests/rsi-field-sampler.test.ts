@@ -92,7 +92,7 @@ describe("the plan and the hash", () => {
     for (const p of [twice, missing, placedBlocked, badTerm]) expect(() => loadFieldData(tsv, p)).toThrow("field plan refused");
   });
 
-  test("the family split is still the agent's draft until Darius signs it", () => {
-    expect(plan.partitionsApprovedBy).toBeNull();
+  test("the family split is signed by Darius (spec Q4 / OD7, 5 Oct 2026)", () => {
+    expect(plan.partitionsApprovedBy).toEqual({ by: "Darius", date: "2026-10-05" });
   });
 });
