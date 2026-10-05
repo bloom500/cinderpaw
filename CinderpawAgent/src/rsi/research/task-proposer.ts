@@ -99,6 +99,8 @@ export interface ProposalReceipt {
   fieldTaskId: string;
   source: string;
   family: string;
+  /** The occupation (O*NET-SOC or ESCO code). Coverage counts these. */
+  code: string;
   language: string;
   stage: "refused" | "model" | "malformed" | "gate" | "cell" | "infeasible" | "accepted";
   reason: string;
@@ -122,6 +124,7 @@ export async function proposeTask(args: {
     fieldTaskId: field.taskId,
     source: args.source,
     family: field.family,
+    code: field.code,
     language: field.language,
     stage,
     reason,
@@ -154,4 +157,97 @@ export async function proposeTask(args: {
     args.budget,
   );
   return { receipt: receipt("accepted", "gate allowed, solution passes, start and every failure fail"), proposed };
+}
+
+/*
+ * S1.10 (spec §4.2 step 5, §4.5): the learnability band and the novelty
+ * archive. The current executor tries each accepted task k times on the
+ * development side; the task is learnable when it passes 10%-90% of them.
+ * The proposer's reward is its novelty when learnable, else 0: it never
+ * contains the pass rate itself, so proposing easy tasks earns nothing, and
+ * neither does proposing the same task twice (novelty 0).
+ */
+
+export const K_ATTEMPTS = 3;
+export const BAND = { min: 0.1, max: 0.9 };
+export type Band = "too_easy" | "learnable" | "too_hard";
+
+export function bandOf(passes: number, attempts: number): Band {
+  if (!Number.isInteger(attempts) || attempts < 1 || !Number.isInteger(passes) || passes < 0 || passes > attempts) {
+    throw new Error(`bandOf: ${passes} passes of ${attempts} attempts`);
+  }
+  const rate = passes / attempts;
+  return rate < BAND.min ? "too_hard" : rate > BAND.max ? "too_easy" : "learnable";
+}
+
+/** The pinned novelty embedder (spec §4.2 roles): never evolved, never the proposer. */
+export interface Embedder {
+  id: string;
+  embed(text: string): Promise<number[]>;
+}
+
+/** One executor attempt, run and graded by the orchestrator (executor + evaluator). */
+export type Attempt = (task: AgentTask) => Promise<{ passed: boolean; usd: number }>;
+
+export interface ArchiveEntry {
+  receipt: ProposalReceipt;
+  /** Only for accepted tasks. */
+  learnability?: { attempts: number; passes: number; band: Band; usd: number };
+  /** 1 - cosine similarity to the nearest archived task, in [0, 1]; 0 when not accepted. */
+  novelty: number;
+  /** What the proposer is credited: novelty when learnable, else 0. */
+  reward: number;
+}
+
+function cosine(a: readonly number[], b: readonly number[]): number {
+  if (a.length !== b.length) throw new Error("embeddings of different length: the embedder changed");
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i]! * b[i]!;
+    na += a[i]! * a[i]!;
+    nb += b[i]! * b[i]!;
+  }
+  return na && nb ? dot / Math.sqrt(na * nb) : 0;
+}
+
+/** Every proposal outcome, kept or not (spec §4.2 step 8). In memory; the
+ *  frozen per-run archive of H21 comes with the manifest work. */
+export class TaskArchive {
+  readonly entries: ArchiveEntry[] = [];
+  readonly #vectors: number[][] = [];
+
+  constructor(
+    readonly embedder: Embedder,
+    readonly partitions: Readonly<Record<Partition, readonly string[]>>,
+  ) {}
+
+  async record(out: Awaited<ReturnType<typeof proposeTask>>, attempt: Attempt, k = K_ATTEMPTS): Promise<ArchiveEntry> {
+    const { receipt, proposed } = out;
+    if (!proposed) return this.#push({ receipt, novelty: 0, reward: 0 });
+    // The band is a development measurement; a holdout task never reaches the executor here.
+    if (!this.partitions.development.includes(receipt.family)) {
+      throw new Error(`family ${receipt.family} is not a development family; the band is computed on development only`);
+    }
+    const v = await this.embedder.embed(`${proposed.task.instruction}\n${JSON.stringify(proposed.repo)}`);
+    const nearest = this.#vectors.reduce((m, u) => Math.max(m, cosine(u, v)), 0);
+    const novelty = Math.min(1, Math.max(0, 1 - nearest));
+    this.#vectors.push(v);
+
+    let passes = 0;
+    let usd = 0;
+    for (let i = 0; i < k; i++) {
+      const r = await attempt(proposed.task);
+      if (r.passed) passes++;
+      usd += r.usd;
+    }
+    const band = bandOf(passes, k);
+    return this.#push({ receipt, learnability: { attempts: k, passes, band, usd }, novelty, reward: band === "learnable" ? novelty : 0 });
+  }
+
+  #push(e: ArchiveEntry): ArchiveEntry {
+    this.entries.push(e);
+    return e;
+  }
 }

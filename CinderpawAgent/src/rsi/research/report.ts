@@ -23,6 +23,7 @@ import type { CampaignManifest, CampaignResult } from "../infra/campaign.ts";
 import { rngOf } from "../infra/fixtures.ts";
 import type { Verdict } from "./agent-evaluator.ts";
 import type { ExecutorRun } from "./agent-executor.ts";
+import type { ArchiveEntry } from "./task-proposer.ts";
 
 /** Kendall's tau-b: rank agreement in [-1, 1], ties counted. NaN when one
  *  side has no variation (nothing to rank). */
@@ -141,6 +142,39 @@ export function subCheckRates(verdicts: readonly Verdict[]): Record<string, { pa
   return out;
 }
 
+/** The four exploration metrics of §4.5, from the task archive (S1.10). */
+export interface ExplorationMetrics {
+  proposals: number;
+  learnable: number;
+  /** learnable / proposals: passed gate, feasibility and the band. */
+  yield: number;
+  /** Distinct occupations (source:code) and families with at least one learnable task. */
+  occupations: number;
+  families: number;
+  /** Mean novelty of accepted tasks; null when none was accepted. */
+  meanNovelty: number | null;
+  /** Proposer spend plus learnability attempts, USD. */
+  usd: number;
+  /** usd / learnable; null when nothing was learnable. */
+  costPerLearnable: number | null;
+}
+
+export function explorationMetrics(entries: readonly ArchiveEntry[]): ExplorationMetrics {
+  const learnable = entries.filter((e) => e.learnability?.band === "learnable");
+  const accepted = entries.filter((e) => e.learnability);
+  const usd = entries.reduce((s, e) => s + e.receipt.usage.usd + (e.learnability?.usd ?? 0), 0);
+  return {
+    proposals: entries.length,
+    learnable: learnable.length,
+    yield: entries.length ? learnable.length / entries.length : 0,
+    occupations: new Set(learnable.map((e) => `${e.receipt.source}:${e.receipt.code}`)).size,
+    families: new Set(learnable.map((e) => `${e.receipt.source}:${e.receipt.family}`)).size,
+    meanNovelty: accepted.length ? accepted.reduce((s, e) => s + e.novelty, 0) / accepted.length : null,
+    usd,
+    costPerLearnable: learnable.length ? usd / learnable.length : null,
+  };
+}
+
 export interface ReportInput {
   manifest: CampaignManifest;
   result: CampaignResult;
@@ -151,6 +185,8 @@ export interface ReportInput {
   startedAt: string;
   tier: "Micro" | "Standard" | "Frontier";
   e1?: E1Result;
+  /** Present when the open task engine ran (S1.10). */
+  exploration?: ExplorationMetrics;
 }
 
 /** Words the owner-facing section must never use (S1.6 test list, plus
@@ -179,12 +215,17 @@ function forDarius(r: ReportInput): string[] {
   const worst = rates.length ? Math.min(...rates) : 0;
   const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
   const crashed = r.runs.filter((x) => x.terminal === "error").length;
+  const x = r.exploration;
   return [
     `Cheltuit ${usd(spent)} din plafonul ${usd(r.manifest.usdCap)}. Nivel: ${r.tier}.`,
     `INT-1: Nicio lista fixa nu a fost folosita ca agentul sa caute sau sa se antreneze: da. Nota a venit din ${listed} sarcini generate si inghetate doar pentru aceasta campanie, iar teste scrise de alti oameni nu au fost folosite inca.`,
-    `INT-2: Sarcini propuse de agent: 0, ${NOT_YET}, pentru ca in aceasta etapa sarcinile sunt de reparat proiecte, generate de noi, nu alese de agent.`,
+    x
+      ? `INT-2: Sarcini propuse de agent: ${x.proposals}; potrivite pentru invatat (nici prea usoare, nici prea grele): ${x.learnable}; exemplele citibile ${NOT_YET}, pentru ca raportul nu le afiseaza inca.`
+      : `INT-2: Sarcini propuse de agent: 0, ${NOT_YET}, pentru ca in aceasta etapa sarcinile sunt de reparat proiecte, generate de noi, nu alese de agent.`,
     `INT-3: Sarcini din meserii reale: ${NOT_YET}, pentru ca lista de meserii nu este conectata in aceasta etapa.`,
-    `INT-4: Meserii acoperite: 1 (reparat proiecte de programare); restul ${NOT_YET}, pentru ca generatorul de sarcini din orice domeniu nu exista inca.`,
+    x
+      ? `INT-4: Meserii acoperite: ${x.occupations}, din ${x.families} grupe de meserii; cost pe sarcina potrivita: ${x.costPerLearnable === null ? NOT_YET + ", pentru ca nicio sarcina nu a fost potrivita" : usd(x.costPerLearnable)}.`
+      : `INT-4: Meserii acoperite: 1 (reparat proiecte de programare); restul ${NOT_YET}, pentru ca generatorul de sarcini din orice domeniu nu exista inca.`,
     `INT-5: Respinse de filtrul de domenii interzise: 0, pentru ca filtrul nu ruleaza inca; nicio sarcina din domeniile interzise nu exista in aceasta campanie: da.`,
     `INT-6: Note date de un program din afara agentului: ${graded} din ${graded}; agentul nu si-a dat nicio nota: da.`,
     `INT-7: Scor pe sarcini pe care nu le-a mai vazut: cel mai bun agent ${pct(best)}, cel mai slab ${pct(worst)}, din ${graded} notate (${promo} pe rulare); comparatia cu sarcinile exersate ${NOT_YET}, pentru ca agentul nu exerseaza in aceasta etapa.`,
@@ -224,6 +265,15 @@ export function renderReport(r: ReportInput): string {
   lines.push(`- cost-AUC (tokens, budget = tokens spent): ${auc.toFixed(3)}`);
   for (const [id, s] of Object.entries(subCheckRates(r.verdicts))) lines.push(`- sub-check ${id}: ${s.passed}/${s.total}`);
   lines.push("- one failure type per held-out set on F1 (spec §26.3).");
+  if (r.exploration) {
+    const x = r.exploration;
+    lines.push(
+      `- exploration: ${x.proposals} proposals, learnable yield ${x.yield.toFixed(3)} (${x.learnable}), ` +
+        `coverage ${x.occupations} occupations / ${x.families} families, ` +
+        `mean novelty ${x.meanNovelty === null ? "n/a" : x.meanNovelty.toFixed(3)}, ` +
+        `cost per learnable task ${x.costPerLearnable === null ? "n/a" : usd(x.costPerLearnable)} (total ${usd(x.usd)})`,
+    );
+  }
 
   if (r.e1) {
     const e = r.e1;
