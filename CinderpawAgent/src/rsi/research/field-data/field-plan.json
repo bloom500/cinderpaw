@@ -64,7 +64,7 @@
     "date": "2026-10-05"
   },
   "blocklist": {
-    "version": "1",
+    "version": "2",
     "families": [
       "55"
     ],
@@ -275,7 +275,124 @@
       "\\bplutonium",
       "\\bnerve agent",
       "\\bchemical (agent|warfare|weapon)",
-      "\\bbiological (agent|warfare|weapon)"
+      "\\bbiological (agent|warfare|weapon)",
+      "\\bbiochem",
+      "\\bbiophysic",
+      "\\bepidemiolog",
+      "\\bbioinformatic",
+      "\\bmolecular biolog",
+      "\\bchemists?\\b",
+      "\\bchemistry technician",
+      "\\bICT security",
+      "\\bsecurity (analyst|engineer|guard|consultant|architect|tester|specialist|administrator|officer|manager)s?\\b",
+      "\\b(medical|clinical) laborator",
+      "\\btoxicolog"
     ]
+  },
+  "esco": {
+    "source": "ESCO v1.2.0 classification, all languages, released occupations only; columns kept: ESCO id, ISCO-08 unit group, language, label, description",
+    "attribution": "This file includes information from ESCO (European Skills, Competences, Qualifications and Occupations), version 1.2.0, (c) European Union, reused under Commission Decision 2011/833/EU on the reuse of Commission documents. Cinderpaw has modified this information: columns selected, released occupations only.",
+    "partitions": {
+      "development": [
+        "24",
+        "33",
+        "41",
+        "42",
+        "43",
+        "44",
+        "52",
+        "23",
+        "262",
+        "264",
+        "265",
+        "342",
+        "343",
+        "5312"
+      ],
+      "promotion": [
+        "1",
+        "25",
+        "35",
+        "212",
+        "261",
+        "263",
+        "341"
+      ],
+      "final": [
+        "21",
+        "22",
+        "31",
+        "32",
+        "532",
+        "54"
+      ],
+      "transfer": [
+        "51",
+        "6",
+        "7",
+        "8",
+        "9",
+        "3434",
+        "5311"
+      ]
+    },
+    "blockedPrefixes": [
+      "0"
+    ],
+    "blockedOccupations": [
+      {
+        "id": "12dc4509-7d36-46d8-aca0-c147c7ecd806",
+        "label": "gunsmith"
+      },
+      {
+        "id": "59207c91-eefa-4f26-baae-9ea215320ed0",
+        "label": "firework assembler"
+      },
+      {
+        "id": "4ca8ba6c-dc55-40c0-ae6c-d55c94dd2e03",
+        "label": "intelligence officer"
+      },
+      {
+        "id": "d6a395eb-6664-47f1-9be5-91aa2e8ba87d",
+        "label": "fight director"
+      },
+      {
+        "id": "bd94312f-05c8-455d-a2f6-5490489ac4a4",
+        "label": "prop master/prop mistress"
+      },
+      {
+        "id": "c56bb750-db0b-487b-89f4-82dee6dcab09",
+        "label": "covid tester"
+      },
+      {
+        "id": "b7b17a85-ccd0-4d2f-92f2-7e99839731b0",
+        "label": "biomedical scientist advanced"
+      },
+      {
+        "id": "acbb7a20-c947-480d-a07e-868a0ab3eab8",
+        "label": "specialist biomedical scientist"
+      },
+      {
+        "id": "10291962-c0c7-4e5b-a7ed-0762b4d9b010",
+        "label": "pharmacologist"
+      },
+      {
+        "id": "25829508-63f3-41c3-affc-ddbb5c077930",
+        "label": "physiologist"
+      },
+      {
+        "id": "eee68e13-8248-43bb-a9fb-959832a6c217",
+        "label": "biologist"
+      },
+      {
+        "id": "f9433fdb-dde1-46cf-9e91-b49d243946a7",
+        "label": "bioengineer"
+      },
+      {
+        "id": "4fef1907-cf82-413b-841a-02ef57e299a6",
+        "label": "scientific laboratory technician"
+      }
+    ],
+    "partitionsApprovedBy": null
   }
 }

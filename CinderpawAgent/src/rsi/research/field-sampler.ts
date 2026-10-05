@@ -24,7 +24,11 @@
  *
  * Licence (spec Q16, read 5 Oct 2026): O*NET 31.0 is CC BY 4.0; the
  * attribution and modification notice live in `field-data/field-plan.json` and
- * must travel with any report that quotes a task statement.
+ * must travel with any report that quotes a task statement. ESCO v1.2.0 (all
+ * languages, read 5 Oct 2026) is reusable for any purpose under Commission
+ * Decision 2011/833/EU with the source acknowledged; its notice is in the
+ * same file. ISCO-08's own task lists are ILO copyright and are not used.
+ * `scripts/rsi/extract-esco.py` rebuilds the ESCO extract from the dump.
  */
 
 import { readFileSync } from "node:fs";
@@ -44,20 +48,44 @@ export interface FieldPlan {
   partitions: Record<Partition, string[]>;
   partitionsApprovedBy: { by: string; date: string } | null;
   blocklist: { version: string; families: string[]; occupations: { code: string; title: string }[]; terms: string[] };
+  /** The European source (ESCO), on the same fields as the SOC split. */
+  esco?: EscoPlan;
 }
 
-/** One sampleable task statement. */
+/**
+ * ESCO occupations by ISCO-08 code prefix: the longest prefix that matches
+ * decides the partition ("212" mathematicians in promotion beats "21"
+ * science in final). Blocklist terms match the ENGLISH LABEL only: run on
+ * descriptions they cut a secondary-school science teacher and an animal
+ * feed nutritionist, both allowed by the owner. Occupations whose label is
+ * innocent but whose work is excluded are listed by id instead. A blocked
+ * occupation is blocked in every language, because the block is on the id.
+ */
+export interface EscoPlan {
+  source: string;
+  attribution: string;
+  partitions: Record<Partition, string[]>;
+  blockedPrefixes: string[];
+  blockedOccupations: { id: string; label: string }[];
+  partitionsApprovedBy: { by: string; date: string } | null;
+}
+
+/** One sampleable task statement (O*NET) or occupation (ESCO). */
 export interface FieldTask {
-  /** SOC major group, the first two digits of the code. */
+  /** O*NET: SOC major group. ESCO: the ISCO prefix that placed it. */
   family: string;
   code: string;
   title: string;
   taskId: string;
+  /** O*NET: the task statement. ESCO: the occupation's description. */
   task: string;
+  language: string;
 }
 
 export interface FieldData {
   plan: FieldPlan;
+  /** Family keys per partition, as `sampleField` draws them. */
+  partitions: Record<Partition, string[]>;
   /** Allowed tasks per family, after the blocklist. */
   byFamily: ReadonlyMap<string, readonly FieldTask[]>;
   blocked: number;
@@ -117,10 +145,90 @@ export function loadFieldData(extractTsv: string, plan: FieldPlan): FieldData {
       continue;
     }
     const list = byFamily.get(family) ?? [];
-    list.push({ family, code, title, taskId, task });
+    list.push({ family, code, title, taskId, task, language: "en" });
     byFamily.set(family, list);
   }
-  return { plan, byFamily, blocked, dataHash: sha256Canonical({ extract: extractTsv, plan }) };
+  return { plan, partitions: plan.partitions, byFamily, blocked, dataHash: sha256Canonical({ extract: extractTsv, plan }) };
+}
+
+/** Reasons the ESCO plan is unusable; empty means valid. */
+export function validateEscoPlan(e: EscoPlan): string[] {
+  const out: string[] = [];
+  const placed = new Map<string, Partition>();
+  for (const part of PARTITIONS) {
+    for (const p of e.partitions[part] ?? []) {
+      if (!/^\d{1,4}$/.test(p)) out.push(`ESCO prefix "${p}" is not 1 to 4 digits`);
+      if (e.blockedPrefixes.some((b) => p.startsWith(b))) out.push(`ESCO prefix "${p}" is blocked but sits in ${part}`);
+      const first = placed.get(p);
+      if (first) out.push(`ESCO prefix "${p}" is in both ${first} and ${part}`);
+      else placed.set(p, part);
+    }
+  }
+  if ((e.partitions.development ?? []).length === 0) out.push("ESCO development has no prefixes");
+  if (!e.attribution.includes("2011/833/EU")) out.push("the ESCO attribution is missing");
+  return out;
+}
+
+/**
+ * Parse the ESCO extract (`esco_id isco lang label description`) for the
+ * given languages. Every occupation must resolve to a partition or a blocked
+ * prefix, or the load is refused: an unplaced ISCO group would otherwise be
+ * silently unsampleable, or worse, guessed.
+ */
+export function loadEscoData(extractTsv: string, plan: FieldPlan, languages: readonly string[]): FieldData {
+  const e = plan.esco;
+  if (!e) throw new Error("field plan refused: no ESCO section");
+  const problems = [...validatePlan(plan), ...validateEscoPlan(e)];
+  if (problems.length) throw new Error(`field plan refused: ${problems.join("; ")}`);
+  if (languages.length === 0) throw new Error("no languages requested");
+
+  const prefixes = PARTITIONS.flatMap((part) => e.partitions[part].map((p) => ({ p, part })));
+  const placeOf = (isco: string): string | null => {
+    if (e.blockedPrefixes.some((b) => isco.startsWith(b))) return null;
+    let best: string | undefined;
+    for (const { p } of prefixes) if (isco.startsWith(p) && p.length > (best?.length ?? 0)) best = p;
+    if (!best) throw new Error(`ESCO ISCO group ${isco} is in no partition and not blocked`);
+    return best;
+  };
+  const term = new RegExp(plan.blocklist.terms.join("|"), "i");
+  const blockedIds = new Set(e.blockedOccupations.map((o) => o.id));
+  const rows = extractTsv.split("\n").slice(1).filter(Boolean).map((r) => r.split("\t"));
+  // English labels decide the block, for every language of the occupation.
+  for (const [id, isco, lang, label] of rows) {
+    if (!id || !isco || !lang || !label) throw new Error(`ESCO row is malformed: ${[id, isco, lang].join(" ")}`);
+    if (lang === "en" && term.test(label)) blockedIds.add(id);
+  }
+
+  const wanted = new Set(languages);
+  const seenLang = new Set<string>();
+  const byFamily = new Map<string, FieldTask[]>();
+  let blocked = 0;
+  for (const [id, isco, lang, label, description] of rows) {
+    if (!wanted.has(lang!)) continue;
+    seenLang.add(lang!);
+    const family = placeOf(isco!);
+    if (family === null || blockedIds.has(id!)) {
+      blocked++;
+      continue;
+    }
+    const list = byFamily.get(family) ?? [];
+    list.push({ family, code: isco!, title: label!, taskId: id!, task: description ?? "", language: lang! });
+    byFamily.set(family, list);
+  }
+  const missing = languages.filter((l) => !seenLang.has(l));
+  if (missing.length) throw new Error(`ESCO has no rows in: ${missing.join(", ")}`);
+  return {
+    plan,
+    partitions: e.partitions,
+    byFamily,
+    blocked,
+    dataHash: sha256Canonical({ extract: extractTsv, plan, languages: [...languages].sort() }),
+  };
+}
+
+/** The checked-in ESCO extract, all languages, gzipped. */
+export function readEscoExtract(dir = DATA_DIR): string {
+  return new TextDecoder().decode(Bun.gunzipSync(readFileSync(join(dir, "esco-1.2.0-occupations.tsv.gz"))));
 }
 
 /** The checked-in data files. */
@@ -141,7 +249,7 @@ export function sampleField(
   coverage: Readonly<Record<string, number>>,
   rng: () => number,
 ): FieldTask {
-  const families = data.plan.partitions[partition].filter((f) => (data.byFamily.get(f)?.length ?? 0) > 0);
+  const families = data.partitions[partition].filter((f) => (data.byFamily.get(f)?.length ?? 0) > 0);
   if (families.length === 0) throw new Error(`partition ${partition} has no family with an allowed task`);
   const weights = families.map((f) => 1 / (1 + Math.max(0, coverage[f] ?? 0)));
   let r = rng() * weights.reduce((s, w) => s + w, 0);
