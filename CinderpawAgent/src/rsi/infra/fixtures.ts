@@ -59,7 +59,7 @@ const DEPS = ["left-pad", "chalk", "dotenv", "zod", "yaml", "semver"] as const;
 const ENV_KEYS = ["API_URL", "DB_HOST", "LOG_LEVEL", "PORT", "REGION"] as const;
 
 /** The healthy baseline every fixture is a mutation of. */
-function healthyRepo(rng: () => number): { repo: Repo; dep: string; env: string; mod: string } {
+export function healthyRepo(rng: () => number): { repo: Repo; dep: string; env: string; mod: string } {
   const dep = pick(rng, DEPS);
   const env = pick(rng, ENV_KEYS);
   const mod = pick(rng, NAMES);
