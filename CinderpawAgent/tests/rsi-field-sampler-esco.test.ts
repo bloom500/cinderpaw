@@ -85,7 +85,7 @@ describe("the ESCO split", () => {
     expect(loadEscoData(tsv, plan, ["en", "ro"]).dataHash).not.toBe(en.dataHash);
   });
 
-  test("the ESCO split still waits for Darius's signature", () => {
-    expect(plan.esco!.partitionsApprovedBy).toBeNull();
+  test("the ESCO split is signed by Darius (5 Oct 2026)", () => {
+    expect(plan.esco!.partitionsApprovedBy).toEqual({ by: "Darius", date: "2026-10-05" });
   });
 });

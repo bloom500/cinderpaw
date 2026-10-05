@@ -393,6 +393,9 @@
         "label": "scientific laboratory technician"
       }
     ],
-    "partitionsApprovedBy": null
+    "partitionsApprovedBy": {
+      "by": "Darius",
+      "date": "2026-10-05"
+    }
   }
 }
