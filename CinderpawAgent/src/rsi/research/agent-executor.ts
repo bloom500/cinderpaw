@@ -34,7 +34,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { sha256Canonical } from "../infra/hash-chain.ts";
@@ -188,162 +188,172 @@ export async function runExecutor(args: {
   }
 
   const home = mkdtempSync(join(tmpdir(), "cp-exec-home-"));
-  mkdirSync(join(home, "rsi"), { recursive: true });
-  writeFileSync(
-    join(home, "rsi", "champion.json"),
-    JSON.stringify({ genomeId: args.executorHash, score: 0, config: { ...NEUTRAL, ...args.genome }, updatedAt: t0 }),
-  );
-
-  const opened = await args.iso.openExecutorCell({
-    name: `cp-exec-${task.id.replace(/[^A-Za-z0-9_.-]/g, "_")}-${randomUUID().slice(0, 8)}`,
-    depsDir: args.depsDir,
-    sourceDir: args.agentSrcDir,
-    workspaceDir: args.workspaceDir,
-    homeDir: home,
-  });
-  if (!opened.ok) return { run: result("refused", { reason: opened.reason }) };
-  const cell = opened.cell;
-  const start = args.start ?? spawnLines;
-
-  let terminal: Terminal | null = null;
-  let reason: string | undefined;
-  let claim: string | undefined;
-  let finished!: () => void;
-  const over = new Promise<void>((r) => (finished = r));
-  const finish = (t: Terminal, why?: string) => {
-    if (terminal) return;
-    terminal = t;
-    reason = why;
-    finished();
-  };
-  const wall = setTimeout(() => finish("timeout", `wall time ${task.budget.maxWallMs} ms reached`), task.budget.maxWallMs);
-
-  let relay: LineProc | undefined;
-  let sidecar: LineProc | undefined;
   try {
-    relay = start(cell.processArgv({ user: "root", argv: ["bun", RELAY_ENTRY], env: {} }));
-    const relayLines = relay.lines[Symbol.asyncIterator]();
-    const port = await Promise.race([
-      (async () => {
-        for (let n = await relayLines.next(); !n.done; n = await relayLines.next()) {
-          try {
-            const msg = JSON.parse(n.value);
-            if (msg.type === "ready") return msg.port as number;
-          } catch {}
-        }
-        return null;
-      })(),
-      Bun.sleep(RELAY_READY_MS).then(() => null),
-      over.then(() => null),
-    ]);
-    if (port == null) {
-      finish("error", `the model relay did not start: ${relay.stderrTail() || "no output"}`);
-    } else {
-      const r = relay;
-      const respond = (id: number, status: number, contentType: string, body: string) =>
-        r.write(JSON.stringify({ type: "response", id, status, contentType, body }));
-      const answerModel = async (id: number, raw: string) => {
-        let body: ChatBody;
-        try {
-          body = JSON.parse(raw);
-          if (!Array.isArray(body?.messages)) throw new Error("no messages");
-        } catch {
-          return respond(id, 400, "text/plain", "model relay: the request is not a chat completion");
-        }
-        const { stream, stream_options: _ignored, ...rest } = body;
-        const got = await broker.complete({ ...rest, model: model.id, messages: body.messages });
-        if (!got.ok) {
-          const limit = broker.exhausted();
-          respond(id, limit ? 402 : 502, "text/plain", got.reason);
-          if (limit) finish("budget_exhausted", got.reason);
-          return;
-        }
-        if (stream === true) respond(id, 200, "text/event-stream", toSse(got.answer));
-        else respond(id, 200, "application/json", JSON.stringify(got.answer));
-        const limit = broker.exhausted();
-        if (limit) finish("budget_exhausted", `budget exhausted: ${limit}`);
-      };
-      (async () => {
-        for (let n = await relayLines.next(); !n.done; n = await relayLines.next()) {
-          let msg: { type?: string; id?: number; body?: string };
-          try {
-            msg = JSON.parse(n.value);
-          } catch {
-            continue;
-          }
-          if (msg.type === "request" && typeof msg.id === "number") void answerModel(msg.id, msg.body ?? "");
-        }
-        finish("error", `the model relay exited: ${r.stderrTail() || "no output"}`);
-      })();
+    mkdirSync(join(home, "rsi"), { recursive: true });
+    writeFileSync(
+      join(home, "rsi", "champion.json"),
+      JSON.stringify({ genomeId: args.executorHash, score: 0, config: { ...NEUTRAL, ...args.genome }, updatedAt: t0 }),
+    );
 
-      const s = start(
-        cell.processArgv({
-          user: "agent",
-          argv: ["bun", SIDECAR_ENTRY],
-          env: {
-            CINDERPAW_HOME: "/tmp/home",
-            CINDERPAW_AUTONOMOUS: "true",
-            CINDERPAW_PROVIDER: "openai_compatible",
-            CINDERPAW_BASE_URL: `http://127.0.0.1:${port}`,
-            CINDERPAW_MODEL: model.id,
-            // A dummy: the real key stays with the broker on the host.
-            CINDERPAW_API_KEY: "cell",
-            CINDERPAW_TRUSTED_LOCAL_ORIGINS: `http://127.0.0.1:${port}`,
-            CINDERPAW_HTTP_DOMAINS: "127.0.0.1",
-          },
-        }),
-      );
-      sidecar = s;
-      (async () => {
-        for await (const line of s.lines) {
-          if (!line.startsWith("{")) continue;
-          let ev: { type?: string; id?: string; content?: string; incomplete?: boolean; message?: string };
-          try {
-            ev = JSON.parse(line);
-          } catch {
-            continue;
-          }
-          if (ev.type === "rsi_request" && ev.id) {
-            s.write(JSON.stringify({ type: "rsi_response", id: ev.id, ok: false, error: "not available in an executor cell" }));
-          } else if (ev.type === "done" && !ev.incomplete) {
-            claim = ev.content;
-            finish("done");
-          } else if (ev.type === "error") {
-            finish("error", ev.message ?? "sidecar error");
-          }
-        }
-        finish("error", `the sidecar exited: ${s.stderrTail() || "no output"}`);
-      })();
-      s.write(JSON.stringify({ type: "message", id: randomUUID(), sessionId: `exec-${task.id}`, content: task.instruction }));
+    let opened: Awaited<ReturnType<typeof args.iso.openExecutorCell>>;
+    try {
+      opened = await args.iso.openExecutorCell({
+        name: `cp-exec-${task.id.replace(/[^A-Za-z0-9_.-]/g, "_")}-${randomUUID().slice(0, 8)}`,
+        depsDir: args.depsDir,
+        sourceDir: args.agentSrcDir,
+        workspaceDir: args.workspaceDir,
+        homeDir: home,
+      });
+    } catch (e) {
+      return { run: result("refused", { reason: e instanceof Error ? e.message : String(e) }) };
     }
+    if (!opened.ok) return { run: result("refused", { reason: opened.reason }) };
+    const cell = opened.cell;
+    const start = args.start ?? spawnLines;
 
-    await over;
-  } catch (e) {
-    finish("error", e instanceof Error ? e.message : String(e));
-  } finally {
-    clearTimeout(wall);
-    // ponytail: killing the docker client may leave the sidecar idling in the
-    // cell for the moment the workspace is copied out; after `done` it has
-    // nothing left to write. `docker pause` first if that ever matters.
-    sidecar?.kill();
-    relay?.kill();
-  }
+    let terminal: Terminal | null = null;
+    let reason: string | undefined;
+    let claim: string | undefined;
+    let finished!: () => void;
+    const over = new Promise<void>((r) => (finished = r));
+    const finish = (t: Terminal, why?: string) => {
+      if (terminal) return;
+      terminal = t;
+      reason = why;
+      finished();
+    };
+    const wall = setTimeout(() => finish("timeout", `wall time ${task.budget.maxWallMs} ms reached`), task.budget.maxWallMs);
 
-  let workspaceAfter = "";
-  let outDir: string | undefined;
-  try {
-    if (terminal === "done") {
-      const out = await cell.extractWorkspace(args.caps);
-      if (out.ok) {
-        outDir = out.dir;
-        workspaceAfter = hashDir(out.dir);
+    let relay: LineProc | undefined;
+    let sidecar: LineProc | undefined;
+    try {
+      relay = start(cell.processArgv({ user: "root", argv: ["bun", RELAY_ENTRY], env: {} }));
+      const relayLines = relay.lines[Symbol.asyncIterator]();
+      const port = await Promise.race([
+        (async () => {
+          for (let n = await relayLines.next(); !n.done; n = await relayLines.next()) {
+            try {
+              const msg = JSON.parse(n.value);
+              if (msg.type === "ready") return msg.port as number;
+            } catch {}
+          }
+          return null;
+        })(),
+        Bun.sleep(RELAY_READY_MS).then(() => null),
+        over.then(() => null),
+      ]);
+      if (port == null) {
+        finish("error", `the model relay did not start: ${relay.stderrTail() || "no output"}`);
       } else {
-        terminal = "error";
-        reason = out.reason;
+        const r = relay;
+        const respond = (id: number, status: number, contentType: string, body: string) =>
+          r.write(JSON.stringify({ type: "response", id, status, contentType, body }));
+        const answerModel = async (id: number, raw: string) => {
+          let body: ChatBody;
+          try {
+            body = JSON.parse(raw);
+            if (!Array.isArray(body?.messages)) throw new Error("no messages");
+          } catch {
+            return respond(id, 400, "text/plain", "model relay: the request is not a chat completion");
+          }
+          const { stream, stream_options: _ignored, ...rest } = body;
+          const got = await broker.complete({ ...rest, model: model.id, messages: body.messages });
+          if (!got.ok) {
+            const limit = broker.exhausted();
+            respond(id, limit ? 402 : 502, "text/plain", got.reason);
+            if (limit) finish("budget_exhausted", got.reason);
+            return;
+          }
+          if (stream === true) respond(id, 200, "text/event-stream", toSse(got.answer));
+          else respond(id, 200, "application/json", JSON.stringify(got.answer));
+          const limit = broker.exhausted();
+          if (limit) finish("budget_exhausted", `budget exhausted: ${limit}`);
+        };
+        (async () => {
+          for (let n = await relayLines.next(); !n.done; n = await relayLines.next()) {
+            let msg: { type?: string; id?: number; body?: string };
+            try {
+              msg = JSON.parse(n.value);
+            } catch {
+              continue;
+            }
+            if (msg.type === "request" && typeof msg.id === "number") void answerModel(msg.id, msg.body ?? "");
+          }
+          finish("error", `the model relay exited: ${r.stderrTail() || "no output"}`);
+        })();
+
+        const s = start(
+          cell.processArgv({
+            user: "agent",
+            argv: ["bun", SIDECAR_ENTRY],
+            env: {
+              CINDERPAW_HOME: "/tmp/home",
+              CINDERPAW_AUTONOMOUS: "true",
+              CINDERPAW_PROVIDER: "openai_compatible",
+              CINDERPAW_BASE_URL: `http://127.0.0.1:${port}`,
+              CINDERPAW_MODEL: model.id,
+              // A dummy: the real key stays with the broker on the host.
+              CINDERPAW_API_KEY: "cell",
+              CINDERPAW_TRUSTED_LOCAL_ORIGINS: `http://127.0.0.1:${port}`,
+              CINDERPAW_HTTP_DOMAINS: "127.0.0.1",
+            },
+          }),
+        );
+        sidecar = s;
+        (async () => {
+          for await (const line of s.lines) {
+            if (!line.startsWith("{")) continue;
+            let ev: { type?: string; id?: string; content?: string; incomplete?: boolean; message?: string };
+            try {
+              ev = JSON.parse(line);
+            } catch {
+              continue;
+            }
+            if (ev.type === "rsi_request" && ev.id) {
+              s.write(JSON.stringify({ type: "rsi_response", id: ev.id, ok: false, error: "not available in an executor cell" }));
+            } else if (ev.type === "done" && !ev.incomplete) {
+              claim = ev.content;
+              finish("done");
+            } else if (ev.type === "error") {
+              finish("error", ev.message ?? "sidecar error");
+            }
+          }
+          finish("error", `the sidecar exited: ${s.stderrTail() || "no output"}`);
+        })();
+        s.write(JSON.stringify({ type: "message", id: randomUUID(), sessionId: `exec-${task.id}`, content: task.instruction }));
       }
+
+      await over;
+    } catch (e) {
+      finish("error", e instanceof Error ? e.message : String(e));
+    } finally {
+      clearTimeout(wall);
+      // ponytail: killing the docker client may leave the sidecar idling in the
+      // cell for the moment the workspace is copied out; after `done` it has
+      // nothing left to write. `docker pause` first if that ever matters.
+      sidecar?.kill();
+      relay?.kill();
     }
+
+    let workspaceAfter = "";
+    let outDir: string | undefined;
+    try {
+      if (terminal === "done") {
+        const out = await cell.extractWorkspace(args.caps);
+        if (out.ok) {
+          outDir = out.dir;
+          workspaceAfter = hashDir(out.dir);
+        } else {
+          terminal = "error";
+          reason = out.reason;
+        }
+      }
+    } finally {
+      await cell.destroy();
+    }
+    return { run: result(terminal ?? "error", { reason, claim, workspaceAfter }), workspaceDir: outDir };
   } finally {
-    await cell.destroy();
+    // The home held the champion file only; the cell is gone by now.
+    rmSync(home, { recursive: true, force: true });
   }
-  return { run: result(terminal ?? "error", { reason, claim, workspaceAfter }), workspaceDir: outDir };
 }

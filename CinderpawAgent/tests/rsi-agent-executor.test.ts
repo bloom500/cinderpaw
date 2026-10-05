@@ -6,7 +6,7 @@
  * test runs the real sidecar in real Docker against a free stub model.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bunExec } from "../src/rsi/l3-code/code-sandbox.ts";
@@ -245,6 +245,30 @@ describe("refusals", () => {
     const iso = { openExecutorCell: async () => ({ ok: false as const, reason: "Docker is not running." }) };
     const { run } = await runExecutor(base(w, { iso }));
     expect(run).toMatchObject({ terminal: "refused", reason: "Docker is not running." });
+  });
+
+  test("opening the cell throws: refused with the reason, and the temp home is removed", async () => {
+    const w = world();
+    let home = "";
+    const iso = {
+      openExecutorCell: async (spec: ExecutorCellSpec) => {
+        home = spec.homeDir;
+        throw new Error("docker run exploded");
+      },
+    };
+    const { run } = await runExecutor(base(w, { iso }));
+    expect(run).toMatchObject({ terminal: "refused", reason: "docker run exploded" });
+    expect(existsSync(home)).toBe(false);
+  });
+
+  test("after a finished run the temp home is removed", async () => {
+    const w = world();
+    let home = "";
+    const open = w.iso.openExecutorCell;
+    const iso = { openExecutorCell: (spec: ExecutorCellSpec) => ((home = spec.homeDir), open(spec)) };
+    await runExecutor(base(w, { iso }));
+    expect(home).not.toBe("");
+    expect(existsSync(home)).toBe(false);
   });
 });
 

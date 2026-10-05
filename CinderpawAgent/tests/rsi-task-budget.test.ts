@@ -186,3 +186,55 @@ describe("money safety", () => {
     expect(b.exhausted()).toBeNull();
   });
 });
+
+describe("found by the second S1.3 review (#9)", () => {
+  test("max_completion_tokens is clamped too, and only max_tokens reaches the model", async () => {
+    const { m, seen } = model();
+    const b = new BudgetBroker(budget({ maxOutputTokens: 40 }), m);
+    await b.complete({ ...ask(), max_completion_tokens: 10_000 });
+    expect(seen[0]!.max_tokens).toBe(40);
+    expect(seen[0]!.max_completion_tokens).toBeUndefined();
+  });
+
+  test("the input estimate counts the whole request, tool definitions included", async () => {
+    const { m, seen } = model();
+    const b = new BudgetBroker(budget({ maxInputTokens: 100 }), m);
+    const tools = [{ type: "function", function: { name: "x", description: "y".repeat(600) } }];
+    const got = await b.complete({ ...ask("hi"), tools });
+    expect(got.ok).toBe(false);
+    expect(seen.length).toBe(0);
+  });
+
+  test("usage reported as 0 is treated as missing and charged the estimate", async () => {
+    const { m } = model({ usage: { prompt_tokens: 0, completion_tokens: 0 } });
+    const b = new BudgetBroker(budget(), m);
+    await b.complete(ask("x".repeat(90)));
+    expect(b.usage().inputTokens).toBeGreaterThan(0);
+    expect(b.usage().outputTokens).toBeGreaterThan(0);
+  });
+
+  test("<tool_call> text inside array content parts counts", async () => {
+    const m: BrokerModel = {
+      id: "stub",
+      usdPerMInput: 0,
+      usdPerMOutput: 0,
+      async call() {
+        return {
+          choices: [{ message: { content: [{ type: "text", text: "<tool_call>a</tool_call><tool_call>b</tool_call>" }] } }],
+          usage: { prompt_tokens: 10, completion_tokens: 10 },
+        };
+      },
+    };
+    const b = new BudgetBroker(budget(), m);
+    await b.complete(ask());
+    expect(b.usage().toolCalls).toBe(2);
+  });
+
+  test("a request without messages is refused before the model", async () => {
+    const { m, seen } = model();
+    const b = new BudgetBroker(budget(), m);
+    const got = await b.complete({ model: "stub" } as unknown as ChatBody);
+    expect(got.ok).toBe(false);
+    expect(seen.length).toBe(0);
+  });
+});

@@ -30,6 +30,7 @@ export interface ChatBody {
   model: string;
   messages: unknown[];
   max_tokens?: number;
+  max_completion_tokens?: number;
   [key: string]: unknown;
 }
 
@@ -62,7 +63,17 @@ export type BrokerResult = { ok: true; answer: ChatAnswer } | { ok: false; reaso
  *  charging more. A per-model tokenizer if a campaign needs exact counts. */
 const estimateTokens = (text: string): number => Math.ceil(text.length / 3);
 
-const reported = (n: unknown): number | null => (typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : null);
+// A provider that reports 0 tokens for a call that happened is silent, not
+// free: 0 is charged the estimate like a missing number.
+const reported = (n: unknown): number | null => (typeof n === "number" && Number.isFinite(n) && n > 0 ? n : null);
+
+/** Text of a message's content, whether a string or OpenAI content parts. */
+const contentText = (content: unknown): string =>
+  typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content.map((p) => (typeof p?.text === "string" ? p.text : "")).join("")
+      : "";
 
 export class BudgetBroker {
   readonly #budget: TaskBudget;
@@ -101,11 +112,14 @@ export class BudgetBroker {
     const b = this.#budget;
     const m = this.#model;
     if (this.#exhausted) return { ok: false, reason: `budget exhausted: ${this.#exhausted}` };
+    if (!Array.isArray(body?.messages)) return { ok: false, reason: "the request has no messages" };
     if (b.maxUsd === 0 && (m.usdPerMInput > 0 || m.usdPerMOutput > 0)) {
       return { ok: false, reason: `the task's USD limit is 0, so only a free model may run; ${m.id} is priced` };
     }
 
-    const inputEstimate = estimateTokens(JSON.stringify(body.messages));
+    // The whole body, not only the messages: tool definitions and system
+    // fields are input the provider bills too.
+    const inputEstimate = estimateTokens(JSON.stringify(body));
     if (this.#used.inputTokens + inputEstimate > b.maxInputTokens) {
       return this.#exhaust(`input tokens: this request (~${inputEstimate}) does not fit in what is left`);
     }
@@ -114,7 +128,11 @@ export class BudgetBroker {
 
     // The model is pinned here, not chosen by the executor: the price above
     // is this model's, and `n` > 1 would bill several answers as one.
-    const sent: ChatBody = { ...body, model: m.id, n: 1, max_tokens: Math.min(body.max_tokens ?? outputLeft, outputLeft) };
+    // Either output-limit name is clamped, and only max_tokens is sent (some
+    // providers refuse a request carrying both).
+    const { max_completion_tokens, ...rest } = body;
+    const asked = Math.min(body.max_tokens ?? outputLeft, max_completion_tokens ?? outputLeft);
+    const sent: ChatBody = { ...rest, model: m.id, n: 1, max_tokens: Math.min(asked, outputLeft) };
     let answer: ChatAnswer;
     try {
       answer = await m.call(sent);
@@ -133,7 +151,7 @@ export class BudgetBroker {
     u.outputTokens += output;
     u.toolCalls += Array.isArray(message?.tool_calls) ? message.tool_calls.length : 0;
     // Models without native tools write calls as text (egress/conformance.ts).
-    if (typeof message?.content === "string") u.toolCalls += message.content.split("<tool_call>").length - 1;
+    u.toolCalls += contentText(message?.content).split("<tool_call>").length - 1;
     u.usd += (input * m.usdPerMInput + output * m.usdPerMOutput) / 1_000_000;
 
     if (u.inputTokens > b.maxInputTokens) this.#exhausted = "input tokens";
