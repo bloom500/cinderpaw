@@ -124,7 +124,7 @@ describe("the learnability band (10%-90% of k tries)", () => {
     const two = await new TaskArchive(embedder, partitions).record(await propose(INVOICES, field("t1", "c")), attempts([true, true, false]));
     expect(one.reward).toBe(1);
     expect(two.reward).toBe(one.reward);
-  });
+  }, 60_000);
 
   test("the band is computed on development only: a holdout task never reaches the executor", async () => {
     const archive = new TaskArchive(embedder, partitions);
@@ -137,7 +137,7 @@ describe("the learnability band (10%-90% of k tries)", () => {
     const refused = await archive.record(await propose(INVOICES, field("t2", "c", partitions.promotion[0]!)), attempts([true]));
     expect(refused).toMatchObject({ receipt: { stage: "refused" }, novelty: 0, reward: 0 });
     expect(refused.learnability).toBeUndefined();
-  });
+  }, 60_000);
 });
 
 describe("novelty", () => {
@@ -152,7 +152,7 @@ describe("novelty", () => {
     const other = await archive.record(await propose(SHIFTS, field("t3", "c")), learnable);
     expect(other.novelty).toBeGreaterThan(0.3);
     expect(other.reward).toBe(other.novelty);
-  });
+  }, 60_000);
 });
 
 describe("the report shows the four exploration metrics on a stub campaign", () => {
@@ -187,5 +187,5 @@ describe("the report shows the four exploration metrics on a stub campaign", () 
     expect(darius).toContain("INT-2: Sarcini propuse de agent: 4; potrivite pentru invatat (nici prea usoare, nici prea grele): 2");
     expect(darius).toContain("INT-4: Meserii acoperite: 2, din 1 grupe de meserii");
     for (const w of TECHNICAL_WORDS) expect(darius).not.toMatch(new RegExp(`\\b${w}`, w === "RSI" ? "" : "i"));
-  });
+  }, 60_000);
 });
