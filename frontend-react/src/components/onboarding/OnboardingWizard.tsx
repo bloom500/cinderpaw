@@ -34,6 +34,7 @@ import type { MascotState } from '@/components/chat/mascot/frames';
 import { BrandLogo } from '@/lib/brandLogos';
 import { ModelLogo } from '@/lib/modelLogos';
 import { ConnectStep } from './ConnectStep';
+import { ImportCard } from './ImportCard';
 import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 
 const stepVariants = {
@@ -227,6 +228,7 @@ function WelcomeStep() {
           { icon: AudioLines, title: 'Voice', line: 'Chat naturally, with your voice.' },
         ]}
       />
+      <ImportCard />
     </div>
   );
 }

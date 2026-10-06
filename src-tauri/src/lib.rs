@@ -640,6 +640,8 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             provider_catalog,
             setup_detect,
             setup_verify,
+            migrate_preview,
+            migrate_apply,
             save_byok_provider,
             remove_byok_provider,
             byok_has_key,

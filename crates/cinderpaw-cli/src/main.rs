@@ -141,28 +141,33 @@ enum Command {
     },
     /// Interactive chat in the terminal (alias for `chat`)
     Tui,
-    /// (advanced) Inspect or drive L6 Meta Evolution (the engine's own strategy)
+    // L6 Meta Evolution. The `///` line is what `--help` prints, so it speaks
+    // to a person, not to the spec.
+    /// (advanced) See or change how Cinderpaw improves its own learning
     Meta {
         #[command(subcommand)]
         action: Option<MetaAction>,
     },
-    /// (advanced) Slice A5 (L5 Governance) — drive the policy FSM end-to-end
-    /// (status / propose / approve / freeze / verify …). Mirrors `meta …`
-    /// for surface + JSON plumbing; operations live in `admin::governance`.
+    // Slice A5 (L5 Governance): drives the policy FSM end-to-end (status /
+    // propose / approve / freeze / verify …). Mirrors `meta …` for surface +
+    // JSON plumbing; operations live in `admin::governance`.
+    /// (advanced) The rules and approvals that limit what it may change in itself
     Governance {
         #[command(subcommand)]
         action: admin::GovernanceAction,
     },
-    /// (advanced) Phase B (L4 Architecture Evolution) — module candidates per
-    /// seam: list / show / approve / reject / demote / evaluate / propose.
-    /// Approval is the only path that promotes a module (spec §6).
+    // Phase B (L4 Architecture Evolution): module candidates per seam, list /
+    // show / approve / reject / demote / evaluate / propose. Approval is the
+    // only path that promotes a module (spec §6).
+    /// (advanced) Review the new parts it proposes for itself, and approve or reject them
     Modules {
         #[command(subcommand)]
         action: admin::ModulesAction,
     },
-    /// (advanced) Faza 4 (L2 Personal Adaptation) — LoRA training on your own
-    /// conversations: status / train / reviews / approve / reject. Needs a
-    /// LOCAL primary model + a registered trainer (docs/LORA_TRAINER.md).
+    // Faza 4 (L2 Personal Adaptation): status / train / reviews / approve /
+    // reject. Needs a LOCAL primary model + a registered trainer
+    // (docs/LORA_TRAINER.md).
+    /// (advanced) Train a local model on your own conversations (needs a model on this computer)
     Lora {
         #[command(subcommand)]
         action: admin::LoraAction,
