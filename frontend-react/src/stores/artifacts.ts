@@ -143,7 +143,7 @@ interface ArtifactsStore {
    * `as: 'pdf'` offers a PDF first (the chat card's "Download PDF"); `row` is
    * for a caller that knows the artifact when the list has not been loaded.
    */
-  exportArtifact: (id: string, opts?: { as?: 'pdf'; row?: { title: string; kind: string }; version?: number }) => Promise<void>;
+  exportArtifact: (id: string, opts?: { as?: 'pdf' | 'xlsx'; row?: { title: string; kind: string }; version?: number }) => Promise<void>;
   /** For good: rows and files. The panel confirms before calling it. */
   deleteArtifact: (id: string) => Promise<void>;
   renameArtifact: (id: string, title: string) => Promise<void>;
@@ -305,19 +305,22 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     // The person picks where it goes, in the OS dialog, for every kind. Export
     // used to drop the file in the workspace root and print the path; a PDF
     // to sign usually wants to be on the desktop or in Downloads.
+    // A table leaves as a sheet unless asked otherwise: its own .json is a file
+    // nobody who asked for a table knows how to open (6 Oct, a CSV came out as a PDF).
+    const as = opts?.as ?? (row?.kind === 'table' ? 'xlsx' : undefined);
     let dest: string | undefined;
     try {
       const picked = await saveDialog({
-        defaultPath: row ? `${fileName(row.title)}${opts?.as === 'pdf' ? '.pdf' : extensionFor(row.kind)}` : undefined,
+        defaultPath: row ? downloadName(row.title, row.kind, as) : undefined,
         // The native format first, then what the sidecar can convert a text
         // artifact into: it picks the conversion from the extension of the
         // path chosen here (export.ts `exportAs`), so a name ending in .docx
         // is a Word file, not the source bytes renamed.
         filters: row
-          ? opts?.as === 'pdf' && CONVERTIBLE.has(row.kind)
-            ? [{ name: 'PDF', extensions: ['pdf'] }]
+          ? as && CONVERTIBLE.has(row.kind)
+            ? [{ name: as === 'pdf' ? 'PDF' : 'Excel', extensions: [as] }]
             : [
-                { name: row.kind.toUpperCase(), extensions: [extensionFor(row.kind).slice(1)] },
+                { name: row.kind.toUpperCase(), extensions: [extensionFor(row.kind, row.title).slice(1)] },
                 ...(CONVERTIBLE.has(row.kind)
                   ? [
                       { name: 'PDF', extensions: ['pdf'] },
@@ -687,9 +690,19 @@ export function googlePlan(kind: string): { mime: string; convert: boolean } | n
 /** The text kinds the sidecar can turn into a PDF, a Word or an Excel file. */
 const CONVERTIBLE = new Set(['document', 'markdown', 'app', 'table', 'code', 'json', 'html', 'board']);
 
-/** Mirrors `EXT` in the sidecar's artifacts/store.ts. */
-function extensionFor(kind: string): string {
+/** Mirrors `ArtifactStore.extensionOf` in the sidecar's artifacts/store.ts: a
+ *  file or code artifact keeps the type in its title (leads.csv), not .bin. */
+function extensionFor(kind: string, title = ''): string {
+  const own = (kind === 'file' || kind === 'code') && /\.(?=[a-z0-9]*[a-z])[a-z0-9]{1,8}$/i.exec(title.trim());
+  if (own) return own[0].toLowerCase();
   return ({ document: '.html', markdown: '.md', app: '.html', table: '.json', code: '.txt', json: '.json', html: '.html', pdf: '.pdf', docx: '.docx', image: '.png', board: '.board.json' } as Record<string, string>)[kind] ?? '.bin';
+}
+
+/** What the save dialog suggests: the title, plus the type it leaves as unless it already ends in it. */
+function downloadName(title: string, kind: string, as?: string): string {
+  const base = fileName(title);
+  const ext = as ? `.${as}` : extensionFor(kind, title);
+  return base.toLowerCase().endsWith(ext) ? base : `${base}${ext}`;
 }
 
 /** A title as a filename, same rules as the sidecar's safeFileName. */
