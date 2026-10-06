@@ -2,7 +2,8 @@ import { act, cleanup, render, screen, fireEvent, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ArtifactsPanel } from '../ArtifactsPanel';
 import { summaryOf } from '@/lib/artifactSections';
-import { useArtifacts, resetArtifactRequests, googlePlan, shownKind, type ArtifactRow } from '@/stores/artifacts';
+import { useArtifacts, resetArtifactRequests, googlePlan, shownKind, tableCsv, type ArtifactRow } from '@/stores/artifacts';
+import userEvent from '@testing-library/user-event';
 import { APP_IFRAME_SANDBOX } from '@/lib/artifactSandbox';
 import { tauri } from '@/lib/tauri';
 import { useChat, type ChatMessage } from '@/stores/chat';
@@ -29,6 +30,9 @@ vi.mock('@/lib/tauri', async (orig) => {
 // The done toast's Open goes to the chat through the app router, which imports
 // every page; the test only needs to know it was asked.
 const navigate = vi.fn();
+// The Gmail button opens a link through the shell plugin; there is no shell here.
+const shellOpen = vi.hoisted(() => vi.fn());
+vi.mock('@tauri-apps/plugin-shell', () => ({ open: shellOpen }));
 vi.mock('@/router', () => ({ router: { state: { location: { pathname: '/settings' } }, navigate } }));
 
 const op = tauri.artifacts.op as unknown as ReturnType<typeof vi.fn>;
@@ -565,43 +569,107 @@ describe('rename, archive and delete in the list', () => {
   });
 });
 
-describe('Send to Google Docs', () => {
-  it('logs in first when not connected, then uploads a document as a Google Doc', async () => {
+describe('the Google button', () => {
+  const docOpen = () => useArtifacts.setState({
+    loaded: true, editing: null, google: null,
+    open: { row: row({ kind: 'document', title: 'Q3: report' }), content: '<p>hi</p>', showing: 2, versions: [] },
+  });
+
+  it('logs in first when not connected, then sends a document to Google Docs', async () => {
+    const user = userEvent.setup();
     const { tauri: t } = await import('@/lib/tauri');
     const g = t.google as unknown as Record<string, ReturnType<typeof vi.fn>>;
     g.status = vi.fn().mockResolvedValue(false);
     g.connect = vi.fn().mockResolvedValue(undefined);
     g.upload = vi.fn().mockResolvedValue('https://docs.google.com/document/d/abc/edit');
-    useArtifacts.setState({
-      loaded: true, editing: null, google: null,
-      open: { row: row({ kind: 'document', title: 'Q3: report' }), content: '<p>hi</p>', showing: 2, versions: [] },
-    });
+    docOpen();
     render(<ArtifactsPanel onClose={() => {}} />);
-    fireEvent.click(await screen.findByLabelText('Send to Google Docs'));
+    await user.click(await screen.findByLabelText('Send to Google'));
+    await user.click(await screen.findByText('Google Docs'));
     await waitFor(() => expect(g.upload).toHaveBeenCalled());
     expect(g.connect).toHaveBeenCalledTimes(1);
-    expect(g.upload).toHaveBeenCalledWith('Q3- report', 'text/html', '<p>hi</p>', null, true);
+    expect(g.upload).toHaveBeenCalledWith('Q3- report', 'text/html', '<p>hi</p>', null, true, false);
     expect(await screen.findByText('open it')).toHaveAttribute('href', 'https://docs.google.com/document/d/abc/edit');
+  });
+
+  it('lists all four places, and greys Sheets for a document with the reason', async () => {
+    const user = userEvent.setup();
+    const { tauri: t } = await import('@/lib/tauri');
+    (t.google as unknown as Record<string, ReturnType<typeof vi.fn>>).status = vi.fn().mockResolvedValue(true);
+    docOpen();
+    render(<ArtifactsPanel onClose={() => {}} />);
+    await user.click(await screen.findByLabelText('Send to Google'));
+    for (const name of ['Google Drive', 'Google Docs', 'Google Sheets', 'Gmail']) expect(await screen.findByText(name)).toBeTruthy();
+    expect(screen.getByText('Only a table or a CSV can become a Sheet')).toBeTruthy();
+    expect(screen.getByText('Google Sheets').closest('[role="menuitem"]')).toHaveAttribute('data-disabled');
+  });
+
+  it('Gmail: the file is shared by link and a new email with the link opens', async () => {
+    const user = userEvent.setup();
+    const opened = shellOpen.mockResolvedValue(undefined);
+    const { tauri: t } = await import('@/lib/tauri');
+    const g = t.google as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    g.status = vi.fn().mockResolvedValue(true);
+    g.upload = vi.fn().mockResolvedValue('https://drive.google.com/file/d/xyz/view');
+    docOpen();
+    render(<ArtifactsPanel onClose={() => {}} />);
+    await user.click(await screen.findByLabelText('Send to Google'));
+    await user.click(await screen.findByText('Gmail'));
+    await waitFor(() => expect(opened).toHaveBeenCalled());
+    expect(g.upload).toHaveBeenCalledWith('Q3- report.html', 'text/html', '<p>hi</p>', null, false, true);
+    const url = String(opened.mock.calls[0]![0]);
+    expect(url.startsWith('https://mail.google.com/mail/?view=cm')).toBe(true);
+    expect(decodeURIComponent(url)).toContain('https://drive.google.com/file/d/xyz/view');
+  });
+
+  // 6 Oct, the job-application video: scrape -> CSV the agent made -> Sheets.
+  it('a CSV the agent made as a file opens in Google Sheets, under its own name', async () => {
+    const user = userEvent.setup();
+    const { tauri: t } = await import('@/lib/tauri');
+    const g = t.google as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    g.status = vi.fn().mockResolvedValue(true);
+    g.upload = vi.fn().mockResolvedValue('https://docs.google.com/spreadsheets/d/s1/edit');
+    const csv = 'title,phone\nDM Roofing,+44 7792 703612\n';
+    useArtifacts.setState({
+      loaded: true, editing: null, google: null,
+      open: { row: row({ kind: 'file', title: 'roofers-manchester.csv' }), content: csv, showing: 2, versions: [] },
+    });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    await user.click(await screen.findByLabelText('Send to Google'));
+    await user.click(await screen.findByText('Google Sheets'));
+    await waitFor(() => expect(g.upload).toHaveBeenCalled());
+    expect(g.upload).toHaveBeenCalledWith('roofers-manchester.csv', 'text/csv', csv, null, true, false);
+    expect(await screen.findByText('open it')).toHaveAttribute('href', 'https://docs.google.com/spreadsheets/d/s1/edit');
   });
 
   it('a build not registered with Google shows no button at all', async () => {
     const { tauri: t } = await import('@/lib/tauri');
     const g = t.google as unknown as Record<string, ReturnType<typeof vi.fn>>;
     g.status = vi.fn().mockResolvedValue(null);
-    useArtifacts.setState({
-      loaded: true, editing: null, google: null,
-      open: { row: row({ kind: 'document', title: 'Q3: report' }), content: '<p>hi</p>', showing: 2, versions: [] },
-    });
+    docOpen();
     render(<ArtifactsPanel onClose={() => {}} />);
     await waitFor(() => expect(g.status).toHaveBeenCalled());
     // Let the answer land: before it, the button is hidden whatever it says.
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
-    expect(screen.queryByLabelText('Send to Google Docs')).toBeNull();
+    expect(screen.queryByLabelText('Send to Google')).toBeNull();
   });
 
-  it('a PDF goes as a PDF, and a Word file has no button', () => {
-    expect(googlePlan('pdf')).toEqual({ mime: 'application/pdf', convert: false });
-    expect(googlePlan('docx')).toBeNull();
+  it('where each kind can go', () => {
+    expect(googlePlan('pdf', 'drive')).toEqual({ mime: 'application/pdf', convert: false });
+    expect(googlePlan('pdf', 'docs')).toBeNull();
+    expect(googlePlan('docx', 'drive')).toBeNull();
+    expect(googlePlan('document', 'sheets', '<p>hi</p>')).toBeNull();
+    expect(googlePlan('table', 'sheets', '{"columns":["a"],"rows":[[1]]}')).toEqual({ mime: 'text/csv', convert: true, content: 'a\r\n1' });
+    expect(googlePlan('file', 'drive', 'a\n1', 'leads.csv')).toEqual({ mime: 'text/csv', convert: false });
+    expect(googlePlan('file', 'sheets', 'a\n1', 'notes.txt')).toBeNull();
+  });
+
+  it('a table becomes CSV that keeps commas, quotes and line breaks inside cells', () => {
+    expect(tableCsv('{"columns":["name","note"],"rows":[["Ana","says \\"hi\\", twice"],["Ion","two\\nlines"]]}'))
+      .toBe('name,note\r\nAna,"says ""hi"", twice"\r\nIon,"two\nlines"');
+    expect(tableCsv('[{"a":1,"b":2},{"a":3}]')).toBe('a,b\r\n1,2\r\n3,');
+    expect(tableCsv('[["x","y"],[1,2]]')).toBe('x,y\r\n1,2');
+    expect(tableCsv('not json')).toBeNull();
   });
 });
 

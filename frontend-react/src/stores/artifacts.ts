@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { tauri } from '@/lib/tauri';
 import { useNotifications } from '@/stores/notifications';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
+import { open as openUrl } from '@tauri-apps/plugin-shell';
 import type { PdfEdit } from '@/lib/pdfEdits';
 import type { PdfFieldRow } from '@/components/artifacts/PdfEditor';
 
@@ -105,13 +106,13 @@ interface ArtifactsStore {
   /** Set after an export, so the panel can say where the file went. */
   lastExport: { path: string; note: string } | null;
   /** After Send to Google Docs: the link, or what went wrong. */
-  google: { link?: string; error?: string; busy?: boolean } | null;
+  google: { link?: string; error?: string; busy?: boolean; dest?: GoogleDest } | null;
   /**
    * Send the open artifact to the person's Google Drive: text and HTML become
    * a Google Doc, a PDF stays a PDF. First time, it logs them in through the
    * built-in browser and then finishes the send on its own.
    */
-  sendToGoogle: (target?: { title: string; kind: string; content: string }) => Promise<void>;
+  sendToGoogle: (target?: { title: string; kind: string; content: string }, dest?: GoogleDest) => Promise<void>;
   /** Non-null while the person is editing the open artifact. */
   editing: EditSession | null;
   /**
@@ -143,7 +144,7 @@ interface ArtifactsStore {
    * `as: 'pdf'` offers a PDF first (the chat card's "Download PDF"); `row` is
    * for a caller that knows the artifact when the list has not been loaded.
    */
-  exportArtifact: (id: string, opts?: { as?: 'pdf'; row?: { title: string; kind: string }; version?: number }) => Promise<void>;
+  exportArtifact: (id: string, opts?: { as?: 'pdf' | 'xlsx'; row?: { title: string; kind: string }; version?: number }) => Promise<void>;
   /** For good: rows and files. The panel confirms before calling it. */
   deleteArtifact: (id: string) => Promise<void>;
   renameArtifact: (id: string, title: string) => Promise<void>;
@@ -225,26 +226,32 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   focus: null,
   clearFocus: () => set({ focus: null }),
 
-  sendToGoogle: async (target) => {
+  sendToGoogle: async (target, dest = 'docs') => {
     const open = get().open;
     const doc = target
       ? { row: { title: target.title, kind: target.kind }, content: target.content, encoding: undefined }
       : open;
     if (!doc) return;
-    const plan = googlePlan(shownKind(doc.row.kind, doc.content));
+    const plan = googlePlan(shownKind(doc.row.kind, doc.content), dest, doc.content, doc.row.title);
     if (!plan) return;
-    set({ google: { busy: true } });
+    set({ google: { busy: true, dest } });
     try {
       if (!(await tauri.google.status())) {
         // Opens Google's consent page in the Browser panel and resolves once
         // the person has approved; the artifact stays open underneath.
         await tauri.google.connect();
       }
-      const name = `${fileName(doc.row.title)}${plan.convert ? '' : extensionFor(doc.row.kind)}`;
-      const link = await tauri.google.upload(name, plan.mime, doc.content, doc.encoding === 'base64' ? 'base64' : null, plan.convert);
-      set({ google: { link } });
+      const name = plan.convert ? fileName(doc.row.title) : downloadName(doc.row.title, doc.row.kind);
+      const data = plan.content ?? doc.content;
+      const encoding = plan.content === undefined && doc.encoding === 'base64' ? 'base64' : null;
+      const link = await tauri.google.upload(name, plan.mime, data, encoding, plan.convert, dest === 'gmail');
+      if (dest === 'gmail') {
+        const compose = gmailCompose(doc.row.title, link);
+        await openUrl(compose).catch(() => window.open(compose, '_blank', 'noopener,noreferrer'));
+      }
+      set({ google: { link, dest } });
     } catch (e) {
-      set({ google: { error: String(e) } });
+      set({ google: { error: String(e), dest } });
     }
   },
 
@@ -305,19 +312,22 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     // The person picks where it goes, in the OS dialog, for every kind. Export
     // used to drop the file in the workspace root and print the path; a PDF
     // to sign usually wants to be on the desktop or in Downloads.
+    // A table leaves as a sheet unless asked otherwise: its own .json is a file
+    // nobody who asked for a table knows how to open (6 Oct, a CSV came out as a PDF).
+    const as = opts?.as ?? (row?.kind === 'table' ? 'xlsx' : undefined);
     let dest: string | undefined;
     try {
       const picked = await saveDialog({
-        defaultPath: row ? `${fileName(row.title)}${opts?.as === 'pdf' ? '.pdf' : extensionFor(row.kind)}` : undefined,
+        defaultPath: row ? downloadName(row.title, row.kind, as) : undefined,
         // The native format first, then what the sidecar can convert a text
         // artifact into: it picks the conversion from the extension of the
         // path chosen here (export.ts `exportAs`), so a name ending in .docx
         // is a Word file, not the source bytes renamed.
         filters: row
-          ? opts?.as === 'pdf' && CONVERTIBLE.has(row.kind)
-            ? [{ name: 'PDF', extensions: ['pdf'] }]
+          ? as && CONVERTIBLE.has(row.kind)
+            ? [{ name: as === 'pdf' ? 'PDF' : 'Excel', extensions: [as] }]
             : [
-                { name: row.kind.toUpperCase(), extensions: [extensionFor(row.kind).slice(1)] },
+                { name: row.kind.toUpperCase(), extensions: [extensionFor(row.kind, row.title).slice(1)] },
                 ...(CONVERTIBLE.has(row.kind)
                   ? [
                       { name: 'PDF', extensions: ['pdf'] },
@@ -672,24 +682,89 @@ export function shownKind(kind: string, content: string): string {
   return kind === 'document' && !html.test(content) ? 'markdown' : kind;
 }
 
-/** What each kind becomes on Drive; null for kinds the button does not offer. */
-export function googlePlan(kind: string): { mime: string; convert: boolean } | null {
-  switch (kind) {
-    case 'document': case 'html': case 'app': return { mime: 'text/html', convert: true };
-    case 'markdown': case 'code': case 'json': case 'table': return { mime: 'text/plain', convert: true };
-    case 'pdf': return { mime: 'application/pdf', convert: false };
-    // A Word file's bytes are not in the panel (only its preview), and an
-    // image is not a document.
-    default: return null;
+/** The four places the Google button sends an artifact to. */
+export type GoogleDest = 'drive' | 'docs' | 'sheets' | 'gmail';
+export const GOOGLE_DESTS: GoogleDest[] = ['drive', 'docs', 'sheets', 'gmail'];
+
+/** The file as it is, for Drive and for the Gmail link. A Word file's bytes
+ *  are not in the panel (only its preview), and an image is not a document. */
+const FILE_MIME: Record<string, string> = {
+  document: 'text/html', html: 'text/html', app: 'text/html', markdown: 'text/markdown',
+  code: 'text/plain', json: 'application/json', table: 'application/json', pdf: 'application/pdf',
+};
+
+/**
+ * How one kind goes to one Google place, or null when it cannot: Docs takes
+ * text and HTML (a PDF would go through OCR and lose its layout), Sheets a
+ * table, turned into CSV here because that is what Google imports as a Sheet,
+ * or a CSV the agent wrote as a file, which is already that.
+ */
+export function googlePlan(kind: string, dest: GoogleDest = 'docs', content = '', title = ''): { mime: string; convert: boolean; content?: string } | null {
+  const csvFile = kind === 'file' && /\.csv$/i.test(title.trim());
+  switch (dest) {
+    case 'drive':
+    case 'gmail':
+      if (csvFile) return { mime: 'text/csv', convert: false };
+      return FILE_MIME[kind] ? { mime: FILE_MIME[kind]!, convert: false } : null;
+    case 'docs':
+      if (kind === 'document' || kind === 'html' || kind === 'app') return { mime: 'text/html', convert: true };
+      if (kind === 'markdown' || kind === 'code' || kind === 'json' || kind === 'table') return { mime: 'text/plain', convert: true };
+      return null;
+    case 'sheets': {
+      const csv = kind === 'table' ? tableCsv(content) : csvFile && content.trim() ? content : null;
+      return csv ? { mime: 'text/csv', convert: true, content: csv } : null;
+    }
   }
+}
+
+/** A table artifact (`{columns, rows}`, rows of arrays, or rows of objects:
+ *  the shapes the sidecar's `tableRows` reads) as CSV, or null. */
+export function tableCsv(content: string): string | null {
+  let parsed: unknown;
+  try { parsed = JSON.parse(content); } catch { return null; }
+  let header: string[] = [];
+  let rows: unknown[][] = [];
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const o = parsed as { columns?: unknown; rows?: unknown };
+    if (!Array.isArray(o.columns) || !Array.isArray(o.rows)) return null;
+    header = o.columns.map(String);
+    rows = o.rows.map((r) => (Array.isArray(r) ? r : Object.values(r as object)));
+  } else if (Array.isArray(parsed) && parsed.length > 0) {
+    if (Array.isArray(parsed[0])) [header, rows] = [(parsed[0] as unknown[]).map(String), parsed.slice(1) as unknown[][]];
+    else if (parsed[0] && typeof parsed[0] === 'object') {
+      header = Array.from(new Set(parsed.flatMap((r) => Object.keys(r as object))));
+      rows = parsed.map((r) => header.map((k) => (r as Record<string, unknown>)[k]));
+    } else return null;
+  } else return null;
+  const cell = (v: unknown) => {
+    const s = v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return [header, ...rows].map((r) => r.map(cell).join(',')).join('\r\n');
+}
+
+/** A new Gmail message with the link in it; the person adds who it goes to. */
+function gmailCompose(title: string, link: string): string {
+  const body = `${title}\n${link}\n\n(Anyone with this link can view it.)`;
+  return `https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
 }
 
 /** The text kinds the sidecar can turn into a PDF, a Word or an Excel file. */
 const CONVERTIBLE = new Set(['document', 'markdown', 'app', 'table', 'code', 'json', 'html', 'board']);
 
-/** Mirrors `EXT` in the sidecar's artifacts/store.ts. */
-function extensionFor(kind: string): string {
+/** Mirrors `ArtifactStore.extensionOf` in the sidecar's artifacts/store.ts: a
+ *  file or code artifact keeps the type in its title (leads.csv), not .bin. */
+function extensionFor(kind: string, title = ''): string {
+  const own = (kind === 'file' || kind === 'code') && /\.(?=[a-z0-9]*[a-z])[a-z0-9]{1,8}$/i.exec(title.trim());
+  if (own) return own[0].toLowerCase();
   return ({ document: '.html', markdown: '.md', app: '.html', table: '.json', code: '.txt', json: '.json', html: '.html', pdf: '.pdf', docx: '.docx', image: '.png', board: '.board.json' } as Record<string, string>)[kind] ?? '.bin';
+}
+
+/** What the save dialog suggests: the title, plus the type it leaves as unless it already ends in it. */
+function downloadName(title: string, kind: string, as?: string): string {
+  const base = fileName(title);
+  const ext = as ? `.${as}` : extensionFor(kind, title);
+  return base.toLowerCase().endsWith(ext) ? base : `${base}${ext}`;
 }
 
 /** A title as a filename, same rules as the sidecar's safeFileName. */

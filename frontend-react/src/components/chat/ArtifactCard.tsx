@@ -46,8 +46,9 @@ export function artifactLine(f: Pick<ArtifactFact, 'kind' | 'version'>): string 
 
 /** Kinds whose text the card can read and draw; the rest get their cover. */
 const READABLE = new Set(['document', 'markdown', 'app', 'html', 'table', 'code', 'json', 'board']);
-/** Kinds the sidecar turns into a PDF on export (mirrors CONVERTIBLE in the store). */
-const PDF_ABLE = new Set(['document', 'markdown', 'table', 'code', 'json', 'board']);
+/** Prose, whose one-tap download is a PDF. A table, a script or a JSON file
+ *  leaves as itself: "Download" on a CSV-like table used to hand over a PDF (6 Oct). */
+const PDF_ABLE = new Set(['document', 'markdown', 'board']);
 /** Section columns on the card; the rest are chips in the footer. */
 const COLUMNS = 4;
 const CHIPS = 4;
@@ -295,7 +296,10 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
   }
 
   const asPdf = PDF_ABLE.has(f.kind);
-  const canShare = googleOk && peek.state === 'ready' && googlePlan(shown) !== null;
+  // One tap from the chat: a Doc when it can be one, the file in Drive when not
+  // (a PDF). The panel's Google button offers all four places.
+  const shareTo = googlePlan(shown, 'docs', content) ? 'docs' : googlePlan(shown, 'drive', content) ? 'drive' : null;
+  const canShare = googleOk && peek.state === 'ready' && shareTo !== null;
   const iconButton = 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border-default bg-bg-elevated text-text-secondary transition-colors hover:bg-text-primary/5 hover:text-text-primary disabled:opacity-60';
 
   // A board draws its own header and footer (the 1 Oct boards); the card adds its buttons to that footer.
@@ -405,7 +409,7 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
             disabled={google?.busy === true}
             onClick={() => {
               setShared(true);
-              void useArtifacts.getState().sendToGoogle({ title: f.title, kind: f.kind, content });
+              void useArtifacts.getState().sendToGoogle({ title: f.title, kind: f.kind, content }, shareTo ?? 'drive');
             }}
             className={iconButton}
           >

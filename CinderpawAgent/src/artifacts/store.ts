@@ -76,6 +76,12 @@ export function looksLikeHtml(text: string): boolean {
   return /<(p|div|h[1-6]|ul|ol|li|table|tr|section|article|header|body|html|blockquote|pre)\b[^>]*>/i.test(text);
 }
 
+/** The file type at the end of a title ("leads.csv" gives ".csv"), or null. A
+ *  version number is not one: "Release 1.2" has none. */
+export function titleExtension(title: string): string | null {
+  return /\.(?=[a-z0-9]*[a-z])[a-z0-9]{1,8}$/i.exec(title.trim())?.[0].toLowerCase() ?? null;
+}
+
 export function isArtifactKind(v: unknown): v is ArtifactKind {
   return typeof v === "string" && KINDS.has(v);
 }
@@ -264,8 +270,14 @@ export class ArtifactStore {
     return TEXT_KINDS.has(kind);
   }
 
-  static extensionFor(kind: ArtifactKind): string {
-    return EXT[kind];
+  /**
+   * The extension a copy leaves with. A `file` or `code` artifact can hold any
+   * text at all (a CSV, a Python script, a calendar invite), so the type in its
+   * title is the truth and the kind's is only a fallback: before this a CSV
+   * titled leads.csv downloaded as leads.csv.bin, which nothing opens (6 Oct).
+   */
+  static extensionOf(a: { kind: ArtifactKind; title: string }): string {
+    return ((a.kind === "file" || a.kind === "code") && titleExtension(a.title)) || EXT[a.kind];
   }
 
   create(input: {
