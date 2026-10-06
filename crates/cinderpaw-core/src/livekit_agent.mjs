@@ -82,7 +82,13 @@ const STT_MODEL = process.env.CINDERPAW_LIVE_STT_MODEL || '';
 const STT_PROVIDER = process.env.CINDERPAW_LIVE_STT_PROVIDER || 'local';
 /** ISO-639-1 the app already knows the user speaks. */
 const STT_LANGUAGE = process.env.CINDERPAW_LIVE_STT_LANGUAGE || '';
-const TTS_ENGINE = process.env.CINDERPAW_LIVE_TTS_ENGINE || 'piper';
+/**
+ * The pipeline's on-device voice, named by Rust from what this build can run.
+ *
+ * Never assumed here: it was `'piper'`, and Piper is on no release build (a
+ * licence bound, see release.yml). A realtime vendor never uses it at all.
+ */
+const TTS_ENGINE = process.env.CINDERPAW_LIVE_TTS_ENGINE || '';
 /**
  * Whether this call is the assembled local pipeline rather than a vendor's
  * speech-to-speech session.
@@ -481,8 +487,10 @@ const REALTIME = {
       // Google transcribes both directions from one option each; OpenAI only
       // transcribes the INPUT, and the output transcript arrives as part of the
       // response. Asking for the input one is therefore not symmetry — it is
-      // the only half that has to be requested.
-      inputAudioTranscription: { model: 'whisper-1' },
+      // the only half that has to be requested. With the language when the app
+      // knows it, for the same reason Gemini gets one: guessed per utterance,
+      // Romanian comes back transcribed as something else.
+      inputAudioTranscription: { model: 'whisper-1', ...(LANGUAGE ? { language: LANGUAGE } : {}) },
       instructions: INSTRUCTIONS,
     });
   },
@@ -575,6 +583,71 @@ const FILLER = {
   },
 };
 
+/**
+ * What the worker asks of the model when it needs it to speak, said AS THE
+ * PERSON, in the caller's language.
+ *
+ * As the person, never as the model. `generateReply({ instructions })` hands
+ * Gemini its text as a turn the MODEL already said, and a model continues from
+ * its own words. On 6 Oct that was a search answer the model had requested in
+ * English, read out word for word in English before the Romanian reply, and
+ * minutes later Google closed the session (1011, "Internal error encountered")
+ * 2.7 s after another such turn. A question from the person is the one request
+ * every model answers in its own words and in the conversation's language.
+ */
+const ASK = {
+  en: {
+    hello: 'Hi!',
+    found: 'What did you find?',
+    late: 'Cinderpaw has finished what I asked. Here is what it found; tell me what matters, briefly:',
+    question: 'Cinderpaw needs an answer from me. Read me its question, word for word, options included:',
+  },
+  ro: {
+    hello: 'Salut!',
+    found: 'Ce ai găsit?',
+    late: 'Cinderpaw a terminat ce i-am cerut. Iată ce a găsit; spune-mi pe scurt ce contează:',
+    question: 'Cinderpaw are nevoie de un răspuns de la mine. Citește-mi întrebarea lui, cuvânt cu cuvânt, cu tot cu variante:',
+  },
+};
+const asked = () => ASK[LANGUAGE] ?? ASK.en;
+
+/**
+ * Put words in the person's mouth so the model answers them.
+ *
+ * On Google this goes to the plugin directly: the SDK's own
+ * `generateReply({ userInput })` sends the words and then an EMPTY turn list on
+ * the 3.x models, which Google rejects ("Failed to parse client content
+ * turns") and the call goes mute. Everywhere else the SDK's path is fine.
+ * `_activity` is the SDK's own documented hook for this kind of coupling, and
+ * the SDK is pinned (see AGENT_PINS in livekit.rs), so a rename is an upgrade
+ * someone reads, not a surprise; if it is ever gone, the SDK path runs.
+ *
+ * Marks the turn as asked-for, so the lookup guard never mistakes the answer
+ * to our own request for an announcement the model failed to act on.
+ */
+function userTurn(session, text) {
+  turn.guarded = true;
+  try {
+    const rt = session?._activity?.realtimeSession;
+    if (PROVIDER === 'google' && typeof rt?.sendClientEvent === 'function') {
+      rt.sendClientEvent({
+        type: 'content',
+        value: { turns: [{ role: 'user', parts: [{ text }] }], turnComplete: true },
+      });
+      return;
+    }
+    Promise.resolve(session.generateReply({ userInput: text })).catch((e) => {
+      console.error(`could not ask the model to speak: ${String(e?.message ?? e)}`);
+    });
+  } catch (e) {
+    // A session that is closing cannot be asked anything; the call goes on.
+    console.error(`could not ask the model to speak: ${String(e?.message ?? e)}`);
+  }
+}
+
+/** How many tool calls are running right now, across turns. */
+let inFlight = 0;
+
 /** How long a tool call may run before the line needs warming, and how often. */
 const FIRST_FILLER_MS = 1200;
 const NEXT_FILLER_MS = 12_000;
@@ -662,34 +735,32 @@ function turnMark(what, ms = 0) {
  * `autoToolReplyGeneration`), so LiveKit never asks for that reply. 2.5 native
  * audio does speak it; the 3.8 Live models, measured 18 Sep, found the answer
  * and said nothing, call after call. So if nobody has started speaking a few
- * seconds after the result landed, it is asked for, with an instruction: the
- * plugin sends an EMPTY turn list for a bare `generateReply()` on 3.x models,
- * which Google's SDK rejects ("Failed to parse client content turns").
- * On a model that already answered, the agent spoke first and this does nothing.
+ * seconds after the result landed, it is asked for. On a model that already
+ * answered, the agent spoke first and this does nothing.
  */
 const TOOL_REPLY_GRACE_MS = 4000;
-// What `instructions` IS on a Gemini Live model, measured 20 Sep: the plugin
-// sends it as a turn with role "model", and a 3.8 model continues from "its
-// own" words, so the text is roughly what gets SPOKEN. An instruction about
-// the answer was read aloud in English ("The search is done, tell the user in
-// Romanian…") and the answer itself never came. `userInput` is no way out:
-// on 3.x the plugin then sends an empty turn list, which Google rejects
-// ("Failed to parse client content turns") and the call goes mute. So the
-// text handed over is the answer itself, which the sidecar already wrote in
-// the caller's language, and the model reads it. Same rule for `toolLate`
-// and for the spoken `ask_user` question below.
-function nudgeToolReply(session, answeredAt, answer) {
+/** How many times one call may get a fresh vendor session, and how much of the
+ *  conversation goes with it. Calibration knobs, not measurements. */
+const MAX_REOPENS = 3;
+const REOPEN_HISTORY_ITEMS = 40;
+/** WebSocket closes a vendor sends for its own trouble: going away, abnormal,
+ *  internal error, try again later. Not quota, key or refusal. */
+const TRANSIENT_CODES = new Set([1001, 1006, 1011, 1013, 500, 502, 503, 504]);
+// History, because both earlier answers were measured and both were wrong.
+// A bare `generateReply()` sends an empty turn list on 3.x, which Google
+// rejects. `instructions` is sent as a turn with role "model" (20 Sep), and a
+// 3.8 model continues from "its own" words: an instruction about the answer was
+// read aloud in English, so the answer itself was handed over instead.
+//
+// 6 Oct: handing over the answer itself was the bug, not the cure. The model
+// had passed the request on in English, so the answer was English, and it was
+// recited before the Romanian reply. The result is already in the model's
+// context as the tool's response, so the nudge is now the person asking what
+// was found (see ASK and userTurn), answered in the model's own words.
+function nudgeToolReply(getSession, answeredAt) {
   setTimeout(() => {
     if (talk.agentSpokeAt >= answeredAt || talk.agent === 'speaking' || talk.user === 'speaking') return;
-    const text = String(answer ?? '').trim();
-    if (!text) return;
-    try {
-      Promise.resolve(session.generateReply({ instructions: text })).catch((e) => {
-        console.error(`tool reply nudge failed: ${String(e?.message ?? e)}`);
-      });
-    } catch (e) {
-      console.error(`tool reply nudge could not start: ${String(e?.message ?? e)}`);
-    }
+    userTurn(getSession(), asked().found);
   }, TOOL_REPLY_GRACE_MS);
 }
 
@@ -715,13 +786,19 @@ const ANNOUNCES_LOOKUP =
   /(?<![\p{L}])(caut|căut|cautam|căutăm|verific|mă uit|ma uit|mă interesez|ma interesez|searching|search(ing)? for|looking (it |that |this )?up|let me (check|look|search|find)|i'?ll (check|look|search|find)|checking)(?![\p{L}])/iu;
 /** How long after the announcement a real tool call still counts as "with it". */
 const ANNOUNCED_CALL_GRACE_MS = 1500;
+//
+// Not while a lookup is already running. `turn.called` is per turn, and on
+// 6 Oct a search started in one turn was still running when the person spoke
+// again; the model said "I am checking", meaning that search, and the guard
+// started a second one with the same question (voice_guard turn=4, two
+// ask_cinder calls 7 s apart, two answers).
 function guardAnnouncedLookup(tools, said, heard) {
   if (PROVIDER !== 'google' || !ANNOUNCES_LOOKUP.test(said)) return;
-  if (turn.called || turn.guarded || !heard) return;
+  if (turn.called || turn.guarded || inFlight > 0 || !heard) return;
   turn.guarded = true;
   const n = turn.n;
   setTimeout(() => {
-    if (turn.n !== n || turn.called) return;
+    if (turn.n !== n || turn.called || inFlight > 0) return;
     const ask = tools[ASK_TOOL];
     if (!ask) return;
     console.log(`voice_guard turn=${n} announced_lookup_without_call=1`);
@@ -792,8 +869,9 @@ const emit = (obj) => console.log('CINDERPAW_EVENT ' + JSON.stringify(obj));
 /** Two newlines, spelled out because a `\n` inside a string in this file has been mangled by tooling once. */
 const BLANK_LINE = String.fromCharCode(10, 10);
 
-/** Build the LiveKit tool set from what Rust declared. */
-function toolsFromDeclarations(session) {
+/** Build the LiveKit tool set from what Rust declared. `getSession` is the
+ *  session live NOW: a vendor that drops the line gets a new one mid-call. */
+function toolsFromDeclarations(getSession) {
   const out = {};
   for (const decl of TOOL_DECLARATIONS) {
     out[decl.name] = llm.tool({
@@ -805,6 +883,7 @@ function toolsFromDeclarations(session) {
       // timer below is best effort and stops when this callback settles.
       execute: async (args) => {
         turn.called = true;
+        inFlight += 1;
         // The call screen has a panel that shows what the agent is doing, and
         // for a LiveKit call it was always blank: `ask_cinder` is answered over
         // the loopback API, which the webview never sees. So a person asked for
@@ -831,7 +910,12 @@ function toolsFromDeclarations(session) {
         // Nothing needs covering for a call that returns as fast as a line on
         // a pipe either: a filler for the stop would talk over the
         // confirmation it is waiting for.
-        const done = PROVIDER === 'google' || !subject ? () => {} : keepLineWarm(session);
+        // Only the assembled pipeline, whose model is blocked while a tool
+        // runs. A realtime vendor keeps talking on its own (Gemini always
+        // could; gpt-realtime calls functions asynchronously), and a second,
+        // local voice speaking over it was a different person on the line, on
+        // an engine the build may not even have (6 Oct review).
+        const done = PIPELINE && subject ? keepLineWarm(getSession()) : () => {};
         try {
           const out = await askRust(id, decl.name, args);
           const failed = out?.ok === false;
@@ -853,11 +937,12 @@ function toolsFromDeclarations(session) {
             `voice_tool_call id=${id} tool=${decl.name} ms=${Date.now() - startedAt} ok=${!failed} pending=${Boolean(out?.pending)}`,
           );
           turnMark('tool', Date.now() - startedAt);
-          if (PROVIDER === 'google' && subject && !out?.pending) nudgeToolReply(session, Date.now(), out?.output);
+          if (PROVIDER === 'google' && subject && !out?.pending) nudgeToolReply(getSession, Date.now());
           return out;
         } finally {
           // On every path. Left running after a failure, the call would go on
           // saying it was still waiting for as long as the room was open.
+          inFlight -= 1;
           done();
         }
       },
@@ -923,62 +1008,21 @@ async function assistant(ctx, makeSession) {
     );
     return echo(ctx);
   }
-  const session = makeSession ? await makeSession(ctx) : new voice.AgentSession({
-    llm: await build(),
-    // Used by filler on OpenAI; normal realtime output uses the vendor voice.
-    // A vendor voice name is not a valid local TTS voice selection.
-    tts: new LocalTTS(null),
-  });
-
-  // One line per event, on stdout, for Rust to forward to the window. A prefix
-  // rather than a side channel because the pipe already exists and a second one
-  // is a second thing that can be half-connected.
+  // The session live NOW. A vendor that drops the line mid-call gets a new one
+  // in the same room (see `open`), so everything below reads this variable and
+  // never a session captured once.
+  let session = null;
 
   // Built once, before the handlers, so the lookup guard can run the same
   // ask_cinder the model would have (row on screen, spoken answer and all).
-  const tools = toolsFromDeclarations(session);
-  /** The person's latest words, the request a guarded lookup is made with. */
+  const tools = toolsFromDeclarations(() => session);
+  /**
+   * What the person said in THIS turn, the request a guarded lookup is made
+   * with. Emptied when they start speaking again and once it has been used, so
+   * a later sentence of the model's never starts a lookup with old words.
+   */
   let lastHeard = '';
 
-  session.on(AgentSessionEventTypes.UserInputTranscribed, (e) => {
-    // Interim results ARE forwarded, flagged as partial, and this is the whole
-    // difference between a call that feels alive and one that reads as broken.
-    //
-    // This used to drop everything but `isFinal`, reasoning that a flickering
-    // half-sentence is worse than a clean one. The reasoning was wrong about
-    // WHEN the final arrives: with a native-audio realtime model it lands after
-    // the turn is processed, so the screen stayed empty for five to ten seconds
-    // while somebody was still talking — and longer as the conversation grew,
-    // up to half a minute. A person watching their own words not appear
-    // concludes the microphone is dead. The first-run version of that person
-    // concludes the product is.
-    //
-    // The receiver decides what to do with a partial: show it, and write only
-    // the final into the conversation, so a sentence is not persisted ten times.
-    const text = e.transcript?.trim();
-    if (text) emit({ kind: 'heard', text, partial: !e.isFinal });
-    if (text) lastHeard = text;
-  });
-
-  session.on(AgentSessionEventTypes.ConversationItemAdded, (e) => {
-    const item = e.item;
-    if (item?.role !== 'assistant') return;
-    const text = Array.isArray(item.content)
-      ? item.content.filter((c) => typeof c === 'string').join(' ').trim()
-      : String(item.textContent ?? '').trim();
-    if (text) emit({ kind: 'said', text });
-    if (text) guardAnnouncedLookup(tools, text, lastHeard);
-  });
-
-  // The free Gemini tier rate-limits voice, and a session that dies from quota
-  // is indistinguishable from a broken app unless something says so. The plugin
-  // resumes a dropped session on its own using a resumption handle, so this
-  // reports rather than reconnects — but a quota refusal is not resumable, and
-  // that is exactly the case a person needs told.
-  // What the call is DOING, so the screen can say so. The overlay has always
-  // had four states; without this it would have to guess them from audio
-  // energy, which is how a call that is thinking looks identical to one that
-  // has died.
   // Speaking first is not decoration. A person who has just pressed a button
   // and hears nothing cannot tell a working call from a broken one, and the
   // usual response is to hang up during the pause before the first reply.
@@ -988,13 +1032,17 @@ async function assistant(ctx, makeSession) {
   const greet = () => {
     if (greeted) return;
     greeted = true;
+    if (PROVIDER === 'google') {
+      // As the person, never as an instruction (see ASK): on 3.8 an
+      // instruction is recited, and "greet the user in their language", with
+      // nothing to go on but one word, came back in German on 6 Oct.
+      userTurn(session, asked().hello);
+      return;
+    }
     try {
       // Not awaited: the greeting plays while the call gets on with listening.
       // The `catch` is not optional though — an unhandled rejection here would
       // take the process down and the call with it.
-      // With an instruction, never bare: on the Gemini 3.x models the plugin
-      // turns a bare generateReply() into an empty turn list, which Google's
-      // SDK rejects, and the call opened with an error instead of a hello.
       Promise.resolve(session.generateReply({
         instructions: 'Greet the user in one short sentence, in their language, and say you are listening.',
       })).catch((e) => {
@@ -1019,48 +1067,130 @@ async function assistant(ctx, makeSession) {
     if (deaf !== null) { clearTimeout(deaf); deaf = null; }
   };
 
-  session.on(AgentSessionEventTypes.AgentStateChanged, (e) => {
-    const state = String(e.newState ?? '');
-    talk.agent = state;
-    if (state === 'speaking') {
-      talk.agentSpokeAt = Date.now();
-      turnMark('agent_speaks');
-    }
-    emit({ kind: 'state', text: state });
-    // The greeting waits for this rather than firing right after `start()`.
-    // See `greet` below for why.
-    if (state === 'listening') {
-      listened = true;
-      stopDeafTimer();
-      greet();
-    }
-  });
-
-  session.on(AgentSessionEventTypes.UserStateChanged, (e) => {
-    const next = String(e.newState ?? '');
-    // Logged, with the previous state: the 18 Sep mute began with an
-    // "input speech started" ~20 ms after a tool call, and nothing recorded
-    // who was speaking when. Two words per transition; no content.
-    console.log(`voice_user_state ${talk.user || 'none'}->${next}`);
-    if (talk.user === 'speaking' && next !== 'speaking') turnMark('user_end');
-    talk.user = next;
-  });
-
   // Kept so the close can say WHY. A vendor that refuses the session closes it
   // one event later, and a close with no reason is a call that simply went
   // quiet: on 17 Sep a Gemini model that accepts a live session but not audio
   // answered "CONTENT_TYPE_AUDIO is not supported for this model
   // configuration", and all the person saw was an orb and silence.
   let lastError = '';
-  session.on(AgentSessionEventTypes.Error, (e) => {
-    const message = String(e?.error?.message ?? e?.error ?? 'unknown error');
-    lastError = message;
-    emit({ kind: 'error', text: message, recoverable: Boolean(e?.recoverable) });
-  });
-  session.on(AgentSessionEventTypes.Close, () => {
-    stopDeafTimer();
-    emit({ kind: 'closed', text: lastError });
-  });
+  let lastCode = 0;
+  let reopens = 0;
+
+  const open = async (history) => {
+    // A realtime vendor speaks in its own voice and nothing else: no local
+    // voice is attached, so nothing can ever talk over it.
+    const s = makeSession ? await makeSession(ctx) : new voice.AgentSession({ llm: await build() });
+    session = s;
+    lastError = '';
+    lastCode = 0;
+
+    s.on(AgentSessionEventTypes.UserInputTranscribed, (e) => {
+      // Interim results ARE forwarded, flagged as partial, and this is the whole
+      // difference between a call that feels alive and one that reads as broken.
+      //
+      // This used to drop everything but `isFinal`, reasoning that a flickering
+      // half-sentence is worse than a clean one. The reasoning was wrong about
+      // WHEN the final arrives: with a native-audio realtime model it lands after
+      // the turn is processed, so the screen stayed empty for five to ten seconds
+      // while somebody was still talking — and longer as the conversation grew,
+      // up to half a minute. A person watching their own words not appear
+      // concludes the microphone is dead. The first-run version of that person
+      // concludes the product is.
+      //
+      // The receiver decides what to do with a partial: show it, and write only
+      // the final into the conversation, so a sentence is not persisted ten times.
+      const text = e.transcript?.trim();
+      if (text) emit({ kind: 'heard', text, partial: !e.isFinal });
+      if (text) lastHeard = text;
+    });
+
+    s.on(AgentSessionEventTypes.ConversationItemAdded, (e) => {
+      const item = e.item;
+      if (item?.role !== 'assistant') return;
+      const text = Array.isArray(item.content)
+        ? item.content.filter((c) => typeof c === 'string').join(' ').trim()
+        : String(item.textContent ?? '').trim();
+      if (text) emit({ kind: 'said', text });
+      if (text) guardAnnouncedLookup(tools, text, lastHeard);
+      lastHeard = '';
+    });
+
+    // What the call is DOING, so the screen can say so. The overlay has always
+    // had four states; without this it would have to guess them from audio
+    // energy, which is how a call that is thinking looks identical to one that
+    // has died.
+    s.on(AgentSessionEventTypes.AgentStateChanged, (e) => {
+      const state = String(e.newState ?? '');
+      talk.agent = state;
+      if (state === 'speaking') {
+        talk.agentSpokeAt = Date.now();
+        turnMark('agent_speaks');
+      }
+      emit({ kind: 'state', text: state });
+      // The greeting waits for this rather than firing right after `start()`.
+      // See the end of `assistant` for why.
+      if (state === 'listening') {
+        listened = true;
+        stopDeafTimer();
+        greet();
+      }
+    });
+
+    s.on(AgentSessionEventTypes.UserStateChanged, (e) => {
+      const next = String(e.newState ?? '');
+      // Logged, with the previous state: the 18 Sep mute began with an
+      // "input speech started" ~20 ms after a tool call, and nothing recorded
+      // who was speaking when. Two words per transition; no content.
+      console.log(`voice_user_state ${talk.user || 'none'}->${next}`);
+      if (talk.user === 'speaking' && next !== 'speaking') turnMark('user_end');
+      if (next === 'speaking' && talk.user !== 'speaking') lastHeard = '';
+      talk.user = next;
+    });
+
+    s.on(AgentSessionEventTypes.Error, (e) => {
+      // A vendor error is wrapped once more than a plain one: the event's
+      // `error` holds the API error in its own `error`. Read flat, it reached
+      // the screen as "[object Object]".
+      const inner = e?.error?.error;
+      const message = String(e?.error?.message ?? inner?.message ?? e?.error ?? 'unknown error');
+      lastError = message;
+      lastCode = Number(inner?.statusCode ?? 0);
+      emit({ kind: 'error', text: message, recoverable: Boolean(e?.recoverable) });
+    });
+
+    s.on(AgentSessionEventTypes.Close, (e) => {
+      if (s !== session) return;
+      stopDeafTimer();
+      // 6 Oct: Gemini closed the session with 1011, "Internal error
+      // encountered", not retryable, and the call simply stopped answering.
+      // A vendor that drops the line for its own reasons gets a fresh session
+      // in the same room, carrying the conversation so far, a few times per
+      // call. The room, the window and the microphone stay as they are.
+      // Not on quota, a key, or a model that refuses: those fail again at
+      // once, and the person needs the reason on screen instead.
+      const why = lastError;
+      const transient = TRANSIENT_CODES.has(lastCode) || /internal error|unavailable|deadline|reset/i.test(why);
+      if (!makeSession && String(e?.reason ?? '') === 'error' && transient && reopens < MAX_REOPENS && ctx.room.isConnected) {
+        reopens += 1;
+        console.error(`voice_reopen n=${reopens} code=${lastCode}`);
+        emit({ kind: 'error', text: 'The voice service dropped the line for a moment. Reconnecting.', recoverable: true });
+        const carried = s.history
+          .copy({ excludeFunctionCall: true, excludeEmptyMessage: true })
+          .truncate(REOPEN_HISTORY_ITEMS);
+        open(carried).catch((err) => {
+          console.error(`voice reopen failed: ${String(err?.message ?? err)}`);
+          emit({ kind: 'closed', text: why || String(err?.message ?? err) });
+        });
+        return;
+      }
+      emit({ kind: 'closed', text: why });
+    });
+
+    await s.start({
+      agent: new voice.Agent({ instructions: INSTRUCTIONS, tools, ...(history ? { chatCtx: history } : {}) }),
+      room: ctx.room,
+    });
+  };
 
   // Commands from the window, over LiveKit's own data channel.
   //
@@ -1076,58 +1206,43 @@ async function assistant(ctx, makeSession) {
     } catch {
       return; // not ours
     }
-    if (msg.type === 'interrupt') session.interrupt();
-    // `userInput`, not `say`: `say` would make the assistant read the text out
-    // loud in its own voice, which is the opposite of what typing into a call
-    // means.
-    if (msg.type === 'text' && msg.text) session.generateReply({ userInput: String(msg.text) });
-    // A question the agent is waiting on, spoken so a person who is listening
-    // rather than looking knows to answer. `say`, not `generateReply`: the
-    // sentence is already written by the side that asked, and asking the model
-    // to rephrase it would invent options that were never offered.
-    if (msg.type === 'ask' && msg.text) {
-      const text = String(msg.text);
-      console.log(`voice_ask chars=${text.length} provider=${PROVIDER}`);
-      try {
-        // Gemini speaks for itself: `say` would go through the null local
-        // TTS and produce nothing, which is how an approval waited out its
-        // timeout in silence. The model is asked to read the question word
-        // for word, so no option is invented. OpenAI keeps `say`, where the
-        // filler TTS exists to carry it.
-        const spoken =
-          PROVIDER === 'google'
-            // `instructions` is what gets spoken (see nudgeToolReply): the
-            // question itself, word for word, options included.
-            ? session.generateReply({ instructions: text })
-            : session.say(text);
-        Promise.resolve(spoken).catch((e) => console.error(`ask could not be spoken: ${String(e?.message ?? e)}`));
-      } catch (e) {
-        // A session that is closing cannot speak; the card is on screen anyway.
-        console.error(`ask could not be spoken: ${String(e?.message ?? e)}`);
+    const s = session;
+    if (!s) return;
+    // Inside the room's own event loop: a throw here (a session closing under
+    // a late command) would escape into the SDK and can end the job.
+    try {
+      if (msg.type === 'interrupt') s.interrupt();
+      // As the person, which is what typing into a call means. Through
+      // `userTurn`, because the SDK's own path mutes a Gemini 3.x call.
+      if (msg.type === 'text' && msg.text) userTurn(s, String(msg.text));
+      // A question the agent is waiting on, spoken so a person who is listening
+      // rather than looking knows to answer. The pipeline says it in its own
+      // voice; a realtime vendor is asked, as the person, to read it word for
+      // word, so no option is invented and no local voice the build may not
+      // have is needed.
+      if (msg.type === 'ask' && msg.text) {
+        const text = String(msg.text);
+        console.log(`voice_ask chars=${text.length} provider=${PROVIDER}`);
+        if (makeSession) {
+          Promise.resolve(s.say(text)).catch((e) => console.error(`ask could not be spoken: ${String(e?.message ?? e)}`));
+        } else {
+          userTurn(s, `${asked().question}${BLANK_LINE}${text}`);
+        }
       }
-    }
-    // The result of a tool call that outlived its deadline, relayed by the
-    // window from Rust. `generateReply` with the result as an instruction, not
-    // `say`: the text is the agent's full answer and the model should tell the
-    // person what matters in it, in their language, the way it would have had
-    // the result arrived in time.
-    if (msg.type === 'toolLate' && msg.text) {
-      console.log(`voice_tool_late id=${String(msg.id ?? '')} chars=${String(msg.text).length}`);
-      try {
-        // The answer itself, in the caller's language: see nudgeToolReply.
-        Promise.resolve(
-          session.generateReply({ instructions: String(msg.text) }),
-        ).catch((e) => console.error(`late tool reply failed: ${String(e?.message ?? e)}`));
-      } catch (e) {
-        console.error(`late tool reply could not start: ${String(e?.message ?? e)}`);
+      // The result of a tool call that outlived its deadline, relayed by the
+      // window from Rust. Not in the model's context yet, so it goes with the
+      // request, and the model tells the person what matters in it, in their
+      // language, the way it would have had the result arrived in time.
+      if (msg.type === 'toolLate' && msg.text) {
+        console.log(`voice_tool_late id=${String(msg.id ?? '')} chars=${String(msg.text).length}`);
+        userTurn(s, `${asked().late}${BLANK_LINE}${String(msg.text)}`);
       }
+    } catch (e) {
+      console.error(`window command ${String(msg?.type)} failed: ${String(e?.message ?? e)}`);
     }
   });
 
-  await session.start({
-    agent: new voice.Agent({ instructions: INSTRUCTIONS, tools }),
-    room: ctx.room,
-  });
+  await open();
 
   console.log(
     `CINDERPAW_AGENT_READY mode=assistant provider=${PROVIDER} persona=${INSTRUCTIONS.length} tools=${TOOL_DECLARATIONS.length}`,

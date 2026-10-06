@@ -1494,14 +1494,12 @@ mod tests {
         }
     }
 
-    /// The call must not go silent while a tool runs.
+    /// The pipeline call must not go silent while a tool runs.
     ///
-    /// The brief already asks the model to keep talking, at length, and on every
-    /// vendor except Gemini's native-audio model it CANNOT: the tool call runs
-    /// inside the turn, so the model is not choosing silence, it is unable to
-    /// speak. Thirty seconds of that is indistinguishable from a dropped call,
-    /// which is why the filler is spoken by the worker rather than asked of the
-    /// model, and why no prompt change can replace it.
+    /// Its model is blocked while a tool runs, so the filler is spoken by the
+    /// worker rather than asked of the model. A realtime vendor is not: Gemini
+    /// answers mid-tool, and gpt-realtime calls functions asynchronously, so
+    /// it gets no second voice (6 Oct; see the test below).
     #[test]
     fn the_worker_speaks_for_itself_while_a_tool_is_running() {
         let agent = include_str!("livekit_agent.mjs");
@@ -1518,6 +1516,31 @@ mod tests {
             agent.contains("CINDERPAW_LIVE_LANGUAGE"),
             "the worker cannot know the language it should speak in",
         );
+    }
+
+    /// The four failures of the 6 Oct call review, each pinned by the line
+    /// that caused it. String checks, like the tests above, because the worker
+    /// only runs inside a live call.
+    #[test]
+    fn the_worker_asks_as_the_person_and_survives_a_dropped_line() {
+        let agent = include_str!("livekit_agent.mjs");
+        // Piper is on no release build, so naming it was an error per filler.
+        assert!(!agent.contains("|| 'piper'"), "the worker assumes an engine Rust never named");
+        // And a realtime vendor speaks in its own voice only: a local voice
+        // attached to it talked over the model as a second person.
+        assert!(!agent.contains("LocalTTS(null)"), "a realtime call has a second, local voice");
+        // A Gemini 3.8 model recites a turn handed to it as its own: the
+        // English search answer read out before the Romanian reply.
+        for recited in ["generateReply({ instructions: text })", "generateReply({ instructions: String(msg.text) })"] {
+            assert!(!agent.contains(recited), "{recited} hands Gemini a turn as the model's own");
+        }
+        assert!(agent.contains("role: 'user'"), "nothing asks the model as the person");
+        // The SDK's own userInput path sends an empty turn list on 3.x and mutes the call.
+        assert!(!agent.contains("generateReply({ userInput: String(msg.text) })"), "typed text mutes a 3.x call");
+        // A vendor that drops the line (1011) gets a new session, not a dead call.
+        assert!(agent.contains("MAX_REOPENS") && agent.contains("TRANSIENT_CODES"), "a dropped line ends the call");
+        // A lookup still running is not started a second time.
+        assert!(agent.contains("inFlight > 0"), "the guard duplicates a running lookup");
     }
 
     /// What entering a call actually costs, on this machine, with the real
