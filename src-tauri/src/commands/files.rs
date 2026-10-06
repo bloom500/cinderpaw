@@ -124,6 +124,33 @@ pub(crate) async fn read_file_as_data_url(path: String) -> Result<String, String
     ))
 }
 
+/// A file pasted (Ctrl+V of a copied file) or dragged in from a browser
+/// reaches the webview with bytes and a name but no path, so it never met the
+/// extractor below: a PDF went through `file.text()`, came out as junk and was
+/// sent to the agent as "binary, no extractable text" (his CV, 6 Oct 2026).
+/// Written to a temp folder, it takes the same road as a picked file, and the
+/// agent gets a real path it can open again.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn stage_pasted_file(bytes: Vec<u8>, name: String) -> Result<String, String> {
+    if bytes.len() > 25 * 1024 * 1024 {
+        return Err("File too large (max 25 MB)".into());
+    }
+    let dir = std::env::temp_dir().join("cinderpaw-attachments");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("{}-{}", uuid::Uuid::new_v4(), safe_file_name(&name)));
+    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// The last path segment of `name`, with nothing that could leave the folder.
+fn safe_file_name(name: &str) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or("");
+    let clean: String = base.chars().filter(|c| !c.is_control() && !matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|')).collect();
+    let clean = clean.trim_start_matches('.').trim();
+    if clean.is_empty() { "pasted-file".into() } else { clean.chars().take(120).collect() }
+}
+
 /// Best-effort text extraction for chat attachments: PDF, OOXML/ODF documents
 /// (docx/pptx/xlsx/odt) and any UTF-8 text file. This is what lets "drop any
 /// file into the chat" actually reach the model — previously only plain text
@@ -354,5 +381,20 @@ mod launch_file_tests {
             dir.join("missing.txt").to_string_lossy().to_string(),
         ];
         assert_eq!(crate::file_args(&args), vec![f]);
+    }
+}
+
+#[cfg(test)]
+mod stage_pasted_file_tests {
+    use super::safe_file_name;
+
+    #[test]
+    fn a_pasted_name_cannot_leave_the_temp_folder() {
+        assert_eq!(safe_file_name("CV Reteghi Darius.pdf"), "CV Reteghi Darius.pdf");
+        assert_eq!(safe_file_name("../../etc/passwd"), "passwd");
+        assert_eq!(safe_file_name(r"C:\Users\x\notes.docx"), "notes.docx");
+        assert_eq!(safe_file_name(".."), "pasted-file");
+        assert_eq!(safe_file_name(""), "pasted-file");
+        assert_eq!(safe_file_name("a:b?.pdf"), "ab.pdf");
     }
 }

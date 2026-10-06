@@ -132,7 +132,9 @@ mod command_count_test {
     //   files, copied into its folder under the agent's scratch dir).
     // 193 -> 194 = + artifact_frame::artifact_frame_put (3bf2829: installed
     //   artifact frames use their own URI scheme).
-    const EXPECTED_COMMAND_COUNT: usize = 194;
+    // 194 -> 195 = + stage_pasted_file (a pasted or browser-dropped file goes
+    // through the same text extractor as a picked one, 6 Oct 2026).
+    const EXPECTED_COMMAND_COUNT: usize = 195;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts
