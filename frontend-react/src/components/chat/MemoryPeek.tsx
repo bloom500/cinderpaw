@@ -22,7 +22,7 @@ export function MemoryRow({ m }: { m: MemoryUsedItem }) {
   return (
     <li className="flex min-w-0 items-start gap-2.5 py-1.5">
       <span className="mt-0.5 shrink-0 rounded-full bg-bg-active px-1.5 text-micro font-medium text-brand">
-        {m.kind === 'fact' ? 'Fact' : 'Past chat'}
+        {m.kind === 'fact' ? 'Fact' : m.kind === 'learned' ? 'Learned way (beta)' : 'Past chat'}
       </span>
       <span className={cn('min-w-0 flex-1 text-sm', status === 'done' ? 'text-text-disabled line-through' : 'text-text-primary')}>
         {m.text}

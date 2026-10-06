@@ -1820,12 +1820,13 @@ export type OutboundEvent =
   // provider reports it (cloud: in the final SSE chunk; local: n/a here).
   // The memories the loop put in front of the model for this turn, one per
   // item (memory/recall.ts `MemoryUsed`): the app's Memory Peek. `forget` is
-  // the graph edge `memory_forget` takes.
+  // the graph edge `memory_forget` takes. `learned` is a learned way
+  // (core/learned-ways.ts): steps a 👍 taught, offered for this request.
   | {
       type: "memory_used";
       id: string;
       sessionId: string;
-      items: { kind: "fact" | "past"; text: string; forget?: { from: string; to: string; relation: string }; ts?: number }[];
+      items: { kind: "fact" | "past" | "learned"; text: string; forget?: { from: string; to: string; relation: string }; ts?: number }[];
     }
   | {
       type: "stream_progress";

@@ -12,7 +12,8 @@ export type AgentPhase = 'thinking' | 'calling' | 'processing'
  * `memory_forget` takes; a past chat has none.
  */
 export interface MemoryUsedItem {
-  kind: 'fact' | 'past';
+  /** `learned`: a learned way, steps a 👍 taught (sidecar core/learned-ways.ts). */
+  kind: 'fact' | 'past' | 'learned';
   text: string;
   forget?: { from: string; to: string; relation: string };
   ts?: number;
@@ -30,6 +31,9 @@ export interface ChatMessage {
   images?: string[];
   /** The memories put into this reply's context (Memory Peek). Not persisted. */
   memoryUsed?: MemoryUsedItem[];
+  /** The engine's id for this reply, which a thumbs vote must name for the
+   *  engine to know the turn. Not persisted; neither are the votes. */
+  agentMessageId?: string;
   thinking?: string;
   thinkingStartAt?: number;
   thinkingDurationMs?: number;
@@ -331,7 +335,8 @@ export const useChat = create<ChatStore>((set, get) => ({
       // Forward every explicit click to the audit log (a re-click that toggles
       // the UI still tells the runtime the user's latest intent). Fire-and-
       // forget — the vote UI must not block on the sidecar.
-      void tauri.raw.cinderpawSubmitFeedback(s.sessionId, messageId, value).catch(() => {});
+      const engineId = s.messages.find((m) => m.id === messageId)?.agentMessageId ?? messageId;
+      void tauri.raw.cinderpawSubmitFeedback(s.sessionId, engineId, value).catch(() => {});
       return { feedback: next };
     }),
 

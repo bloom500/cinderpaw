@@ -148,6 +148,8 @@ export function useCinderpawStream(chatSessionId: string) {
         callbacks.onError(String(err));
         return;
       }
+      // A 👍 on this reply teaches only if it names the turn the engine knows.
+      useChat.getState().patchMessage(callbacks.chatMessageId, { agentMessageId: messageId });
 
       registerCinderpawStream(messageId, {
         onChunk: (c) => callbacks.onToken(c),

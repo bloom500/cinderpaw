@@ -75,6 +75,7 @@ import {
 } from "./cinderpaw-prompt.ts";
 import { buildToolCallGrammar, TOOL_CALL_TRIGGERS } from "./tool-grammar.ts";
 import { createToolDrawerTools } from "../tools/builtin/tool-drawer.ts";
+import { type LearnedWays, learnedWayHint } from "./learned-ways.ts";
 import { NOTEBOOK_TOOL_NAME } from "../tools/builtin/notebook.ts";
 import { buildNotebookSection, WORKER_BRIEF } from "../rlm/prompt.ts";
 import { toIdentifier } from "../rlm/repl.ts";
@@ -568,6 +569,17 @@ export class AgentLoop {
    */
   setTodoStore(store: { list(): Array<{ id: string; content: string; status: string }> }): void {
     this.#todos = store;
+  }
+
+  /** Learned ways (learning, beta): see core/learned-ways.ts. */
+  setLearnedWays(ways: LearnedWays): void {
+    this.#learnedWays = ways;
+  }
+  #learnedWays: LearnedWays | null = null;
+
+  /** A 👍/👎 on a reply (dispatch "feedback"): what it taught or retired, if anything. */
+  rateReply(messageId: string, value: "up" | "down"): string | null {
+    return this.#learnedWays?.feedback(messageId, value) ?? null;
   }
   #todos: { list(): Array<{ id: string; content: string; status: string }> } | null = null;
 
@@ -1255,19 +1267,35 @@ export class AgentLoop {
     // conversation instead of being fixed at session start. Failure is
     // swallowed on purpose: a memory store that is slow, locked or corrupt
     // must cost the user nothing worse than a turn without recall.
+    //
+    // Learned ways (learning, beta, core/learned-ways.ts): steps that earned a
+    // 👍 on a request like this one ride in front of the recall block, so the
+    // size cap can never cut them, and show in Memory Peek like any memory.
+    // Owner text sessions only, the same rule as Memory Resume below.
+    const way =
+      this.#learnedWays && !this.#spokenSurface.has(sessionId) && isReplayableSession(sessionId) && !this.#profileFor(sessionId)
+        ? this.#learnedWays.turnStarted(messageId, sessionId, userTextClean)
+        : null;
+    const hint = way ? `${learnedWayHint(way)}\n\n` : "";
+    const wayItems = way ? [{ kind: "learned" as const, text: `"${way.request}": ${way.steps.join(" → ")}` }] : [];
     if (this.#recall && !this.#spokenSurface.has(sessionId) && recallInjectionEnabled()) {
       try {
         const recalled = await this.#recall.recall(userTextClean, sessionId);
         const max = recallInjectionMaxChars();
-        memory.setRecall(recalled.context, max);
+        memory.setRecall(hint + recalled.context, max + hint.length);
         // Memory Peek: tell the app which memories went in, as data. Only what
         // survived the size cap: an item cut off the end was never seen.
         const kept = recalled.context.slice(0, max);
-        const items = (recalled.used ?? []).filter((m) => kept.includes(m.text.slice(0, 60)));
+        const items = [...wayItems, ...(recalled.used ?? []).filter((m) => kept.includes(m.text.slice(0, 60)))];
         if (items.length > 0) ctx.emit({ type: "memory_used", id: messageId, sessionId, items });
       } catch {
-        memory.setRecall("");
+        memory.setRecall(hint);
+        if (way) ctx.emit({ type: "memory_used", id: messageId, sessionId, items: wayItems });
       }
+    } else if (this.#learnedWays && !this.#spokenSurface.has(sessionId)) {
+      // Recall is off, so nothing else clears this slot: an empty hint must.
+      memory.setRecall(hint);
+      if (way) ctx.emit({ type: "memory_used", id: messageId, sessionId, items: wayItems });
     }
 
     // When the message names a file, the transcript carries the one instruction
