@@ -232,7 +232,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
       ? { row: { title: target.title, kind: target.kind }, content: target.content, encoding: undefined }
       : open;
     if (!doc) return;
-    const plan = googlePlan(shownKind(doc.row.kind, doc.content), dest, doc.content);
+    const plan = googlePlan(shownKind(doc.row.kind, doc.content), dest, doc.content, doc.row.title);
     if (!plan) return;
     set({ google: { busy: true, dest } });
     try {
@@ -241,7 +241,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
         // the person has approved; the artifact stays open underneath.
         await tauri.google.connect();
       }
-      const name = `${fileName(doc.row.title)}${plan.convert ? '' : extensionFor(doc.row.kind)}`;
+      const name = plan.convert ? fileName(doc.row.title) : downloadName(doc.row.title, doc.row.kind);
       const data = plan.content ?? doc.content;
       const encoding = plan.content === undefined && doc.encoding === 'base64' ? 'base64' : null;
       const link = await tauri.google.upload(name, plan.mime, data, encoding, plan.convert, dest === 'gmail');
@@ -695,20 +695,23 @@ const FILE_MIME: Record<string, string> = {
 
 /**
  * How one kind goes to one Google place, or null when it cannot: Docs takes
- * text and HTML (a PDF would go through OCR and lose its layout), Sheets only
- * a table, turned into CSV here because that is what Google imports as a Sheet.
+ * text and HTML (a PDF would go through OCR and lose its layout), Sheets a
+ * table, turned into CSV here because that is what Google imports as a Sheet,
+ * or a CSV the agent wrote as a file, which is already that.
  */
-export function googlePlan(kind: string, dest: GoogleDest = 'docs', content = ''): { mime: string; convert: boolean; content?: string } | null {
+export function googlePlan(kind: string, dest: GoogleDest = 'docs', content = '', title = ''): { mime: string; convert: boolean; content?: string } | null {
+  const csvFile = kind === 'file' && /\.csv$/i.test(title.trim());
   switch (dest) {
     case 'drive':
     case 'gmail':
+      if (csvFile) return { mime: 'text/csv', convert: false };
       return FILE_MIME[kind] ? { mime: FILE_MIME[kind]!, convert: false } : null;
     case 'docs':
       if (kind === 'document' || kind === 'html' || kind === 'app') return { mime: 'text/html', convert: true };
       if (kind === 'markdown' || kind === 'code' || kind === 'json' || kind === 'table') return { mime: 'text/plain', convert: true };
       return null;
     case 'sheets': {
-      const csv = kind === 'table' ? tableCsv(content) : null;
+      const csv = kind === 'table' ? tableCsv(content) : csvFile && content.trim() ? content : null;
       return csv ? { mime: 'text/csv', convert: true, content: csv } : null;
     }
   }

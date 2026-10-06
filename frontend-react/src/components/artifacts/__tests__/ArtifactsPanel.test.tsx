@@ -600,7 +600,7 @@ describe('the Google button', () => {
     render(<ArtifactsPanel onClose={() => {}} />);
     await user.click(await screen.findByLabelText('Send to Google'));
     for (const name of ['Google Drive', 'Google Docs', 'Google Sheets', 'Gmail']) expect(await screen.findByText(name)).toBeTruthy();
-    expect(screen.getByText('Only a table can become a Sheet')).toBeTruthy();
+    expect(screen.getByText('Only a table or a CSV can become a Sheet')).toBeTruthy();
     expect(screen.getByText('Google Sheets').closest('[role="menuitem"]')).toHaveAttribute('data-disabled');
   });
 
@@ -622,6 +622,26 @@ describe('the Google button', () => {
     expect(decodeURIComponent(url)).toContain('https://drive.google.com/file/d/xyz/view');
   });
 
+  // 6 Oct, the job-application video: scrape -> CSV the agent made -> Sheets.
+  it('a CSV the agent made as a file opens in Google Sheets, under its own name', async () => {
+    const user = userEvent.setup();
+    const { tauri: t } = await import('@/lib/tauri');
+    const g = t.google as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    g.status = vi.fn().mockResolvedValue(true);
+    g.upload = vi.fn().mockResolvedValue('https://docs.google.com/spreadsheets/d/s1/edit');
+    const csv = 'title,phone\nDM Roofing,+44 7792 703612\n';
+    useArtifacts.setState({
+      loaded: true, editing: null, google: null,
+      open: { row: row({ kind: 'file', title: 'roofers-manchester.csv' }), content: csv, showing: 2, versions: [] },
+    });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    await user.click(await screen.findByLabelText('Send to Google'));
+    await user.click(await screen.findByText('Google Sheets'));
+    await waitFor(() => expect(g.upload).toHaveBeenCalled());
+    expect(g.upload).toHaveBeenCalledWith('roofers-manchester.csv', 'text/csv', csv, null, true, false);
+    expect(await screen.findByText('open it')).toHaveAttribute('href', 'https://docs.google.com/spreadsheets/d/s1/edit');
+  });
+
   it('a build not registered with Google shows no button at all', async () => {
     const { tauri: t } = await import('@/lib/tauri');
     const g = t.google as unknown as Record<string, ReturnType<typeof vi.fn>>;
@@ -640,6 +660,8 @@ describe('the Google button', () => {
     expect(googlePlan('docx', 'drive')).toBeNull();
     expect(googlePlan('document', 'sheets', '<p>hi</p>')).toBeNull();
     expect(googlePlan('table', 'sheets', '{"columns":["a"],"rows":[[1]]}')).toEqual({ mime: 'text/csv', convert: true, content: 'a\r\n1' });
+    expect(googlePlan('file', 'drive', 'a\n1', 'leads.csv')).toEqual({ mime: 'text/csv', convert: false });
+    expect(googlePlan('file', 'sheets', 'a\n1', 'notes.txt')).toBeNull();
   });
 
   it('a table becomes CSV that keeps commas, quotes and line breaks inside cells', () => {

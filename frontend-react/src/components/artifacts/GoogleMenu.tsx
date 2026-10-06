@@ -7,13 +7,13 @@ import { cn } from '@/lib/utils';
 const DEST: Record<GoogleDest, { name: string; icon: LucideIcon; color: string; does: string; cannot: string }> = {
   drive: { name: 'Google Drive', icon: HardDrive, color: '#1FA463', does: 'Saves the file as it is', cannot: 'This kind of file cannot go to Drive' },
   docs: { name: 'Google Docs', icon: FileText, color: '#4285F4', does: 'Opens it as a Doc you can edit', cannot: 'A PDF keeps its look in Drive instead' },
-  sheets: { name: 'Google Sheets', icon: Sheet, color: '#0F9D58', does: 'Opens it as a Sheet you can edit', cannot: 'Only a table can become a Sheet' },
+  sheets: { name: 'Google Sheets', icon: Sheet, color: '#0F9D58', does: 'Opens it as a Sheet you can edit', cannot: 'Only a table or a CSV can become a Sheet' },
   gmail: { name: 'Gmail', icon: Mail, color: '#EA4335', does: 'Puts a link to it in a new email', cannot: 'This kind of file cannot be emailed as a link' },
 };
 
 /** Whether any Google place can take this artifact (the button shows only then). */
-export function googleCanTake(kind: string, content: string): boolean {
-  return GOOGLE_DESTS.some((d) => googlePlan(kind, d, content));
+export function googleCanTake(kind: string, content: string, title = ''): boolean {
+  return GOOGLE_DESTS.some((d) => googlePlan(kind, d, content, title));
 }
 
 /**
@@ -21,9 +21,11 @@ export function googleCanTake(kind: string, content: string): boolean {
  * Gmail. A place that cannot take this artifact stays in the list, greyed,
  * with the reason, so nobody wonders where Sheets went.
  */
-export function GoogleMenu({ kind, content, disabled, className, onSend }: {
+export function GoogleMenu({ kind, content, title, disabled, className, onSend }: {
   kind: string;
   content: string;
+  /** A file's type is in its title (leads.csv), and that decides Sheets. */
+  title: string;
   disabled?: boolean;
   className?: string;
   onSend: (dest: GoogleDest) => void;
@@ -38,7 +40,7 @@ export function GoogleMenu({ kind, content, disabled, className, onSend }: {
       <DropdownMenuContent align="end" className="w-72 p-1.5">
         {GOOGLE_DESTS.map((d) => {
           const { name, icon: Icon, color, does, cannot } = DEST[d];
-          const ok = googlePlan(kind, d, content) !== null;
+          const ok = googlePlan(kind, d, content, title) !== null;
           return (
             <DropdownMenuItem
               key={d}

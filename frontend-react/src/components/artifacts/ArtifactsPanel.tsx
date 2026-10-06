@@ -924,10 +924,11 @@ function Overview({ googleRegistered, onOpen }: { googleRegistered: boolean; onO
             <OpenIcon size={14} />
             Open
           </button>
-          {googleRegistered && googleCanTake(shownKind(row.kind, content), content) && (
+          {googleRegistered && googleCanTake(shownKind(row.kind, content), content, row.title) && (
             <GoogleMenu
               kind={shownKind(row.kind, content)}
               content={content}
+              title={row.title}
               disabled={busy || google?.busy === true}
               onSend={(dest) => void sendToGoogle(undefined, dest)}
               className={cn(button, 'flex-1 border-border-default bg-bg-elevated text-text-primary hover:bg-bg-hover')}
