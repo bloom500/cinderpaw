@@ -118,6 +118,56 @@ pub fn chat_session() -> Option<String> {
 /// none of which could ever be declared here, because memory and substrate are
 /// not functions with arguments.
 pub fn declarations() -> Vec<FunctionDeclaration> {
+    declarations_for(false)
+}
+
+/// `ask_cinder` for a model with no web access of its own. See the comment on
+/// `description` below for why it is written as a trigger.
+const ASK_DESCRIPTION: &str = "The ONLY way you can reach the internet, this computer, or \
+    anything that happened before this call. You have no web access, no \
+    files and no memory of your own — without this call you are guessing \
+    from training data that may be years old.\n\n\
+    Call it whenever the user asks you to search, look up, check, find \
+    out, google, read, open, run, remember or recall anything — those \
+    words are instructions to call this tool, not topics to talk about. \
+    Call it too when they mention anything from an earlier conversation, \
+    anything on their machine, or any fact that could have changed since \
+    you were trained.\n\n\
+    Cinderpaw is the local agent and has real tools: web search, a \
+    built-in browser the user can watch, files, shell, memory. Pass the \
+    request on in the user's own terms: if they named a place or a tool \
+    (the browser, a site, a file, an app), that name goes in the request, \
+    because it decides HOW the work is done. \"Open the browser and look \
+    up the weather\" is not \"search for the weather\". It may take a \
+    while; keep talking to the user while you wait.";
+
+/// The same declarations for a model that has its OWN web search (Gemini's
+/// built-in Google Search). "The ONLY way you can reach the internet" would be
+/// false there and would send every quick fact the long way round: on 6 Oct
+/// three lookups through Cinderpaw took 10, 16 and 25 seconds, where the
+/// Gemini app answers in one or two. Quick facts go to the model's own search;
+/// everything that needs this computer, the browser the person watches, files,
+/// memory or real work still comes through this door.
+pub fn declarations_for(native_search: bool) -> Vec<FunctionDeclaration> {
+    let ask_description = if native_search {
+        "The ONLY way you can reach this computer, the person's files, their memory, \
+            the built-in browser they can watch, or anything that happened before this \
+            call. For a quick fact from the web, use your own Google Search instead: \
+            it is much faster.\n\n\
+            Call this whenever the user asks you to open, read, run, remember, recall, \
+            research in depth, or do anything on their machine — those words are \
+            instructions to call this tool, not topics to talk about. Call it too when \
+            they mention anything from an earlier conversation or anything on their \
+            machine.\n\n\
+            Cinderpaw is the local agent and has real tools: a built-in browser the \
+            user can watch, files, shell, memory, deep web research. Pass the request \
+            on in the user's own terms: if they named a place or a tool (the browser, a \
+            site, a file, an app), that name goes in the request, because it decides \
+            HOW the work is done. It may take a while; keep talking to the user while \
+            you wait."
+    } else {
+        ASK_DESCRIPTION
+    };
     vec![FunctionDeclaration {
         name: ASK_CINDER.to_string(),
         // Written as a TRIGGER, not as an offer, and that rewrite was paid for.
@@ -136,24 +186,7 @@ pub fn declarations() -> Vec<FunctionDeclaration> {
         // the agent ran a background web_search, and the browser never opened. A model that believes it can
         // already search will never reach a door labelled "for things you
         // cannot do".
-        description: "The ONLY way you can reach the internet, this computer, or \
-            anything that happened before this call. You have no web access, no \
-            files and no memory of your own — without this call you are guessing \
-            from training data that may be years old.\n\n\
-            Call it whenever the user asks you to search, look up, check, find \
-            out, google, read, open, run, remember or recall anything — those \
-            words are instructions to call this tool, not topics to talk about. \
-            Call it too when they mention anything from an earlier conversation, \
-            anything on their machine, or any fact that could have changed since \
-            you were trained.\n\n\
-            Cinderpaw is the local agent and has real tools: web search, a \
-            built-in browser the user can watch, files, shell, memory. Pass the \
-            request on in the user's own terms: if they named a place or a tool \
-            (the browser, a site, a file, an app), that name goes in the request, \
-            because it decides HOW the work is done. \"Open the browser and look \
-            up the weather\" is not \"search for the weather\". It may take a \
-            while; keep talking to the user while you wait."
-            .to_string(),
+        description: ask_description.to_string(),
         parameters: serde_json::json!({
             "type": "object",
             "properties": {
@@ -368,6 +401,19 @@ mod tests {
         assert_eq!(ask.parameters["type"], "object");
         assert_eq!(ask.parameters["properties"]["request"]["type"], "string");
         assert_eq!(ask.parameters["required"][0], "request");
+    }
+
+    /// With its own Google Search, a model is not told the door is its only
+    /// way to the web (that sent quick facts the 10-25 s way round, 6 Oct), and
+    /// without one it still is. Machine work goes through the door either way.
+    #[test]
+    fn only_a_model_without_its_own_search_is_told_this_is_its_only_web() {
+        let ask = |native| declarations_for(native).into_iter().find(|d| d.name == ASK_CINDER).unwrap();
+        assert!(ask(false).description.contains("ONLY way you can reach the internet"));
+        let native = ask(true).description;
+        assert!(!native.contains("reach the internet"), "a model with search is told it has none");
+        assert!(native.contains("Google Search") && native.contains("this computer"));
+        assert_eq!(ask(true).behavior, ask(false).behavior);
     }
 
     #[test]

@@ -442,6 +442,12 @@ const REALTIME = {
       outputAudioTranscription: {},
       // The Google plugin otherwise discards mic frames while tools are pending.
       toolBehavior: 'NON_BLOCKING',
+      // The model's own Google Search, for quick facts: a second or two,
+      // where the trip through Cinderpaw took 10, 16 and 25 s on 6 Oct. Work
+      // on this machine still goes through ask_cinder, whose description Rust
+      // words to match (`bridge::declarations_for`). Dropped for the rest of
+      // the call if Google refuses a session over it (see `nativeSearch`).
+      ...(nativeSearch ? { geminiTools: { googleSearch: {} } } : {}),
       // ...and without this, that is a tool whose answer is never said out loud.
       //
       // A NON_BLOCKING function response carries a `scheduling` field, and the
@@ -476,6 +482,20 @@ const REALTIME = {
   },
   openai: async () => {
     const openai = await PLUGIN.openai();
+    if (GPT_LIVE) {
+      // ChatGPT's own voice in the API (10 Sep 2026): full duplex, so it
+      // listens while it talks and keeps the conversation going while a tool
+      // runs. That is why this path has no filler, no nudge and no guard. Its
+      // backend model runs the tools, ask_cinder included, the way Gemini
+      // does; `INSTRUCTIONS` is the persona for the voice and the rules for
+      // the backend alike.
+      return new openai.realtime.GPTLiveModel({
+        apiKey: API_KEY,
+        model: MODEL || 'gpt-live-1',
+        voice: VOICE || 'marin',
+        responsesOptions: { instructions: INSTRUCTIONS },
+      });
+    }
     return new openai.realtime.RealtimeModel({
       apiKey: API_KEY,
       model: MODEL || 'gpt-realtime',
@@ -495,6 +515,15 @@ const REALTIME = {
     });
   },
 };
+/** Whether this OpenAI call runs on GPT-Live rather than a realtime model. */
+const GPT_LIVE = PROVIDER === 'openai' && (MODEL || 'gpt-live-1').startsWith('gpt-live');
+
+/**
+ * Whether Gemini gets its own Google Search. A `let`, because a model that
+ * refuses a session over it gets one without it (see the Close handler).
+ */
+let nativeSearch = PROVIDER === 'google';
+
 /** Declared by Rust, not here. See `live::bridge::declarations`. */
 const TOOL_DECLARATIONS = JSON.parse(process.env.CINDERPAW_LIVE_TOOLS || '[]');
 
@@ -598,12 +627,14 @@ const FILLER = {
 const ASK = {
   en: {
     hello: 'Hi!',
+    greet: "Hi, I'm listening.",
     found: 'What did you find?',
     late: 'Cinderpaw has finished what I asked. Here is what it found; tell me what matters, briefly:',
     question: 'Cinderpaw needs an answer from me. Read me its question, word for word, options included:',
   },
   ro: {
     hello: 'Salut!',
+    greet: 'Salut, te ascult.',
     found: 'Ce ai găsit?',
     late: 'Cinderpaw a terminat ce i-am cerut. Iată ce a găsit; spune-mi pe scurt ce contează:',
     question: 'Cinderpaw are nevoie de un răspuns de la mine. Citește-mi întrebarea lui, cuvânt cu cuvânt, cu tot cu variante:',
@@ -643,6 +674,40 @@ function userTurn(session, text) {
     // A session that is closing cannot be asked anything; the call goes on.
     console.error(`could not ask the model to speak: ${String(e?.message ?? e)}`);
   }
+}
+
+/**
+ * Have GPT-Live say something the worker wrote. It has no `say` and no
+ * instructions mid-call; what it is handed as commentary it paraphrases aloud,
+ * in its own voice. The service caps one hand-over at 500 tokens.
+ */
+const LIVE_SAY_MAX_CHARS = 1500;
+function liveSay(agent, text) {
+  try {
+    agent?.duplexSession?.appendCommentary(String(text).slice(0, LIVE_SAY_MAX_CHARS));
+  } catch (e) {
+    console.error(`could not hand GPT-Live a sentence: ${String(e?.message ?? e)}`);
+  }
+}
+
+/**
+ * Notice Gemini's own Google Search. The plugin drops its grounding data, so
+ * nothing knew a search had happened: the lookup guard heard "I'm checking"
+ * with no ask_cinder call and started a second, slow search of its own. Not
+ * shown on screen: it is over in a second or two, before a row could be read.
+ */
+function watchNativeSearch(session) {
+  const rt = session?._activity?.realtimeSession;
+  if (typeof rt?.handleServerContent !== 'function') return;
+  const original = rt.handleServerContent.bind(rt);
+  rt.handleServerContent = (content) => {
+    const grounding = content?.groundingMetadata;
+    if (grounding && !turn.called) {
+      turn.called = true;
+      console.log(`voice_native_search turn=${turn.n} queries=${grounding.webSearchQueries?.length ?? 0}`);
+    }
+    return original(content);
+  };
 }
 
 /** How many tool calls are running right now, across turns. */
@@ -1012,6 +1077,8 @@ async function assistant(ctx, makeSession) {
   // in the same room (see `open`), so everything below reads this variable and
   // never a session captured once.
   let session = null;
+  /** The Agent of that session: GPT-Live's own session hangs off it. */
+  let agent = null;
 
   // Built once, before the handlers, so the lookup guard can run the same
   // ask_cinder the model would have (row on screen, spoken answer and all).
@@ -1032,6 +1099,10 @@ async function assistant(ctx, makeSession) {
   const greet = () => {
     if (greeted) return;
     greeted = true;
+    if (GPT_LIVE) {
+      liveSay(agent, asked().greet);
+      return;
+    }
     if (PROVIDER === 'google') {
       // As the person, never as an instruction (see ASK): on 3.8 an
       // instruction is recited, and "greet the user in their language", with
@@ -1170,7 +1241,14 @@ async function assistant(ctx, makeSession) {
       // once, and the person needs the reason on screen instead.
       const why = lastError;
       const transient = TRANSIENT_CODES.has(lastCode) || /internal error|unavailable|deadline|reset/i.test(why);
-      if (!makeSession && String(e?.reason ?? '') === 'error' && transient && reopens < MAX_REOPENS && ctx.room.isConnected) {
+      // A model that will not open a session with Google Search in it gets one
+      // without, rather than a call that cannot start at all.
+      const searchRefused = nativeSearch && /search|grounding/i.test(why);
+      if (searchRefused) {
+        nativeSearch = false;
+        console.error('voice_native_search refused; reopening without it');
+      }
+      if (!makeSession && String(e?.reason ?? '') === 'error' && (transient || searchRefused) && reopens < MAX_REOPENS && ctx.room.isConnected) {
         reopens += 1;
         console.error(`voice_reopen n=${reopens} code=${lastCode}`);
         emit({ kind: 'error', text: 'The voice service dropped the line for a moment. Reconnecting.', recoverable: true });
@@ -1186,10 +1264,9 @@ async function assistant(ctx, makeSession) {
       emit({ kind: 'closed', text: why });
     });
 
-    await s.start({
-      agent: new voice.Agent({ instructions: INSTRUCTIONS, tools, ...(history ? { chatCtx: history } : {}) }),
-      room: ctx.room,
-    });
+    agent = new voice.Agent({ instructions: INSTRUCTIONS, tools, ...(history ? { chatCtx: history } : {}) });
+    await s.start({ agent, room: ctx.room });
+    if (PROVIDER === 'google') watchNativeSearch(s);
   };
 
   // Commands from the window, over LiveKit's own data channel.
@@ -1225,6 +1302,8 @@ async function assistant(ctx, makeSession) {
         console.log(`voice_ask chars=${text.length} provider=${PROVIDER}`);
         if (makeSession) {
           Promise.resolve(s.say(text)).catch((e) => console.error(`ask could not be spoken: ${String(e?.message ?? e)}`));
+        } else if (GPT_LIVE) {
+          liveSay(agent, text);
         } else {
           userTurn(s, `${asked().question}${BLANK_LINE}${text}`);
         }
@@ -1235,7 +1314,8 @@ async function assistant(ctx, makeSession) {
       // language, the way it would have had the result arrived in time.
       if (msg.type === 'toolLate' && msg.text) {
         console.log(`voice_tool_late id=${String(msg.id ?? '')} chars=${String(msg.text).length}`);
-        userTurn(s, `${asked().late}${BLANK_LINE}${String(msg.text)}`);
+        if (GPT_LIVE) liveSay(agent, String(msg.text));
+        else userTurn(s, `${asked().late}${BLANK_LINE}${String(msg.text)}`);
       }
     } catch (e) {
       console.error(`window command ${String(msg?.type)} failed: ${String(e?.message ?? e)}`);
