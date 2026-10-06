@@ -997,19 +997,13 @@ html.has-window-effect[data-theme="light"] .app-pane {
   -webkit-backdrop-filter: saturate(0.9) contrast(0.35) brightness(2.5);
 }
 
-/* Long transcripts: a message off screen is not laid out until it scrolls near.
-   Opening a side panel narrows the chat column, and every message used to be
-   re-laid out at once; with this, only the ones on screen are. The intrinsic
-   size keeps the scrollbar honest for the ones that are not. */
-.message-row {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 120px;
-}
-/* content-visibility clips paint to the row, and a board breaks out of the
-   reading column to the chat area's width: its row is laid out normally. */
-.message-row:has([data-board-breakout]) {
-  content-visibility: visible;
-}
+/* `.message-row` carried `content-visibility: auto` (17 Sep, so opening a side
+   panel re-laid out only the messages on screen). Removed 6 Oct: an off-screen
+   message was a 120px guess until it scrolled near, so a long reply grew from
+   120px to its real height while it came into view and the text around it
+   slid, on every scroll up or down. The transcript's own anchor fix runs a
+   frame later, which made it a visible jolt. Turned off in the running app,
+   the drift was gone. Guarded by test/scroll-stability.test.ts. */
 
 /* The `live-frame` and `panel-moving` overrides for `.app-pane` used to live
    here. Both existed only to strip url(#liquid-glass-soft) from the pane for
