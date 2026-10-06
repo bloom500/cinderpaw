@@ -48,7 +48,7 @@ export function GoogleMenu({ kind, content, title, disabled, className, onSend }
               onSelect={() => onSend(d)}
               className={cn('flex items-start gap-3 rounded-xl p-2', !ok && 'opacity-50')}
             >
-              <Icon size={18} style={{ color }} className="mt-0.5 shrink-0" aria-hidden />
+              <Icon size={16} style={{ color }} className="mt-0.5 shrink-0" aria-hidden />
               <span className="min-w-0">
                 <span className="block text-sm text-text-primary">{name}</span>
                 <span className="block text-2xs text-text-muted">{ok ? does : cannot}</span>
