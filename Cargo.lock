@@ -1074,6 +1074,7 @@ dependencies = [
 name = "cinderpaw-cli"
 version = "2026.9.18"
 dependencies = [
+ "chrono",
  "cinderpaw-core",
  "clap",
  "clap_complete",

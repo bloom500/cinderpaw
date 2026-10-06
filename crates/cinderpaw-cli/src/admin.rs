@@ -2006,7 +2006,7 @@ pub(crate) async fn post_json_with_body(
 
 /// POST with a long client timeout — `/modules/evaluate` runs the paired
 /// eval suite twice on the live model (the gateway side waits 30min).
-async fn post_json_slow(
+pub(crate) async fn post_json_slow(
     token: &str,
     path: &str,
     body: serde_json::Value,

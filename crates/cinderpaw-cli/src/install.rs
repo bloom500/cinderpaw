@@ -505,7 +505,7 @@ fn ensure_engine(restart: bool) -> Result<(), String> {
     ))
 }
 
-fn launch_browser(url: &str) -> bool {
+pub(crate) fn launch_browser(url: &str) -> bool {
     use std::process::{Command, Stdio};
     if std::env::var_os("CINDERPAW_NO_BROWSER").is_some() {
         return false;

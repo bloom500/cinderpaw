@@ -104,6 +104,13 @@ pub fn router(state: ApiState) -> Router {
         // desktop app has its own Tauri commands; the TUI had nothing, so a
         // teammate's request expired there unseen.
         .route("/runtime/cowork/team", get(runtime_cowork_team))
+        // The CLI's memory / cron / mcp / message commands, one agent round trip each.
+        .route("/runtime/memory/notes", get(runtime_memory_notes))
+        .route("/runtime/memory/notes/delete", post(runtime_memory_note_delete))
+        .route("/runtime/memory/search", get(runtime_memory_search))
+        .route("/runtime/cron", get(runtime_cron_list).post(runtime_cron_change))
+        .route("/runtime/mcp", get(runtime_mcp_status))
+        .route("/runtime/message", post(runtime_message_send))
         .route("/runtime/cowork/approval", post(runtime_cowork_approval))
         .route("/runtime/chat/stop", post(runtime_chat_stop))
         .route(
@@ -1751,6 +1758,156 @@ async fn runtime_ask_respond(
             .into_response();
     }
     Json(json!({ "ok": true })).into_response()
+}
+
+/// Send one message to the agent and wait for its reply of type `want` whose
+/// `id` is `id`. The round trip every agent-backed route needs, written once:
+/// the CLI's memory, cron, mcp and message commands all go through it.
+async fn ask_agent(
+    state: &ApiState,
+    msg: Value,
+    want: &str,
+    id: &str,
+    wait: std::time::Duration,
+) -> Result<Value, Response> {
+    let tx = { state.runtime.cinderpaw_agent_tx.lock().as_ref().cloned() };
+    let Some(tx) = tx else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "Cinderpaw's agent is not running").into_response());
+    };
+    // Subscribe before sending, so a fast answer cannot be missed.
+    let mut rx = state.runtime.events_tx.subscribe();
+    if tx.send(msg.to_string()).await.is_err() {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "the agent stopped accepting messages").into_response());
+    }
+    let deadline = tokio::time::Instant::now() + wait;
+    loop {
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        match tokio::time::timeout(left, rx.recv()).await {
+            Ok(Ok(ev)) => {
+                if ev.event != "cinderpaw://agent-output" {
+                    continue;
+                }
+                let Some(line) = ev.payload.get("data").and_then(|s| s.as_str()) else { continue };
+                let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+                if v.get("type").and_then(|t| t.as_str()) == Some(want) && v.get("id").and_then(|i| i.as_str()) == Some(id) {
+                    return Ok(v);
+                }
+            }
+            Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
+            Ok(Err(broadcast::error::RecvError::Closed)) | Err(_) => {
+                return Err((StatusCode::GATEWAY_TIMEOUT, "the agent did not answer in time").into_response());
+            }
+        }
+    }
+}
+
+fn agent_reply(r: Result<Value, Response>) -> Response {
+    match r {
+        Ok(v) => Json(v).into_response(),
+        Err(resp) => resp,
+    }
+}
+
+const AGENT_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// `GET /runtime/memory/notes` — what Cinderpaw noted about the person (the
+/// Memory page's notes and card), as `memory_notes_result`.
+async fn runtime_memory_notes(State(state): State<ApiState>) -> Response {
+    let id = uuid::Uuid::new_v4().to_string();
+    let msg = json!({ "type": "memory_notes", "id": id, "notesOp": "list" });
+    agent_reply(ask_agent(&state, msg, "memory_notes_result", &id, AGENT_WAIT).await)
+}
+
+#[derive(Deserialize)]
+struct MemoryNoteDeleteReq {
+    #[serde(rename = "noteId")]
+    note_id: i64,
+}
+
+/// `POST /runtime/memory/notes/delete {noteId}` — forget one note.
+async fn runtime_memory_note_delete(State(state): State<ApiState>, Json(req): Json<MemoryNoteDeleteReq>) -> Response {
+    let id = uuid::Uuid::new_v4().to_string();
+    let msg = json!({ "type": "memory_notes", "id": id, "notesOp": "delete", "noteId": req.note_id });
+    agent_reply(ask_agent(&state, msg, "memory_notes_result", &id, AGENT_WAIT).await)
+}
+
+/// `GET /runtime/memory/search?q=` — what recall would put in front of the
+/// model for these words, as `memory_search_result`.
+async fn runtime_memory_search(
+    State(state): State<ApiState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let q = params.get("q").map(|q| q.trim().to_string()).unwrap_or_default();
+    if q.is_empty() {
+        return (StatusCode::BAD_REQUEST, "say what to look for: ?q=words").into_response();
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    let msg = json!({ "type": "memory_search", "id": id, "query": q });
+    // Recall may embed the query on a CPU first.
+    agent_reply(ask_agent(&state, msg, "memory_search_result", &id, std::time::Duration::from_secs(60)).await)
+}
+
+/// `GET /runtime/cron` — every scheduled task, as `cron_list_result`.
+async fn runtime_cron_list(State(state): State<ApiState>) -> Response {
+    let id = uuid::Uuid::new_v4().to_string();
+    let msg = json!({ "type": "cron_list", "id": id });
+    agent_reply(ask_agent(&state, msg, "cron_list_result", &id, AGENT_WAIT).await)
+}
+
+#[derive(Deserialize)]
+struct CronChangeReq {
+    /// `add`, `remove` or `toggle`.
+    op: String,
+    id: Option<String>,
+    name: Option<String>,
+    task: Option<String>,
+    schedule: Option<Value>,
+    enabled: Option<bool>,
+}
+
+/// `POST /runtime/cron` — add, remove, or turn a scheduled task on or off.
+/// Answers with the whole list after the change. Checked here, because the
+/// agent answers a malformed request with nothing a caller could wait for.
+async fn runtime_cron_change(State(state): State<ApiState>, Json(req): Json<CronChangeReq>) -> Response {
+    let rid = uuid::Uuid::new_v4().to_string();
+    let msg = match (req.op.as_str(), &req.id, &req.name, &req.task, &req.schedule, req.enabled) {
+        ("add", _, Some(name), Some(task), Some(schedule), _) => json!({
+            "type": "cron_add", "requestId": rid, "name": name, "task": task, "schedule": schedule,
+            // Results land as a notification in the app, and in the task's history.
+            "delivery": { "kind": "chat", "sessionId": "cron" },
+        }),
+        ("remove", Some(id), ..) => json!({ "type": "cron_remove", "requestId": rid, "id": id }),
+        ("toggle", Some(id), _, _, _, Some(enabled)) => {
+            json!({ "type": "cron_toggle", "requestId": rid, "id": id, "enabled": enabled })
+        }
+        _ => {
+            return (StatusCode::BAD_REQUEST, "add needs name, task and schedule; remove needs id; toggle needs id and enabled")
+                .into_response()
+        }
+    };
+    agent_reply(ask_agent(&state, msg, "cron_list_result", &rid, AGENT_WAIT).await)
+}
+
+/// `GET /runtime/mcp` — the MCP servers and whether each is running, as `mcp_result`.
+async fn runtime_mcp_status(State(state): State<ApiState>) -> Response {
+    let id = uuid::Uuid::new_v4().to_string();
+    let msg = json!({ "type": "mcp_status", "id": id });
+    agent_reply(ask_agent(&state, msg, "mcp_result", &id, AGENT_WAIT).await)
+}
+
+#[derive(Deserialize)]
+struct MessageSendReq {
+    /// The chat-app conversation, `<connector>:<chat>`.
+    to: String,
+    text: String,
+}
+
+/// `POST /runtime/message {to, text}` — say something in one chat-app
+/// conversation, as `message_send_result`.
+async fn runtime_message_send(State(state): State<ApiState>, Json(req): Json<MessageSendReq>) -> Response {
+    let id = uuid::Uuid::new_v4().to_string();
+    let msg = json!({ "type": "message_send", "id": id, "to": req.to, "content": req.text });
+    agent_reply(ask_agent(&state, msg, "message_send_result", &id, std::time::Duration::from_secs(30)).await)
 }
 
 /// `GET /runtime/cowork/team` — the teammate roster and the approvals a

@@ -1274,6 +1274,12 @@ export interface InboundMessage {
     // card and the writers' health, or delete one (`noteId`). Replies with one
     // `memory_notes_result` paired by `id`.
     | "memory_notes"
+    // `cinderpaw memory search`: what recall would put in front of the model
+    // for these words (`query`). Replies with one `memory_search_result` by `id`.
+    | "memory_search"
+    // `cinderpaw message send`: say `content` in the chat-app conversation `to`
+    // ("telegram:12345"). Replies with one `message_send_result` paired by `id`.
+    | "message_send"
     // The workspace panel asking what exists, or for one artifact's content.
     // Replies with one `artifact_result` paired by `id`. The panel cannot read
     // the files itself: they live under ~/.cinderpaw, which the webview is
@@ -1403,6 +1409,10 @@ export interface InboundMessage {
   /** Memory page payload (type === "memory_notes"). */
   notesOp?: "list" | "delete";
   noteId?: number;
+  /** `memory_search` payload: the words to look for. */
+  query?: string;
+  /** `message_send` payload: the chat-app conversation, `<connector>:<chat>`. */
+  to?: string;
   /** Approval-gate payload (type === "rsi_code_patch_resolve"); the patch
    *  id rides the plain `id` field. */
   patchAction?: "approve" | "reject";
@@ -2180,6 +2190,19 @@ export type OutboundEvent =
        *  graph node id its key becomes (`graph.ts` setFact): the Memory page's
        *  filter chips and tags. Absent from an older sidecar. */
       categories?: Record<string, string>;
+    }
+  // `cinderpaw memory search`, paired by `id`: the memories recall picked.
+  | { type: "memory_search_result"; id: string; items: { kind: "fact" | "past"; text: string; ts?: number }[] }
+  // `cinderpaw message send`, paired by `id`.
+  | { type: "message_send_result"; id: string; ok: boolean; error?: string }
+  // `cinderpaw cron`, paired by `id`: every scheduled task after the request
+  // (a list, or an add / remove / on / off that just happened).
+  | {
+      type: "cron_list_result";
+      id: string;
+      ok: boolean;
+      error?: string;
+      jobs: Array<{ id: string; name: string; task: string; schedule: Schedule; enabled: boolean; nextRunMs?: number; lastRunMs?: number }>;
     }
   // Dream Cycle lifecycle — emitted by the host when an evolutionary episode
   // starts (`phase:"started"`) and ends (`phase:"ended"`). Forwarded verbatim

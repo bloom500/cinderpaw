@@ -28,6 +28,7 @@ export const INBOUND_TYPES = [
   "cron_add", "cron_remove", "cron_toggle", "cron_list",
   "desktop_control_response", "connectors_reload",
   "fractal_benchmark", "fractal_cluster_leaves", "memory_notes",
+  "memory_search", "message_send",
   "rsi_start", "rsi_stop", "rsi_set_concurrency", "rsi_dream_now",
   "rsi_code_patches_list", "rsi_code_patch_resolve", "rsi_question_resolve",
   "memory_forget",
@@ -68,4 +69,5 @@ export const OUTBOUND_TYPES = [
   "onboarding_goal_completed", "onboarding_all_goals_done",
   "onboarding_suggestion", "confirmation_required",
   "confirmation_granted", "confirmation_denied", "rate_limited", "hello",
+  "memory_search_result", "message_send_result", "cron_list_result",
 ] as const;
