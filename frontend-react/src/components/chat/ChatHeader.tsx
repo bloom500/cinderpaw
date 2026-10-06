@@ -32,9 +32,12 @@ export function ChatHeader() {
     // The model pill used to sit here, in the corner, as the first thing on
     // the screen. It is in the composer now, where the choice is relevant.
     // The voice call stays in the composer too: its whole state lives there.
+    // pr clears the window chrome: WinControls are fixed top-right at z-200,
+    // three 40px buttons = 120px, and these header buttons sat right under
+    // them — visible but dead (4 Oct 2026). 16px of air past the chrome.
     <div
       data-tauri-drag-region
-      className="h-15 pl-7 pr-5 flex items-center gap-2 shrink-0 select-none border-b border-border-subtle"
+      className="h-15 pl-7 pr-[136px] flex items-center gap-2 shrink-0 select-none border-b border-border-subtle"
     >
       <span data-tauri-drag-region className="text-base font-semibold text-text-primary truncate min-w-0">
         {current.title}

@@ -109,6 +109,15 @@ interface UIStore {
   recordEmberScore: (score: number) => void;
   chatFont: ChatFont;
   setChatFont: (f: ChatFont) => void;
+  /**
+   * In-app glass (backdrop blur) on or off. Off by default: solid surfaces
+   * cost nothing per frame, and the people who never open Settings are the
+   * ones on the weakest machines. Separate from the window background
+   * (Appearance > Window background): that one is the OS transparency, this
+   * one is every blur the app paints itself.
+   */
+  glassEffects: boolean;
+  setGlassEffects: (v: boolean) => void;
   /** On-device transcription model id, from the Rust catalog. `''` until the
    *  user picks one, or when the stored one is not in this build. */
   sttModel: SttModelId;
@@ -187,6 +196,11 @@ const resolveTheme = (t: ThemePref): ResolvedTheme =>
 const applyTheme = (resolved: ResolvedTheme) =>
   document.documentElement.setAttribute('data-theme', resolved);
 
+// The in-app glass switch. Stamped like the theme so CSS can key on it;
+// the attribute is always present so the default is visible in the DOM.
+const applyGlassEffects = (on: boolean) =>
+  document.documentElement.setAttribute('data-glass', on ? 'on' : 'off');
+
 export const useUI = create<UIStore>()(
   persist(
     (set) => ({
@@ -239,6 +253,11 @@ export const useUI = create<UIStore>()(
       recordEmberScore: (score) => set((s) => (score > s.emberBest ? { emberBest: score } : {})),
       chatFont: 'geist',
       setChatFont: (chatFont) => set({ chatFont }),
+      glassEffects: false,
+      setGlassEffects: (glassEffects) => {
+        applyGlassEffects(glassEffects);
+        set({ glassEffects });
+      },
       // Empty, not 'small'. A default that names a specific model is a promise
       // about which engine is underneath, and the answer differs per build —
       // the picker resolves this against what the binary actually offers.
@@ -280,6 +299,7 @@ export const useUI = create<UIStore>()(
         emberGameEnabled: s.emberGameEnabled,
         emberBest: s.emberBest,
         chatFont: s.chatFont,
+        glassEffects: s.glassEffects,
         sttModel: s.sttModel,
         sttProvider: s.sttProvider,
         ttsProvider: s.ttsProvider,
@@ -321,6 +341,9 @@ export const useUI = create<UIStore>()(
         const resolved = resolveTheme(state.theme);
         applyTheme(resolved);
         state.resolvedTheme = resolved;
+        // Old blobs have no key: they get the new default (solid), same as a
+        // stranger. A stored `true` keeps its glass.
+        applyGlassEffects(state.glassEffects ?? false);
         document.documentElement.lang = 'en';
       },
     },

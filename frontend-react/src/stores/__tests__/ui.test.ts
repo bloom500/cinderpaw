@@ -91,3 +91,37 @@ describe('useUI: the campfire game', () => {
     expect(saved).toHaveProperty('emberBest');
   });
 });
+
+/**
+ * Glass effects default to off (solid): backdrop blur re-runs on every
+ * scrolled frame, and the default is what weak machines get.
+ */
+describe('useUI: glass effects', () => {
+  it('starts a fresh install solid', () => {
+    expect(useUI.getInitialState().glassEffects).toBe(false);
+  });
+
+  it('keeps the choice across launches', () => {
+    const saved = useUI.persist.getOptions().partialize!(useUI.getState()) as Record<string, unknown>;
+    expect(saved).toHaveProperty('glassEffects');
+  });
+
+  it('stamps the document when the choice changes', () => {
+    useUI.getState().setGlassEffects(true);
+    expect(useUI.getState().glassEffects).toBe(true);
+    expect(document.documentElement.getAttribute('data-glass')).toBe('on');
+    useUI.getState().setGlassEffects(false);
+    expect(document.documentElement.getAttribute('data-glass')).toBe('off');
+  });
+
+  it('gives an old install without the key the new default', () => {
+    // The blob predates the switch, so there is nothing to keep: solid,
+    // stamped, same as a stranger.
+    const start = useUI.persist.getOptions().onRehydrateStorage;
+    const finish = start?.(useUI.getInitialState());
+    expect(finish).toBeDefined();
+    document.documentElement.removeAttribute('data-glass');
+    finish?.({ theme: 'system' } as never, undefined);
+    expect(document.documentElement.getAttribute('data-glass')).toBe('off');
+  });
+});

@@ -349,9 +349,24 @@ export function ChatPage() {
           // actually starts. It was clearing a hard-coded 88px, and this dock
           // is not 88px tall — it grows with a multi-line draft, the error
           // notice and the greeting.
+          // pointer-events-none on the wrapper: it spans the full width over
+          // the transcript, and its empty padding (pt-8 above, gaps between
+          // cards) used to swallow clicks meant for the scrollbar behind it —
+          // the pill could not be grabbed wherever the dock covered the track
+          // (4 Oct 2026). The inner box must not exist AS a box either: it is
+          // also full width while every control inside it is a centred
+          // max-w column, so its dead side bands sat over the scrollbar's
+          // bottom dockH pixels (z-20, above the viewport) and the pill stayed
+          // ungrabbable exactly where it sits in follow mode — only the rail
+          // above the dock answered, hence "it works only near chapter
+          // lines". `contents` (display: contents) removes the box while the
+          // children keep their own boxes and events, so the dead bands are
+          // gone and every control stays clickable with no child file
+          // touched.
           data-chat-input-dock=""
-          className="absolute inset-x-0 bottom-0 z-20 pt-8"
+          className="absolute inset-x-0 bottom-0 z-20 pt-8 pointer-events-none"
         >
+          <div className="contents pointer-events-auto">
           {isEmpty && !showAgentOnboarding && <HomeGreeting />}
           {/* Workers the agent spawned with rlm(). They run after the reply
               that started them, so the reply cannot show them. */}
@@ -383,6 +398,7 @@ export function ChatPage() {
               guessed a second time, and would drift the first time the field
               grew a line. */}
           {isEmpty && !showAgentOnboarding && <HomeIntents onPick={handleSuggestion} />}
+          </div>
         </div>
       </div>
     </div>

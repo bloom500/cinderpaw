@@ -6,6 +6,7 @@ import {
 import { useChat } from '@/stores/chat';
 import { cn } from '@/lib/utils';
 import { MessageItem, ReplyHead } from './MessageItem';
+import { ChapterRail } from './ChapterRail';
 import { useResendTurn } from '@/hooks/useResendTurn';
 import { StreamingIndicator } from './StreamingIndicator';
 import { ApprovalCard } from './ApprovalCard';
@@ -150,6 +151,8 @@ export function MessageList({ onFollowUp }: {
           </MessageScroller.Content>
         </MessageScroller.Viewport>
         <JumpToBottom count={messages.length} />
+        {/* Qwen-style chapter rail: one tick per user turn, with a popup list. */}
+        <ChapterRail />
       </MessageScroller.Root>
     </MessageScroller.Provider>
   );
