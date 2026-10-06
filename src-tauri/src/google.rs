@@ -141,18 +141,26 @@ async fn access_token() -> Result<String, String> {
 }
 
 /// Upload one file to the person's Drive. `convert` turns text or HTML into a
-/// Google Doc; a PDF is kept as it is (converting it goes through OCR and
-/// loses the layout). Returns the link to open it.
-pub async fn upload(name: &str, mime: &str, bytes: Vec<u8>, convert: bool) -> Result<String, String> {
+/// Google Doc and a CSV into a Google Sheet; a PDF is kept as it is
+/// (converting it goes through OCR and loses the layout). `anyone_with_link`
+/// lets whoever gets the link view it: the Gmail button sends the link to
+/// someone else, and a private file would only show them "request access".
+/// `drive.file` covers it, because the app made the file. Returns the link.
+pub async fn upload(name: &str, mime: &str, bytes: Vec<u8>, convert: bool, anyone_with_link: bool) -> Result<String, String> {
     let token = access_token().await?;
+    let sheet = convert && mime == "text/csv";
     let mut meta = json!({ "name": name });
-    if convert { meta["mimeType"] = json!("application/vnd.google-apps.document"); }
+    if convert {
+        // Drive imports a CSV as a Sheet and text or HTML as a Doc; asking for
+        // the other one fails the upload.
+        meta["mimeType"] = json!(if sheet { "application/vnd.google-apps.spreadsheet" } else { "application/vnd.google-apps.document" });
+    }
     let form = reqwest::multipart::Form::new()
         .part("metadata", reqwest::multipart::Part::text(meta.to_string()).mime_str("application/json; charset=UTF-8").map_err(|e| e.to_string())?)
         .part("file", reqwest::multipart::Part::bytes(bytes).mime_str(mime).map_err(|e| e.to_string())?);
     let res = reqwest::Client::new()
         .post("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,mimeType,webViewLink")
-        .bearer_auth(token)
+        .bearer_auth(&token)
         .multipart(form)
         .send().await.map_err(|e| e.to_string())?;
     let status = res.status();
@@ -161,7 +169,19 @@ pub async fn upload(name: &str, mime: &str, bytes: Vec<u8>, convert: bool) -> Re
         return Err(format!("Google refused the upload: {}", v["error"]["message"].as_str().unwrap_or("unknown error")));
     }
     let id = v["id"].as_str().unwrap_or_default();
-    Ok(v["webViewLink"].as_str().map(String::from).unwrap_or_else(|| {
-        if convert { format!("https://docs.google.com/document/d/{id}/edit") } else { format!("https://drive.google.com/file/d/{id}/view") }
+    if anyone_with_link {
+        let res = reqwest::Client::new()
+            .post(format!("https://www.googleapis.com/drive/v3/files/{id}/permissions"))
+            .bearer_auth(&token)
+            .json(&json!({ "role": "reader", "type": "anyone" }))
+            .send().await.map_err(|e| e.to_string())?;
+        if !res.status().is_success() {
+            return Err("The file is in your Drive, but Google would not let others open the link. Share it from Drive.".into());
+        }
+    }
+    Ok(v["webViewLink"].as_str().map(String::from).unwrap_or_else(|| match (convert, sheet) {
+        (true, true) => format!("https://docs.google.com/spreadsheets/d/{id}/edit"),
+        (true, false) => format!("https://docs.google.com/document/d/{id}/edit"),
+        _ => format!("https://drive.google.com/file/d/{id}/view"),
     }))
 }

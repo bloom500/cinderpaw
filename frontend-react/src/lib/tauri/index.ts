@@ -1062,8 +1062,8 @@ const raw = {
   googleStatus: () => invoke<boolean | null>('google_status'),
   googleConnect: () => invoke<void>('google_connect'),
   googleDisconnect: () => invoke<void>('google_disconnect'),
-  googleUpload: (name: string, mime: string, data: string, encoding: 'base64' | null, convert: boolean) =>
-    invoke<string>('google_upload', { name, mime, data, encoding, convert }),
+  googleUpload: (name: string, mime: string, data: string, encoding: 'base64' | null, convert: boolean, anyoneWithLink = false) =>
+    invoke<string>('google_upload', { name, mime, data, encoding, convert, anyoneWithLink }),
   browserUi: (op: string, params: Record<string, unknown> = {}) =>
     invoke<Record<string, unknown>>('browser_ui', { op, params }),
   /** The workspace panel's one door to the artifact store. The answer arrives
@@ -1486,8 +1486,8 @@ export const tauri = {
     status: () => raw.googleStatus(),
     connect: () => raw.googleConnect(),
     disconnect: () => raw.googleDisconnect(),
-    upload: (name: string, mime: string, data: string, encoding: 'base64' | null, convert: boolean) =>
-      raw.googleUpload(name, mime, data, encoding, convert),
+    upload: (name: string, mime: string, data: string, encoding: 'base64' | null, convert: boolean, anyoneWithLink = false) =>
+      raw.googleUpload(name, mime, data, encoding, convert, anyoneWithLink),
   },
 };
 

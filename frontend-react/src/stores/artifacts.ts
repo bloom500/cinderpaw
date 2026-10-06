@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { tauri } from '@/lib/tauri';
 import { useNotifications } from '@/stores/notifications';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
+import { open as openUrl } from '@tauri-apps/plugin-shell';
 import type { PdfEdit } from '@/lib/pdfEdits';
 import type { PdfFieldRow } from '@/components/artifacts/PdfEditor';
 
@@ -105,13 +106,13 @@ interface ArtifactsStore {
   /** Set after an export, so the panel can say where the file went. */
   lastExport: { path: string; note: string } | null;
   /** After Send to Google Docs: the link, or what went wrong. */
-  google: { link?: string; error?: string; busy?: boolean } | null;
+  google: { link?: string; error?: string; busy?: boolean; dest?: GoogleDest } | null;
   /**
    * Send the open artifact to the person's Google Drive: text and HTML become
    * a Google Doc, a PDF stays a PDF. First time, it logs them in through the
    * built-in browser and then finishes the send on its own.
    */
-  sendToGoogle: (target?: { title: string; kind: string; content: string }) => Promise<void>;
+  sendToGoogle: (target?: { title: string; kind: string; content: string }, dest?: GoogleDest) => Promise<void>;
   /** Non-null while the person is editing the open artifact. */
   editing: EditSession | null;
   /**
@@ -225,15 +226,15 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   focus: null,
   clearFocus: () => set({ focus: null }),
 
-  sendToGoogle: async (target) => {
+  sendToGoogle: async (target, dest = 'docs') => {
     const open = get().open;
     const doc = target
       ? { row: { title: target.title, kind: target.kind }, content: target.content, encoding: undefined }
       : open;
     if (!doc) return;
-    const plan = googlePlan(shownKind(doc.row.kind, doc.content));
+    const plan = googlePlan(shownKind(doc.row.kind, doc.content), dest, doc.content);
     if (!plan) return;
-    set({ google: { busy: true } });
+    set({ google: { busy: true, dest } });
     try {
       if (!(await tauri.google.status())) {
         // Opens Google's consent page in the Browser panel and resolves once
@@ -241,10 +242,16 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
         await tauri.google.connect();
       }
       const name = `${fileName(doc.row.title)}${plan.convert ? '' : extensionFor(doc.row.kind)}`;
-      const link = await tauri.google.upload(name, plan.mime, doc.content, doc.encoding === 'base64' ? 'base64' : null, plan.convert);
-      set({ google: { link } });
+      const data = plan.content ?? doc.content;
+      const encoding = plan.content === undefined && doc.encoding === 'base64' ? 'base64' : null;
+      const link = await tauri.google.upload(name, plan.mime, data, encoding, plan.convert, dest === 'gmail');
+      if (dest === 'gmail') {
+        const compose = gmailCompose(doc.row.title, link);
+        await openUrl(compose).catch(() => window.open(compose, '_blank', 'noopener,noreferrer'));
+      }
+      set({ google: { link, dest } });
     } catch (e) {
-      set({ google: { error: String(e) } });
+      set({ google: { error: String(e), dest } });
     }
   },
 
@@ -672,16 +679,68 @@ export function shownKind(kind: string, content: string): string {
   return kind === 'document' && !html.test(content) ? 'markdown' : kind;
 }
 
-/** What each kind becomes on Drive; null for kinds the button does not offer. */
-export function googlePlan(kind: string): { mime: string; convert: boolean } | null {
-  switch (kind) {
-    case 'document': case 'html': case 'app': return { mime: 'text/html', convert: true };
-    case 'markdown': case 'code': case 'json': case 'table': return { mime: 'text/plain', convert: true };
-    case 'pdf': return { mime: 'application/pdf', convert: false };
-    // A Word file's bytes are not in the panel (only its preview), and an
-    // image is not a document.
-    default: return null;
+/** The four places the Google button sends an artifact to. */
+export type GoogleDest = 'drive' | 'docs' | 'sheets' | 'gmail';
+export const GOOGLE_DESTS: GoogleDest[] = ['drive', 'docs', 'sheets', 'gmail'];
+
+/** The file as it is, for Drive and for the Gmail link. A Word file's bytes
+ *  are not in the panel (only its preview), and an image is not a document. */
+const FILE_MIME: Record<string, string> = {
+  document: 'text/html', html: 'text/html', app: 'text/html', markdown: 'text/markdown',
+  code: 'text/plain', json: 'application/json', table: 'application/json', pdf: 'application/pdf',
+};
+
+/**
+ * How one kind goes to one Google place, or null when it cannot: Docs takes
+ * text and HTML (a PDF would go through OCR and lose its layout), Sheets only
+ * a table, turned into CSV here because that is what Google imports as a Sheet.
+ */
+export function googlePlan(kind: string, dest: GoogleDest = 'docs', content = ''): { mime: string; convert: boolean; content?: string } | null {
+  switch (dest) {
+    case 'drive':
+    case 'gmail':
+      return FILE_MIME[kind] ? { mime: FILE_MIME[kind]!, convert: false } : null;
+    case 'docs':
+      if (kind === 'document' || kind === 'html' || kind === 'app') return { mime: 'text/html', convert: true };
+      if (kind === 'markdown' || kind === 'code' || kind === 'json' || kind === 'table') return { mime: 'text/plain', convert: true };
+      return null;
+    case 'sheets': {
+      const csv = kind === 'table' ? tableCsv(content) : null;
+      return csv ? { mime: 'text/csv', convert: true, content: csv } : null;
+    }
   }
+}
+
+/** A table artifact (`{columns, rows}`, rows of arrays, or rows of objects:
+ *  the shapes the sidecar's `tableRows` reads) as CSV, or null. */
+export function tableCsv(content: string): string | null {
+  let parsed: unknown;
+  try { parsed = JSON.parse(content); } catch { return null; }
+  let header: string[] = [];
+  let rows: unknown[][] = [];
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const o = parsed as { columns?: unknown; rows?: unknown };
+    if (!Array.isArray(o.columns) || !Array.isArray(o.rows)) return null;
+    header = o.columns.map(String);
+    rows = o.rows.map((r) => (Array.isArray(r) ? r : Object.values(r as object)));
+  } else if (Array.isArray(parsed) && parsed.length > 0) {
+    if (Array.isArray(parsed[0])) [header, rows] = [(parsed[0] as unknown[]).map(String), parsed.slice(1) as unknown[][]];
+    else if (parsed[0] && typeof parsed[0] === 'object') {
+      header = Array.from(new Set(parsed.flatMap((r) => Object.keys(r as object))));
+      rows = parsed.map((r) => header.map((k) => (r as Record<string, unknown>)[k]));
+    } else return null;
+  } else return null;
+  const cell = (v: unknown) => {
+    const s = v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return [header, ...rows].map((r) => r.map(cell).join(',')).join('\r\n');
+}
+
+/** A new Gmail message with the link in it; the person adds who it goes to. */
+function gmailCompose(title: string, link: string): string {
+  const body = `${title}\n${link}\n\n(Anyone with this link can view it.)`;
+  return `https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
 }
 
 /** The text kinds the sidecar can turn into a PDF, a Word or an Excel file. */

@@ -295,7 +295,10 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
   }
 
   const asPdf = PDF_ABLE.has(f.kind);
-  const canShare = googleOk && peek.state === 'ready' && googlePlan(shown) !== null;
+  // One tap from the chat: a Doc when it can be one, the file in Drive when not
+  // (a PDF). The panel's Google button offers all four places.
+  const shareTo = googlePlan(shown, 'docs', content) ? 'docs' : googlePlan(shown, 'drive', content) ? 'drive' : null;
+  const canShare = googleOk && peek.state === 'ready' && shareTo !== null;
   const iconButton = 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border-default bg-bg-elevated text-text-secondary transition-colors hover:bg-text-primary/5 hover:text-text-primary disabled:opacity-60';
 
   // A board draws its own header and footer (the 1 Oct boards); the card adds its buttons to that footer.
@@ -405,7 +408,7 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
             disabled={google?.busy === true}
             onClick={() => {
               setShared(true);
-              void useArtifacts.getState().sendToGoogle({ title: f.title, kind: f.kind, content });
+              void useArtifacts.getState().sendToGoogle({ title: f.title, kind: f.kind, content }, shareTo ?? 'drive');
             }}
             className={iconButton}
           >
