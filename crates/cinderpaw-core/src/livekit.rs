@@ -216,9 +216,18 @@ pub const S2S_PROVIDERS: &[S2sProvider] = &[
         id: "openai",
         label: "OpenAI Realtime",
         plugin: "@livekit/agents-plugin-openai",
-        model: "gpt-realtime",
+        // GPT-Live: ChatGPT's own full-duplex voice in the API (10 Sep 2026).
+        // It listens while it talks and keeps the conversation going while a
+        // tool runs, which is what the realtime models needed a filler for.
+        // A `gpt-realtime` id picked in the model list still runs as before.
+        model: "gpt-live-1",
         voice: "marin",
-        voices: &["marin", "cedar", "alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"],
+        // GPT-Live's names (plugin 1.9.0 and the launch list). A stored
+        // realtime-only voice falls back to `marin`, which both models have.
+        voices: &[
+            "marin", "cinder", "aster", "beacon", "stone", "vesper", "quartz", "ripple", "willow", "gleam",
+            "meridian", "bossa", "tempo", "delta",
+        ],
         pipeline: false,
     },
     // The pipeline, assembled from parts that already ship in this binary.
@@ -1201,9 +1210,12 @@ pub async fn start(
             // tool in JavaScript would be a second description of the same door
             // — and that description is load-bearing prose that was rewritten
             // after a measurement, not boilerplate.
+            // Gemini gets its own Google Search in the worker (`geminiTools`),
+            // so its door is described without "the only way to the web".
             .env(
                 "CINDERPAW_LIVE_TOOLS",
-                serde_json::to_string(&crate::live::bridge::declarations()).unwrap_or_else(|_| "[]".into()),
+                serde_json::to_string(&crate::live::bridge::declarations_for(p.id == "google"))
+                    .unwrap_or_else(|_| "[]".into()),
             );
         // Where to send a tool call, and the credential for it. The API server
         // is already listening on loopback for the sidecar; this reuses it
@@ -1541,6 +1553,20 @@ mod tests {
         assert!(agent.contains("MAX_REOPENS") && agent.contains("TRANSIENT_CODES"), "a dropped line ends the call");
         // A lookup still running is not started a second time.
         assert!(agent.contains("inFlight > 0"), "the guard duplicates a running lookup");
+    }
+
+    /// The two simpler paths from the 6 Oct comparison with ChatGPT, Gemini,
+    /// OpenClaw and Hermes: GPT-Live on OpenAI, Google's own search on Gemini.
+    #[test]
+    fn openai_runs_on_gpt_live_and_gemini_searches_on_its_own() {
+        let openai = provider_by_id("openai").unwrap();
+        assert_eq!(openai.model, "gpt-live-1");
+        assert!(openai.voices.contains(&openai.voice), "the default voice is not in its own list");
+        let agent = include_str!("livekit_agent.mjs");
+        assert!(agent.contains("GPTLiveModel"), "OpenAI still runs on a realtime model");
+        assert!(agent.contains("googleSearch: {}"), "Gemini sends every quick fact the long way round");
+        // Its own searches have to count as a search, or the guard starts a second one.
+        assert!(agent.contains("groundingMetadata") && agent.contains("turn.called = true"));
     }
 
     /// What entering a call actually costs, on this machine, with the real

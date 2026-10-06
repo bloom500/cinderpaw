@@ -215,7 +215,10 @@ pub(crate) async fn list_s2s_models(provider: String) -> Vec<S2sModelInfo> {
                 .map(|ms| {
                     ms.iter()
                         .filter_map(|m| m["id"].as_str())
-                        .filter(|id| id.contains("realtime"))
+                        // `gpt-live-*` holds a live session too, without the
+                        // word: filtered on "realtime" alone, the default
+                        // model was missing from its own picker.
+                        .filter(|id| id.contains("realtime") || id.starts_with("gpt-live"))
                         // No display name in this payload, so the id is the
                         // label. Better an id than a name we made up.
                         .map(|id| S2sModelInfo { id: id.to_string(), label: id.to_string() })
