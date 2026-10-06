@@ -132,10 +132,6 @@ pub(crate) async fn byok_has_key(provider_id: String) -> bool {
     byok::byok_get(&provider_id).is_some_and(|k| !k.trim().is_empty())
 }
 
-/// The model a fresh OpenRouter sign-in answers with. Cheap, tool-capable, and
-/// the one every benchmark in this repo was measured on.
-pub(crate) const OPENROUTER_DEFAULT_MODEL: &str = "z-ai/glm-5.3-flash";
-
 /// Sign in with OpenRouter instead of pasting a key (OAuth PKCE).
 ///
 /// A stranger's first five minutes used to be: find a provider, make an
@@ -228,13 +224,13 @@ pub(crate) async fn openrouter_sign_in(app: tauri::AppHandle) -> Result<String, 
         .ok_or_else(|| format!("OpenRouter did not return a key (HTTP {}). Try again.", status.as_u16()))?
         .to_string();
 
-    // Keep a model the person already chose on this provider; only a blank
-    // one gets the default.
-    let existing = byok::load(&settings::load()).providers.get("openrouter").and_then(|c| c.default_model.clone());
-    let model = existing.unwrap_or_else(|| OPENROUTER_DEFAULT_MODEL.to_string());
-    let config = byok::ProviderConfig { enabled: true, api_key: key, base_url: None, default_model: Some(model.clone()) };
+    // No model named: the save keeps one the person already chose, and a blank
+    // one gets the catalogue default, the same model a pasted key gets. This
+    // used to keep its own copy of the default: a second place to forget when
+    // the default changes (6 Oct 2026).
+    let config = byok::ProviderConfig { enabled: true, api_key: key, base_url: None, default_model: None };
     byok::save_provider("openrouter", config).map_err(|e| e.to_string())?;
-    Ok(model)
+    Ok(byok::load(&settings::load()).providers.get("openrouter").and_then(|c| c.default_model.clone()).unwrap_or_default())
 }
 
 /// One System One request to Jev (TypeSafe), with the key from the keychain.

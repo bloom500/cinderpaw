@@ -47,7 +47,11 @@ const RULES: Rule[] = [
   {
     test: /\b429\b|rate.?limit|too many requests/i,
     title: 'Too many requests right now',
-    message: 'Rate limit reached. Wait a moment and try again, or switch to another model/provider.',
+    // Free plans also cap the day (OpenRouter free: 50 requests). "Wait a
+    // moment" alone sent that person into retries that could not succeed.
+    message:
+      'Rate limit reached. Wait a minute and try again. If it keeps happening, the free daily allowance ' +
+      'is used up: it resets tomorrow, or add credit with the provider, or switch to another model.',
     action: null,
   },
   {
