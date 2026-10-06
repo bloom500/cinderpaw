@@ -46,8 +46,9 @@ export function artifactLine(f: Pick<ArtifactFact, 'kind' | 'version'>): string 
 
 /** Kinds whose text the card can read and draw; the rest get their cover. */
 const READABLE = new Set(['document', 'markdown', 'app', 'html', 'table', 'code', 'json', 'board']);
-/** Kinds the sidecar turns into a PDF on export (mirrors CONVERTIBLE in the store). */
-const PDF_ABLE = new Set(['document', 'markdown', 'table', 'code', 'json', 'board']);
+/** Prose, whose one-tap download is a PDF. A table, a script or a JSON file
+ *  leaves as itself: "Download" on a CSV-like table used to hand over a PDF (6 Oct). */
+const PDF_ABLE = new Set(['document', 'markdown', 'board']);
 /** Section columns on the card; the rest are chips in the footer. */
 const COLUMNS = 4;
 const CHIPS = 4;

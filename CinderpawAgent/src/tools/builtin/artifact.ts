@@ -38,6 +38,7 @@ import {
   ArtifactStore,
   isArtifactKind,
   looksLikeHtml,
+  titleExtension,
   type Artifact,
   type ArtifactKind,
 } from "../../artifacts/store.ts";
@@ -180,7 +181,7 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
     description:
       // The first sentence is all the drawer index shows, so "board" has to be in it (1 Oct:
       // asked for a board, the model never saw the word and drew a widget table instead).
-      "Make a document, chart or board (plan, itinerary, dashboard, diagram) the user keeps. " +
+      "Make a document, chart, board or file (plan, itinerary, dashboard, diagram, CSV) the user keeps. " +
       "Put the result HERE instead of in the reply whenever it is longer than " +
       "about 15 lines, stands on its own, or is something the user will want to " +
       "edit, re-read or reuse after this conversation: a report, a summary, a " +
@@ -194,7 +195,9 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       "shows in the chat as a card of sections, and a part can carry a picture: ![caption](https://...) with an " +
       "address from a fetch_url `Picture:` line, never an invented one), document (only for prose " +
       "you write as HTML), app (see below), table (JSON " +
-      "rows), code, json, html, file, pdf (write the content as markdown: # headings, " +
+      "rows, downloads as an Excel sheet), code, json, html, file (any other file type: a CSV, " +
+      "a script, a calendar invite. End the title with its extension, e.g. leads.csv, and put the " +
+      "file's text in content; it downloads under that name), pdf (write the content as markdown: # headings, " +
       "paragraphs, - lists; it becomes a real A4 PDF the user can sign and fill in the panel).\n\n" +
       "app = " + APP_AUTHORING_BRIEF + " Charts are apps: there is no separate " +
       "chart kind, because a chart is an app with no controls.\n\n" +
@@ -212,7 +215,8 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
         type: "string",
         description:
           "markdown | document | app | board | table | code | json | html | file | pdf. " +
-          "Pick 'markdown' for anything the user will read; 'pdf' when they asked for a PDF.",
+          "Pick 'markdown' for anything the user will read; 'pdf' when they asked for a PDF; " +
+          "'file' with the extension in the title (leads.csv) when they asked for a CSV or any other file type.",
         required: true,
       },
       title: { type: "string", description: "Short human title, one line.", required: true },
@@ -247,6 +251,17 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       }
       if (!content) {
         return { ok: false, error: "bad_args", content: "artifact_create: 'content' is required." };
+      }
+      // A file is named by its title, so the title carries its type: without
+      // one it can only download as .bin, which nothing opens (6 Oct, a CSV).
+      if (kind === "file" && !titleExtension(title)) {
+        return {
+          ok: false,
+          error: "bad_args",
+          content:
+            "artifact_create: a 'file' needs its file type at the end of the title, " +
+            "e.g. leads.csv or notes.txt, so it downloads as that type.",
+        };
       }
 
       const checked = kind === "board" ? boardContent(content, title) : null;
@@ -677,7 +692,7 @@ export function createArtifactExportTool(deps: ArtifactToolDeps): Tool {
       // extension. Anything but a PDF or the artifact's own format used to
       // go through as the source bytes under that name: a "wrong.xlsx" that
       // was markdown inside, reported as exported (Astra, D1, 20 Sep).
-      const native = ArtifactStore.extensionFor(a.kind).slice(1);
+      const native = ArtifactStore.extensionOf(a).slice(1);
       const asked = (typeof args.format === "string" ? args.format : extname(dest ?? "").slice(1))
         .trim().toLowerCase();
       const convertible = ArtifactStore.isTextKind(a.kind) && a.kind !== "pdf";
