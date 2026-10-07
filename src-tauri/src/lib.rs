@@ -662,6 +662,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             read_file_as_text,
             read_file_as_data_url,
             extract_file_text,
+            stage_pasted_file,
             skills::list_installed_skills,
             skills::get_installed_skill_content,
             skills::fetch_remote_skills,
