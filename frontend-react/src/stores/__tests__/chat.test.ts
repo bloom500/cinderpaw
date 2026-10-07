@@ -14,6 +14,10 @@ vi.mock('@/lib/tauri', async (importOriginal) => {
         ...actual.tauri.cinderpawAgent,
         coworkApprovalResolve: vi.fn().mockResolvedValue(undefined),
       },
+      raw: {
+        ...actual.tauri.raw,
+        cinderpawSubmitFeedback: vi.fn().mockResolvedValue(undefined),
+      },
     },
   };
 });
@@ -31,6 +35,19 @@ const reset = () =>
 
 describe('useChat', () => {
   beforeEach(reset);
+
+  // A 👍 teaches the engine only when it names the turn the engine knows
+  // (sidecar core/learned-ways.ts); the page's own id means nothing there.
+  it('setFeedback sends the engine id of the reply when it has one', async () => {
+    const { tauri } = await import('@/lib/tauri');
+    useChat.getState().addMessage({ id: 'ui-1', role: 'assistant', content: 'done', createdAt: 0, agentMessageId: 'engine-1' });
+    useChat.getState().addMessage({ id: 'ui-2', role: 'assistant', content: 'old', createdAt: 1 });
+    useChat.getState().setFeedback('ui-1', 'up');
+    useChat.getState().setFeedback('ui-2', 'down');
+    expect(tauri.raw.cinderpawSubmitFeedback).toHaveBeenCalledWith('test-session', 'engine-1', 'up');
+    expect(tauri.raw.cinderpawSubmitFeedback).toHaveBeenCalledWith('test-session', 'ui-2', 'down');
+    expect(useChat.getState().feedback).toEqual({ 'ui-1': 'up', 'ui-2': 'down' });
+  });
 
   it('addMessage appends to messages', () => {
     useChat.getState().addMessage({ id: '1', role: 'user', content: 'hi', createdAt: 0 });

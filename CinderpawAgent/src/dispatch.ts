@@ -240,6 +240,12 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           result: msg.feedbackValue === "up" ? "success" : "error",
           toolName: msg.feedbackMessageId,
         });
+        // Learned ways (learning, beta): a 👍 teaches the reply's steps, a 👎
+        // counts against a way the reply used. core/learned-ways.ts.
+        if (msg.feedbackMessageId && (msg.feedbackValue === "up" || msg.feedbackValue === "down")) {
+          const changed = agent.rateReply(msg.feedbackMessageId, msg.feedbackValue);
+          if (changed) log(`[learned-ways] ${changed} (${msg.feedbackValue} on ${msg.feedbackMessageId})`);
+        }
         break;
       // BRSI §2.8 `user` Wake trigger: run one dream episode now. The scheduler
       // launches it on its next tick, bypassing the idle/cooldown gate.

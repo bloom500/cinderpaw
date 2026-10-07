@@ -36,6 +36,7 @@ import { RUN_RECEIPT_METHOD, runReceipt } from "./core/run-receipt.ts";
 import { costOfRun } from "./core/cost-report.ts";
 import { appendAttempt, readAttempts } from "./rsi/l3-code/experiment-selector.ts";
 import { SkillLibrary, defaultSkillLibraryPath, induceFromReceipts } from "./memory/fractal/skill-library.ts";
+import { LearnedWays } from "./core/learned-ways.ts";
 import { MemoryGraph } from "./memory/graph.ts";
 import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
 import { getActiveWorkspaceId } from "./memory/workspaces.ts";
@@ -1331,6 +1332,9 @@ export async function boot(transportOverride?: Transport) {
   // ponytail: the message text is the title; a model-generated label would
   // cost a completion per turn.
   agent.setTodoStore(todoStore);
+  // Learned ways (learning, beta): a 👍 on a reply teaches its steps, offered
+  // again on a request like it. Empty on a fresh install until the first 👍.
+  agent.setLearnedWays(new LearnedWays(db.raw));
 
   // The notebook read side. `semantic` already exists (line ~493); this only
   // gives the loop a filtered view of it.
