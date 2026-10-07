@@ -225,6 +225,11 @@ pub fn router(state: ApiState) -> Router {
         .route("/runtime/setup/detect", get(runtime_setup_detect))
         .route("/runtime/setup/verify", post(runtime_setup_verify))
         .route("/runtime/setup/ack", post(runtime_setup_ack))
+        // Import from OpenClaw / Hermes Agent: the browser app's import step.
+        .route("/runtime/migrate/preview", get(runtime_migrate_preview))
+        .route("/runtime/migrate/apply", post(runtime_migrate_apply))
+        // One-click OpenRouter sign-in for the browser app (the desktop has its own button).
+        .route("/runtime/openrouter/sign-in", post(runtime_openrouter_sign_in))
         .route("/runtime/providers/catalog", get(runtime_providers_catalog))
         .route("/runtime/connectors/catalog", get(runtime_connectors_catalog))
         .route("/runtime/connectors/whatsapp/qr", get(runtime_whatsapp_qr))
@@ -4063,6 +4068,53 @@ async fn runtime_setup_verify(
         Ok(outcome) => Json(outcome).into_response(),
         Err(VerifyError::BadRequest(m)) => (StatusCode::BAD_REQUEST, m).into_response(),
         Err(VerifyError::Internal(m)) => (StatusCode::INTERNAL_SERVER_ERROR, m).into_response(),
+    }
+}
+
+/// `GET /runtime/migrate/preview` — another agent's setup on this machine and
+/// what an import would bring (`migrate::preview`). `[]` for almost everyone.
+async fn runtime_migrate_preview() -> impl IntoResponse {
+    Json(tokio::task::spawn_blocking(crate::migrate::preview).await.unwrap_or_default())
+}
+
+#[derive(Deserialize)]
+struct MigrateApplyReq {
+    /// The `root` of an install exactly as the preview returned it.
+    root: String,
+}
+
+/// `POST /runtime/migrate/apply` — import what the preview showed for `root`.
+async fn runtime_migrate_apply(Json(req): Json<MigrateApplyReq>) -> Response {
+    match tokio::task::spawn_blocking(move || crate::migrate::apply_at(&req.root)).await {
+        Ok(Ok(done)) => Json(json!({ "imported": done })).into_response(),
+        Ok(Err(m)) => (StatusCode::BAD_REQUEST, m).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct OpenRouterSignInReq {
+    /// This engine's own page, where the browser goes once the key is saved.
+    #[serde(default)]
+    return_to: Option<String>,
+}
+
+/// `POST /runtime/openrouter/sign-in` — start OpenRouter's one-click sign-in and
+/// return the URL to open (`openrouter_signin`). When the browser comes back the
+/// key is saved, then the browser is sent to `return_to`, where setup finds the
+/// key like any configured provider. Five manual steps become one button.
+async fn runtime_openrouter_sign_in(Json(req): Json<OpenRouterSignInReq>) -> Response {
+    let return_to = req.return_to.filter(|to| crate::openrouter_signin::is_local_page(to));
+    match crate::openrouter_signin::start(return_to).await {
+        Ok((url, finish)) => {
+            tokio::spawn(async move {
+                if let Err(e) = finish.await {
+                    tracing::warn!("openrouter sign-in did not finish: {e}");
+                }
+            });
+            Json(json!({ "url": url })).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
     }
 }
 

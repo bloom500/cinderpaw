@@ -15,7 +15,7 @@
 
 use std::path::PathBuf;
 
-use cinderpaw_core::migrate::{self, Found, KeyLedger, Plan};
+use cinderpaw_core::migrate::{self, Found, Plan};
 
 use crate::common::{self, palette, Palette};
 
@@ -70,36 +70,6 @@ pub fn render_report(found: &Found, plan: &Plan) -> String {
     out
 }
 
-/// Everything in the source config that no importer in this increment claimed.
-///
-/// Persona files are markdown, so they consume nothing from the config — every
-/// key is a leftover today, and increment 2 starts subtracting from this list as
-/// importers land. A config we cannot parse yields one honest line instead of an
-/// empty list: "unreadable" and "nothing left over" must never look the same.
-fn leftovers(found: &Found) -> Vec<String> {
-    let data = match migrate::read_source(found) {
-        Ok(data) => data,
-        Err(e) => {
-            return vec![format!(
-                "{} — could not be read, so nothing in it could be examined: {e:#}",
-                found.config.display()
-            )]
-        }
-    };
-    let mut ledger = KeyLedger::from_value(&data.config);
-    // `detect` already read this one and the report prints it — a version stamp
-    // is not user data waiting to be migrated. Exactly that key, not the whole
-    // `meta` subtree: over-consuming is how a real setting goes missing.
-    ledger.consume("meta.lastTouchedVersion");
-    let mut out = ledger.leftovers();
-    if let Some(err) = &data.env_error {
-        out.push(format!(".env — could not be read, so its secrets are unknown: {err}"));
-    }
-    // Names only, never values (module contract). Secrets are increment 2.
-    out.extend(data.env.keys().map(|k| format!(".env {k} — secrets need --with-secrets (not in this release)")));
-    out
-}
-
 pub fn run(
     from: Option<String>,
     source: Option<PathBuf>,
@@ -122,8 +92,7 @@ pub fn run(
     }
 
     let chosen = if found.len() == 1 { &found[0] } else { select(&found) };
-    let mut plan = migrate::plan_persona(chosen, overwrite);
-    plan.not_imported.extend(leftovers(chosen));
+    let plan = migrate::plan(chosen, overwrite);
 
     if common::json() {
         // Machine-readable plan. Same content, no prompts, never writes.
@@ -159,9 +128,9 @@ pub fn run(
         return 0;
     }
 
-    match migrate::apply_persona(chosen, &plan) {
+    match migrate::apply(&plan) {
         Ok(done) => {
-            println!("\n{OK}✓{RESET} imported {} file(s).", done.len());
+            println!("\n{OK}✓{RESET} imported {} item(s).", done.len());
             if plan.backup_dir.exists() {
                 println!("  {DIM}{META}replaced files backed up to {}{RESET}", plan.backup_dir.display());
             }
@@ -225,6 +194,7 @@ mod tests {
                 what: "SOUL.md".into(),
                 target: "/home/u/.cinderpaw/SOUL.md".into(),
                 note: None,
+                source: PathBuf::from("/home/u/.openclaw/workspace/SOUL.md"),
             }],
             not_imported: vec!["channels.signal — no Cinderpaw connector for Signal yet".into()],
             conflicts: vec![],
@@ -277,7 +247,7 @@ mod tests {
             version: None,
         };
 
-        let lines = leftovers(&f);
+        let lines = migrate::leftovers(&f);
 
         assert_eq!(lines.len(), 1, "got: {lines:?}");
         assert!(lines[0].contains("could not be read"), "got: {lines:?}");
@@ -300,7 +270,7 @@ mod tests {
             version: None,
         };
 
-        let lines = leftovers(&f);
+        let lines = migrate::leftovers(&f);
         let joined = lines.join("\n");
 
         assert!(joined.contains("DISCORD_BOT_TOKEN"), "got: {lines:?}");

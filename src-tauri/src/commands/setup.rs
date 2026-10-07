@@ -31,3 +31,20 @@ pub(crate) async fn setup_verify(
         .await
         .map_err(|e| e.to_string())
 }
+
+/// Another agent's setup on this machine (OpenClaw, Hermes Agent) and what an
+/// import would bring, for the onboarding's import step. See `migrate::preview`.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn migrate_preview() -> serde_json::Value {
+    tokio::task::spawn_blocking(cinderpaw_core::migrate::preview).await.unwrap_or_default()
+}
+
+/// Import what `migrate_preview` showed for the install at `root`.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn migrate_apply(root: String) -> Result<Vec<String>, String> {
+    tokio::task::spawn_blocking(move || cinderpaw_core::migrate::apply_at(&root))
+        .await
+        .map_err(|e| e.to_string())?
+}

@@ -132,7 +132,9 @@ mod command_count_test {
     //   files, copied into its folder under the agent's scratch dir).
     // 193 -> 194 = + artifact_frame::artifact_frame_put (3bf2829: installed
     //   artifact frames use their own URI scheme).
-    const EXPECTED_COMMAND_COUNT: usize = 194;
+    // 194 -> 196 = + migrate_preview / migrate_apply (onboarding's import step
+    // for an OpenClaw or Hermes Agent setup, 6 Oct 2026).
+    const EXPECTED_COMMAND_COUNT: usize = 196;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

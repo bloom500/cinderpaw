@@ -832,6 +832,19 @@ export type CinderpawModelSelection =
 // ── Raw invoke helpers ────────────────────────────────────────────────────────
 // Tauri returns T directly on Ok; throws a string on Err.
 // No Result wrapper needed — errors propagate as thrown exceptions.
+/** Another agent's setup found on this machine (`migrate::preview`). */
+export interface MigrateFound {
+  source: string;
+  root: string;
+  version: string | null;
+  plan: {
+    willImport: { what: string; target: string; note: string | null }[];
+    notImported: string[];
+    conflicts: string[];
+    backupDir: string;
+  };
+}
+
 const raw = {
   getModels:             ()    => invoke<ModelInfo[]>('get_models'),
   getLoadedModel:        ()    => invoke<LoadedModel | null>('get_loaded_model'),
@@ -972,6 +985,10 @@ const raw = {
   setupDetect:              () => invoke<SetupCandidate[]>('setup_detect'),
   setupVerify:              (candidate: SetupCandidate, apiKey: string | undefined, persist: boolean) =>
     invoke<SetupVerifyOutcome>('setup_verify', { candidate, apiKey: apiKey ?? null, persist }),
+  // Import from OpenClaw / Hermes Agent (cinderpaw-core `migrate`): what is on
+  // this machine and what an import would bring, then the import itself.
+  migratePreview:           () => invoke<MigrateFound[]>('migrate_preview'),
+  migrateApply:             (root: string) => invoke<string[]>('migrate_apply', { root }),
   connectorsList:           () => invoke<ConnectorView[]>('connectors_list'),
   connectorsSave:           (id: string, secrets: Record<string, string>, allowlist: string[], channels: string[], mode?: string, knowledgeBase?: string) =>
     invoke<ConnectorView>('connectors_save', { id, secrets, allowlist, channels, mode, knowledgeBase }),
