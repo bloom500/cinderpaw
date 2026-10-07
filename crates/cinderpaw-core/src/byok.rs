@@ -390,11 +390,17 @@ pub fn provider_catalog() -> Vec<ProviderCatalogEntry> {
             name: "Google Gemini".into(),
             provider: Provider::Google,
             default_base_url: Provider::Google.default_base_url().to_string(),
-            default_model: "gemini-2.0-flash".into(),
+            // Onboarding sells this row as free, so the default must be on
+            // Google's free tier. gemini-2.0-flash was shut down 1 Jun 2026 and
+            // every stranger's first message failed. gemini-3.8-flash is "Free of
+            // charge" on ai.google.dev/gemini-api/docs/pricing (checked 6 Oct
+            // 2026). Google no longer publishes free-tier numbers (they live in
+            // AI Studio), so the note promises none.
+            default_model: "gemini-3.8-flash".into(),
             console_url: Some("https://aistudio.google.com/apikey".into()),
             key_format: None,
             key_format_hint: None,
-            free_tier_note: Some("Free tier: 15 req/min, 1500 req/day.".into()),
+            free_tier_note: Some("Free tier, no credit card needed.".into()),
             supports_custom_base_url: true,
             auth_style: Bearer,
         },
@@ -481,13 +487,17 @@ pub fn provider_catalog() -> Vec<ProviderCatalogEntry> {
             name: "OpenRouter".into(),
             provider: Provider::Openrouter,
             default_base_url: Provider::Openrouter.default_base_url().to_string(),
-            // Cheap and proven with our tool loop. gpt-4o spent a $1 key in a few
-            // dozen messages (~16k tokens of prompt + tools each; seen 26 Sep).
-            default_model: "z-ai/glm-5.3-flash".into(),
+            // Onboarding sells this row as free, no card, so a fresh key with $0
+            // on it must get an answer. z-ai/glm-5.3-flash is paid ($0.15/$0.50
+            // per M) and failed exactly that person. `openrouter/free` is
+            // OpenRouter's Free Models Router: $0, declares tool support (model
+            // list, 6 Oct 2026). Limits from openrouter.ai/docs/api/reference/limits.
+            // Pinned by `the_openrouter_default_is_free`.
+            default_model: "openrouter/free".into(),
             console_url: Some("https://openrouter.ai/keys".into()),
             key_format: Some("sk-or-".into()),
             key_format_hint: Some("Begins with sk-or-…".into()),
-            free_tier_note: Some("Free credits on signup; per-model pay-as-you-go.".into()),
+            free_tier_note: Some("Free models, no card: 50 requests/day (1,000/day after buying $10 of credit).".into()),
             supports_custom_base_url: true,
             auth_style: Bearer,
         },
@@ -1307,7 +1317,7 @@ mod tests {
             "openrouter",
             ProviderConfig { enabled: true, api_key: "sk-or-x".into(), base_url: None, default_model: None },
         );
-        assert_eq!(settings.get_provider("openrouter").unwrap().default_model.as_deref(), Some("z-ai/glm-5.3-flash"));
+        assert_eq!(settings.get_provider("openrouter").unwrap().default_model.as_deref(), Some("openrouter/free"));
 
         // A model the person chose is kept, whitespace and all trimmed.
         settings.update_provider(
@@ -1322,6 +1332,15 @@ mod tests {
             ProviderConfig { enabled: true, api_key: String::new(), base_url: None, default_model: None },
         );
         assert_eq!(settings.get_provider("openrouter").unwrap().default_model.as_deref(), Some("z-ai/glm-5"));
+    }
+
+    /// Onboarding tells a stranger OpenRouter works with no card. A paid default
+    /// turns that into a failed first message on a $0 key (6 Oct 2026). Any
+    /// future default must be the free router or a `:free` id.
+    #[test]
+    fn the_openrouter_default_is_free() {
+        let m = provider_catalog().into_iter().find(|e| e.id == "openrouter").unwrap().default_model;
+        assert!(m == "openrouter/free" || m.ends_with(":free"), "OpenRouter default {m} is not a free model");
     }
 
     #[test]

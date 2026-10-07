@@ -448,7 +448,7 @@ const CURATED_PROVIDERS: {
   {
     id: 'openrouter', name: 'OpenRouter', console: 'https://openrouter.ai/keys', free: true,
     keyPlaceholder: 'sk-or-...',
-    note: 'Free models available (look for ":free"), no credit card needed.',
+    note: 'Starts on OpenRouter\'s free models, no credit card needed. Free use is capped at 50 requests a day.',
     steps: [
       'Sign in at openrouter.ai (Google or email)',
       'Profile menu → Keys → "Create Key"',
