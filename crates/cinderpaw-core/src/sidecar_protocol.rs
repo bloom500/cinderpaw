@@ -39,6 +39,8 @@ pub const INBOUND_TYPES: &[&str] = &[
     "artifact_op",
     // The Desktop's "Forget" on a memory (src-tauri commands/cinderpaw.rs).
     "memory_forget",
+    // `cinderpaw memory search` and `cinderpaw message send`.
+    "memory_search", "message_send",
 ];
 
 pub const OUTBOUND_TYPES: &[&str] = &[
@@ -62,4 +64,5 @@ pub const OUTBOUND_TYPES: &[&str] = &[
     "onboarding_goal_completed", "onboarding_all_goals_done",
     "onboarding_suggestion", "confirmation_required",
     "confirmation_granted", "confirmation_denied", "rate_limited", "hello",
+    "memory_search_result", "message_send_result", "cron_list_result",
 ];

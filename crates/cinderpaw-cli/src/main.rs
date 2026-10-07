@@ -28,6 +28,7 @@ mod guided;
 mod footprint;
 mod install;
 mod migrate;
+mod everyday;
 
 /// Cinderpaw — your local AI runtime, headless. One brain, many faces: the same
 /// memory, LoRA, dreams and tools as the desktop app, reachable over a small
@@ -50,96 +51,144 @@ struct Cli {
 // should read as a product, not a research tool (audit 2026-07-10 Part 2).
 #[derive(Subcommand)]
 enum Command {
-    /// Interactive chat in the terminal
+    /// Chat with Cinderpaw in this window
     Chat,
-    /// Open Cinderpaw in your browser (starts it first if needed)
+    /// Open Cinderpaw in your browser
+    #[command(alias = "dashboard")]
     Open,
+    /// Ask one question and get the answer right here
+    Ask {
+        /// Your question (use quotes)
+        question: Vec<String>,
+    },
+    /// See your past chats, or read one
+    #[command(alias = "transcripts")]
+    Sessions {
+        /// How many to show
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+        #[command(subcommand)]
+        action: Option<everyday::SessionsAction>,
+    },
+    /// See the skills Cinderpaw knows, read one, or remove one
+    Skills {
+        #[command(subcommand)]
+        action: Option<everyday::SkillsAction>,
+    },
+    /// See your teammates and what they are waiting for
+    Agents,
+    /// Save a copy of everything Cinderpaw knows, or bring a copy back
+    Backup {
+        #[command(subcommand)]
+        action: Option<everyday::BackupAction>,
+    },
+    /// See what Cinderpaw remembers about you, look something up, or forget one thing
+    Memory {
+        #[command(subcommand)]
+        action: Option<everyday::MemoryAction>,
+    },
+    /// See, add or pause the tasks Cinderpaw does on a schedule
+    Cron {
+        #[command(subcommand)]
+        action: Option<everyday::CronAction>,
+    },
+    /// See the extra tool servers (MCP) Cinderpaw is connected to
+    Mcp,
+    /// Send a message from Cinderpaw in one of your chat apps
+    Message {
+        #[command(subcommand)]
+        action: everyday::MessageAction,
+    },
+    /// Open the Cinderpaw guide in your browser
+    Docs,
     /// Finish a one-command install: autostart, PATH, shortcut, start, open.
     /// Run by scripts/install.sh and install.ps1, not by people.
     #[command(hide = true)]
     SelfInstall,
-    /// Connect your AI: detects what you already have, verifies it with a
-    /// real completion, and only then saves it (guided; --classic = wizard)
-    #[command(alias = "onboard")]
+    // Guided: detects what is already on the machine, verifies it with a real
+    // completion, and only then saves it; --classic = the full wizard.
+    /// Connect an AI brain: it finds what you already have and checks it works before saving
+    #[command(aliases = ["onboard", "configure"])]
     Setup {
-        /// Use the full step-by-step wizard instead of the guided flow
+        /// Ask every question one by one instead
         #[arg(long)]
         classic: bool,
-        /// Skip the one-time security acknowledgement prompt
+        /// Skip the one-time safety note
         #[arg(long)]
         accept_risk: bool,
     },
-    /// Run or manage the background gateway (no subcommand = run in foreground)
+    /// Start, stop or restart the Cinderpaw engine that runs in the background
     Gateway {
         #[command(subcommand)]
         action: Option<GatewayAction>,
     },
-    /// Show gateway + model status (alias for `gateway status`)
+    /// Is Cinderpaw running, and which AI is it using?
     Status,
-    /// Stop the running gateway (alias for `gateway stop`)
+    /// Stop Cinderpaw running in the background
     Stop,
-    /// Update Cinderpaw to the latest release, then restart the gateway
+    /// Get the newest Cinderpaw
     Update,
-    /// Remove Cinderpaw. Settings, memory, keys and models are KEPT unless --purge
+    /// Remove Cinderpaw. Your chats, memory, keys and models stay unless you add --purge
     Uninstall {
-        /// Also remove the profile directory. OS key-store credentials are retained.
+        /// Also delete your chats, memory and settings (keys stay in your computer's keychain)
         #[arg(long)]
         purge: bool,
-        /// Skip the confirmation prompt (for scripts)
+        /// Do not ask first
         #[arg(long, short = 'y')]
         yes: bool,
     },
-    /// Bring an existing OpenClaw or Hermes Agent setup into Cinderpaw
+    /// Bring your setup over from OpenClaw or Hermes Agent
     Migrate {
-        /// Only consider this tool ("openclaw" or "hermes")
+        /// Only this one: "openclaw" or "hermes"
         #[arg(long)]
         from: Option<String>,
-        /// Look here instead of the usual install locations
+        /// Look in this folder instead of the usual place
         #[arg(long)]
         source: Option<std::path::PathBuf>,
-        /// Print the plan and exit without writing anything
+        /// Show what would happen, change nothing
         #[arg(long)]
         dry_run: bool,
-        /// Skip the confirmation prompt
+        /// Do not ask first
         #[arg(long, short = 'y')]
         yes: bool,
-        /// Replace files that already exist in ~/.cinderpaw
+        /// Replace what you already have in Cinderpaw
         #[arg(long)]
         overwrite: bool,
     },
-    /// Diagnose the install (port, token, model, sidecar, GPU, connectors)
+    /// Find out why something is not working
+    #[command(alias = "health")]
     Doctor,
-    /// List installed models
+    /// See the AI models on this computer
     // `models` is what the help text everywhere else tells people to type, and
     // what anyone would guess after `cinderpaw providers`. Without the alias it
     // was a clap error: a documented command that does not exist.
     #[command(alias = "models")]
     Model,
-    /// List AI providers, switch the active one, or store an API key
+    /// See your AI providers, pick one, or add a key
     #[command(alias = "provider")]
     Providers {
         #[command(subcommand)]
         action: Option<crate::admin::ProvidersAction>,
     },
-    /// Inspect or reload connectors (Discord/Slack/…)
+    /// See your chat apps (Discord, Slack, Telegram...) or reload them
     #[command(alias = "channels")]
     Connectors {
         #[command(subcommand)]
         action: Option<ConnectorsAction>,
     },
-    /// Watch the Dream Cycle live
+    /// Watch what Cinderpaw practices while you are away
     Dreams,
-    /// Print the gateway log (`-f` to follow)
+    /// Show what the engine wrote down (add -f to keep watching)
     Logs {
         #[arg(short, long)]
         follow: bool,
     },
-    /// Read or write settings.json
+    /// Read or change settings
     Config {
         #[command(subcommand)]
         action: ConfigAction,
     },
-    /// Interactive chat in the terminal (alias for `chat`)
+    /// Same as chat
     Tui,
     // L6 Meta Evolution. The `///` line is what `--help` prints, so it speaks
     // to a person, not to the spec.
@@ -172,7 +221,7 @@ enum Command {
         #[command(subcommand)]
         action: admin::LoraAction,
     },
-    /// Generate a shell completion script
+    /// Let the Tab key finish Cinderpaw commands in your terminal
     Completion {
         /// bash | zsh | fish | powershell | elvish
         shell: clap_complete::Shell,
@@ -302,6 +351,16 @@ fn main() {
             migrate::run(from, source, dry_run, yes, overwrite)
         }
         Some(Command::Doctor) => admin::doctor(),
+        Some(Command::Ask { question }) => everyday::ask(&question),
+        Some(Command::Sessions { limit, action }) => everyday::sessions(limit, action),
+        Some(Command::Skills { action }) => everyday::skills(action),
+        Some(Command::Agents) => everyday::agents(),
+        Some(Command::Backup { action }) => everyday::backup(action),
+        Some(Command::Docs) => everyday::docs(),
+        Some(Command::Memory { action }) => everyday::memory(action),
+        Some(Command::Cron { action }) => everyday::cron(action),
+        Some(Command::Mcp) => everyday::mcp(),
+        Some(Command::Message { action }) => everyday::message(action),
         Some(Command::Logs { follow }) => admin::logs(follow),
         Some(Command::Model) => admin::model_list(),
         Some(Command::Providers { action }) => match action {

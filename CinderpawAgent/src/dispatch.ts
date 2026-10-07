@@ -13,7 +13,7 @@
  */
 
 import { join } from "node:path";
-import type { InboundMessage, ModelTarget, OutboundEvent, Schedule, DeliveryTarget } from "./types.ts";
+import type { CronJob, InboundMessage, ModelTarget, OutboundEvent, Schedule, DeliveryTarget } from "./types.ts";
 import type { BootContext } from "./boot.ts";
 import { forgetEdge } from "./memory/forget.ts";
 import { cfgBool, cfgInt, cfgPath } from "./config.ts";
@@ -155,6 +155,17 @@ const VOICE_SURFACE_BRIEF = [
  * card, the notes, and whether the Observer and Reflector manage to write. A
  * delete answers with the fresh list, so the page never shows a deleted note.
  */
+/** Every scheduled task, the shape `cinderpaw cron` prints. */
+export function cronListResult(id: string, jobs: CronJob[], error?: string): Extract<OutboundEvent, { type: "cron_list_result" }> {
+  return {
+    type: "cron_list_result",
+    id,
+    ok: error === undefined,
+    ...(error ? { error } : {}),
+    jobs: jobs.map(({ id, name, task, schedule, enabled, nextRunMs, lastRunMs }) => ({ id, name, task, schedule, enabled, nextRunMs, lastRunMs })),
+  };
+}
+
 export function memoryNotesReply(
   msg: { id?: string; notesOp?: "list" | "delete"; noteId?: number },
   d: {
@@ -992,6 +1003,33 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       // Only the edge goes; its two nodes may carry other facts. The fact the
       // edge mirrors goes with it: deleting the edge alone left it in "Known
       // facts" on every turn. See memory/forget.ts.
+      // `cinderpaw memory search`: what recall would show the model for these
+      // words, item by item. A store that fails answers with nothing found.
+      case "memory_search": {
+        const q = (msg.query ?? "").trim();
+        let items: Array<{ kind: "fact" | "past"; text: string; ts?: number }> = [];
+        if (q) {
+          try {
+            const r = await fractalMemory.recall(q, "memory-search");
+            items = (r.used ?? []).map(({ kind, text, ts }) => ({ kind, text, ...(ts ? { ts } : {}) }));
+          } catch (e) {
+            log(`memory_search failed: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+        transport.send({ type: "memory_search_result", id: msg.id ?? "", items });
+        break;
+      }
+      // `cinderpaw message send`: say something in one chat-app conversation.
+      case "message_send": {
+        const to = (msg.to ?? "").trim();
+        const text = (msg.content ?? "").trim();
+        let error: string | undefined;
+        if (!to.includes(":") || !text) error = "Say where and what, like: --to telegram:12345 \"hello\"";
+        else if (connectors.fileChannel(to) === "not_connected") error = `${to.split(":")[0]} is not connected right now.`;
+        else await connectors.send(to, text).catch((e: unknown) => { error = e instanceof Error ? e.message : String(e); });
+        transport.send({ type: "message_send_result", id: msg.id ?? "", ok: !error, ...(error ? { error } : {}) });
+        break;
+      }
       case "memory_forget": {
         const f = msg.forget;
         if (!f?.from || !f.to) {
@@ -1904,12 +1942,10 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       // detail fields yet — V1 reads them off `msg as any` and
       // validates inside the handler).
       case "cron_list": {
+        // Used to answer with a `model_set` carrying only the count, so no
+        // client could ever show the tasks. `cinderpaw cron` reads this.
         const jobs = cronRepo.list();
-        transport.send({
-          type: "model_set", // reuse existing event shape for now
-          provider: "cron",
-          model: `jobs:${jobs.length}`,
-        });
+        transport.send(cronListResult(msg.id ?? "", jobs));
         log(`cron_list → ${jobs.length} job(s)`);
         break;
       }
@@ -1936,6 +1972,9 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           delivery: m.delivery,
         });
         log(`cron_add → ${job.id} (${job.name})`);
+        // `requestId`, not `id`: on this message `id` names the job.
+        const req = (msg as { requestId?: string }).requestId;
+        if (req) transport.send(cronListResult(req, cronRepo.list()));
         break;
       }
       case "cron_remove": {
@@ -1949,6 +1988,8 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         }
         const removed = cronRepo.remove(m.id);
         log(`cron_remove → ${m.id} (${removed ? "ok" : "not found"})`);
+        const req = (msg as { requestId?: string }).requestId;
+        if (req) transport.send(cronListResult(req, cronRepo.list(), removed ? undefined : "No task with that id."));
         break;
       }
       case "cron_toggle": {
@@ -1962,6 +2003,8 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         }
         cronRepo.setEnabled(m.id, m.enabled);
         log(`cron_toggle → ${m.id} enabled=${m.enabled}`);
+        const req = (msg as { requestId?: string }).requestId;
+        if (req) transport.send(cronListResult(req, cronRepo.list()));
         break;
       }
 
