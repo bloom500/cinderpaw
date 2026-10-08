@@ -929,25 +929,37 @@ export class AgentLoop {
 
     const abortController = new AbortController();
     const ctx: SessionRunContext = { stopped: false, emit };
+    let result: TurnResult | undefined;
+    let turnStart = 0;
 
     try {
       await safePrev;
+      turnStart = Date.now();
       this.#activeSessions.add(sessionId);
       this.#sessionStartedAt.set(sessionId, Date.now());
       this.#sessionToolSignals.set(sessionId, abortController);
       this.#sessionContexts.set(sessionId, ctx);
-      return await this.#handle(sessionId, userText, messageId, ctx, skillsContext, images);
+      // Usage stats (telemetry/task-metrics.ts). `?.` because a router stand-in
+      // without these hooks must cost the stats, never the turn.
+      this.#router.beginTask?.(sessionId, messageId, {
+        brsiOn: readEnv("CINDERPAW_DREAMS_ENABLED") === "true",
+        memoryOn: recallInjectionEnabled(),
+      });
+      result = await this.#handle(sessionId, userText, messageId, ctx, skillsContext, images);
+      return result;
     } catch (err) {
       // `#handle` is documented as never throwing, but a throw here must not
       // look like a completed turn to an unattended caller.
-      return {
+      result = {
         text: "Something went wrong on my side and I couldn't finish that.",
         diagnostic: `turn failed: ${String(err)}`,
         outcome: "no_answer",
         toolCallCount: 0,
         incomplete: false,
       };
+      return result;
     } finally {
+      this.#router.endTask?.(sessionId, result, Date.now() - turnStart);
       release();
       this.#activeSessions.delete(sessionId);
       this.#sessionStartedAt.delete(sessionId);
@@ -2608,6 +2620,7 @@ export class AgentLoop {
       const detail = String(err);
       console.warn(`[brain] route failed, falling back to router defaults: ${detail}`);
       const current = this.#router.currentModel;
+      this.#router.noteTaskFallback?.(sessionId);
       ctx.emit({
         type: "model_routed",
         sessionId,

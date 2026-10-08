@@ -60,6 +60,7 @@ import { parseResponse } from "./core/agent-loop.ts";
 import { BrainStack } from "./brain/brain-stack.ts";
 import { rebuildDerivedBrain } from "./brain/brain-config.ts";
 import { markCardSurface } from "./core/card-surface.ts";
+import { setTaskFeedback } from "./telemetry/task-metrics.ts";
 
 /**
  * Diagnostics go to stderr; stdout is reserved for the transport protocol.
@@ -243,6 +244,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         // Learned ways (learning, beta): a 👍 teaches the reply's steps, a 👎
         // counts against a way the reply used. core/learned-ways.ts.
         if (msg.feedbackMessageId && (msg.feedbackValue === "up" || msg.feedbackValue === "down")) {
+          setTaskFeedback(db.raw, msg.feedbackMessageId, msg.feedbackValue);
           const changed = agent.rateReply(msg.feedbackMessageId, msg.feedbackValue);
           if (changed) log(`[learned-ways] ${changed} (${msg.feedbackValue} on ${msg.feedbackMessageId})`);
         }

@@ -33,6 +33,8 @@ import type {
 import type { PromptBreakdown } from "../memory/working.ts";
 import { benchmarkHostRefusal } from "./egress-proxy.ts";
 import { providerOf } from "../telemetry/provider-label.ts";
+import { beginTask as writeTaskBegin, finishTask, noteTaskFallback as writeTaskFallback, TASK_OUTCOMES, type TaskOutcome } from "../telemetry/task-metrics.ts";
+import { classifyError } from "../telemetry/error-category.ts";
 import {
   AnthropicProvider,
   OllamaProvider,
@@ -59,6 +61,13 @@ import {
  * of quota" or "this endpoint is down" into a minutes-long silent stall.
  */
 const MAX_TRANSIENT_RETRIES = 3;
+
+/** `subagent:<parent>:<id>` → `<parent>`; null for any other session. */
+function subagentParent(sessionId: string): string | null {
+  if (!sessionId.startsWith("subagent:")) return null;
+  const end = sessionId.lastIndexOf(":");
+  return end > "subagent:".length ? sessionId.slice("subagent:".length, end) : null;
+}
 
 export class BudgetExhaustedError extends Error {
   readonly reason: BudgetExhaustedReason;
@@ -735,6 +744,60 @@ export class InferenceRouter {
    */
   costReport(): string {
     return renderCostReport(buildCostReport(this.#db));
+  }
+
+  /**
+   * Open a task (one user turn): every completion on `sessionId` until
+   * `endTask` is tagged with `taskId`. Background calls use their own synthetic
+   * session ids (`${sid}__facts`), so they stay untagged by construction.
+   */
+  beginTask(sessionId: string, taskId: string, flags: { brsiOn: boolean; memoryOn: boolean }): void {
+    // A subagent (`subagent:<parent>:<id>`, core/subagent.ts) works FOR the
+    // parent's turn: its calls join the parent's task, it is not a task itself.
+    const parent = subagentParent(sessionId);
+    if (parent !== null) {
+      const parentTask = this.#taskBySession.get(parent);
+      if (parentTask) this.#taskBySession.set(sessionId, parentTask);
+      return;
+    }
+    this.#taskBySession.set(sessionId, taskId);
+    writeTaskBegin(this.#db, { taskId, sessionId, startedAt: Date.now(), ...flags });
+  }
+
+  /**
+   * Close the task. A turn that ended with a diagnostic and no answer FAILED,
+   * so it is counted as `error` with a category; no result at all is the same.
+   * The model the router is on now is recorded so a turn that failed before any
+   * completion is still attributed to a model.
+   */
+  endTask(
+    sessionId: string,
+    result: { outcome: string; toolCallCount: number; diagnostic?: string } | undefined,
+    durationMs: number,
+  ): void {
+    const taskId = this.#taskBySession.get(sessionId);
+    if (!taskId) return;
+    this.#taskBySession.delete(sessionId);
+    if (subagentParent(sessionId) !== null) return;
+    const failed = !result || (result.outcome === "no_answer" && result.diagnostic !== undefined);
+    const outcome: TaskOutcome = failed
+      ? "error"
+      : (TASK_OUTCOMES as readonly string[]).includes(result.outcome) ? (result.outcome as TaskOutcome) : "completed";
+    const cur = this.currentModel;
+    finishTask(this.#db, taskId, {
+      durationMs,
+      outcome,
+      errorCategory: failed ? classifyError(result?.diagnostic ?? "") : null,
+      toolCalls: result?.toolCallCount ?? 0,
+      attemptedProvider: providerOf(cur.baseUrl),
+      attemptedModel: cur.model,
+    });
+  }
+
+  /** Brain Stack fell back to the router's default model for this turn. */
+  noteTaskFallback(sessionId: string): void {
+    const taskId = this.#taskBySession.get(sessionId);
+    if (taskId) writeTaskFallback(this.#db, taskId);
   }
 
   #recordCompletionCost(
