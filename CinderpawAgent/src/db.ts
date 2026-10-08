@@ -526,6 +526,28 @@ function migrate(db: Database): void {
   addColumnIfMissing(db, "completion_cost", "task_id", "TEXT");
   addColumnIfMissing(db, "completion_cost", "retries", "INTEGER NOT NULL DEFAULT 0");
   db.exec(`CREATE INDEX IF NOT EXISTS completion_cost_task ON completion_cost(task_id)`);
+  // One row per user turn (chat, connector or unattended run turn). task_id is
+  // the message id the UI rates with thumbs, so feedback joins with no mapping.
+  // attempted_* name the model a turn was ON when it ended, so a turn that
+  // failed before any completion is still attributed to someone.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS task_metrics (
+      task_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      duration_ms INTEGER,
+      outcome TEXT,
+      error_category TEXT,
+      tool_calls INTEGER NOT NULL DEFAULT 0,
+      fallbacks INTEGER NOT NULL DEFAULT 0,
+      brsi_on INTEGER NOT NULL,
+      memory_on INTEGER NOT NULL,
+      feedback INTEGER NOT NULL DEFAULT 0,
+      attempted_provider TEXT,
+      attempted_model TEXT
+    );
+    CREATE INDEX IF NOT EXISTS task_metrics_started ON task_metrics(started_at);
+  `);
 
   // Semantic memory: persistent key-value facts about the user, updated by the
   // agent as it learns preferences, context, and long-term patterns.
