@@ -242,7 +242,8 @@ describe('a completion that reached no storage is not treated as saved', () => {
 });
 
 /**
- * The install count is the only thing Cinderpaw ever sends about itself, and
+ * The install count is the only thing Cinderpaw sends about itself without a
+ * separate yes (the daily usage summary needs its own opt-in), and
  * the whole basis on which it is allowed to exist is WHEN it happens: on the
  * last screen of setup, after the notice, once, and never if the box is
  * unticked. A move of this call to a launch hook would keep every test above
