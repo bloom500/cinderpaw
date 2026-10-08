@@ -867,6 +867,13 @@ pub struct TestProviderResponse {
     pub models: Vec<String>,
 }
 
+/// False for ids a picker must not offer. OpenRouter lists `…:batch` models
+/// that only run through its async Batch API: picked for chat, every message
+/// comes back as a 400 the person cannot explain.
+pub fn can_chat(model_id: &str) -> bool {
+    !model_id.ends_with(":batch")
+}
+
 /// Probe a provider with an API key and return whether the key is accepted.
 /// Lifted out of `src-tauri/src/lib.rs::test_byok_provider` so the headless
 /// gateway can also serve it (Sprint 2 / audit C-2). Same shape: OpenAI-
@@ -949,6 +956,7 @@ pub async fn test_provider(
                         .filter_map(|v| {
                             v.get("id")
                                 .and_then(|id| id.as_str())
+                                .filter(|id| can_chat(id))
                                 .map(String::from)
                         })
                         .collect()
@@ -1290,6 +1298,13 @@ fn write_metadata(settings: &ByokSettings) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batch_only_models_are_not_offered_for_chat() {
+        assert!(!can_chat("deepseek/deepseek-v4:batch"));
+        assert!(can_chat("deepseek/deepseek-v4"));
+        assert!(can_chat("meta-llama/llama-4:free"));
+    }
 
     /// The regression: one provider migrating used to authorise deleting the
     /// file that held another provider's un-migrated key.
