@@ -61,6 +61,9 @@ import { BrainStack } from "./brain/brain-stack.ts";
 import { rebuildDerivedBrain } from "./brain/brain-config.ts";
 import { markCardSurface } from "./core/card-surface.ts";
 import { setTaskFeedback } from "./telemetry/task-metrics.ts";
+import { rollup } from "./telemetry/usage-rollup.ts";
+import { appVersion, buildPayload, osLabel, readSentLog, sharingSetting } from "./telemetry/usage-sender.ts";
+import type { Database } from "bun:sqlite";
 
 /**
  * Diagnostics go to stderr; stdout is reserved for the transport protocol.
@@ -165,6 +168,28 @@ export function cronListResult(id: string, jobs: CronJob[], error?: string): Ext
     ...(error ? { error } : {}),
     jobs: jobs.map(({ id, name, task, schedule, enabled, nextRunMs, lastRunMs }) => ({ id, name, task, schedule, enabled, nextRunMs, lastRunMs })),
   };
+}
+
+/**
+ * The Leaderboard tab's "Your numbers" and the consent screens' "what is
+ * sent": this month's groups, the payload yesterday would produce (with a
+ * placeholder instead of the real code), and the local sent log.
+ */
+export function usageSummaryReply(id: string, db: Database, now: Date): Extract<OutboundEvent, { type: "usage_summary_result" }> {
+  const month = now.toISOString().slice(0, 7);
+  try {
+    const from = Date.parse(`${month}-01T00:00:00Z`);
+    const yesterday = new Date(now.getTime() - 86_400_000).toISOString().slice(0, 10);
+    return {
+      type: "usage_summary_result", id, ok: true, month,
+      groups: rollup(db, from, now.getTime()),
+      preview: buildPayload(db, yesterday, "(a random code, new every month)", appVersion(), osLabel()),
+      sent: readSentLog(30),
+      sharing: sharingSetting(),
+    };
+  } catch (e) {
+    return { type: "usage_summary_result", id, ok: false, error: String(e), month, groups: [], preview: null, sent: [], sharing: null };
+  }
 }
 
 export function memoryNotesReply(
@@ -1542,6 +1567,9 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         break;
       }
 
+      case "usage_summary":
+        transport.send(usageSummaryReply(msg.id ?? "", db.raw, new Date()));
+        break;
       case "memory_notes": {
         try {
           transport.send(memoryNotesReply(msg, { notes: notesStore, observer: extractor.health, reflector: reflector.health, semantic }));

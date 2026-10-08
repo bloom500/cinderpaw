@@ -1392,7 +1392,10 @@ export interface InboundMessage {
       // User thumbs up/down on an assistant message. Recorded to the audit
       // log as an actionType "feedback" row, which feeds the §2.10
       // `acceptance` personal-fitness signal. Fire-and-forget (no reply).
-      | "feedback";
+      | "feedback"
+      // The Leaderboard tab's "Your numbers" and the consent screens' "what
+      // is sent". Answered with `usage_summary_result` paired by `id`.
+      | "usage_summary";
   id?: string;
 
   content?: string;
@@ -2173,6 +2176,20 @@ export type OutboundEvent =
       type: "fractal_cluster_leaves_result";
       id: string;
       leaves: { leafId: number; text: string; ts: number }[];
+    }
+  // Usage stats for the Leaderboard tab and the consent screens, paired by
+  // `id` with `usage_summary`: this month's per-model groups, the payload
+  // yesterday would send (with a placeholder code), and the sent log.
+  | {
+      type: "usage_summary_result";
+      id: string;
+      ok: boolean;
+      error?: string;
+      month: string;
+      groups: import("./telemetry/usage-rollup.ts").UsageGroup[];
+      preview: import("./telemetry/usage-sender.ts").UsagePayload | null;
+      sent: string[];
+      sharing: boolean | null;
     }
   // The Memory page's view of observational memory, paired by `id` with the
   // `memory_notes` request: the card, the notes (newest first), and whether

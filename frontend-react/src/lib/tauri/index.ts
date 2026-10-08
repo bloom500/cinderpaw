@@ -15,6 +15,7 @@ import type {
   DownloadErrorEvent,
   ModelLoadProgressEvent,
   MemoryNotesLine,
+  UsageSummaryLine,
 } from './events';
 import { events as agentEvents } from './events';
 
@@ -331,6 +332,9 @@ export interface Settings {
   /** MASTER opt-in for the dream cycle. Off by default: dreaming (local or
    *  cloud) never starts unless the user flipped this on. */
   dreams_enabled: boolean;
+  /** Opt-in daily usage summary. null = never asked (the home card asks once),
+   *  false = asked and said no. Optional: older hosts do not send it. */
+  usage_sharing?: boolean | null;
   /** The chosen inference route: `"<provider>:<model>"` (cloud) or
    *  `"local:<file>"`. null = the bundled local default. */
   active_route: string | null;
@@ -868,6 +872,7 @@ const raw = {
   submitBugReport:       (description: string, includeLog: boolean) =>
     invoke<void>('submit_bug_report', { description, includeLog }),
   countInstall:          (send: boolean) => invoke<void>('count_install', { send }),
+  setUsageSharing:       (on: boolean) => invoke<void>('set_usage_sharing', { on }),
   saveAgent:             (cfg: AgentConfig) => invoke<AgentConfig>('save_agent', { cfg }),
   getAgents:             ()    => invoke<AgentConfig[]>('get_agents'),
   deleteAgent:           (id: string) => invoke<void>('delete_agent', { id }),
@@ -926,6 +931,8 @@ const raw = {
   /** Memory page notes: list, or delete one. The reply is a `memory_notes_result` event. */
   memoryNotes:           (requestId: string, op: 'list' | 'delete', noteId?: number) =>
     invoke<void>('cinderpaw_memory_notes', { requestId, op, noteId: noteId ?? null }),
+  /** Usage stats; the reply is a `usage_summary_result` event. */
+  usageSummary:          (requestId: string) => invoke<void>('cinderpaw_usage_summary', { requestId }),
   jevDecide:             (state: Record<string, unknown>, questions: Record<string, unknown>) =>
     invoke<{ answers: Record<string, { type: string; choice?: string; confidence?: number; noul?: number }>; usage: unknown; ms: number }>('jev_decide', { state, questions }),
   testByokProvider:      (providerId: string, apiKey: string, baseUrl?: string | null) =>
@@ -1326,6 +1333,7 @@ export const tauri = {
       raw.submitBugReport(description, includeLog),
     /** Once, from the last step of onboarding, where the notice lives. */
     countInstall: async (send: boolean) => raw.countInstall(send),
+    setUsageSharing: async (on: boolean) => raw.setUsageSharing(on),
   },
 
   files: {
@@ -1476,6 +1484,35 @@ export const tauri = {
           .then((un) => {
             unlisten = un;
             return raw.memoryNotes(requestId, op, noteId);
+          })
+          .catch((err: unknown) => {
+            clearTimeout(timer);
+            unlisten?.();
+            reject(err instanceof Error ? err : new Error(String(err)));
+          });
+      });
+    },
+  },
+  /** Usage stats (Leaderboard tab, consent screens). Same pairing as `memory.notes`. */
+  usage: {
+    summary: (): Promise<UsageSummaryLine> => {
+      const requestId = `us-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      return new Promise<UsageSummaryLine>((resolve, reject) => {
+        let unlisten: (() => void) | null = null;
+        const timer = setTimeout(() => {
+          unlisten?.();
+          reject(new Error('Cinderpaw did not answer. Is the agent running?'));
+        }, 10_000);
+        agentEvents.onUsageSummary
+          .listen((e) => {
+            if (e.id !== requestId) return;
+            clearTimeout(timer);
+            unlisten?.();
+            resolve(e);
+          })
+          .then((un) => {
+            unlisten = un;
+            return raw.usageSummary(requestId);
           })
           .catch((err: unknown) => {
             clearTimeout(timer);

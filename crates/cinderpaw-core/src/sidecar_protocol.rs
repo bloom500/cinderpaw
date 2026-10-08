@@ -41,6 +41,8 @@ pub const INBOUND_TYPES: &[&str] = &[
     "memory_forget",
     // `cinderpaw memory search` and `cinderpaw message send`.
     "memory_search", "message_send",
+    // The Leaderboard tab and the consent screens (usage telemetry, 8 Oct 2026).
+    "usage_summary",
 ];
 
 pub const OUTBOUND_TYPES: &[&str] = &[
@@ -65,4 +67,5 @@ pub const OUTBOUND_TYPES: &[&str] = &[
     "onboarding_suggestion", "confirmation_required",
     "confirmation_granted", "confirmation_denied", "rate_limited", "hello",
     "memory_search_result", "message_send_result", "cron_list_result",
+    "usage_summary_result",
 ];

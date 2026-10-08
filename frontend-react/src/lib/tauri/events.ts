@@ -184,6 +184,46 @@ export interface MemoryNotesLine {
   categories?: Record<string, string>;
 }
 
+/** One provider+model's day or month of usage. Mirrors CinderpawAgent/src/telemetry/usage-rollup.ts. */
+export interface UsageGroup {
+  provider: string;
+  model: string;
+  tasks_part: number;
+  tasks_main: number;
+  outcomes: Record<string, number>;
+  errors: Record<string, number>;
+  thumbs_up: number;
+  thumbs_down: number;
+  tokens_in: number;
+  tokens_out: number;
+  cache_read: number | null;
+  cache_write: number | null;
+  cost_reported_usd: number;
+  cost_estimated_usd: number;
+  duration_buckets: number[];
+  tool_calls: number;
+  fallbacks: number;
+  retries: number;
+  by_flags: Record<string, { tasks: number; completed: number; up: number; down: number }>;
+}
+
+/** Exactly what one daily send carries. Mirrors telemetry/usage-sender.ts. */
+export interface UsagePayload { v: 1; code: string; day: string; app: string; os: string; groups: UsageGroup[] }
+
+/** The sidecar's answer to `usage.summary()`: Your numbers, the preview, the sent log. */
+export interface UsageSummaryLine {
+  type: 'usage_summary_result';
+  id: string;
+  ok: boolean;
+  error?: string;
+  month: string;
+  groups: UsageGroup[];
+  preview: UsagePayload | null;
+  /** Raw JSON lines of telemetry-sent.jsonl, newest last. */
+  sent: string[];
+  sharing: boolean | null;
+}
+
 /**
  * Dream Cycle lifecycle pulse — emitted when an evolutionary episode starts
  * (`phase:"started"`) and ends (`phase:"ended"`). Drives the dream toast and
@@ -554,6 +594,25 @@ export const events = {
             (parsed as Record<string, unknown>)['type'] === 'memory_notes_result'
           ) {
             cb(parsed as MemoryNotesLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
+  /** The sidecar's `usage_summary_result`, paired by `id` with a `usage.summary` call. */
+  onUsageSummary: {
+    listen: (cb: (e: UsageSummaryLine) => void): Promise<UnlistenFn> =>
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'usage_summary_result'
+          ) {
+            cb(parsed as UsageSummaryLine);
           }
         } catch {
           // non-JSON sidecar lines — ignore

@@ -39,7 +39,7 @@ export const INBOUND_TYPES = [
   "governance_unfreeze", "governance_verify", "governance_history",
   "modules_list", "module_resolve", "module_evaluate", "module_propose",
   "resume_get", "compact_session", "rsi_response", "start_onboarding",
-  "tool_confirmation_response", "feedback",
+  "tool_confirmation_response", "feedback", "usage_summary",
   "mcp_reload", "mcp_status", "mcp_list_tools", "mcp_call_tool",
   "cowork_approval_resolve", "cowork_user_message",
   "admin_response", "capability_response", "provider_conformance",
@@ -70,4 +70,5 @@ export const OUTBOUND_TYPES = [
   "onboarding_suggestion", "confirmation_required",
   "confirmation_granted", "confirmation_denied", "rate_limited", "hello",
   "memory_search_result", "message_send_result", "cron_list_result",
+  "usage_summary_result",
 ] as const;

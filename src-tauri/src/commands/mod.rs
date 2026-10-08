@@ -136,7 +136,9 @@ mod command_count_test {
     // for an OpenClaw or Hermes Agent setup, 6 Oct 2026).
     // 196 -> 197 = + stage_pasted_file (a pasted or browser-dropped file goes
     // through the same text extractor as a picked one, 6 Oct 2026).
-    const EXPECTED_COMMAND_COUNT: usize = 197;
+    // 197 -> 198 = + set_usage_sharing (usage telemetry opt-in, 8 Oct 2026).
+    // 198 -> 199 = + cinderpaw_usage_summary (Leaderboard tab, 8 Oct 2026).
+    const EXPECTED_COMMAND_COUNT: usize = 199;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

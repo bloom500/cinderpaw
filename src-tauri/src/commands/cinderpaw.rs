@@ -394,6 +394,23 @@ pub(crate) async fn cinderpaw_memory_notes(
     Ok(())
 }
 
+/// The Leaderboard tab's "Your numbers" and the consent screens' "what is sent".
+/// Fire-and-forget; the sidecar answers `usage_summary_result` paired by id.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cinderpaw_usage_summary(state: State<'_, AppState>, request_id: String) -> Result<(), String> {
+    let msg = serde_json::json!({ "type": "usage_summary", "id": request_id });
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "Cinderpaw's agent is not running. Try again in a moment.".to_string())?
+            .clone()
+    };
+    tx.send(msg.to_string()).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Metacognition — answer, refuse or dismiss a question the improvement loop
 /// asked the user. `action` is validated HERE, same as the patch gate; the
 /// answer text is required for "answer" and ignored otherwise. The sidecar
