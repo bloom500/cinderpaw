@@ -5,6 +5,10 @@
 // POST /          {description, version, os, log}  ->  204 | 400 | 413 | 429 | 502
 // POST /install   {version, os}                    ->  204  (counts one install)
 // GET  /install                                    ->  200 {total, byVersion, byOs, counting}
+// POST /usage {v,code,day,app,os,groups} -> 204 | 400 | 413  (opt-in daily usage summary)
+// GET  /leaderboard?month=YYYY-MM -> 200 {month, minInstalls, minTasks, installs, hidden, models, counting}
+
+import { aggregate, validatePayload } from './usage.js';
 
 // 64 KB, not 8: the app sends up to LOG_TAIL_BYTES (48 KB) of log plus the
 // description, and at 8 KB every report that kept the log ticked came back
@@ -74,9 +78,51 @@ async function readInstalls(env) {
   });
 }
 
+// A model is public only once this many installations used it for this many
+// tasks in the month: below that, one person's habits would be the number.
+const MIN_INSTALLS = 20;
+const MIN_TASKS = 100;
+async function leaderboard(req, env) {
+  const url = new URL(req.url);
+  const asked = url.searchParams.get('month') ?? '';
+  const month = /^\d{4}-\d{2}$/.test(asked) ? asked : new Date().toISOString().slice(0, 7);
+  const cacheKey = new Request(`https://leaderboard.local/${month}`);
+  const hit = await caches.default.match(cacheKey);
+  if (hit) return hit;
+  let body = { month, minInstalls: MIN_INSTALLS, minTasks: MIN_TASKS, installs: 0, hidden: 0, models: [], counting: false };
+  if (env.USAGE) {
+    const { results } = await env.USAGE.prepare('SELECT code, provider, model, data FROM usage_day WHERE month = ?').bind(month).all();
+    body = { month, minInstalls: MIN_INSTALLS, minTasks: MIN_TASKS, counting: true, ...aggregate(results, { minInstalls: MIN_INSTALLS, minTasks: MIN_TASKS }) };
+  }
+  const res = new Response(JSON.stringify(body), {
+    headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'max-age=3600' },
+  });
+  await caches.default.put(cacheKey, res.clone());
+  return res;
+}
+
+async function storeUsage(req, env) {
+  if (Number(req.headers.get('content-length') ?? 0) > MAX_BODY) return new Response('too large', { status: 413 });
+  let body;
+  try { body = await req.json(); } catch { return new Response('bad json', { status: 400 }); }
+  const v = validatePayload(body);
+  if (!v.ok) return new Response(v.error, { status: 400 });
+  if (!env.USAGE) return new Response(null, { status: 204 });
+  // Replace, never add: one machine's day counts once however often it arrives.
+  const stmts = [env.USAGE.prepare('DELETE FROM usage_day WHERE code = ? AND day = ?').bind(body.code, body.day)];
+  for (const g of body.groups) {
+    stmts.push(env.USAGE.prepare('INSERT INTO usage_day (code, day, month, app, os, provider, model, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(body.code, body.day, body.day.slice(0, 7), body.app, body.os, g.provider, g.model, JSON.stringify(g)));
+  }
+  await env.USAGE.batch(stmts);
+  return new Response(null, { status: 204 });
+}
+
 export default {
   async fetch(req, env) {
     const path = new URL(req.url).pathname;
+    if (path === '/usage' && req.method === 'POST') return storeUsage(req, env);
+    if (path === '/leaderboard' && req.method === 'GET') return leaderboard(req, env);
     if (path === '/install') {
       if (req.method === 'GET') return readInstalls(env);
       if (req.method === 'POST') return countInstall(req, env);

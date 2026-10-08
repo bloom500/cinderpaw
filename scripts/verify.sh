@@ -12,6 +12,7 @@ run() {
 
 run "CinderpawAgent tests" bash -c "cd \"$ROOT/CinderpawAgent\" && bun test --timeout 20000"
 run "CinderpawAgent typecheck" bash -c "cd \"$ROOT/CinderpawAgent\" && bunx tsc --noEmit"
+run "Worker tests" bash -c "cd \"$ROOT/workers/bug-report\" && bun test"
 # The pool lives in frontend-react/vitest.config.ts now, so it is one answer
 # rather than a flag every caller has to remember - CI runs `npm test -- --run`
 # and had no such flag, which is how it would have met the forks-worker timeout.

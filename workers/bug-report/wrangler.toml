@@ -12,3 +12,14 @@ compatibility_date = "2026-09-01"
 [[kv_namespaces]]
 binding = "INSTALLS"
 id = "29e93ff872f940cab07db4faf3720e14"
+
+# Usage summaries + public leaderboard (POST /usage, GET /leaderboard). Once:
+#   npx wrangler d1 create cinderpaw-usage
+#   paste the printed database_id below and uncomment the block
+#   npx wrangler d1 execute cinderpaw-usage --remote --file=schema.sql
+#   npx wrangler deploy
+# Until then /usage answers 204 and stores nothing; /leaderboard says counting:false.
+# [[d1_databases]]
+# binding = "USAGE"
+# database_name = "cinderpaw-usage"
+# database_id = ""
