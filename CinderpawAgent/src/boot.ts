@@ -21,6 +21,7 @@ import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
 import { pathWithin } from "./egress/tool-permissions.ts";
 import { InferenceRouter } from "./egress/inference-router.ts";
+import { startUsageSender } from "./telemetry/usage-sender.ts";
 import { EpisodicMemory } from "./memory/episodic.ts";
 import { isRestrictedSession } from "./core/session-visibility.ts";
 import { SemanticMemory, memoryScope, setChatOwner, speakerScope } from "./memory/semantic.ts";
@@ -556,6 +557,9 @@ export async function boot(transportOverride?: Transport) {
   // Node `process` object (which we still need below for process.env).
   const processSandbox = new RealProcessSandbox(audit.logger);
   const router = new InferenceRouter(config.inference, audit.logger, db.raw);
+  // Opt-in daily usage summary. Sends nothing unless settings.json says
+  // `"usage_sharing": true`; timers are unref'd, so no shutdown hook is needed.
+  startUsageSender(db.raw);
 
   // Bundled local engine used as an automatic fallback when the user hot-swaps
   // to a cloud model. A transient cloud failure (e.g. MiniMax 429 rate-limit)
