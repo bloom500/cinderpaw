@@ -990,7 +990,13 @@ pub async fn start(
     // model is simply told the door is shut.
     runtime: Option<Arc<crate::runtime::RuntimeState>>,
 ) -> Result<Session, String> {
-    let node = crate::toolchain::find_node().ok_or_else(|| "livekit-no-node".to_string())?;
+    // A stranger's machine has no Node. The first call fetches a pinned copy,
+    // the same way it fetches the server binary below; asking a person to go
+    // install a runtime first is how voice stayed broken on every fresh install.
+    let node = match crate::toolchain::find_node() {
+        Some(node) => node,
+        None => crate::toolchain::fetch_node().await?,
+    };
 
     // A build with no on-device transcriber used to start a local call anyway:
     // the room opened, the microphone was published, the overlay showed a

@@ -116,7 +116,72 @@ pub fn find_node() -> Option<PathBuf> {
             "/usr/bin/node",
         ]
     };
-    candidates.iter().map(PathBuf::from).find(|p| p.exists())
+    candidates
+        .iter()
+        .map(PathBuf::from)
+        .find(|p| p.exists())
+        // Last: the copy `fetch_node` downloaded on a machine that had none.
+        .or_else(|| Some(portable_node()).filter(|p| p.exists()))
+}
+
+/// Pinned Node.js LTS for the voice worker, with the SHA-256 nodejs.org
+/// publishes for each archive (dist/v24.21.0/SHASUMS256.txt, read 7 Oct 2026).
+/// The hash is in the source, not fetched next to the archive, so a tampered
+/// download server cannot hand over a matching pair.
+const NODE_VERSION: &str = "v24.21.0";
+
+fn node_archive() -> Option<(&'static str, &'static str)> {
+    Some(match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "x86_64") => ("win-x64.zip", "158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541"),
+        ("windows", "aarch64") => ("win-arm64.zip", "8779b1bde1d39f8d420e3b57aa657b39891af434d3de44a919044cec06785921"),
+        ("macos", "aarch64") => ("darwin-arm64.tar.gz", "bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057"),
+        ("macos", "x86_64") => ("darwin-x64.tar.gz", "1462cb3b3046b815cf8ea436d3da450ec1a9f11dac7e5a46b0ada5305d7e8097"),
+        ("linux", "x86_64") => ("linux-x64.tar.gz", "6e1db87ef58b8819e5d5402eff1536491b18edd8eb7bee5ef7897876e88dc5ff"),
+        ("linux", "aarch64") => ("linux-arm64.tar.gz", "724282c3b43aec998aa9527380465b45d229e021b58035f5f4f63095eabfe5d5"),
+        _ => return None,
+    })
+}
+
+/// Where `fetch_node` puts node: the archive's own layout, flattened.
+fn portable_node() -> PathBuf {
+    let root = toolchain_dir().join("node");
+    if cfg!(windows) {
+        root.join("node.exe")
+    } else {
+        root.join("bin").join("node")
+    }
+}
+
+/// Download the pinned Node into `~/.cinderpaw/toolchain/node/` and return
+/// node's path. Voice needs it, and a stranger's machine usually has none:
+/// this is the difference between a call and "install Node from nodejs.org".
+/// npm comes in the same archive, next to node, which is where
+/// `livekit::augmented_path` already looks for it.
+///
+/// `Err("livekit-no-node")` only when nodejs.org has no build for this
+/// machine: the call screen turns that code into the install-it-yourself
+/// sentence, which is then the right one. Every other error is a sentence.
+// ponytail: a later NODE_VERSION bump does not replace a copy already on disk
+// (the stamp is written; compare it in find_node when a bump needs to land).
+pub async fn fetch_node() -> Result<PathBuf, String> {
+    let (asset, sha256) = node_archive().ok_or_else(|| "livekit-no-node".to_string())?;
+    let url = format!("https://nodejs.org/dist/{NODE_VERSION}/node-{NODE_VERSION}-{asset}");
+    tracing::info!("toolchain: voice needs node, downloading {url}");
+    // Bounded like the npm install that follows it: a download that hangs
+    // would leave the person on the call screen with a spinner and no reason.
+    match tokio::time::timeout(std::time::Duration::from_secs(300), fetch_and_extract(&url, "node", Some(sha256))).await {
+        Err(_) => Err("Getting voice ready is taking more than 5 minutes. Check the internet connection, then try the call again.".into()),
+        Ok(Err(e)) => Err(format!("Voice needs Node.js, and downloading it failed ({e}). Check the internet connection, then try the call again.")),
+        Ok(Ok(())) => Some(portable_node())
+            .filter(|p| p.exists())
+            .ok_or_else(|| "Voice needs Node.js, and the download did not contain it. Try the call again.".into()),
+    }
+}
+
+/// Lowercase hex SHA-256, the format of nodejs.org's SHASUMS256.txt.
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Pinned MinGit (portable git for Windows). Version bumps are a one-line
@@ -184,7 +249,7 @@ pub fn ensure_background() {
     tokio::spawn(async move {
         if need_bun {
             if let Some(url) = bun_target {
-                match fetch_and_extract(&url, "bun").await {
+                match fetch_and_extract(&url, "bun", None).await {
                     Ok(()) => tracing::info!("toolchain: bun installed portably ({BUN_VERSION})"),
                     Err(e) => tracing::warn!("toolchain: bun install failed ({e}) — RSI stages needing bun will report unavailable"),
                 }
@@ -192,7 +257,7 @@ pub fn ensure_background() {
         }
         #[cfg(windows)]
         if need_git {
-            match fetch_and_extract(MINGIT_URL, "git").await {
+            match fetch_and_extract(MINGIT_URL, "git", None).await {
                 Ok(()) => tracing::info!("toolchain: MinGit installed portably"),
                 Err(e) => tracing::warn!("toolchain: git install failed ({e})"),
             }
@@ -216,11 +281,13 @@ fn portable_serves(name: &str) -> bool {
     }
 }
 
-/// Download a zip and extract it under `~/.cinderpaw/toolchain/<name>/`.
+/// Download a zip (or, for node on mac/linux, a .tar.gz) and extract it under
+/// `~/.cinderpaw/toolchain/<name>/`.
 /// Extraction flattens a single top-level folder (bun's zip shape) so the
 /// binary lands directly in the tool dir. Zip-slip safety comes from the
-/// zip crate's sanitized `extract`.
-async fn fetch_and_extract(url: &str, name: &str) -> Result<(), String> {
+/// zip crate's sanitized `extract`. With `sha256`, a download that does not
+/// match is refused before anything is unpacked.
+async fn fetch_and_extract(url: &str, name: &str, sha256: Option<&str>) -> Result<(), String> {
     let bytes = reqwest::get(url)
         .await
         .map_err(|e| format!("download {url}: {e}"))?
@@ -229,14 +296,35 @@ async fn fetch_and_extract(url: &str, name: &str) -> Result<(), String> {
         .bytes()
         .await
         .map_err(|e| format!("read body: {e}"))?;
+    if let Some(want) = sha256 {
+        if sha256_hex(&bytes) != want {
+            return Err(format!("{url} is not the file this version of Cinderpaw expects (checksum mismatch)"));
+        }
+    }
 
     let dest = toolchain_dir().join(name);
     let staging = toolchain_dir().join(format!(".{name}.staging"));
     let _ = std::fs::remove_dir_all(&staging);
 
     let staging_clone = staging.clone();
+    let tarball = url.ends_with(".tar.gz");
     tokio::task::spawn_blocking(move || -> Result<(), String> {
         std::fs::create_dir_all(&staging_clone).map_err(|e| format!("mkdir staging: {e}"))?;
+        if tarball {
+            // `tar` ships with every mac and linux, and keeps node's
+            // executable bits and its bin/npm symlink, as `fetch_server` does.
+            let file = staging_clone.with_extension("tar.gz");
+            std::fs::write(&file, &bytes).map_err(|e| format!("write archive: {e}"))?;
+            let ok = std::process::Command::new("tar")
+                .arg("xzf")
+                .arg(&file)
+                .arg("-C")
+                .arg(&staging_clone)
+                .status()
+                .is_ok_and(|s| s.success());
+            let _ = std::fs::remove_file(&file);
+            return if ok { Ok(()) } else { Err("tar could not unpack the archive".into()) };
+        }
         let cursor = std::io::Cursor::new(bytes);
         let mut archive = zip::ZipArchive::new(cursor).map_err(|e| format!("open zip: {e}"))?;
         archive.extract(&staging_clone).map_err(|e| format!("extract: {e}"))?;
@@ -296,5 +384,34 @@ mod tests {
         let url = bun_url().expect("supported platform");
         assert!(url.contains("bun-"));
         assert!(url.ends_with(".zip"));
+    }
+
+    #[test]
+    fn node_is_pinned_with_a_checksum_for_this_machine() {
+        let (asset, sha) = node_archive().expect("every machine we build for has a node download");
+        assert!(asset.ends_with(if cfg!(windows) { ".zip" } else { ".tar.gz" }));
+        assert_eq!(sha.len(), 64);
+        assert!(sha.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    }
+
+    #[test]
+    fn sha256_hex_is_the_shasums_format() {
+        assert_eq!(sha256_hex(b""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    }
+
+    /// The whole first-call path on a machine with no Node, against the real
+    /// nodejs.org: ~38 MB, free. `cargo test -p cinderpaw-core toolchain -- --ignored`
+    #[tokio::test]
+    #[ignore]
+    async fn fetch_node_gives_a_working_node_and_npm() {
+        let home = tempfile::tempdir().unwrap();
+        std::env::set_var("CINDERPAW_HOME", home.path());
+        let node = fetch_node().await.expect("download, checksum, unpack");
+        assert!(node.starts_with(home.path()));
+        let ok = std::process::Command::new(&node).arg("--version").output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&ok.stdout).trim(), NODE_VERSION);
+        let npm = node.parent().unwrap().join(if cfg!(windows) { "npm.cmd" } else { "npm" });
+        assert!(npm.exists(), "npm must sit next to node, where livekit looks for it");
+        assert_eq!(find_node().map(|p| p == node || p == PathBuf::from("node")), Some(true));
     }
 }
