@@ -108,6 +108,14 @@ describe('useOnboarding', () => {
     expect(s.agentName).toBe('Bob');
   });
 
+  it('usage sharing is off by default and finish records the answer', async () => {
+    const spy = vi.spyOn(tauri.system, 'setUsageSharing').mockResolvedValue(undefined);
+    expect(useOnboarding.getState().shareUsage).toBe(false);
+    await useOnboarding.getState().finish();
+    expect(spy).toHaveBeenCalledWith(false);
+    spy.mockRestore();
+  });
+
   it('reopen() reactivates the wizard from step 0', () => {
     useOnboarding.getState().setUserName('X');
     useOnboarding.getState().reopen();

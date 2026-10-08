@@ -35,6 +35,7 @@ import { BrandLogo } from '@/lib/brandLogos';
 import { ModelLogo } from '@/lib/modelLogos';
 import { ConnectStep } from './ConnectStep';
 import { ImportCard } from './ImportCard';
+import { WhatIsSent } from '@/components/usage/WhatIsSent';
 import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 
 const stepVariants = {
@@ -1007,6 +1008,7 @@ function DoneStep() {
       <div className="mt-5 grid gap-2 sm:grid-cols-2">
         <DiskEncryptionNotice />
         <InstallCountNotice />
+        <ShareUsageNotice />
       </div>
     </div>
   );
@@ -1052,6 +1054,32 @@ function InstallCountNotice() {
           written with exactly what happened, so you can check.
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * The daily usage summary, asked here UNTICKED. Unlike the install count it
+ * repeats every day, so it is never assumed. The real payload (or an example
+ * day, on a machine with no tasks yet) is one click away, not a promise.
+ */
+function ShareUsageNotice() {
+  const on = useOnboarding((s) => s.shareUsage);
+  const setOn = useOnboarding((s) => s.setShareUsage);
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-xl border border-border-subtle bg-bg-surface px-3.5 py-2.5 text-xs leading-relaxed text-text-muted">
+      <label className="flex cursor-pointer items-start gap-2.5">
+        <input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-brand" />
+        <span>
+          <span className="font-medium text-text-primary">Help other people pick a model.</span>{' '}
+          Once a day, share how many tasks each model did, how long they took and what they cost. Never your messages or files.{' '}
+          <button type="button" onClick={(e) => { e.preventDefault(); setOpen((o) => !o); }} className="text-brand hover:underline" aria-expanded={open}>
+            {open ? 'Less' : 'See exactly what is sent'}
+          </button>
+        </span>
+      </label>
+      {open && <WhatIsSent />}
     </div>
   );
 }

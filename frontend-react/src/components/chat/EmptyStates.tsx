@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Info, X } from 'lucide-react';
 import { useUI } from '@/stores/ui';
 import { readLocal, writeLocal } from '@/lib/utils';
+import { ShareUsageCard } from '@/components/usage/ShareUsageCard';
 
 const BYOK_DISCLAIMER_KEY = 'cinderpaw.agentByokDismissed';
 
@@ -58,8 +59,10 @@ export function NewChatEmptyState({ isEmpty }: NewChatEmptyStateProps) {
   // knows how tall everything is. What is left here is the one note that has
   // to sit clear of the field.
   return (
-    <div className="absolute inset-x-0 bottom-4 flex justify-center pointer-events-none">
+    <div className="absolute inset-x-0 bottom-4 flex flex-col items-center pointer-events-none">
       <AgentByokNote />
+      {/* Hides itself unless the usage question was never answered. */}
+      <ShareUsageCard />
     </div>
   );
 }

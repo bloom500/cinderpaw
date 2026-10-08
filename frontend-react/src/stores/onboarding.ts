@@ -66,6 +66,14 @@ export interface OnboardingState {
    */
   countInstall: boolean;
   setCountInstall: (on: boolean) => void;
+  /**
+   * Whether to share the daily usage summary. Default OFF, unlike the install
+   * count: it repeats every day, so it is asked, never assumed ("if we ever
+   * want your data, we'll ask", 3 Oct). Recorded either way at finish, so the
+   * one-time home card does not ask again.
+   */
+  shareUsage: boolean;
+  setShareUsage: (on: boolean) => void;
   /** True when the persisted record says "this user has already onboarded". */
   hasOnboardedBefore: boolean;
   /**
@@ -118,6 +126,7 @@ export const DEFAULTS = {
   skipped: false,
   completedAt: null,
   countInstall: true,
+  shareUsage: false,
   active: false,
   step: FIRST_STEP,
   totalSteps: TOTAL_STEPS,
@@ -233,9 +242,12 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
     // sent it before they could say no. Failures are the counter's problem:
     // nothing about it belongs in front of the user.
     void tauri.system.countInstall(get().countInstall).catch(() => {});
+    // Opt-in: false unless ticked. Recorded either way, so the home card does not ask again.
+    void tauri.system.setUsageSharing(get().shareUsage).catch(() => {});
   },
 
   setCountInstall: (on: boolean) => set({ countInstall: on }),
+  setShareUsage: (on: boolean) => set({ shareUsage: on }),
 
   loadPersisted: async () => {
     // Try the layered persistence: localStorage first (sync, no I/O,
