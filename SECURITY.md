@@ -103,8 +103,12 @@ Every tool call passes a security layer before execution:
 - One automatic message in the runtime's life: an install count sent at the
   end of first-run setup, carrying the version and the OS and nothing else,
   refusable on the screen that describes it, recorded in
-  `~/.cinderpaw/.install-counted`. No other automatic analytics; crash and bug
-  reports are sent only when a person writes and submits one.
+  `~/.cinderpaw/.install-counted`.
+- An opt-in daily usage summary (per-model task, time and cost counts, never
+  text, file names or ids), off unless the person says yes, logged to
+  `~/.cinderpaw/telemetry-sent.jsonl` before it leaves (PROMISES.md 4). No
+  other automatic analytics; crash and bug reports are sent only when a person
+  writes and submits one.
 
 ### Known limits
 

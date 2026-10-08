@@ -26,7 +26,7 @@ can also call providers; requests are not limited to pressing Send. The
 September 6 audit found recipient-boundary gaps in fallback and redirect paths.
 An exclusive chosen-provider guarantee is not yet established across all paths.
 
-**4. Cinderpaw reports on itself exactly once, and shows you that first.**
+**4. Cinderpaw reports on itself only when you say yes, and shows you what first.**
 This promise used to read "no automatic analytics or crash-report uploads".
 That is no longer true, and pretending otherwise would be the worse thing to
 ship. On the last screen of first-run setup there is a ticked box explaining
@@ -41,7 +41,20 @@ v2026.08.11 read 519 downloads, of which 449 were the updater fetching
 `latest.json` from machines that already had Cinderpaw. We would rather count
 honestly once than quote a number we know is wrong.
 
-Nothing else reports on its own. Bug reports are sent only when you write one
+The second thing is a daily usage summary, and it is off unless you turn it on
+(a box on the last setup screen, unticked, or a one-time question on the home
+screen, or Settings, Privacy). If you say yes, once a day Cinderpaw sends, per
+model: how many tasks it did, how they ended, how long they took in ranges,
+tokens, cost, tool calls, and your thumbs up and down counts. Never your
+messages, file names, links, keys or exact times. It carries a random code that
+changes every month, so we can count installations without following anyone.
+Every summary is written to `~/.cinderpaw/telemetry-sent.jsonl` before it
+leaves, and Settings, Privacy shows that file. Days before you said yes are
+never sent. Turn it off and sending stops immediately and the code is deleted.
+The totals are public on the Leaderboard tab in Models and at
+cinderpaw.dev/leaderboard.
+
+Bug reports are sent only when you write one
 and press the button, and they show you the log lines first. Local logs and
 memory stay local. Public-journal publication requires explicit configuration
 and invocation. Online features make their own requests, as they always have,
@@ -115,6 +128,8 @@ This half of the page matters as much as the other half.
 - **Read the log.** It records audited operations; write failures can leave gaps.
 - **Check what the install counter did**: `cat ~/.cinderpaw/.install-counted`.
   It says `declined`, or it says `sent` with the two values that were sent.
+- **Check what the usage summary sent**: `cat ~/.cinderpaw/telemetry-sent.jsonl`.
+  One line per day, exactly as it left. No file means nothing was ever sent.
 
 ## If we break one
 

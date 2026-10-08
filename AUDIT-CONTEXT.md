@@ -49,11 +49,15 @@ a known ceiling and, where relevant, the upgrade path. Reporting them as
 "incomplete implementation" is noise. Reporting that a specific one has now
 hit its stated ceiling in production is useful.
 
-**No telemetry, with one counted exception.**
-See `PROMISES.md` promise 4. There is no analytics, no crash reporting and no
-phone-home, and exactly one install count: version + OS, once, offered with a
-tick box on the last screen of setup and recorded in
-`~/.cinderpaw/.install-counted`. A finding that says "add observability" or
+**No telemetry, with two exceptions the person says yes to.**
+See `PROMISES.md` promise 4. There is no crash reporting and no phone-home.
+There is one install count: version + OS, once, offered with a tick box on the
+last screen of setup and recorded in `~/.cinderpaw/.install-counted`. And there
+is an opt-in daily usage summary (`CinderpawAgent/src/telemetry/`): off unless
+`usage_sharing` is true, per-model counts only, logged to
+`~/.cinderpaw/telemetry-sent.jsonl` before each send. A finding that it sends
+text, ids or exact times, sends without consent, or sends days from before
+consent, is a real one. A finding that says "add observability" or
 "there is no error reporting pipeline" is arguing against the product's
 central promise. A finding that the install count sends more than those two
 values, fires before the notice, or fires twice, is a real one.
