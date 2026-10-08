@@ -537,9 +537,13 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     // dialect as `#stream`: `prompt_tokens` INCLUDES the cached ones.
     const cachedTokens = raw.usage?.prompt_tokens_details?.cached_tokens;
     const costUsd = typeof raw.usage?.cost === "number" ? raw.usage.cost : undefined;
+    const servedModel = typeof (raw as { model?: unknown }).model === "string" && (raw as { model: string }).model
+      ? (raw as { model: string }).model
+      : undefined;
     return {
       content,
       costUsd,
+      ...(servedModel ? { servedModel } : {}),
       promptTokens,
       completionTokens,
       totalTokens: promptTokens + completionTokens,
@@ -623,6 +627,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     let content = "";
     let cacheReadTokens: number | undefined;
     let costUsd: number | undefined;
+    let servedModel: string | undefined;
     let promptTokens = 0;
     let completionTokens = 0;
     // Explicit presence, not truthiness: a provider that legitimately reports 0
@@ -806,6 +811,8 @@ export class OpenAICompatibleProvider implements InferenceProvider {
         // there is nothing to send here — only something to read, and reading it
         // is the whole point: it is the difference between believing caching
         // works and knowing it does.
+        const chunkModel = (chunk as { model?: unknown }).model;
+        if (typeof chunkModel === "string" && chunkModel) servedModel = chunkModel;
         const usage = (chunk as {
           usage?: {
             prompt_tokens?: number;
@@ -883,6 +890,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       ...(finishReason ? { finishReason } : {}),
       ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
       ...(costUsd !== undefined ? { costUsd } : {}),
+      ...(servedModel ? { servedModel } : {}),
       // OpenAI dialect: `prompt_tokens` already counts the cached ones, so the
       // fresh half is the difference. Clamped at 0 — a provider reporting more
       // cached than prompt is lying, and a negative cost is worse than a zero.

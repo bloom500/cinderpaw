@@ -895,6 +895,14 @@ export interface InferenceResponse {
    * reported figure and an estimate must not share a field.
    */
   costUsd?: number;
+  /**
+   * The model the provider says actually answered. OpenRouter routes aliases
+   * and `auto` to a concrete model and names it in the response's `model`;
+   * `model` above is what we asked for. Absent when the response does not say.
+   */
+  servedModel?: string;
+  /** Transient retries the router spent before this response. Router-set. */
+  retries?: number;
 }
 
 export type BudgetExhaustedReason = "conversation" | "day";

@@ -32,6 +32,7 @@ import type {
 } from "../types.ts";
 import type { PromptBreakdown } from "../memory/working.ts";
 import { benchmarkHostRefusal } from "./egress-proxy.ts";
+import { providerOf } from "../telemetry/provider-label.ts";
 import {
   AnthropicProvider,
   OllamaProvider,
@@ -204,6 +205,8 @@ export class InferenceRouter {
    * (P0-#3 — paired with the tool-side abort wired in ToolRegistry).
    */
   readonly #sessionControllers = new Map<string, AbortController>();
+  /** sessionId → the task (user turn) its completions belong to. */
+  readonly #taskBySession = new Map<string, string>();
   /**
    * Optional callback fired ONCE per session+kind when usage crosses the
    * soft warning threshold (default 80% of the budget — see
@@ -747,12 +750,18 @@ export class InferenceRouter {
           `INSERT INTO completion_cost
              (ts, session_id, model, base_url, prompt_tokens, completion_tokens,
               fresh_tokens, cache_read_tokens, cache_write_tokens, latency_ms, used_fallback,
-              breakdown_json, local_prompt_tokens, tokens_estimated, cost_usd)
-           VALUES ($ts, $s, $m, $u, $p, $c, $fresh, $read, $write, $lat, $fb, $bd, $local, $est, $usd)`,
+              breakdown_json, local_prompt_tokens, tokens_estimated, cost_usd,
+              provider, served_model, task_id, retries)
+           VALUES ($ts, $s, $m, $u, $p, $c, $fresh, $read, $write, $lat, $fb, $bd, $local, $est, $usd,
+                   $prov, $served, $task, $retries)`,
         )
         .run({
           $est: response.tokensEstimated ? 1 : 0,
           $usd: response.costUsd ?? null,
+          $prov: providerOf(baseUrl),
+          $served: response.servedModel ?? null,
+          $task: this.#taskBySession.get(sessionId) ?? null,
+          $retries: response.retries ?? 0,
           $bd: breakdown ? JSON.stringify(breakdown.parts) : null,
           $local: breakdown ? breakdown.localTotal : null,
           $ts: Date.now(),
@@ -981,7 +990,8 @@ export class InferenceRouter {
       );
 
       try {
-        return await provider.complete(target, req, isFallback);
+        const res = await provider.complete(target, req, isFallback);
+        return attempt > 0 ? { ...res, retries: attempt } : res;
       } catch (err) {
         // The gate is best-effort — our request count is local, so a key used
         // from outside Cinderpaw is invisible to it. A 429 is that blind spot

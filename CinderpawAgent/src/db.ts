@@ -518,6 +518,14 @@ function migrate(db: Database): void {
   // The provider's own USD figure (OpenRouter only). NULL = not reported,
   // never 0: a provider that says nothing about money is not a free one.
   addColumnIfMissing(db, "completion_cost", "cost_usd", "REAL");
+  // Usage telemetry (2026-10-08 spec): who served it, which task it belongs to,
+  // how many transient retries it cost. NULL task_id = a background call
+  // (summarizer, extractor) that belongs to no user turn.
+  addColumnIfMissing(db, "completion_cost", "provider", "TEXT");
+  addColumnIfMissing(db, "completion_cost", "served_model", "TEXT");
+  addColumnIfMissing(db, "completion_cost", "task_id", "TEXT");
+  addColumnIfMissing(db, "completion_cost", "retries", "INTEGER NOT NULL DEFAULT 0");
+  db.exec(`CREATE INDEX IF NOT EXISTS completion_cost_task ON completion_cost(task_id)`);
 
   // Semantic memory: persistent key-value facts about the user, updated by the
   // agent as it learns preferences, context, and long-term patterns.
