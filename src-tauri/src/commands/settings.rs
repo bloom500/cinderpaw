@@ -134,6 +134,21 @@ pub(crate) fn set_dreams_enabled(
     Ok(())
 }
 
+/// Turn the daily usage summary on or off. Off also deletes the monthly code,
+/// so nothing links a later "yes" to this one. No sidecar restart: it reads
+/// settings.json each time it would send.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn set_usage_sharing(on: bool) -> Result<(), String> {
+    let mut s = settings::load();
+    s.usage_sharing = Some(on);
+    settings::save(&s).map_err(|e| e.to_string())?;
+    if !on {
+        let _ = std::fs::remove_file(cinderpaw_core::paths::cinderpaw_dir().join("usage-code.json"));
+    }
+    Ok(())
+}
+
 /// Toggle desktop-control "YOLO mode" (no per-action confirmation) at runtime.
 ///
 /// The confirmation gate lives in the SIDECAR (it reads

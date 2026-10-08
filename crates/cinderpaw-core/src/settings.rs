@@ -62,6 +62,12 @@ pub struct Settings {
     /// settings.json files loading cleanly.
     #[serde(default)]
     pub dreams_enabled: bool,
+    /// Opt-in daily usage summary (2026-10-08 spec). `None` = never asked, so
+    /// the app shows the one-time question; `Some(false)` = asked, said no.
+    /// The sidecar reads this from settings.json on every send, so a change
+    /// applies without a restart.
+    #[serde(default)]
+    pub usage_sharing: Option<bool>,
     /// One-time security acknowledgement (guided setup, OpenClaw parity):
     /// ISO timestamp of when the user confirmed the personal-by-default
     /// disclaimer. `Some(_)` = never re-prompt. Set via
@@ -120,6 +126,7 @@ impl Default for Settings {
             rsi_max_cost_usd: Some(0.0),
             rsi_allow_cloud_dreams: false,
             dreams_enabled: false,
+            usage_sharing: None,
             security_acknowledged_at: None,
             active_route: None,
             cloud_fallback_enabled: false,
@@ -207,6 +214,19 @@ pub fn save(s: &Settings) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn usage_sharing_is_unasked_by_default_and_round_trips() {
+        // A settings.json written before the field existed.
+        let mut v = serde_json::to_value(Settings::default()).unwrap();
+        v.as_object_mut().unwrap().remove("usage_sharing");
+        let old: Settings = serde_json::from_value(v).unwrap();
+        assert_eq!(old.usage_sharing, None);
+        assert_eq!(Settings::default().usage_sharing, None);
+        let s = Settings { usage_sharing: Some(true), ..Settings::default() };
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.usage_sharing, Some(true));
+    }
 
     /// A migrated install kept `models_dir` under the old `~/.feral`; the day
     /// that folder is deleted, every model is gone. Repaired on load, and only
