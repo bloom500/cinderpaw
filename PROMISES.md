@@ -43,16 +43,21 @@ honestly once than quote a number we know is wrong.
 
 The second thing is a daily usage summary, and it is off unless you turn it on
 (a box on the last setup screen, unticked, or a one-time question on the home
-screen, or Settings, Privacy). If you say yes, once a day Cinderpaw sends, per
-model: how many tasks it did, how they ended, how long they took in ranges,
-tokens, cost, tool calls, and your thumbs up and down counts. Never your
-messages, file names, links, keys or exact times. It carries a random code that
-changes every month, so we can count installations without following anyone.
-Every summary is written to `~/.cinderpaw/telemetry-sent.jsonl` before it
-leaves, and Settings, Privacy shows that file. Days before you said yes are
-never sent. Turn it off and sending stops immediately and the code is deleted.
-The totals are public on the Leaderboard tab in Models and at
-cinderpaw.dev/leaderboard.
+screen, or Settings, Privacy). If you say yes, once a day Cinderpaw sends its
+version number and your operating system. Then, for each model: which service
+ran it, how many tasks it did, how they ended, what kind of error stopped a
+task, how long they took in ranges, tokens and how many of them came from the
+cache, cost, tool calls, retries, how often it switched to a backup model,
+whether memory recall and self-improvement were on, and your thumbs up and down
+counts. A model on your own computer or your own server is sent as "local" or
+"custom", never by its address, and its name is sent only if it is a well-known
+model. Never your messages, file names, links, keys or exact times. It carries
+a random code that changes every month, so we can count installations without
+following anyone. Every summary is written to
+`~/.cinderpaw/telemetry-sent.jsonl` before it leaves, and Settings, Privacy
+shows that file. Days before you said yes are never sent. Turn it off and
+sending stops immediately and the code is deleted. The totals are public on the
+Leaderboard tab in Models and at cinderpaw.dev/leaderboard.
 
 Bug reports are sent only when you write one
 and press the button, and they show you the log lines first. Local logs and
