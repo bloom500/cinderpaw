@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { openDatabase } from "../src/db.ts";
-import { beginTask, finishTask, setTaskFeedback } from "../src/telemetry/task-metrics.ts";
+import { beginTask, finishTask, noteTaskFallback, setTaskFeedback } from "../src/telemetry/task-metrics.ts";
 import { providerOf } from "../src/telemetry/provider-label.ts";
 import { bucketOf, modelLabel, rollup } from "../src/telemetry/usage-rollup.ts";
 
@@ -106,6 +106,21 @@ describe("rollup", () => {
     expect(modelLabel("custom", "ft:gpt-4o-mini:acme:bot:1")).toBe("gpt-4o");
     // The worker refuses names outside its charset; a whole day would be lost.
     expect(modelLabel("openrouter", "my model (copy)")).toBe("openrouter-other");
+  });
+
+  // Spec 1.5: fallbacks = calls the router answered from the fallback engine + Brain Stack fallbacks.
+  test("router fallbacks count into the task's fallbacks", () => {
+    const db = openDatabase(":memory:");
+    beginTask(db.raw, { taskId: "t", sessionId: "s", startedAt: 1500, brsiOn: false, memoryOn: false });
+    call(db, "t", "openrouter.ai", "b", 1000, 100, 0.05);
+    call(db, "t", "local", "qwen3-8b", 10, 1, null);
+    db.raw.query("UPDATE completion_cost SET used_fallback = 1 WHERE provider = 'local'").run();
+    noteTaskFallback(db.raw, "t");
+    finishTask(db.raw, "t", { durationMs: 100, outcome: "completed", errorCategory: null, toolCalls: 0, attemptedProvider: "openrouter.ai", attemptedModel: "b" });
+    const by = Object.fromEntries(rollup(db.raw, 0, 10_000).map((g) => [g.model, g]));
+    expect(by["b"]!.fallbacks).toBe(2);
+    expect(by["qwen3-8b"]!.fallbacks).toBe(0);
+    db.close();
   });
 
   test("unfinished tasks and tasks outside the window are ignored", () => {

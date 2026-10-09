@@ -75,7 +75,7 @@ function emptyGroup(provider: string, model: string): UsageGroup {
 }
 
 interface TaskRow { task_id: string; duration_ms: number; outcome: TaskOutcome; error_category: ErrorCategory | null;
-  tool_calls: number; fallbacks: number; brsi_on: number; memory_on: number; feedback: number;
+  tool_calls: number; all_fallbacks: number; brsi_on: number; memory_on: number; feedback: number;
   attempted_provider: string | null; attempted_model: string | null }
 interface CallRow { task_id: string; provider: string | null; m: string; prompt_tokens: number; completion_tokens: number;
   cache_read_tokens: number | null; cache_write_tokens: number | null; cost_usd: number | null; retries: number }
@@ -83,7 +83,9 @@ interface CallRow { task_id: string; provider: string | null; m: string; prompt_
 /** Finished tasks that STARTED in [fromMs, toMs), grouped per provider+model. */
 export function rollup(db: Database, fromMs: number, toMs: number): UsageGroup[] {
   const tasks = db.query(
-    `SELECT * FROM task_metrics WHERE started_at >= ? AND started_at < ? AND outcome IS NOT NULL`,
+    // fallbacks = Brain Stack fallbacks (task row) + calls the router answered from its fallback engine.
+    `SELECT t.*, t.fallbacks + (SELECT COALESCE(SUM(c.used_fallback), 0) FROM completion_cost c WHERE c.task_id = t.task_id) AS all_fallbacks
+       FROM task_metrics t WHERE t.started_at >= ? AND t.started_at < ? AND t.outcome IS NOT NULL`,
   ).all(fromMs, toMs) as TaskRow[];
   if (tasks.length === 0) return [];
   const calls = db.query(
@@ -142,7 +144,7 @@ export function rollup(db: Database, fromMs: number, toMs: number): UsageGroup[]
     const bi = bucketOf(t.duration_ms);
     main.duration_buckets[bi] = (main.duration_buckets[bi] ?? 0) + 1;
     main.tool_calls += t.tool_calls;
-    main.fallbacks += t.fallbacks;
+    main.fallbacks += t.all_fallbacks;
     const flag = `brsi${t.brsi_on}_mem${t.memory_on}`;
     const f = (main.by_flags[flag] ??= { tasks: 0, completed: 0, up: 0, down: 0 });
     f.tasks += 1;
