@@ -96,6 +96,36 @@ describe("usage sender", () => {
     expect(file).toEqual({ codes: { "2026-09": sep, "2026-10": oct }, since: "2026-08-01" });
   });
 
+  // Final review S3: a hung request must not let the next 6-hour tick run alongside it.
+  test("two runs never overlap, and every request has a timeout", async () => {
+    const db = openDatabase(":memory:");
+    for (const d of ["2026-10-08", "2026-10-09"]) {
+      beginTask(db.raw, { taskId: d, sessionId: "s", startedAt: day(d), brsiOn: false, memoryOn: false });
+      finishTask(db.raw, d, { durationMs: 1000, outcome: "completed", errorCategory: null, toolCalls: 0, attemptedProvider: "openrouter.ai", attemptedModel: "m" });
+    }
+    setSharing(true);
+    writeFileSync(join(home, "usage-code.json"), JSON.stringify({ codes: {}, since: "2026-10-01" }));
+    let calls = 0;
+    let signal: unknown;
+    let release!: () => void;
+    const fetchFn = (async (_u: string, init?: RequestInit) => {
+      calls++;
+      signal = init?.signal;
+      if (calls === 1) await new Promise<void>((r) => (release = r)); // the first request hangs
+      return new Response(null, { status: 204 });
+    }) as unknown as typeof fetch;
+    const now = new Date("2026-10-10T08:00:00Z");
+    const first = sendPending(db.raw, { now, fetchFn });
+    await Bun.sleep(10);
+    expect(await sendPending(db.raw, { now, fetchFn })).toBe(0);
+    release();
+    expect(await first).toBe(2);
+    expect(calls).toBe(2);
+    expect(readFileSync(join(home, "telemetry-sent.jsonl"), "utf8").trim().split("\n")).toHaveLength(2);
+    expect(signal).toBeInstanceOf(AbortSignal);
+    db.close();
+  });
+
   test("pendingDays: previous days only, within 30, not already sent", () => {
     const now = new Date("2026-10-10T08:00:00Z");
     expect(pendingDays(now, "2026-10-08", new Set(["2026-10-08"]))).toEqual(["2026-10-09"]);

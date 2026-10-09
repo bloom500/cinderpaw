@@ -106,27 +106,39 @@ export function buildPayload(db: Database, day: string, code: string, app: strin
  * BEFORE the request, so the log on the person's disk is never behind what
  * left. A failed request is not retried: the day is undercounted, never sent
  * twice. Returns how many days were sent.
+ *
+ * One run at a time, and each request gives up after 15 s: a connection that
+ * hung past the next 6-hour tick used to let two runs log the same day twice.
  */
+let running = false;
 export async function sendPending(db: Database, opts: { now?: Date; fetchFn?: typeof fetch } = {}): Promise<number> {
-  if (sharingSetting() !== true) return 0;
-  const now = opts.now ?? new Date();
-  const fetchFn = opts.fetchFn ?? fetch;
-  const { since } = monthlyCode(now);
-  let n = 0;
-  for (const day of pendingDays(now, since, sentDays())) {
-    // Checked again per day: a switch-off mid-run stops the rest.
-    if (sharingSetting() !== true) break;
-    const payload = buildPayload(db, day, monthlyCode(now, day).code, appVersion(), osLabel());
-    if (!payload) continue;
-    appendFileSync(sentPath(), JSON.stringify(payload) + "\n");
-    try {
-      await fetchFn(USAGE_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
-      n++;
-    } catch {
-      // Offline: the day stays logged as attempted; the count is a floor.
+  if (running || sharingSetting() !== true) return 0;
+  running = true;
+  try {
+    const now = opts.now ?? new Date();
+    const fetchFn = opts.fetchFn ?? fetch;
+    const { since } = monthlyCode(now);
+    let n = 0;
+    for (const day of pendingDays(now, since, sentDays())) {
+      // Checked again per day: a switch-off mid-run stops the rest.
+      if (sharingSetting() !== true) break;
+      const payload = buildPayload(db, day, monthlyCode(now, day).code, appVersion(), osLabel());
+      if (!payload) continue;
+      appendFileSync(sentPath(), JSON.stringify(payload) + "\n");
+      try {
+        await fetchFn(USAGE_URL, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(15_000),
+        });
+        n++;
+      } catch {
+        // Offline or timed out: the day stays logged as attempted; the count is a floor.
+      }
     }
+    return n;
+  } finally {
+    running = false;
   }
-  return n;
 }
 
 /** A minute after boot, then every 6 h. Timers are unref'd so they never keep the process alive. */
