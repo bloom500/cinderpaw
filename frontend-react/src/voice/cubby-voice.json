@@ -1,1 +1,38 @@
-{}
+{
+  "onboarding.connect": {
+    "text": "Want me to help with your other apps? Connect them here, and I can search, make things, and get stuff done. But only with your okay. I only reach what you approve, and you can remove a connection anytime, in Settings, under Accounts.",
+    "model": "eleven_v4",
+    "voice": "C9MXee9tu78kuWq66zMt",
+    "file": "onboarding.connect.mp3"
+  },
+  "onboarding.done": {
+    "text": "[happy] That's it, we're all set! Say hello, ask me to build something, or let me help with research, writing, or boring chores. I'm right here. Let's go explore.",
+    "model": "eleven_v4",
+    "voice": "C9MXee9tu78kuWq66zMt",
+    "file": "onboarding.done.mp3"
+  },
+  "onboarding.names": {
+    "text": "So... what should I call you? Tell me your name, and pick one for me too, if you like. I'll use them every time we talk. You can change yours later, in Settings. [giggles] No pressure.",
+    "model": "eleven_v4",
+    "voice": "C9MXee9tu78kuWq66zMt",
+    "file": "onboarding.names.mp3"
+  },
+  "onboarding.provider": {
+    "text": "Now let's pick my brain. [giggles] Hmm, that sounds funny. It's the model I think with. It can live in the cloud, come from Hugging Face, or run right here on your computer. Pick what feels right. You can change it anytime, in Models.",
+    "model": "eleven_v4",
+    "voice": "C9MXee9tu78kuWq66zMt",
+    "file": "onboarding.provider.mp3"
+  },
+  "onboarding.welcome": {
+    "text": "[happy] Oh! Hi there. I'm Cubby. Welcome to Cinderpaw. I'm a little wild, and I still have a lot to learn, but I love to help. I can use smart models, real tools, and a memory for what matters to you. And yes, we can even talk out loud.",
+    "model": "eleven_v4",
+    "voice": "C9MXee9tu78kuWq66zMt",
+    "file": "onboarding.welcome.mp3"
+  },
+  "onboarding.workspace": {
+    "text": "This is our place. Everything in one calm spot. We can chat, browse the web, build things together, pick models, and keep track of tasks. Nothing loud, nothing messy. [happy] I like it here.",
+    "model": "eleven_v4",
+    "voice": "C9MXee9tu78kuWq66zMt",
+    "file": "onboarding.workspace.mp3"
+  }
+}
