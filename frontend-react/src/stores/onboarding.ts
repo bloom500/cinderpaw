@@ -35,6 +35,7 @@
 
 import { create } from 'zustand';
 import { tauri } from '@/lib/tauri';
+import { useSettings } from '@/stores/settings';
 
 /**
  * Wizard steps in render order. The provider step currently branches
@@ -137,7 +138,15 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
 
   start: () => set({ active: true, step: FIRST_STEP, completedAt: null, skipped: false }),
 
-  reopen: () => set({ active: true, step: FIRST_STEP }),
+  // The share box starts from the saved answer: finish() writes it back, so an
+  // unticked box here would turn sharing off for someone who only wanted to rename.
+  reopen: () => {
+    set({ active: true, step: FIRST_STEP });
+    const seed = () => set({ shareUsage: useSettings.getState().settings?.usage_sharing === true });
+    // Settings > General can be clicked before the page has loaded settings.
+    if (useSettings.getState().settings) seed();
+    else void useSettings.getState().fetchSettings().then(seed);
+  },
 
   // Audit M-R1 fix: derive next/prev bounds from STEP_IDS instead of the
   // hand-managed `totalSteps` constant. Adding a step means inserting a
@@ -242,8 +251,10 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
     // sent it before they could say no. Failures are the counter's problem:
     // nothing about it belongs in front of the user.
     void tauri.system.countInstall(get().countInstall).catch(() => {});
-    // Opt-in: false unless ticked. Recorded either way, so the home card does not ask again.
-    void tauri.system.setUsageSharing(get().shareUsage).catch(() => {});
+    // Opt-in: false unless ticked. Recorded either way, and the settings store
+    // reloaded, so the home card (already mounted under the wizard with "never
+    // asked") does not ask again the moment the wizard closes.
+    void tauri.system.setUsageSharing(get().shareUsage).then(() => useSettings.getState().fetchSettings()).catch(() => {});
   },
 
   setCountInstall: (on: boolean) => set({ countInstall: on }),

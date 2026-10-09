@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useOnboarding, DEFAULTS } from '@/stores/onboarding';
 import { persistAsync } from '@/stores/onboardingPersistence';
-import { tauri } from '@/lib/tauri';
+import { tauri, type Settings } from '@/lib/tauri';
+import { useSettings } from '@/stores/settings';
 
 // The store's OWN defaults, not a copy of them: a copy drifts silently and
 // then the suite tests the copy.
@@ -113,6 +114,27 @@ describe('useOnboarding', () => {
     expect(useOnboarding.getState().shareUsage).toBe(false);
     await useOnboarding.getState().finish();
     expect(spy).toHaveBeenCalledWith(false);
+    spy.mockRestore();
+  });
+
+  // Final review S7: the box used to come back unticked, and finish() then wrote false.
+  it('reopen() seeds the share box from the saved answer, so re-running the welcome never turns sharing off', async () => {
+    const spy = vi.spyOn(tauri.system, 'setUsageSharing').mockResolvedValue(undefined);
+    useSettings.setState({ settings: { usage_sharing: true } as Settings });
+    useOnboarding.getState().reopen();
+    expect(useOnboarding.getState().shareUsage).toBe(true);
+    await useOnboarding.getState().finish();
+    expect(spy).toHaveBeenCalledWith(true);
+    useSettings.setState({ settings: { usage_sharing: false } as Settings });
+    useOnboarding.getState().reopen();
+    expect(useOnboarding.getState().shareUsage).toBe(false);
+    // Clicked before the Settings page finished loading: the answer is fetched first.
+    useSettings.setState({ settings: null });
+    const get = vi.spyOn(tauri.settings, 'get').mockResolvedValue({ usage_sharing: true } as Settings);
+    useOnboarding.getState().reopen();
+    await vi.waitFor(() => expect(useOnboarding.getState().shareUsage).toBe(true));
+    useSettings.setState({ settings: null });
+    get.mockRestore();
     spy.mockRestore();
   });
 
