@@ -14,7 +14,7 @@ export function ListenButton({ line }: { line: CubbyLineId }) {
 function Player({ url }: { url: string }) {
   const { playing, toggle, error } = useAudioPlayer(url);
   return (
-    <span className="inline-flex flex-wrap items-center gap-2">
+    <span className="inline-flex flex-wrap items-center gap-2" data-ui-sound="none">
       <button
         type="button"
         onClick={toggle}

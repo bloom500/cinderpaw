@@ -6,6 +6,7 @@ import type { MascotState } from './frames';
 import { useBrowser } from '@/stores/browser';
 import { useChat } from '@/stores/chat';
 import { pulseLabel } from './pulse';
+import { playUiSound } from '@/lib/uiSounds';
 
 /**
  * What the creature does when nobody is doing anything, and what it does when
@@ -94,6 +95,14 @@ export function MascotPerch({ baseState }: { baseState: MascotState }) {
 
 function MascotPerchInner({ baseState }: { baseState: MascotState }) {
   const [renderState, setRenderState] = useState<MascotState>(baseState);
+  const previousSoundState = useRef<MascotState>(baseState);
+  useEffect(() => {
+    const previous = previousSoundState.current;
+    previousSoundState.current = renderState;
+    if (previous === renderState) return;
+    if (renderState === 'sleep') void playUiSound('cubby-sleep');
+    else if (previous === 'sleep') void playUiSound('cubby-wake');
+  }, [renderState]);
   /** A reaction to something the person did. Outranks idle, never outranks the
    *  agent: see the resolve step below. */
   const [reaction, setReaction] = useState<MascotState | null>(null);

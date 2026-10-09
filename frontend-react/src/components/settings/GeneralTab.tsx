@@ -149,12 +149,15 @@ export function GeneralTab() {
 
       {/* Voice call self-test — next to the transcription model, because both
           answer "does speech work on this machine" and a person looking for one
-          is looking for the other. */}
-      <div className={rowCls}>
-        <div className="min-w-0 flex-1">
-          <LiveKitSelfTest />
+          is looking for the other. Dev only: release builds have no test
+          buttons (Darius, 9 Oct 2026). */}
+      {import.meta.env.DEV && (
+        <div className={rowCls}>
+          <div className="min-w-0 flex-1">
+            <LiveKitSelfTest />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Data folder */}
       <div className={rowCls}>

@@ -5,6 +5,7 @@ import { tauri } from '@/lib/tauri';
 import { useNotifications } from '@/stores/notifications';
 import { useSettings } from '@/stores/settings';
 import { emberAvailability } from '@/components/chat/ember/emberAvailability';
+import { SoundSettings } from './SoundSettings';
 
 /**
  * Settings > Appearance (spec 7.4, canvas "Settings: appearance"): theme cards
@@ -133,6 +134,8 @@ export function AppearanceTab() {
   return (
     <div className="space-y-8">
       <h2 className="text-lg font-semibold text-text-primary">Appearance</h2>
+
+      <SoundSettings />
 
       <section className="space-y-3">
         <h3 className="text-sm font-semibold text-text-primary">Theme</h3>

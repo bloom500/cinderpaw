@@ -26,6 +26,13 @@ Status as of 23 Sep 2026, evening. `[x]` done, `[ ]` open, `[~]` partly.
 - [ ] Send to > Cinderpaw appears after install and disappears after uninstall
       (NSIS hook, never built yet; MSI has no hook).
 - [ ] Three-stranger test: `docs/usability/stranger-test.md`.
+- [ ] Windows notification in the INSTALLED app: ask something long, switch to
+      another window, a toast appears when it finishes. In `tauri dev` the dev-only
+      "Send a test notification" button showed nothing (9 Oct); dev builds have no
+      installed app identity, so only the installer proves it.
+- [ ] Settings in the installed app has no test buttons: no voice call self-test,
+      no sound pack list, no Cubby voice sample, no test notification (dev only).
+- [ ] UI sounds on by default at 35%: send a message, a reply finishes, a switch flips.
 
 ## 3. Features Darius has not tried yet (23 Sep)
 

@@ -7,7 +7,7 @@ vi.mock('@tauri-apps/plugin-notification', () => ({
   sendNotification: (n: { title: string; body: string }) => sent.push(n),
 }));
 
-import { notifyIfBackground, preview } from '../systemNotify';
+import { notifyIfBackground, preview, sendTestNotification } from '../systemNotify';
 
 describe('system notifications', () => {
   beforeEach(() => { sent.length = 0; });
@@ -22,6 +22,12 @@ describe('system notifications', () => {
     vi.spyOn(document, 'hasFocus').mockReturnValue(false);
     expect(await notifyIfBackground('Cinderpaw finished', 'done')).toBe(true);
     expect(sent).toEqual([{ title: 'Cinderpaw finished', body: 'done' }]);
+  });
+
+  it('the Settings test notification is sent even with the window in front', async () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    expect(await sendTestNotification()).toBe(true);
+    expect(sent).toHaveLength(1);
   });
 
   it('preview keeps one plain line, without markdown or code', () => {

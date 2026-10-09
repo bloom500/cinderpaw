@@ -7,6 +7,7 @@ import { useEmbeddingDownloadStatus } from '@/hooks/useEmbeddingDownloadStatus';
 import { useNotifications } from '@/stores/notifications';
 import { useModel } from '@/stores/model';
 import { useConversations } from '@/stores/conversations';
+import { useUiSounds } from '@/hooks/useUiSounds';
 
 /**
  * Top-of-window banner for the in-flight embedding download. Pinned across
@@ -46,6 +47,7 @@ function EmbeddingDownloadBanner({ state }: { state: ReturnType<typeof useEmbedd
 }
 
 export default function App() {
+  useUiSounds();
   // Cold-start guard for the Fractal Memory Search embedding model. The hook
   // listens to cinderpaw://embedding-download-* channels and surfaces one of four
   // clear states (idle/present/downloading/failed) instead of the old
