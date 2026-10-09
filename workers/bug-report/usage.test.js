@@ -11,6 +11,12 @@ const group = (over = {}) => ({
 });
 const payload = (over = {}) => ({ v: 1, code: 'a'.repeat(32), day: '2026-10-09', app: '2026.10.1', os: 'windows', groups: [group()], ...over });
 const NOW = Date.parse('2026-10-10T08:00:00Z');
+// The Workers Cache API the rate limiter uses, as a Map. Bun has no `caches`.
+const cacheStore = new Map();
+globalThis.caches = { default: {
+  match: async (req) => cacheStore.get(req.url)?.clone(),
+  put: async (req, res) => { cacheStore.set(req.url, res); },
+} };
 
 describe('validatePayload', () => {
   test('accepts the documented shape', () => expect(validatePayload(payload(), NOW)).toEqual({ ok: true }));
@@ -27,6 +33,14 @@ describe('validatePayload', () => {
   test('rejects a bad code', () => expect(validatePayload(payload({ code: 'xyz' }), NOW).ok).toBe(false));
 
   // Final review M3: each field passed on its own, so one POST could put 1000000100% on the public table.
+  // Final review S1: names go on a public page; only model-id characters.
+  test('provider and model are model-id characters only', () => {
+    for (const model of ['anthropic/claude-sonnet-5.5', 'meta-llama/llama-3.3-70b-instruct:free', 'qwen3-8b', 'local-other'])
+      expect(validatePayload(payload({ groups: [group({ model })] }), NOW).ok).toBe(true);
+    for (const model of ['<img src=x>', 'my model', 'a'.repeat(129), 'ö'])
+      expect(validatePayload(payload({ groups: [group({ model })] }), NOW)).toEqual({ ok: false, error: 'provider/model' });
+    expect(validatePayload(payload({ groups: [group({ provider: 'x y' })] }), NOW).ok).toBe(false);
+  });
   test('rejects the evil probe: numbers that contradict each other', () => {
     const evil = group({ tasks_main: 0, outcomes: { ...group().outcomes, completed: 1e9 }, thumbs_up: 1e9 });
     expect(validatePayload(payload({ groups: [evil] }), NOW)).toEqual({ ok: false, error: 'inconsistent' });
@@ -99,4 +113,12 @@ test('same code+day replaces, never adds', async () => {
   expect(JSON.parse(db.rows[0].data).tasks_part).toBe(7);
   expect((await post(payload({ day: yesterday, email: 'x' }))).status).toBe(400);
   expect(db.rows).toHaveLength(1);
+});
+
+test('POST /usage is rate limited per IP, using the bug-report limiter', async () => {
+  const { default: worker } = await import('./worker.js');
+  const post = (ip) => worker.fetch(new Request('https://w/usage', { method: 'POST', body: '{}', headers: { 'cf-connecting-ip': ip } }), {});
+  for (let i = 0; i < 60; i++) expect((await post('1.2.3.4')).status).toBe(400);
+  expect((await post('1.2.3.4')).status).toBe(429);
+  expect((await post('5.6.7.8')).status).toBe(400);
 });

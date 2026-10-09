@@ -10,6 +10,7 @@ const MAX = 1e9;
 // One install, one model, one day. Far above a person; the app drops a group over it.
 export const MAX_TASKS_PER_DAY = 10_000;
 const sum = (xs) => xs.reduce((a, x) => a + x, 0);
+const NAME = /^[A-Za-z0-9._:/@+-]{1,128}$/;
 const num = (x, nullable = false) => (nullable && x === null) || (typeof x === 'number' && Number.isFinite(x) && x >= 0 && x <= MAX);
 const str = (x, n) => typeof x === 'string' && x.length > 0 && x.length <= n;
 const exactKeys = (o, keys) => o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).length === keys.length && keys.every((k) => k in o);
@@ -29,7 +30,8 @@ export function validatePayload(b, now = Date.now()) {
   const seen = new Set();
   for (const g of b.groups) {
     if (!exactKeys(g, GROUP)) return bad('group fields');
-    if (!str(g.provider, 64) || !str(g.model, 128)) return bad('provider/model');
+    // Shown on a public page: model-id characters only (the app maps anything else to `<provider>-other`).
+    if (!str(g.provider, 64) || !NAME.test(g.provider) || !NAME.test(g.model)) return bad('provider/model');
     // One row per (code, day, provider, model) in D1: a duplicate would fail the insert.
     const key = `${g.provider}\u0000${g.model}`;
     if (seen.has(key)) return bad('duplicate model');
