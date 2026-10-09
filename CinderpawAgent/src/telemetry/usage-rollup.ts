@@ -138,7 +138,8 @@ export function rollup(db: Database, fromMs: number, toMs: number): UsageGroup[]
     }
     main.tasks_main += 1;
     main.outcomes[t.outcome] += 1;
-    if (t.error_category) main.errors[t.error_category] += 1;
+    // The worker checks sum(errors) == outcomes.error, so every error has exactly one category.
+    if (t.outcome === "error") main.errors[t.error_category ?? "other"] += 1;
     if (t.feedback > 0) main.thumbs_up += 1;
     if (t.feedback < 0) main.thumbs_down += 1;
     const bi = bucketOf(t.duration_ms);

@@ -132,3 +132,57 @@ describe("rollup", () => {
     db.close();
   });
 });
+
+// Final review M3: the worker now refuses groups whose numbers disagree.
+// Whatever the app really sends has to pass it, or a whole day is lost.
+test("a real day's payload passes the worker's checks", async () => {
+  const { validatePayload } = await import("../../workers/bug-report/usage.js");
+  const { buildPayload } = await import("../src/telemetry/usage-sender.ts");
+  const db = openDatabase(":memory:");
+  const at = Date.parse("2026-10-09T10:00:00Z");
+  const task = (id: string, outcome: "completed" | "error" | "no_answer" | "stopped", calls: Array<[string, string, number]>, extra: { category?: "auth"; feedback?: "up" | "down"; brsi?: boolean } = {}) => {
+    beginTask(db.raw, { taskId: id, sessionId: "s", startedAt: at, brsiOn: extra.brsi ?? false, memoryOn: true });
+    for (const [prov, model, tokens] of calls) call(db, id, prov, model, tokens, 10, null);
+    finishTask(db.raw, id, { durationMs: 7_000, outcome, errorCategory: extra.category ?? null, toolCalls: 2, attemptedProvider: "openrouter.ai", attemptedModel: "anthropic/claude-sonnet-5.5" });
+    if (extra.feedback) setTaskFeedback(db.raw, id, extra.feedback);
+  };
+  task("a", "completed", [["openrouter.ai", "anthropic/claude-sonnet-5.5", 900], ["local", "qwen3:8b", 50]], { feedback: "up", brsi: true });
+  task("b", "completed", [["192.168.1.20", "maria-diary:latest", 500]], { feedback: "down" });
+  task("c", "no_answer", [["openrouter.ai", "anthropic/claude-sonnet-5.5", 100]]);
+  task("d", "error", [], { category: "auth" });
+  task("e", "stopped", [["gpu.popescu-family.ro", "popescu-finetune-v2", 40], ["openrouter.ai", "anthropic/claude-sonnet-5.5", 30]]);
+  noteTaskFallback(db.raw, "a");
+  db.raw.query("UPDATE completion_cost SET used_fallback = 1 WHERE provider = 'local'").run();
+  const p = buildPayload(db.raw, "2026-10-09", "a".repeat(32), "2026.10.1", "windows");
+  expect(p!.groups.length).toBeGreaterThan(2);
+  expect(validatePayload(p, Date.parse("2026-10-10T08:00:00Z"))).toEqual({ ok: true });
+  db.close();
+});
+
+test("an error always has exactly one category, and a non-error has none", () => {
+  const db = openDatabase(":memory:");
+  for (const [id, outcome, category] of [["e", "error", null], ["c", "completed", "auth"]] as const) {
+    beginTask(db.raw, { taskId: id, sessionId: "s", startedAt: 1500, brsiOn: false, memoryOn: false });
+    finishTask(db.raw, id, { durationMs: 100, outcome, errorCategory: category, toolCalls: 0, attemptedProvider: "openrouter.ai", attemptedModel: "m" });
+  }
+  const [g] = rollup(db.raw, 0, 10_000);
+  expect(g!.outcomes.error).toBe(1);
+  expect(g!.errors).toMatchObject({ other: 1, auth: 0 });
+  db.close();
+});
+
+test("a group over the worker's per-day cap is left out, the rest of the day still goes", async () => {
+  const { buildPayload } = await import("../src/telemetry/usage-sender.ts");
+  const db = openDatabase(":memory:");
+  const at = Date.parse("2026-10-09T10:00:00Z");
+  db.raw.query(
+    `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10001)
+     INSERT INTO task_metrics (task_id, session_id, started_at, duration_ms, outcome, brsi_on, memory_on, attempted_provider, attempted_model)
+     SELECT 'bot' || i, 's', ?, 10, 'completed', 0, 0, 'openrouter.ai', 'busy-model' FROM n`,
+  ).run(at);
+  beginTask(db.raw, { taskId: "h", sessionId: "s", startedAt: at, brsiOn: false, memoryOn: false });
+  finishTask(db.raw, "h", { durationMs: 10, outcome: "completed", errorCategory: null, toolCalls: 0, attemptedProvider: "openrouter.ai", attemptedModel: "human-model" });
+  const p = buildPayload(db.raw, "2026-10-09", "a".repeat(32), "2026.10.1", "windows");
+  expect(p!.groups.map((g) => g.model)).toEqual(["human-model"]);
+  db.close();
+});

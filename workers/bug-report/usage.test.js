@@ -7,7 +7,7 @@ const group = (over = {}) => ({
   errors: { network: 0, auth: 0, billing: 0, rate_limit: 0, context_overflow: 0, provider_error: 0, tool_error: 0, other: 0 },
   thumbs_up: 1, thumbs_down: 0, tokens_in: 100, tokens_out: 10, cache_read: null, cache_write: null,
   cost_reported_usd: 0.01, cost_estimated_usd: 0, duration_buckets: [0, 1, 0, 0, 0, 0, 0, 0],
-  tool_calls: 0, fallbacks: 0, retries: 0, by_flags: {}, ...over,
+  tool_calls: 0, fallbacks: 0, retries: 0, by_flags: { brsi0_mem1: { tasks: 1, completed: 1, up: 1, down: 0 } }, ...over,
 });
 const payload = (over = {}) => ({ v: 1, code: 'a'.repeat(32), day: '2026-10-09', app: '2026.10.1', os: 'windows', groups: [group()], ...over });
 const NOW = Date.parse('2026-10-10T08:00:00Z');
@@ -25,6 +25,24 @@ describe('validatePayload', () => {
     expect(validatePayload(payload({ day: '2026-08-01' }), NOW).ok).toBe(false);
   });
   test('rejects a bad code', () => expect(validatePayload(payload({ code: 'xyz' }), NOW).ok).toBe(false));
+
+  // Final review M3: each field passed on its own, so one POST could put 1000000100% on the public table.
+  test('rejects the evil probe: numbers that contradict each other', () => {
+    const evil = group({ tasks_main: 0, outcomes: { ...group().outcomes, completed: 1e9 }, thumbs_up: 1e9 });
+    expect(validatePayload(payload({ groups: [evil] }), NOW)).toEqual({ ok: false, error: 'inconsistent' });
+  });
+  test('rejects each kind of disagreement', () => {
+    const outcomes = group().outcomes;
+    for (const g of [
+      group({ outcomes: { ...outcomes, stopped: 1 } }),                      // outcomes != tasks_main
+      group({ duration_buckets: [0, 2, 0, 0, 0, 0, 0, 0] }),               // buckets != tasks_main
+      group({ by_flags: {} }),                                               // by_flags tasks != tasks_main
+      group({ errors: { ...group().errors, auth: 1 } }),                     // errors != outcomes.error
+      group({ thumbs_up: 1, thumbs_down: 1 }),                               // more thumbs than tasks
+      group({ tasks_part: 0 }),                                              // main tasks > tasks it took part in
+      group({ tasks_part: 10_001 }),                                         // over the per-day cap
+    ]) expect(validatePayload(payload({ groups: [g] }), NOW)).toEqual({ ok: false, error: 'inconsistent' });
+  });
 });
 
 test('wilson', () => {
@@ -76,9 +94,9 @@ test('same code+day replaces, never adds', async () => {
   const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
   const post = (p) => worker.fetch(new Request('https://w/usage', { method: 'POST', body: JSON.stringify(p) }), { USAGE: db });
   expect((await post(payload({ day: yesterday }))).status).toBe(204);
-  expect((await post(payload({ day: yesterday, groups: [group({ tasks_main: 7 })] }))).status).toBe(204);
+  expect((await post(payload({ day: yesterday, groups: [group({ tasks_part: 7 })] }))).status).toBe(204);
   expect(db.rows).toHaveLength(1);
-  expect(JSON.parse(db.rows[0].data).tasks_main).toBe(7);
+  expect(JSON.parse(db.rows[0].data).tasks_part).toBe(7);
   expect((await post(payload({ day: yesterday, email: 'x' }))).status).toBe(400);
   expect(db.rows).toHaveLength(1);
 });

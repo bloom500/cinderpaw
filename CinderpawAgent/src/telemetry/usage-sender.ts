@@ -97,7 +97,9 @@ export function pendingDays(now: Date, since: string, sent: Set<string>): string
 
 export function buildPayload(db: Database, day: string, code: string, app: string, os: string): UsagePayload | null {
   const from = Date.parse(`${day}T00:00:00Z`);
-  const groups = rollup(db, from, from + DAY_MS);
+  // The worker refuses a group over 10,000 tasks a day (a script, not a person);
+  // left out here so the rest of the day still counts.
+  const groups = rollup(db, from, from + DAY_MS).filter((g) => g.tasks_part <= 10_000);
   return groups.length ? { v: 1, code, day, app, os, groups } : null;
 }
 

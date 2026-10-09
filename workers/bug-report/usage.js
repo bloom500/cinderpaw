@@ -7,6 +7,9 @@ const GROUP = ['provider', 'model', 'tasks_part', 'tasks_main', 'outcomes', 'err
   'tokens_in', 'tokens_out', 'cache_read', 'cache_write', 'cost_reported_usd', 'cost_estimated_usd',
   'duration_buckets', 'tool_calls', 'fallbacks', 'retries', 'by_flags'];
 const MAX = 1e9;
+// One install, one model, one day. Far above a person; the app drops a group over it.
+export const MAX_TASKS_PER_DAY = 10_000;
+const sum = (xs) => xs.reduce((a, x) => a + x, 0);
 const num = (x, nullable = false) => (nullable && x === null) || (typeof x === 'number' && Number.isFinite(x) && x >= 0 && x <= MAX);
 const str = (x, n) => typeof x === 'string' && x.length > 0 && x.length <= n;
 const exactKeys = (o, keys) => o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).length === keys.length && keys.every((k) => k in o);
@@ -42,6 +45,14 @@ export function validatePayload(b, now = Date.now()) {
     for (const [k, f] of Object.entries(g.by_flags)) {
       if (!/^brsi[01]_mem[01]$/.test(k) || !exactKeys(f, ['tasks', 'completed', 'up', 'down']) || !Object.values(f).every((x) => num(x))) return bad('by_flags');
     }
+    // The numbers must agree with each other, or one POST could print any rate
+    // on the public table. The app's rollup always produces groups that do
+    // (CinderpawAgent/tests/usage-rollup.test.ts sends a real day through here).
+    const t = g.tasks_main;
+    if (sum(Object.values(g.outcomes)) !== t || sum(g.duration_buckets) !== t
+      || sum(Object.values(g.by_flags).map((f) => f.tasks)) !== t
+      || sum(Object.values(g.errors)) !== g.outcomes.error
+      || g.thumbs_up + g.thumbs_down > t || t > g.tasks_part || g.tasks_part > MAX_TASKS_PER_DAY) return bad('inconsistent');
   }
   return { ok: true };
 }
