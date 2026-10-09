@@ -39,19 +39,29 @@ const sentPath = () => join(cinderpawHome(), "telemetry-sent.jsonl");
 const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 /**
- * A random code, new every calendar month (UTC). It lets the server count
+ * A random code per calendar month (UTC). It lets the server count
  * installations per month and refuse to add one machine's day twice, and it
  * cannot follow anyone across months. `since` is the first day sharing was on:
  * days collected before the person said yes are never sent.
+ *
+ * The code is picked by the month of the DAY being sent, not the send time: a
+ * day only leaves after it ends, so 31 Oct goes out on 1 Nov and must still be
+ * the same October install. File: `{codes: {"2026-10": "<hex>"}, since}`.
+ * Months older than the 30-day window are dropped.
  */
-export function monthlyCode(now: Date): { code: string; since: string } {
-  const month = now.toISOString().slice(0, 7);
-  let prev: { month?: string; code?: string; since?: string } = {};
-  try { prev = JSON.parse(readFileSync(codePath(), "utf8")); } catch { /* first time */ }
-  if (prev.month === month && prev.code && prev.since) return { code: prev.code, since: prev.since };
-  const code = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
-  const since = prev.since ?? utcDay(now.getTime());
-  writeFileSync(codePath(), JSON.stringify({ month, code, since }));
+export function monthlyCode(now: Date, day = utcDay(now.getTime())): { code: string; since: string } {
+  let file: { codes?: unknown; since?: unknown; month?: unknown; code?: unknown } = {};
+  try { file = JSON.parse(readFileSync(codePath(), "utf8")); } catch { /* first time */ }
+  // Builds up to 8 Oct 2026 kept one code: {month, code, since}.
+  const stored = file.codes && typeof file.codes === "object" ? (file.codes as Record<string, unknown>)
+    : typeof file.month === "string" ? { [file.month]: file.code } : {};
+  const oldest = utcDay(now.getTime() - MAX_DAYS_BACK * DAY_MS).slice(0, 7);
+  const codes: Record<string, string> = {};
+  for (const [m, c] of Object.entries(stored)) if (m >= oldest && typeof c === "string" && /^[0-9a-f]{32}$/.test(c)) codes[m] = c;
+  const month = day.slice(0, 7);
+  const code = (codes[month] ??= [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join(""));
+  const since = typeof file.since === "string" ? file.since : utcDay(now.getTime());
+  writeFileSync(codePath(), JSON.stringify({ codes, since }));
   return { code, since };
 }
 
@@ -101,12 +111,12 @@ export async function sendPending(db: Database, opts: { now?: Date; fetchFn?: ty
   if (sharingSetting() !== true) return 0;
   const now = opts.now ?? new Date();
   const fetchFn = opts.fetchFn ?? fetch;
-  const { code, since } = monthlyCode(now);
+  const { since } = monthlyCode(now);
   let n = 0;
   for (const day of pendingDays(now, since, sentDays())) {
     // Checked again per day: a switch-off mid-run stops the rest.
     if (sharingSetting() !== true) break;
-    const payload = buildPayload(db, day, code, appVersion(), osLabel());
+    const payload = buildPayload(db, day, monthlyCode(now, day).code, appVersion(), osLabel());
     if (!payload) continue;
     appendFileSync(sentPath(), JSON.stringify(payload) + "\n");
     try {
