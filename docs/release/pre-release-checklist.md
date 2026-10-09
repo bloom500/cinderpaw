@@ -13,6 +13,9 @@ Status as of 23 Sep 2026, evening. `[x]` done, `[ ]` open, `[~]` partly.
       `file_args` tests) must run with the dev app **closed**: a second cargo
       against the dev build's target dir deadlocks both.
 - [ ] Sidecar binary in `src-tauri/binaries/` rebuilt from the release commit.
+- [ ] `cd frontend-react && bun run voice:check` exits 0: every Cubby line has
+      audio made from its current words (a changed line otherwise loses its
+      Listen button).
 
 ## 2. What a stranger sees (fresh machine)
 

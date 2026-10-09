@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
-    "test:ci": "vitest run --coverage"
+    "test:ci": "vitest run --coverage",
+    "voice:render": "bun scripts/render-cubby-voice.ts",
+    "voice:check": "bun scripts/render-cubby-voice.ts --check"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",
