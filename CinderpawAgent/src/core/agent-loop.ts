@@ -312,6 +312,12 @@ export interface TurnResult {
    * is reading simply do not render it.
    */
   diagnostic?: string;
+  /**
+   * The turn ended on a thrown error or a provider failure, not on a model
+   * that answered with nothing. Usage stats count only these as `error`;
+   * every `no_answer` carries a diagnostic, so that cannot tell them apart.
+   */
+  failed?: true;
 }
 
 /** Whether an outcome should be re-invoked rather than reported as done. */
@@ -953,13 +959,17 @@ export class AgentLoop {
       result = {
         text: "Something went wrong on my side and I couldn't finish that.",
         diagnostic: `turn failed: ${String(err)}`,
+        failed: true,
         outcome: "no_answer",
         toolCallCount: 0,
         incomplete: false,
       };
       return result;
     } finally {
-      this.#router.endTask?.(sessionId, result, Date.now() - turnStart);
+      // Stats are not the work: if they throw, the lock below must still open.
+      try {
+        this.#router.endTask?.(sessionId, result, Date.now() - turnStart);
+      } catch { /* never costs the turn */ }
       release();
       this.#activeSessions.delete(sessionId);
       this.#sessionStartedAt.delete(sessionId);
@@ -1572,6 +1582,7 @@ export class AgentLoop {
       return {
         text: "Something went wrong on my side and I couldn't finish that.",
         diagnostic: message,
+        failed: true,
         outcome: "no_answer",
         toolCallCount,
         incomplete: false,

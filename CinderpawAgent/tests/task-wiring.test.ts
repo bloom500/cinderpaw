@@ -2,6 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { openDatabase } from "../src/db.ts";
 import { AuditLog } from "../src/egress/audit-log.ts";
 import { InferenceRouter } from "../src/egress/inference-router.ts";
+import { EgressProxy } from "../src/egress/egress-proxy.ts";
+import { RealProcessSandbox } from "../src/egress/process-sandbox.ts";
+import { EpisodicMemory } from "../src/memory/episodic.ts";
+import { ToolRegistry } from "../src/tools/registry.ts";
+import { AgentLoop } from "../src/core/agent-loop.ts";
 import type { InferenceConfig } from "../src/types.ts";
 
 const REAL_FETCH = globalThis.fetch;
@@ -36,7 +41,7 @@ describe("task wiring", () => {
   test("failed turn with no completion is attributed to the attempted model", () => {
     const { db, r } = router(200, {});
     r.beginTask("s1", "t2", { brsiOn: false, memoryOn: false });
-    r.endTask("s1", { outcome: "no_answer", toolCallCount: 0, diagnostic: "401 Unauthorized: invalid api key" }, 300);
+    r.endTask("s1", { outcome: "no_answer", toolCallCount: 0, diagnostic: "401 Unauthorized: invalid api key", failed: true }, 300);
     const t = db.raw.query("SELECT * FROM task_metrics").get() as Record<string, unknown>;
     expect(t).toMatchObject({ outcome: "error", error_category: "auth", attempted_provider: "openrouter.ai", attempted_model: "m-asked" });
     db.close();
@@ -60,6 +65,52 @@ describe("task wiring", () => {
     r.beginTask("s1", "t3", { brsiOn: false, memoryOn: false });
     r.endTask("s1", undefined, 10);
     expect((db.raw.query("SELECT outcome, error_category FROM task_metrics").get() as Record<string, unknown>)).toEqual({ outcome: "error", error_category: "other" });
+    db.close();
+  });
+});
+
+// The outcome a whole turn records, driven through a real AgentLoop.
+describe("task outcome from a real turn", () => {
+  function agentWith(reply: () => Response) {
+    globalThis.fetch = (async () => reply()) as unknown as typeof fetch;
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const router = new InferenceRouter(
+      { primary: { provider: "ollama", model: "m", baseUrl: "http://localhost:11434" }, tokenBudget: BUDGET },
+      audit.logger,
+      db.raw,
+    );
+    const registry = new ToolRegistry(new EgressProxy(audit.logger), audit, new RealProcessSandbox(audit.logger));
+    const agent = new AgentLoop(router, registry, new EpisodicMemory(db.raw, audit.logger), {});
+    const row = () => db.raw.query("SELECT outcome, error_category FROM task_metrics").get();
+    return { db, router, agent, row };
+  }
+  const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+  // Final review S4: a model that answered with nothing is `no_answer`, not a failure.
+  test("an empty answer is no_answer, not error", async () => {
+    const { db, agent, row } = agentWith(() => json(200, { message: { content: "" }, prompt_eval_count: 5, eval_count: 0 }));
+    const r = await agent.handleTurn("s1", "hi", "m1", () => {});
+    expect(r.outcome).toBe("no_answer");
+    expect(row()).toEqual({ outcome: "no_answer", error_category: null });
+    db.close();
+  });
+
+  test("a provider error is error, with its category", async () => {
+    const { db, agent, row } = agentWith(() => json(401, { error: "unauthorized" }));
+    await agent.handleTurn("s1", "hi", "m1", () => {});
+    expect(row()).toEqual({ outcome: "error", error_category: "auth" });
+    db.close();
+  });
+
+  // Final review S8: telemetry must never leave a session locked.
+  test("a throwing endTask does not cost the turn or lock the session", async () => {
+    const { db, router, agent } = agentWith(() => json(200, { message: { content: "hello" }, prompt_eval_count: 5, eval_count: 1 }));
+    router.endTask = () => { throw new Error("stats broke"); };
+    const first = await agent.handleTurn("s1", "hi", "m1", () => {});
+    expect(first.text).toContain("hello");
+    const second = await Promise.race([agent.handleTurn("s1", "again", "m2", () => {}), Bun.sleep(5_000).then(() => null)]);
+    expect(second?.outcome).toBe("completed");
     db.close();
   });
 });

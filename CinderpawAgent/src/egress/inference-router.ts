@@ -765,21 +765,22 @@ export class InferenceRouter {
   }
 
   /**
-   * Close the task. A turn that ended with a diagnostic and no answer FAILED,
-   * so it is counted as `error` with a category; no result at all is the same.
-   * The model the router is on now is recorded so a turn that failed before any
-   * completion is still attributed to a model.
+   * Close the task. A turn that threw or hit a provider error (`failed`) is
+   * counted as `error` with a category; no result at all is the same. A model
+   * that answered with nothing stays `no_answer`. The model the router is on
+   * now is recorded so a turn that failed before any completion is still
+   * attributed to a model.
    */
   endTask(
     sessionId: string,
-    result: { outcome: string; toolCallCount: number; diagnostic?: string } | undefined,
+    result: { outcome: string; toolCallCount: number; diagnostic?: string; failed?: true } | undefined,
     durationMs: number,
   ): void {
     const taskId = this.#taskBySession.get(sessionId);
     if (!taskId) return;
     this.#taskBySession.delete(sessionId);
     if (subagentParent(sessionId) !== null) return;
-    const failed = !result || (result.outcome === "no_answer" && result.diagnostic !== undefined);
+    const failed = !result || result.failed === true;
     const outcome: TaskOutcome = failed
       ? "error"
       : (TASK_OUTCOMES as readonly string[]).includes(result.outcome) ? (result.outcome as TaskOutcome) : "completed";
