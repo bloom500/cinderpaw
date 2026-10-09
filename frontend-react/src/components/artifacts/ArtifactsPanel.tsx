@@ -34,6 +34,7 @@ import { useArtifacts, shownKind, type ArtifactRow, type GoogleDest } from '@/st
 import { GoogleMenu, googleCanTake } from './GoogleMenu';
 import { ContextTab } from './ContextTab';
 import { ArtifactCover } from './ArtifactCover';
+import { ArtifactThumbnail, artifactImageSource } from './ArtifactThumbnail';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { CinderpawMascot } from '@/components/chat/mascot/CinderpawMascot';
 import { artifactKind, artifactSize } from '@/components/chat/ArtifactCard';
@@ -453,9 +454,7 @@ function DockCard({ row, busy }: { row: ArtifactRow; busy: boolean }) {
   const openArtifact = useArtifacts((s) => s.openArtifact);
   const exportArtifact = useArtifacts((s) => s.exportArtifact);
   const Icon = artifactKind(row.kind).icon;
-  // As on the Dock board: a large tile, the kind's icon beside the title and
-  // "Document, 12 KB", then Open and Export. No thumbnail yet: the store can
-  // only read an artifact by opening it (see the slice 5 note in the handoff).
+  // A static content preview; reading it never opens or changes the viewer.
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-border-default bg-bg-elevated p-3 shadow-sm">
       <button
@@ -463,9 +462,9 @@ function DockCard({ row, busy }: { row: ArtifactRow; busy: boolean }) {
         disabled={busy}
         onClick={() => void openArtifact(row.id)}
         aria-label={`Open ${row.title}`}
-        className="flex h-28 items-center justify-center rounded-xl border border-border-subtle bg-bg-active/60 text-brand disabled:opacity-60"
+        className="h-28 overflow-hidden rounded-xl border border-border-subtle disabled:opacity-60"
       >
-        <Icon size={28} />
+        <ArtifactThumbnail row={row} className="h-full w-full" />
       </button>
       <div className="flex items-center gap-3">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand text-brand-foreground">
@@ -835,6 +834,14 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
  * wanted.
  */
 function Preview({ kind, title, content, id = '' }: { kind: string; title: string; content: string; id?: string }) {
+  const image = kind === 'image' ? artifactImageSource(content) : null;
+  if (image) {
+    return (
+      <ScrollArea className="flex-1">
+        <img src={image} alt={title} className="block h-auto max-w-full object-contain p-3" />
+      </ScrollArea>
+    );
+  }
   // A board is the deep dive of its chat card: the same board, at the panel's width.
   if (kind === 'board') {
     const board = parseBoard(content);
@@ -892,9 +899,8 @@ function Overview({ googleRegistered, onOpen }: { googleRegistered: boolean; onO
   return (
     <ScrollArea className="flex-1">
       <div className="flex flex-col gap-4 px-4 pb-6 pt-3">
-        {/* The board's cover: the title, the hills, the mascot at work. A
-            thumbnail of the content read as a blank white box for most things. */}
-        <ArtifactCover title={row.title} kind={row.kind} className="h-52 rounded-2xl border border-border-default shadow-sm" />
+        <ArtifactThumbnail row={row} version={showing} content={content} size="lg"
+          className="h-52 rounded-2xl border border-border-default shadow-sm" />
 
         <div className="flex flex-col gap-2">
           <h3 className="font-display text-2xl leading-tight text-text-primary">{row.title}</h3>

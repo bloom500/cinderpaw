@@ -851,6 +851,18 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
                 await reply(res.artifact, next);
               }
             }
+          } else if (row.kind === "image" && action === "get") {
+            // Images are bytes, not UTF-8. A data URL preserves them and lets
+            // both the read-only thumbnail and the viewer use the same reply.
+            const bytes = artifacts.readBytes(wanted, version);
+            if (!bytes) {
+              fail(`Artifact ${wanted} has no version ${String(version)}.`);
+              break;
+            }
+            transport.send({
+              type: "artifact_result", id: replyId, ok: true, items: [toPanelRow(row)],
+              content: `data:${row.mime};base64,${Buffer.from(bytes).toString("base64")}`,
+            });
           } else if (action === "get") {
             const v = msg.artifactVersion;
             const content =
