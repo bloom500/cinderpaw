@@ -53,7 +53,7 @@ export function modelLabel(provider: string, model: string): string {
   // `ep-<id>`) are the same every month, so they would follow one install.
   if (/^(accounts\/|ep-)/.test(base) || !SENDABLE.test(base)) return `${provider}-other`;
   if (provider !== "local" && provider !== "custom") return base;
-  const parts = base.toLowerCase().replace(/\.gguf$/, "").replace(/_/g, "-").split("-");
+  const parts = base.toLowerCase().replace(/\.gguf$/, "").split(/[-_:]/);
   if (!LOCAL_FAMILY.test(parts[0] ?? "")) return `${provider}-other`;
   const kept = [parts[0]!];
   for (const p of parts.slice(1)) {

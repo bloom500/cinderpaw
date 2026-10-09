@@ -53,6 +53,11 @@ describe("rollup", () => {
     expect(modelLabel("local", "gpt-oss-20b")).toBe("gpt-oss-20b");
     // A known family followed by a name keeps only the family part.
     expect(modelLabel("local", "llama-maria-notes-q4.gguf")).toBe("llama");
+    // Ollama names use `:` for the tag (final review S5).
+    expect(modelLabel("local", "qwen3:8b")).toBe("qwen3-8b");
+    expect(modelLabel("local", "llama3.1:8b")).toBe("llama3.1-8b");
+    expect(modelLabel("local", "maria-diary:latest")).toBe("local-other");
+    expect(modelLabel("local", "qwen3:maria")).toBe("qwen3");
     expect(modelLabel("openrouter", "anthropic/claude-sonnet-5.5")).toBe("anthropic/claude-sonnet-5.5");
   });
 
