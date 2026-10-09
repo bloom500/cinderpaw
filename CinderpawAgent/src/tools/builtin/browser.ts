@@ -18,6 +18,7 @@
 
 import type { Tool, ToolManifest, ToolResult } from "../../types.ts";
 import { guardWebText } from "../../security/injection.ts";
+import { canAskAHuman } from "../../core/permission-mode.ts";
 
 const ACTIONS = ["open", "snapshot", "click", "type", "scroll", "back", "forward", "reload", "extract"] as const;
 type Action = (typeof ACTIONS)[number];
@@ -77,7 +78,19 @@ function fail(content: string, error = "browser_error"): ToolResult {
   return { ok: false, error, content };
 }
 
+// Publishing in the person's name is theirs to decide. The logins in this
+// browser persist, so without this one click posts to the world. A false alarm
+// (a "Share" that only opens a menu) costs one question; a missed one costs a
+// public post, so unknown controls on these sites are asked about too.
+const SOCIAL_HOST = /(^|\.)(x\.com|twitter\.com|instagram\.com|facebook\.com|threads\.(net|com)|linkedin\.com|tiktok\.com|youtube\.com|reddit\.com|bsky\.app|pinterest\.com|tumblr\.com|mastodon\.social)$/i;
+const PUBLISH_WORD = /\b(post|tweet|reply|repost|retweet|share|publish|send|upload|comment|postează|publică|trimite|distribuie)\b/i;
+
+function hostOf(url?: string): string | null {
+  try { return url ? new URL(url).hostname : null; } catch { return null; }
+}
+
 export function createBrowserTool(): Tool {
+  const lastPage = new Map<string, { url?: string; elements: PageElement[] }>();
   const manifest: ToolManifest = {
     name: "browser",
     description:
@@ -96,7 +109,14 @@ export function createBrowserTool(): Tool {
       "anything on the web. If a site ignores a click, computer_use can press the " +
       "same control, because the page is inside Cinderpaw's window. If the user clicks or " +
       "types in the page themselves, the next action is refused: they took over. Ask them " +
-      "before acting again.",
+      "before acting again. To post on social media for the user: write the post, show it " +
+      "in chat, then `open` the network's compose page already filled in (X: " +
+      "https://x.com/intent/post?text=<url-encoded>, Threads: " +
+      "https://www.threads.net/intent/post?text=<url-encoded>, LinkedIn: " +
+      "https://www.linkedin.com/feed/?shareActive=true&text=<url-encoded>; Instagram and " +
+      "TikTok have none, so hand over the caption and image) and tell them it is ready to " +
+      "post. The user presses Post. Pressing it yourself, or any publish control on a " +
+      "social site, asks them first, and is refused when nobody is there.",
     permissions: [],
     // The requests are the page's, made by the webview in the host, not by this
     // process; there is nothing for the egress proxy to see or to allow.
@@ -145,6 +165,33 @@ export function createBrowserTool(): Tool {
       }
       if (action === "scroll" && typeof args.dy === "number") params.dy = args.dy;
 
+      const page = lastPage.get(ctx.sessionId ?? "");
+      const host = hostOf(page?.url);
+      if ((action === "click" || action === "type") && host && SOCIAL_HOST.test(host)) {
+        const control = page!.elements.find((e) => e.ref === params.ref);
+        const publishing = action === "click" ? !control || PUBLISH_WORD.test(control.name) : params.submit === true;
+        if (publishing) {
+          const what = action === "type" ? "submit the form" : `press "${control?.name ?? "a control it has not read"}"`;
+          if (!canAskAHuman(Boolean(ctx.askUser))) {
+            return fail(`browser: refused. This would ${what} on ${host}, which may publish for everyone to see, and nobody is here to approve it. Leave it for the user.`, "publish_needs_approval");
+          }
+          const [answer] = await ctx.askUser!.ask([{
+            question: `Cinderpaw wants to ${what} on ${host}. This may publish in your name, for everyone to see. Allow it?`,
+            header: "Publish",
+            multiSelect: false,
+            // In the person's name and public: never auto-answered.
+            forceEscalate: true,
+            options: [
+              { label: "No, don't post", description: "Nothing is published." },
+              { label: "Yes, post it", description: "Allow this one action." },
+            ],
+          }], ctx.sessionId);
+          if (!(answer?.selected?.[0]?.toLowerCase().startsWith("yes") ?? false)) {
+            return fail(`browser: the user declined publishing on ${host}. Do not try again; tell them it is ready for them to post.`, "publish_declined");
+          }
+        }
+      }
+
       let data: unknown;
       try {
         data = await ctx.desktopControl.request(`browser.${action}`, params, ctx.sessionId);
@@ -153,6 +200,10 @@ export function createBrowserTool(): Tool {
       }
       const result = (data ?? {}) as Snapshot & { loading?: boolean };
       if (result.ok === false) return fail(`browser: ${result.error ?? "the page refused that action"}`);
+      // What the agent last saw is what its next ref means. A new address
+      // forgets the controls, so a blind click there counts as unknown.
+      if (action === "snapshot") lastPage.set(ctx.sessionId ?? "", { url: result.url, elements: result.elements ?? [] });
+      else if (result.url) lastPage.set(ctx.sessionId ?? "", { url: result.url, elements: [] });
 
       if (action === "snapshot") {
         // Controls and text are the page's: framed, scanned, and the session
