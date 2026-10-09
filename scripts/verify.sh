@@ -3,6 +3,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Linking many Rust test binaries at once exhausted a 16 GB dev machine.
+# Keep every check, but bound compilation; an explicit environment value wins.
+export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
+printf 'Rust compilation jobs: %s (override with CARGO_BUILD_JOBS)\n' "$CARGO_BUILD_JOBS"
+
 run() {
   local label="$1"
   shift
