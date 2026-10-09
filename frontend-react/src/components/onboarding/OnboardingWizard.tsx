@@ -37,6 +37,8 @@ import { ConnectStep } from './ConnectStep';
 import { ImportCard } from './ImportCard';
 import { WhatIsSent } from '@/components/usage/WhatIsSent';
 import { cn, SECONDARY_BUTTON } from '@/lib/utils';
+import { ListenButton } from '@/components/voice/ListenButton';
+import type { CubbyLineId } from '@/voice/cubby-lines';
 
 const stepVariants = {
   enter: { opacity: 0, y: 12 },
@@ -184,13 +186,17 @@ function StepCounter({ step, total }: { step: number; total: number }) {
   );
 }
 
-/** A board's title, its serif lead line, and the plain sentence under it. */
-export function StepIntro({ title, lead, body }: { title: ReactNode; lead: string; body: string }) {
+/** A board's title, its serif lead line, and the plain sentence under it. With
+ *  `voice`, a Listen button beside the title plays Cubby's spoken version. */
+export function StepIntro({ title, lead, body, voice }: { title: ReactNode; lead: string; body: string; voice?: CubbyLineId }) {
   return (
     <div>
-      <h1 id="onboarding-title" className="font-display text-4xl leading-[1.02] tracking-tight text-text-primary sm:text-5xl [@media(min-height:900px)]:sm:text-6xl">
-        {title}
-      </h1>
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+        <h1 id="onboarding-title" className="font-display text-4xl leading-[1.02] tracking-tight text-text-primary sm:text-5xl [@media(min-height:900px)]:sm:text-6xl">
+          {title}
+        </h1>
+        {voice && <ListenButton line={voice} />}
+      </div>
       <p className="mt-3 font-display text-xl leading-snug text-text-primary sm:text-2xl [@media(min-height:900px)]:sm:text-3xl">{lead}</p>
       <p className="mt-2 max-w-xl text-base leading-relaxed text-text-muted [@media(min-height:900px)]:text-lg">{body}</p>
     </div>
@@ -217,6 +223,7 @@ function WelcomeStep() {
   return (
     <div>
       <StepIntro
+        voice="onboarding.welcome"
         title={<>Welcome to<br />Cinderpaw</>}
         lead="A little wild. A lot to learn."
         body="Your adaptive AI companion for exploring, creating, and automating work."
@@ -250,6 +257,7 @@ function NamesStep() {
   return (
     <div>
       <StepIntro
+        voice="onboarding.names"
         title={<>Let’s get<br />acquainted</>}
         lead="What should we call each other?"
         body="I’ll use these names whenever we talk. You can change yours later in Settings."
@@ -294,6 +302,7 @@ function NamesStep() {
 function WorkspaceStep() {
   return (
     <StepIntro
+      voice="onboarding.workspace"
       title={<>Meet your<br />workspace</>}
       lead="Everything you need, without the clutter."
       body="Chat, browse, build artifacts, manage models, and track tasks from one calm interface."
@@ -500,6 +509,7 @@ export function ProviderStep() {
     <div>
       <div className="flex items-start justify-between gap-6">
         <StepIntro
+          voice="onboarding.provider"
           title="Choose your model"
           lead="Cloud, Hugging Face, or Local. Pick what fits your workflow."
           body="Cinderpaw works with hosted providers and local models on your machine. You can change this anytime in Models."
@@ -983,6 +993,7 @@ function DoneStep() {
   return (
     <div>
       <StepIntro
+        voice="onboarding.done"
         title={<>You’re ready<br />to explore</>}
         lead="Your adaptive workspace is set up."
         body="Start a conversation, build an artifact, or let Cinderpaw help with research, writing, and automation."

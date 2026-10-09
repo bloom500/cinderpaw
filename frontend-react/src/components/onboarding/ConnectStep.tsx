@@ -89,6 +89,7 @@ export function ConnectStep() {
   return (
     <div className="flex flex-col">
       <StepIntro
+        voice="onboarding.connect"
         title="Connect your world"
         lead="Bring your tools, files, and conversations into one place."
         body="Connect apps so your agent can search, create, and act with your approval."

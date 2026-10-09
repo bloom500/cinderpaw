@@ -9,12 +9,14 @@ import { useSettings } from '@/stores/settings';
 import { useOnboarding } from '@/stores/onboarding';
 import { useCatalog } from '@/stores/catalog';
 import { useModel } from '@/stores/model';
+import { cubbyVoiceUrl } from '@/voice/cubbyVoice';
 
 vi.mock('@/stores/systemInfo', () => ({ useSystemInfo: vi.fn() }));
 vi.mock('@/stores/download', () => ({ useDownload: vi.fn() }));
 vi.mock('@/stores/settings', () => ({ useSettings: vi.fn() }));
 vi.mock('@/stores/onboarding', () => ({ useOnboarding: vi.fn() }));
 vi.mock('@/stores/catalog', () => ({ useCatalog: vi.fn() }));
+vi.mock('@/voice/cubbyVoice', () => ({ cubbyVoiceUrl: vi.fn(() => null) }));
 
 const mockStart = vi.fn();
 const mockSave = vi.fn();
@@ -60,6 +62,7 @@ describe('ProviderStep', () => {
     expect(screen.getByRole('button', { name: /^Cloud/ })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: /^Hugging Face/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Local/ })).toBeInTheDocument();
+    expect(cubbyVoiceUrl).toHaveBeenCalledWith('onboarding.provider');
     expect(screen.getByText(/start with Cloud/)).toBeInTheDocument();
   });
 
