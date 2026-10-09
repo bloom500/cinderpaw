@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { openDatabase } from "../src/db.ts";
 import { beginTask, finishTask, setTaskFeedback } from "../src/telemetry/task-metrics.ts";
+import { providerOf } from "../src/telemetry/provider-label.ts";
 import { bucketOf, modelLabel, rollup } from "../src/telemetry/usage-rollup.ts";
 
 function call(db: ReturnType<typeof openDatabase>, task: string, provider: string, model: string, pin: number, pout: number, cost: number | null) {
@@ -23,6 +24,7 @@ describe("rollup", () => {
     const by = Object.fromEntries(g.map((x) => [x.model, x]));
     expect(g.reduce((n, x) => n + x.tasks_main, 0)).toBe(1);
     expect(by["b"]!.tasks_main).toBe(1);
+    expect(by["b"]!.provider).toBe("openrouter");
     expect(by["b"]!.outcomes.completed).toBe(1);
     expect(by["b"]!.thumbs_up).toBe(1);
     expect(by["b"]!.duration_buckets[bucketOf(20_000)]).toBe(1);
@@ -38,7 +40,7 @@ describe("rollup", () => {
     beginTask(db.raw, { taskId: "f", sessionId: "s", startedAt: 1500, brsiOn: false, memoryOn: false });
     finishTask(db.raw, "f", { durationMs: 100, outcome: "error", errorCategory: "auth", toolCalls: 0, attemptedProvider: "anthropic.com", attemptedModel: "claude-x" });
     const [g] = rollup(db.raw, 0, 10_000);
-    expect(g).toMatchObject({ provider: "anthropic.com", model: "claude-x", tasks_main: 1 });
+    expect(g).toMatchObject({ provider: "anthropic", model: "claude-x", tasks_main: 1 });
     expect(g!.errors.auth).toBe(1);
     expect(g!.outcomes.error).toBe(1);
     db.close();
@@ -51,7 +53,54 @@ describe("rollup", () => {
     expect(modelLabel("local", "gpt-oss-20b")).toBe("gpt-oss-20b");
     // A known family followed by a name keeps only the family part.
     expect(modelLabel("local", "llama-maria-notes-q4.gguf")).toBe("llama");
-    expect(modelLabel("openrouter.ai", "anthropic/claude-sonnet-5.5")).toBe("anthropic/claude-sonnet-5.5");
+    expect(modelLabel("openrouter", "anthropic/claude-sonnet-5.5")).toBe("anthropic/claude-sonnet-5.5");
+  });
+
+  // Final review M1: these five left the machine as hostname + raw name.
+  test("what leaves names a public provider and a public model, never a host or a file name", () => {
+    const db = openDatabase(":memory:");
+    const probes = [
+      ["http://192.168.1.20:11434", "maria-diary:latest"],
+      ["https://gpu.popescu-family.ro/v1", "popescu-finetune-v2"],
+      ["https://acme-corp.openai.azure.com", "darius-gpt4o-prod"],
+      ["https://api.openai.com/v1", "ft:gpt-4o-mini-2024-07-18:acme-corp:support-bot:9abc"],
+      ["http://host.docker.internal:1234", "maria-notes"],
+    ] as const;
+    probes.forEach(([url, model], i) => {
+      beginTask(db.raw, { taskId: `p${i}`, sessionId: "s", startedAt: 1500, brsiOn: false, memoryOn: false });
+      call(db, `p${i}`, providerOf(url), model, 100, 10, null);
+      finishTask(db.raw, `p${i}`, { durationMs: 100, outcome: "completed", errorCategory: null, toolCalls: 0, attemptedProvider: providerOf(url), attemptedModel: model });
+    });
+    const got = rollup(db.raw, 0, 10_000).map((g) => [g.provider, g.model]);
+    expect(got).toEqual([
+      ["local", "local-other"],
+      ["custom", "custom-other"],
+      ["openai", "gpt-4o-mini-2024-07-18"],
+    ]);
+    const sent = JSON.stringify(rollup(db.raw, 0, 10_000));
+    for (const leak of ["192.168", "popescu", "azure", "acme", "darius", "maria", "docker", "support-bot"]) expect(sent).not.toContain(leak);
+    db.close();
+  });
+
+  test("nothing on your own machine or your own server gets a cloud price", () => {
+    const db = openDatabase(":memory:");
+    beginTask(db.raw, { taskId: "t", sessionId: "s", startedAt: 1500, brsiOn: false, memoryOn: false });
+    call(db, "t", "192.168.1.20", "gpt-4o", 100_000, 10_000, null);
+    call(db, "t", "gpu.popescu-family.ro", "gpt-4o", 100_000, 10_000, null);
+    finishTask(db.raw, "t", { durationMs: 100, outcome: "completed", errorCategory: null, toolCalls: 0, attemptedProvider: "local", attemptedModel: "gpt-4o" });
+    for (const g of rollup(db.raw, 0, 10_000)) expect(g.cost_estimated_usd).toBe(0);
+    db.close();
+  });
+
+  test("fine-tunes and account-scoped ids keep only what is public", () => {
+    expect(modelLabel("openai", "ft:gpt-4o-mini-2024-07-18:acme-corp:support-bot:9abc")).toBe("gpt-4o-mini-2024-07-18");
+    expect(modelLabel("mistral", "ft:open-mistral-7b:587a6b29:20240514:7e773925")).toBe("open-mistral-7b");
+    expect(modelLabel("fireworks", "accounts/maria-popescu/models/diary-v2")).toBe("fireworks-other");
+    expect(modelLabel("volcengine", "ep-20250101123456-abcde")).toBe("volcengine-other");
+    expect(modelLabel("custom", "qwen3-8b-instruct")).toBe("qwen3-8b-instruct");
+    expect(modelLabel("custom", "ft:gpt-4o-mini:acme:bot:1")).toBe("gpt-4o");
+    // The worker refuses names outside its charset; a whole day would be lost.
+    expect(modelLabel("openrouter", "my model (copy)")).toBe("openrouter-other");
   });
 
   test("unfinished tasks and tasks outside the window are ignored", () => {

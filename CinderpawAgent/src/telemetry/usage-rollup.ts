@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { blendedPricePer1kUsd, estimateUsd } from "../rsi/infra/rsi-cost.ts";
 import { ERROR_CATEGORIES, type ErrorCategory } from "./error-category.ts";
+import { publicProvider } from "./provider-label.ts";
 import { TASK_OUTCOMES, type TaskOutcome } from "./task-metrics.ts";
 
 export interface UsageGroup {
@@ -36,15 +37,24 @@ export function bucketOf(ms: number): number {
 // A local file name can carry a person's name, so only a recognised model
 // family leaves the machine, followed only by version/size/variant parts.
 // Anything else after the family is cut off, and an unknown family is
-// `local-other`. ponytail: family list + segment allowlist; the bundled model
-// catalog is the upgrade if this ever drifts.
+// `local-other` (or `custom-other` for a server the person runs). ponytail:
+// family list + segment allowlist; the bundled model catalog is the upgrade
+// if this ever drifts.
 const LOCAL_FAMILY = /^(qwen|llama|gemma|mistral|phi|deepseek|glm|minimax|gpt|smollm|granite|olmo|kimi)[\d.]*$/;
 const QUANT = /^(i?q\d.*|f16|bf16|fp16|f32)$/;
 const VARIANT = /^([a-z]{0,2}\d[a-z\d.]*|instruct|it|chat|coder|vl|base|thinking|oss|moe)$/;
+/** The worker's charset for names (workers/bug-report/usage.js): outside it the whole day is refused. */
+const SENDABLE = /^[A-Za-z0-9._:/@+-]{1,128}$/;
+/** `provider` is the public label (provider-label.ts `publicProvider`). */
 export function modelLabel(provider: string, model: string): string {
-  if (provider !== "local") return model;
-  const parts = model.toLowerCase().replace(/\.gguf$/, "").replace(/_/g, "-").split("-");
-  if (!LOCAL_FAMILY.test(parts[0] ?? "")) return "local-other";
+  // A fine-tune id names the org and the job: `ft:<base>:<org>:<name>:<id>` keeps the base.
+  const base = model.startsWith("ft:") ? (model.split(":")[1] ?? "") : model;
+  // Account-scoped ids (Fireworks `accounts/<who>/...`, Volcengine/BytePlus
+  // `ep-<id>`) are the same every month, so they would follow one install.
+  if (/^(accounts\/|ep-)/.test(base) || !SENDABLE.test(base)) return `${provider}-other`;
+  if (provider !== "local" && provider !== "custom") return base;
+  const parts = base.toLowerCase().replace(/\.gguf$/, "").replace(/_/g, "-").split("-");
+  if (!LOCAL_FAMILY.test(parts[0] ?? "")) return `${provider}-other`;
   const kept = [parts[0]!];
   for (const p of parts.slice(1)) {
     if (QUANT.test(p) || !VARIANT.test(p)) break;
@@ -84,7 +94,9 @@ export function rollup(db: Database, fromMs: number, toMs: number): UsageGroup[]
   ).all(fromMs, toMs) as CallRow[];
 
   const groups = new Map<string, UsageGroup>();
-  const group = (provider: string, rawModel: string) => {
+  // Only public labels leave: the local DB keeps the host and the raw name.
+  const group = (storedProvider: string, rawModel: string) => {
+    const provider = publicProvider(storedProvider);
     const model = modelLabel(provider, rawModel);
     const key = `${provider}\u0000${model}`;
     let g = groups.get(key);
@@ -102,14 +114,14 @@ export function rollup(db: Database, fromMs: number, toMs: number): UsageGroup[]
     const own = callsByTask.get(t.task_id) ?? [];
     const tokensByGroup = new Map<UsageGroup, number>();
     for (const c of own) {
-      const provider = c.provider ?? "unknown";
-      const g = group(provider, c.m);
+      const g = group(c.provider ?? "unknown", c.m);
       g.tokens_in += c.prompt_tokens;
       g.tokens_out += c.completion_tokens;
       if (c.cache_read_tokens !== null) g.cache_read = (g.cache_read ?? 0) + c.cache_read_tokens;
       if (c.cache_write_tokens !== null) g.cache_write = (g.cache_write ?? 0) + c.cache_write_tokens;
       if (c.cost_usd !== null) g.cost_reported_usd += c.cost_usd;
-      else if (provider !== "local") g.cost_estimated_usd += estimateUsd(c.prompt_tokens + c.completion_tokens, blendedPricePer1kUsd(c.m, false));
+      // No cloud price for a model on this computer or on the person's own server.
+      else if (g.provider !== "local" && g.provider !== "custom") g.cost_estimated_usd += estimateUsd(c.prompt_tokens + c.completion_tokens, blendedPricePer1kUsd(c.m, false));
       g.retries += c.retries;
       tokensByGroup.set(g, (tokensByGroup.get(g) ?? 0) + c.prompt_tokens + c.completion_tokens);
     }
