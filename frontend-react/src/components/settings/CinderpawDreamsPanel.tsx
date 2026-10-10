@@ -1328,7 +1328,6 @@ function PendingPatches({
   // No state until the sidecar has answered once — avoid a flash of "no
   // pending patches" during the cold-start fetch.
   if (payload === null) return null;
-  const showWindow = payload.manualWindowOpen;
   return (
     <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
       <div className="flex items-center gap-2">
@@ -1337,11 +1336,11 @@ function PendingPatches({
           Code changes Cinderpaw wrote
         </span>
         <span className="text-text-muted text-2xs">({patches.filter((x) => x.status === 'pending').length} waiting for you)</span>
-        {showWindow && (
-          <span className="ml-auto text-2xs text-text-muted tabular-nums">
-            {payload.appliedCount} of 10 approved. After 10, changes you approve go in by themselves
-          </span>
-        )}
+        {/* applyPatchLive refuses anything not approved, at any count: no
+            auto-approval exists, so the line holds after 10 too. */}
+        <span className="ml-auto text-2xs text-text-muted tabular-nums">
+          {payload.appliedCount} approved so far. Nothing goes in without your yes
+        </span>
       </div>
       {/* Why the queue is empty matters as much as that it is. A round the
           walls refused, or one that could not run because there is no

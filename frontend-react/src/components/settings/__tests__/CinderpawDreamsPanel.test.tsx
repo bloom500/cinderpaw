@@ -354,7 +354,7 @@ describe('CinderpawDreamsPanel — Pending patches (Slice 5)', () => {
     expect(screen.getByText('live apply OK')).toBeInTheDocument();
   });
 
-  it('renders the manual window header while the first-10 window is open', async () => {
+  it('says every change waits for a yes during the first 10', async () => {
     stubListener();
     const fire = capturePatchesListener();
     vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
@@ -364,10 +364,10 @@ describe('CinderpawDreamsPanel — Pending patches (Slice 5)', () => {
     render(<CinderpawDreamsPanel />);
     fire(PATCHES_PAYLOAD({ manualWindowOpen: true, appliedCount: 3 }));
 
-    expect(await screen.findByText(/3 of 10 approved/)).toBeInTheDocument();
+    expect(await screen.findByText(/3 approved so far\. Nothing goes in without your yes/)).toBeInTheDocument();
   });
 
-  it('hides the manual window header after auto-apply unlocks', async () => {
+  it('still says it after 10, because nothing auto-approves', async () => {
     stubListener();
     const fire = capturePatchesListener();
     vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
@@ -377,8 +377,8 @@ describe('CinderpawDreamsPanel — Pending patches (Slice 5)', () => {
     render(<CinderpawDreamsPanel />);
     fire(PATCHES_PAYLOAD({ manualWindowOpen: false, appliedCount: 12 }));
 
-    await screen.findByText('Code changes Cinderpaw wrote');
-    expect(screen.queryByText(/of 10 approved/)).not.toBeInTheDocument();
+    expect(await screen.findByText(/12 approved so far\. Nothing goes in without your yes/)).toBeInTheDocument();
+    expect(screen.queryByText(/go in by themselves/)).not.toBeInTheDocument();
   });
 
   it('renders the empty state when the sidecar sends zero patches', async () => {
