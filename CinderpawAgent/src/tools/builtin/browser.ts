@@ -115,7 +115,9 @@ export function createBrowserTool(): Tool {
       "https://www.threads.net/intent/post?text=<url-encoded>, LinkedIn: " +
       "https://www.linkedin.com/feed/?shareActive=true&text=<url-encoded>; Instagram and " +
       "TikTok have none, so hand over the caption and image) and tell them it is ready to " +
-      "post. The user presses Post. Pressing it yourself, or any publish control on a " +
+      "post. Keep under the network's limit or Post stays greyed out: X 280 characters " +
+      "(a link counts as 23) unless they say they have Premium, Threads 500, LinkedIn 3000. " +
+      "Count before you open the page. The user presses Post. Pressing it yourself, or any publish control on a " +
       "social site, asks them first, and is refused when nobody is there.",
     permissions: [],
     // The requests are the page's, made by the webview in the host, not by this

@@ -3007,7 +3007,9 @@ export function buildSystemPrompt(
     "- Be concise and direct.",
     "- If you cannot help or a tool fails, say so clearly.",
     "- Never output raw JSON outside a tool block as your final answer.",
-    "- Respond in the same language the user writes in.",
+    // 10 Oct: an English request after a page full of other languages got a
+    // Russian reply. Pages and tool results never pick the language.
+    "- Respond in the language of the user's latest message, never in the language of a page or tool result.",
   ].filter((s) => s.length > 0).join("\n");
 }
 
