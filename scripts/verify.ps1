@@ -46,6 +46,8 @@ Set-StrictMode -Version Latest
 
 $Root = Split-Path -Parent $PSScriptRoot
 $script:Failures = @()
+$self = Get-Process -Id $PID
+$priorityBefore = $self.PriorityClass
 
 function Invoke-Step {
   param(
@@ -104,6 +106,10 @@ else {
 }
 
 if (-not $SkipRust) {
+  # Below-normal priority for the Rust steps, inherited by cargo: compiling and
+  # linking is what froze the open app. Not for the steps above: vitest's worker
+  # start times out when starved (9 Oct). Restored at the end.
+  try { $self.PriorityClass = 'BelowNormal' } catch { }
   # Match verify.sh without changing the caller's environment.
   $RustJobs = if ($env:CARGO_BUILD_JOBS) { $env:CARGO_BUILD_JOBS } else { '2' }
   Write-Host "`n==> Rust compilation jobs: $RustJobs (override with CARGO_BUILD_JOBS)" -ForegroundColor Cyan
@@ -116,9 +122,11 @@ if (-not $SkipRust) {
   # that has already run the app. It self-skips when the binary is current.
   Invoke-Step 'Sidecar build'          (Join-Path $Root 'src-tauri') { node scripts/build-sidecar.mjs }
   Invoke-Step 'Rust check'             $Root { cargo check --jobs $RustJobs }
-  Invoke-Step 'Rust tests (host)'      $Root { cargo test -p cinderpaw --jobs $RustJobs }
-  Invoke-Step 'Rust tests (core)'      $Root { cargo test -p cinderpaw-core --jobs $RustJobs }
-  Invoke-Step 'Rust tests (CLI)'       $Root { cargo test -p cinderpaw-cli --jobs $RustJobs }
+  # Test binaries otherwise run one thread per core beside the open app.
+  $TestThreads = if ($env:RUST_TEST_THREADS) { $env:RUST_TEST_THREADS } else { '2' }
+  Invoke-Step 'Rust tests (host)'      $Root { cargo test -p cinderpaw --jobs $RustJobs -- --test-threads $TestThreads }
+  Invoke-Step 'Rust tests (core)'      $Root { cargo test -p cinderpaw-core --jobs $RustJobs -- --test-threads $TestThreads }
+  Invoke-Step 'Rust tests (CLI)'       $Root { cargo test -p cinderpaw-cli --jobs $RustJobs -- --test-threads $TestThreads }
 }
 else {
   Write-Host "`n==> Rust steps SKIPPED (-SkipRust)" -ForegroundColor Yellow
@@ -132,6 +140,7 @@ else {
   Write-Host "`n==> TUI steps SKIPPED (-SkipTui)" -ForegroundColor Yellow
 }
 
+try { $self.PriorityClass = $priorityBefore } catch { }
 Write-Host ""
 if ($script:Failures.Count -gt 0) {
   Write-Host "Verification FAILED (" -NoNewline -ForegroundColor Red
