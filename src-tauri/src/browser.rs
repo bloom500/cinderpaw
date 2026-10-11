@@ -184,7 +184,13 @@ const TOUCH_SCRIPT: &str = "(() => { const mark = (e) => { if (e.isTrusted) wind
 /// account menu is an iframe, and navigating the iframe put AddSession inside
 /// a box Google refuses to be framed in (a bare 403). A click carries the user
 /// activation a cross-origin frame needs to navigate the top.
-const NEW_WINDOW_SCRIPT: &str = "(() => {   const here = (u) => { try { const url = new URL(String(u), location.href); if (!/^https?:$/.test(url.protocol)) return; let w = window; try { w = window.top || window; } catch {} w.location.href = url.href; } catch {} };   window.open = (u) => { if (u) here(u); return null; };   addEventListener('click', (e) => {     const a = e.target && e.target.closest ? e.target.closest('a[target=\"_blank\"]') : null;     if (a && a.href && !e.defaultPrevented) { e.preventDefault(); here(a.href); }   }, true); })()";
+///
+/// Except a sized popup (`window.open(url, name, "width=..,height=..")`): that
+/// is how "Sign in with Google", Apple, GitHub and Microsoft open, and the
+/// popup posts the login back through `window.opener`. Moved into the tab it
+/// had no opener and Google drew a white page (10 Oct). Those keep the real
+/// `window.open`, and `on_new_window` gives them a real window.
+const NEW_WINDOW_SCRIPT: &str = "(() => {   const here = (u) => { try { const url = new URL(String(u), location.href); if (!/^https?:$/.test(url.protocol)) return; let w = window; try { w = window.top || window; } catch {} w.location.href = url.href; } catch {} };   const open = window.open;   window.open = function (u, name, feats) { if (feats) return open.call(window, u, name, feats); if (u) here(u); return null; };   addEventListener('click', (e) => {     const a = e.target && e.target.closest ? e.target.closest('a[target=\"_blank\"]') : null;     if (a && a.href && !e.defaultPrevented) { e.preventDefault(); here(a.href); }   }, true); })()";
 
 /// Browser shortcuts pressed while the PAGE has the focus. Its key events
 /// never reach the panel (a native view), and a page cannot call the host, so
@@ -826,7 +832,12 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
         // account" (a popup) and every new-window link looked like (20 Sep).
         // Every such request becomes a tab of ours, in the same profile, so
         // the login it carries lands where the person is.
-        .on_new_window(move |url, _features| {
+        .on_new_window(move |url, features| {
+            // A sized popup is a sign-in window: it needs to stay a popup
+            // with its opener (see NEW_WINDOW_SCRIPT), so the platform opens it.
+            if allowed(&url) && features.size().is_some() {
+                return tauri::webview::NewWindowResponse::Allow;
+            }
             if allowed(&url) {
                 let app = popup_app.clone();
                 tauri::async_runtime::spawn(async move {
