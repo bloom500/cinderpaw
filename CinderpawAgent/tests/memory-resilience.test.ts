@@ -17,7 +17,7 @@
  * shipping release.
  */
 
-import { describe, expect, test, beforeEach } from "bun:test";
+import { describe, expect, test, beforeEach, setDefaultTimeout } from "bun:test";
 import { openDatabase, CURRENT_MEMORY_SCHEMA_VERSION } from "../src/db.ts";
 import { EpisodicMemory } from "../src/memory/episodic.ts";
 import { SemanticMemory } from "../src/memory/semantic.ts";
@@ -39,6 +39,10 @@ import type { AuditLogger } from "../src/types.ts";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// Every test here opens a real database on disk, twice in some. That takes ~300 ms
+// on a GitHub Windows runner, and 7 s on a slow one (10 Oct), past bun's 5 s default.
+setDefaultTimeout(30_000);
 
 /** Quiet audit logger — the tests don't care about the audit trail. */
 const quietAudit: AuditLogger = () => {};
