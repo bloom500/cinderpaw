@@ -106,7 +106,7 @@ interface ArtifactsStore {
   /** Set after an export, so the panel can say where the file went. */
   lastExport: { path: string; note: string } | null;
   /** After Send to Google Docs: the link, or what went wrong. */
-  google: { link?: string; error?: string; busy?: boolean; dest?: GoogleDest } | null;
+  google: { link?: string; error?: string; busy?: boolean; signingIn?: boolean; dest?: GoogleDest } | null;
   /**
    * Send the open artifact to the person's Google Drive: text and HTML become
    * a Google Doc, a PDF stays a PDF. First time, it logs them in through the
@@ -237,9 +237,11 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     set({ google: { busy: true, dest } });
     try {
       if (!(await tauri.google.status())) {
-        // Opens Google's consent page in the Browser panel and resolves once
-        // the person has approved; the artifact stays open underneath.
+        // Opens Google's consent page in the person's own browser and resolves
+        // once they have approved; the artifact stays open underneath.
+        set({ google: { busy: true, signingIn: true, dest } });
         await tauri.google.connect();
+        set({ google: { busy: true, dest } });
       }
       const name = plan.convert ? fileName(doc.row.title) : downloadName(doc.row.title, doc.row.kind);
       const data = plan.content ?? doc.content;

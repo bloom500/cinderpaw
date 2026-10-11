@@ -67,7 +67,7 @@ fn pkce_challenge(verifier: &str) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(verifier.as_bytes()))
 }
 
-/// Log the person in. Opens Google's consent page in the built-in browser and
+/// Log the person in. Opens Google's consent page in their own browser and
 /// waits (up to five minutes) for Google to send it back to us with a code.
 pub async fn connect(app: AppHandle) -> Result<(), String> {
     let c = client()?;
@@ -81,7 +81,16 @@ pub async fn connect(app: AppHandle) -> Result<(), String> {
         urlencoding::encode(&c.id), urlencoding::encode(&redirect), urlencoding::encode(SCOPE),
         state, pkce_challenge(&verifier),
     );
-    crate::browser::handle(app.clone(), "open", &json!({ "url": auth_url })).await?;
+    // The person's own browser, where they are already signed in to Google.
+    // The built-in one has no Google session, and Google refuses sign-in in
+    // embedded browsers, so the button ended on a "sign in" error (11 Oct).
+    // The redirect is a loopback port, which any browser can reach.
+    {
+        use tauri_plugin_shell::ShellExt;
+        #[allow(deprecated)]
+        let opened = app.shell().open(auth_url.as_str(), None);
+        opened.map_err(|e| format!("Could not open your browser: {e}"))?;
+    }
 
     let code = tokio::time::timeout(Duration::from_secs(300), async {
         loop {

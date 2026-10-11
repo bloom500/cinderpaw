@@ -301,7 +301,9 @@ export function ArtifactsPanel({
       )}
       {open && google && (
         <p className={cn('border-b border-border-subtle px-3 py-2 text-2xs', google.error ? 'text-(--warning)' : 'text-text-muted')}>
-          {google.busy
+          {google.signingIn
+            ? 'Finish signing in to Google in your browser, then come back here.'
+            : google.busy
             ? `Sending to ${GOOGLE_PLACE[google.dest ?? 'drive']}…`
             : google.error
               ? google.error

@@ -6,6 +6,7 @@ import type { ArtifactFact } from '@/hooks/useLiveToolActivity';
 import { googlePlan, peekArtifact, shownKind, useArtifacts, type ArtifactRow } from '@/stores/artifacts';
 import { ArtifactCover } from '@/components/artifacts/ArtifactCover';
 import { LiveFrame } from '@/components/artifacts/LiveFrame';
+import { ExternalLink } from '@/components/chat/ExternalLink';
 import { MIN_SECTIONS, digest, plainText, sectionsOf, statusOf, subtitleOf, summaryOf, type DocSection } from '@/lib/artifactSections';
 import { Markdown } from '@/lib/markdown';
 import { tauri } from '@/lib/tauri';
@@ -383,11 +384,13 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
           )}
           {shared && google && (
             <span className={cn('self-center text-2xs', google.error ? 'text-(--warning)' : 'text-text-muted')}>
-              {google.busy
+              {google.signingIn
+                ? 'Finish signing in to Google in your browser.'
+                : google.busy
                 ? 'Sending to Google Drive…'
                 : google.error
                   ? google.error
-                  : google.link && <a href={google.link} target="_blank" rel="noreferrer" className="text-brand underline">Open in Google Drive</a>}
+                  : google.link && <ExternalLink href={google.link} className="text-brand underline">Open in Google Drive</ExternalLink>}
             </span>
           )}
         </div>
