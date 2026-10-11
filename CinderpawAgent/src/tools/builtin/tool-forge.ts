@@ -171,6 +171,10 @@ export function createToolForgeTool(deps: ToolForgeDeps): Tool {
   const manifest: ToolManifest = {
     name: "tool_forge",
     description:
+      "No tool for what the task needs? Build one here before you tell the " +
+      "person it can't be done or settle for a workaround: a file format " +
+      "nothing reads or writes, a service with no tool, a conversion or " +
+      "calculation you would otherwise refuse or guess. " +
       "Create, modify, delete or inspect your OWN custom tools. Actions: " +
       "`create` (name, description, parameters, code, test_args), `update` " +
       "(partial), `delete` (name), `list`, `show` (name). The tool's `code` " +
@@ -185,8 +189,7 @@ export function createToolForgeTool(deps: ToolForgeDeps): Tool {
       "test_args that genuinely exercise it. On success the tool is callable " +
       "immediately by its name and persists across restarts. Only " +
       "forge-created tools can be updated or deleted — builtins are " +
-      "protected. Use this when you lack a tool for a recurring task, or an " +
-      "existing custom tool is buggy.",
+      "protected. Fix a custom tool that is buggy with `update`.",
     // process:spawn is what lets the forge smoke-run a candidate before
     // registering it. The runtime is always this binary, so the permission
     // is always usable.

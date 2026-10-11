@@ -53,9 +53,19 @@
 
 /** Loaded only via the on-demand drawer (`list_tools` → `load_tool`). */
 export const EXTENDED_TOOLS = new Set<string>([
-  // `tool_forge` and the three write/history git tools were advertised on every
-  // completion. Together they are ~1,600 tokens per call for capabilities a
-  // task asks for by name when it wants them.
+  // The three write/history git tools were advertised on every completion, for
+  // a capability a task asks for by name when it wants them.
+  //
+  // `tool_forge` was here too, on the argument that it costs 583 tokens and is
+  // "reached for about once a month". That rate was measured while it was
+  // advertised (see the header), so advertising alone did not make the model
+  // reach for it: its description said WHAT it does for fourteen lines and
+  // WHEN only at the end, for "a recurring task". Local log, 5 Jun - 10 Oct:
+  // 4 calls out of 8,168, all in one session. It is core again (11 Oct, his
+  // call: the agent hits problems it could build a tool for and never tries),
+  // and its description now opens with the moment to use it. Both halves are
+  // needed: a drawered tool is never seen, a seen one with no trigger is
+  // never picked.
   //
   // `pdf_generator` and `pdf_report` used to be listed here, and the comment
   // above used to reason about "both PDF tools" costing schema tokens. Neither
@@ -63,7 +73,6 @@ export const EXTENDED_TOOLS = new Set<string>([
   // file. They were removed on 2026-09-17, because a set that is supposed to be
   // the single source of truth about the tool surface is worse than useless
   // when it names tools that are not there: the next reader budgets for them.
-  "tool_forge",
   "git_branch",
   "git_commit",
   "git_log",
