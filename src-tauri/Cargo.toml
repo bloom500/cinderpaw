@@ -116,6 +116,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 tauri-plugin-deep-link = "2.4.10"
 tauri-plugin-single-instance = { version = "2.4.4", features = ["deep-link"] }
 url = "2"
+regex = "1"
 
 [features]
 # `piper` is NOT on by default, and is on no shipping job either. This comment

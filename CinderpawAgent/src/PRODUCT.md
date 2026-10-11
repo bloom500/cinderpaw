@@ -109,6 +109,10 @@ exists, it can fetch and add it.
   published it, how far it is trusted.
 - `install_capability` adds it. The person is always asked first, and the
   question names the capability and its source.
+- `install_skill_from_link` installs a skill from a GitHub link the person
+  sent: a SKILL.md, its folder, or a repo with one skill. The host fetches it
+  and runs a safety check; the person reads the text and says yes. Something
+  dangerous is refused, and extra files beside SKILL.md are not installed yet.
 
 Two limits, both deliberate:
 

@@ -132,7 +132,8 @@ export function OnboardingChat() {
         // The answer continues in a fresh bubble once the agent resumes.
         add({ who: "agent", text: "", tools: [] });
       } else if (e.type === "ask") {
-        add({ who: "agent", text: e.question });
+        // A four-backtick fence, so a SKILL.md's own code blocks cannot close it.
+        add({ who: "agent", text: e.preview ? `${e.question}\n\n\`\`\`\`\n${e.preview}\n\`\`\`\`` : e.question });
         setPlainAsk(e);
         add({ who: "agent", text: "", tools: [] });
       } else if (e.type === "error") {

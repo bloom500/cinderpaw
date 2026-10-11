@@ -40,6 +40,7 @@ export function formatQuestionsForChat(questions: AskUserQuestion[]): string {
   for (let i = 0; i < questions.length; i++) {
     const q = questions[i]!;
     lines.push(multi ? `${i + 1}. ${q.question}` : q.question);
+    if (q.preview) lines.push("```", q.preview, "```");
     for (let j = 0; j < q.options.length; j++) {
       const o = q.options[j]!;
       const star = o.recommended ? " ⭐" : "";

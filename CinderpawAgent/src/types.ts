@@ -1606,6 +1606,11 @@ export interface AskUserQuestion {
    */
   forceEscalate?: boolean;
   /**
+   * Text the person must be able to read before answering, shown in a
+   * scrolling box under the question: the skill a link would install.
+   */
+  preview?: string;
+  /**
    * A secret the person types into a password card (request_secret, spec
    * 2026-09-24 §6.2). Only a surface that renders cards (the local web page)
    * is ever sent one; the page saves the value straight to the engine and

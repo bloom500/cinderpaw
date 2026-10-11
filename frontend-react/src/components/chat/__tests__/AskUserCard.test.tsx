@@ -372,3 +372,17 @@ describe('AskUserCard', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('AskUserCard preview', () => {
+  it('shows the text the person must read before answering', () => {
+    render(
+      <AskUserCard
+        requestId="req-p"
+        questions={[{ ...SINGLE_Q[0]!, preview: '---\nname: PDF Tools\n---\nUse qpdf.' }]}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/Use qpdf\./)).toBeTruthy();
+  });
+});

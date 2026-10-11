@@ -109,6 +109,12 @@ test("an ask_user frame with a secret becomes a secure-field event; a plain one 
   expect(got[1]).toEqual({ type: "ask", requestId: "req-2", question: "Which server?", options: ["Home", "Work"] });
 });
 
+test("a question with text to read carries it to the page", async () => {
+  const q = { type: "ask_user", id: "req-3", sessionId: "chat", questions: [{ question: "Install the skill?", options: [{ label: "Install it" }, { label: "Not now" }], multiSelect: false, preview: "---\nname: PDF Tools\n---\nUse qpdf." }] };
+  const got = await run(body([`event: ask_user\ndata: ${JSON.stringify(q)}\n\n`, "data: [DONE]\n\n"]));
+  expect(got[0]).toEqual({ type: "ask", requestId: "req-3", question: "Install the skill?", options: ["Install it", "Not now"], preview: "---\nname: PDF Tools\n---\nUse qpdf." });
+});
+
 test("saving a secret sends the value only to the engine, and only 'Saved' to the agent", async () => {
   const calls: { url: string; body: any }[] = [];
   const f = async (url: string, init?: RequestInit) => { calls.push({ url, body: JSON.parse(String(init?.body)) }); return new Response("{}", { status: 200 }); };

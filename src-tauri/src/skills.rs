@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::paths;
 
+mod link;
+mod scan;
+
 // The canonical repo name, not the pre-rename one. GitHub redirects the old
 // path, but a redirect lasts only until somebody registers the freed-up name —
 // and this URL decides which capabilities the app offers to install and run.
@@ -41,7 +44,7 @@ fn validate_content_url(url: &str) -> Result<()> {
 /// so the check it exists to make never ran on the URL actually fetched. The
 /// custom policy below re-runs it on every hop and stops the chain rather than
 /// following a redirect out of the allowlist.
-fn content_client() -> Result<reqwest::Client> {
+pub(super) fn content_client() -> Result<reqwest::Client> {
     let policy = reqwest::redirect::Policy::custom(|attempt| {
         if attempt.previous().len() >= 5 {
             return attempt.stop();
@@ -563,8 +566,9 @@ pub fn do_remove(id: &str) -> Result<()> {
 
 /// Serve one `capability_request` from the agent sidecar.
 ///
-/// The three verbs the agent gets. Note what is NOT here: no way to pass
-/// content, metadata or a trust label. `do_install` — which trusts all three —
+/// The verbs the agent gets. Note what is NOT here: no way to pass content,
+/// metadata or a trust label. A link is resolved, fetched and scanned here, and
+/// installing it takes back the token for the bytes the person was shown. `do_install` — which trusts all three —
 /// is private to this module, and every route to it fetches first.
 pub async fn handle_capability_request(
     action: &str,
@@ -592,6 +596,11 @@ pub async fn handle_capability_request(
         }
         "install" => {
             let meta = install_from_catalogue(name).await.map_err(|e| e.to_string())?;
+            serde_json::to_value(meta).map_err(|e| e.to_string())
+        }
+        "preview_link" => link::preview(params.get("url").and_then(|v| v.as_str()).unwrap_or("")).await,
+        "install_link" => {
+            let meta = link::install(params.get("token").and_then(|v| v.as_str()).unwrap_or(""))?;
             serde_json::to_value(meta).map_err(|e| e.to_string())
         }
         other => Err(format!("unknown capability action '{other}'")),
@@ -662,6 +671,12 @@ pub async fn inspect_capability(id: String) -> Result<SkillPreview, String> {
 #[specta::specta]
 pub async fn install_skill_from_url(url: String, overwrite: bool) -> Result<SkillMeta, String> {
     let preview = fetch_remote_preview(&url).await.map_err(|e| e.to_string())?;
+    // The same safety check a chat link gets: a dangerous skill is not
+    // installed from the Skill Hub's link box either.
+    let (verdict, why) = scan::scan(&preview.content);
+    if verdict == "dangerous" {
+        return Err(format!("Not installed: the safety check found that this skill {}.", why.join("; ")));
+    }
     do_install(&preview.meta, &preview.content, overwrite).map_err(|e| e.to_string())?;
     Ok(preview.meta)
 }

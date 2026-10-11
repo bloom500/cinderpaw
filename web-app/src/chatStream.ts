@@ -12,7 +12,7 @@ export type ChatEvent =
   | { type: "waiting"; tool: string; message: string }
   | { type: "error"; detail: string }
   | ({ type: "secret" } & SecretAsk)
-  | { type: "ask"; requestId: string; question: string; options: string[] }
+  | { type: "ask"; requestId: string; question: string; options: string[]; preview?: string }
   | { type: "done" };
 
 /** A request_secret question: the page shows a password field for it. */
@@ -152,7 +152,12 @@ export async function streamChat(f: Fetch, content: string, on: (e: ChatEvent) =
           if (q.secret?.connector && q.secret?.field) {
             on({ type: "secret", requestId: String(raw.id), question: String(q.question), connector: q.secret.connector, field: q.secret.field });
           } else {
-            on({ type: "ask", requestId: String(raw.id), question: String(q.question), options: (q.options ?? []).map((o: any) => String(o.label)) });
+            on({
+              type: "ask", requestId: String(raw.id), question: String(q.question),
+              options: (q.options ?? []).map((o: any) => String(o.label)),
+              // What the person must read before answering (a skill a link would install).
+              ...(typeof q.preview === "string" ? { preview: q.preview } : {}),
+            });
           }
           continue;
         }
