@@ -5,15 +5,35 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
-## Unreleased
+## 2026.10.15
 
-> Version numbers in the build now read `2026.09.18`. The release itself is cut
-> by pushing a `v*` tag, which has not happened: the last published release is
-> still **v2026.08.11**. The two sections below it, `2026.08.15` and
-> `2026.08.21`, were written but never tagged, so their entries have not
-> reached anybody either — whoever updates next receives all three at once.
+> The last release was **v2026.08.11**. The two sections below this one,
+> `2026.08.15` and `2026.08.21`, were written but never released, so this
+> update brings all three at once.
 
 ### Added
+
+**New since the pre-releases**
+- **Cubby, and a new look**: a warm, light design, and a small mascot,
+  Cubby. Press **Listen** on any setup step to hear Cubby read it.
+- **Finished work shows up in the chat**: a document, table or chart the agent
+  makes is a card you can open, and boards draw charts, diagrams and photos.
+- **Posting waits for you**: on a social network, the agent writes the post
+  and opens the page in its browser. You read it and press Post.
+- **Bring over OpenClaw or Hermes** from the first screen: your persona and
+  your skills come with you.
+- **A thumbs-up teaches the agent** a way of working (beta). The next similar
+  request gets the steps that worked.
+- **Projects** keep their own instructions and files for every chat inside them.
+- **One Google button** sends a file to Drive, Docs, Sheets or Gmail.
+- A new conversation already knows you and what you did recently. The Memory
+  page shows what it knows, and Forget really forgets.
+- Control your desktop by voice and by the agent on **macOS and Linux** too.
+- A small **campfire game** to play while a long task runs (turn it off in
+  Settings).
+- **Install with one command** into one folder, `~/.cinderpaw`, then
+  `cinderpaw open`. The everyday CLI commands use the names OpenClaw users
+  already know.
 
 **Getting started**
 - **Sign in with OpenRouter** instead of pasting a key: one button, your browser
@@ -76,6 +96,14 @@
 - The interface is English only for this release, and the language setting is
   gone. More than 70 languages are planned for the next one. Talking to
   Cinderpaw in your own language, by text or voice, works as before.
+- **A daily usage summary, only if you turn it on.** It is off unless you say
+  yes (on the last setup screen, once on the home screen, or in Settings,
+  Privacy). It sends counts per model: tasks, how they ended, time, tokens,
+  cost, thumbs up and down. Never your messages, files, links or keys. Each
+  summary is saved on your computer before it leaves, and Settings shows it.
+  Everyone's totals are on the new **Leaderboard** tab. The full list is in
+  [PROMISES.md](PROMISES.md), promise 4.
+
 - **Cinderpaw counts installs now, once, and says so before it does.** Promise 4
   used to read "no automatic analytics or crash-report uploads". It no longer
   does, and the honest thing is to say that in the same release rather than
