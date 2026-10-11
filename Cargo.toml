@@ -47,3 +47,9 @@ opt-level = 3
 
 [profile.dev.package.llama-cpp-sys-2]
 opt-level = 3
+
+# Dev builds spent much of their time writing debug info for ~900 dependencies
+# nobody steps into. Our own crates keep full debug info, so their panics and
+# backtraces still name the file and line. Release builds are not affected.
+[profile.dev.package."*"]
+debug = false
