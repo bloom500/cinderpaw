@@ -595,7 +595,8 @@ Cinderpaw was previously source-available under BSL 1.1. It moved to Apache 2.0 
 </p>
 
 <p align="center">
-  <em>Built with 🖤🧡 by <a href="https://github.com/bloom500">Bloom Lab</a></em>
+  <em>Built with 🖤🧡 by <a href="https://github.com/bloom500">Bloom Lab</a></em><br />
+  <sub>Cinderpaw is a member of Anthropic's Claude Startups program.</sub>
 </p>
 
 *Cinderpaw collects no telemetry you did not say yes to. It counts an install once, if you leave that box ticked at the end of setup, and shares a daily usage summary only if you turn it on ([what each sends](PROMISES.md#the-promises)), and it has never once asked you to "sign up to unlock the full experience." That would be very un-Cinderpaw of it.*
