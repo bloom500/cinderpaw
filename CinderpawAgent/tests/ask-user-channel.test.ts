@@ -104,6 +104,12 @@ describe("ChannelAskRouter", () => {
     expect(router.handleInbound("discord:123", "hello")).toBe(false);
   });
 
+  it("a long preview fits a Discord message (2000 characters) and says where the rest is", () => {
+    const text = formatQuestionsForChat([{ ...DB, question: "Install the skill \"X\" from https://raw.githubusercontent.com/a/b/main/SKILL.md?", preview: "x".repeat(20_000) }]);
+    expect(text.length).toBeLessThan(2000);
+    expect(text).toContain("Open the link in the question to read all of it");
+  });
+
   it("a message with only a file is not an answer: nothing is picked, the person is told", async () => {
     const sent: string[] = [];
     const router = new ChannelAskRouter();

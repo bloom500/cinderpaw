@@ -33,6 +33,19 @@ export type ChannelSender = (sessionId: string, text: string) => Promise<void>;
  */
 const DEFAULT_TIMEOUT_MS: number | null = null;
 
+/**
+ * Discord refuses a message over 2000 characters, and a refused question used to
+ * reach the person as nothing at all. A long preview is cut here; the question
+ * that carries one (install_skill_from_link) names where the whole text lives.
+ */
+const CHAT_PREVIEW_CHARS = 1200;
+
+function chatPreview(text: string): string {
+  if (text.length <= CHAT_PREVIEW_CHARS) return text;
+  const rest = text.length - CHAT_PREVIEW_CHARS;
+  return `${text.slice(0, CHAT_PREVIEW_CHARS)}\n… ${rest} more characters not shown in chat. Open the link in the question to read all of it before you answer.`;
+}
+
 /** Render 1-4 questions as one compact chat message. */
 export function formatQuestionsForChat(questions: AskUserQuestion[]): string {
   const lines: string[] = ["❓ I need your input:"];
@@ -40,7 +53,7 @@ export function formatQuestionsForChat(questions: AskUserQuestion[]): string {
   for (let i = 0; i < questions.length; i++) {
     const q = questions[i]!;
     lines.push(multi ? `${i + 1}. ${q.question}` : q.question);
-    if (q.preview) lines.push("```", q.preview, "```");
+    if (q.preview) lines.push("```", chatPreview(q.preview), "```");
     for (let j = 0; j < q.options.length; j++) {
       const o = q.options[j]!;
       const star = o.recommended ? " ⭐" : "";

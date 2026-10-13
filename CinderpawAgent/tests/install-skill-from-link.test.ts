@@ -66,6 +66,18 @@ describe("install_skill_from_link", () => {
     expect(seen[0]!.forceEscalate).toBe(true);
   });
 
+  test("the person sees every line that is installed, and the agent's words as the agent's", async () => {
+    const long = PREVIEW.content + "\n" + Array.from({ length: 200 }, (_, i) => `line ${i}`).join("\n") + "\nhidden at the end";
+    const { bridge } = bridgeWith({ ...PREVIEW, content: long });
+    const seen: AskUserQuestion[] = [];
+    await installSkillFromLinkTool.execute(
+      { url: "https://github.com/acme/skills", reason: "Official skill, verified by Cinderpaw." },
+      { capabilities: bridge, askUser: answering("Not now", seen) } as never,
+    );
+    expect(seen[0]!.preview).toBe(long);
+    expect(seen[0]!.question).toContain('The agent says: "Official skill, verified by Cinderpaw."');
+  });
+
   test("no installs nothing", async () => {
     const { bridge, calls } = bridgeWith(PREVIEW);
     const res = await installSkillFromLinkTool.execute(

@@ -264,8 +264,11 @@ interface LinkPreview {
   replaces?: boolean;
 }
 
-/** Lines of the skill shown in the confirmation card. The rest is one scroll away in the tool result. */
-const PREVIEW_LINES = 80;
+/** Cap on words the skill's author or the agent put into the question, which the host's own sentence surrounds. */
+function capped(s: string, max: number): string {
+  const one = s.replace(/\s+/g, " ").trim();
+  return one.length > max ? `${one.slice(0, max - 1)}…` : one;
+}
 
 /**
  * The same rule as `install_capability`, for a link the person pasted. The
@@ -338,11 +341,12 @@ export const installSkillFromLinkTool: Tool = {
       };
     }
 
-    const reason = typeof args.reason === "string" ? args.reason.trim() : "";
-    const lines = preview.content.split("\n");
-    const shown =
-      lines.slice(0, PREVIEW_LINES).join("\n") +
-      (lines.length > PREVIEW_LINES ? `\n\n… ${lines.length - PREVIEW_LINES} more lines` : "");
+    // The agent's line is labelled as the agent's: set inside the host's sentence it
+    // read as Cinderpaw vouching ("official skill, verified"), right before the scan.
+    const reason = typeof args.reason === "string" && args.reason.trim()
+      ? ` The agent says: "${capped(args.reason, 200)}"`
+      : "";
+    const name = capped(preview.meta.name, 80);
     const warning =
       preview.verdict === "caution"
         ? ` Be careful: the safety check found something to look at.${findings}`
@@ -357,18 +361,19 @@ export const installSkillFromLinkTool: Tool = {
         [
           {
             question:
-              `Install the skill "${preview.meta.name}" from ${preview.source}?` +
-              (reason ? ` ${reason}` : "") +
+              `Install the skill "${name}" from ${preview.source}?` +
+              reason +
               warning +
               leftOut +
               replaces,
             header: "Install",
             multiSelect: false,
             options: [
-              { label: "Install it", description: preview.meta.description },
+              { label: "Install it", description: capped(preview.meta.description, 200) },
               { label: "Not now", description: "Nothing is installed." },
             ],
-            preview: shown,
+            // All of it: what is installed is exactly this text, so the person reads all of it.
+            preview: preview.content,
             // Same as install_capability: walk-away mode never approves an install.
             forceEscalate: true,
           },
@@ -376,8 +381,10 @@ export const installSkillFromLinkTool: Tool = {
         ctx.sessionId,
       );
       chose = answers?.[0]?.selected?.[0] ?? "";
-    } catch {
-      return { ok: false, content: `Nobody confirmed, so '${preview.meta.name}' was not installed.`, error: "not_confirmed" };
+    } catch (err) {
+      // Say why: a chat that could not even show the question is not "nobody answered".
+      const why = err instanceof Error ? err.message : String(err);
+      return { ok: false, content: `No yes came back (${why}), so '${name}' was not installed.`, error: "not_confirmed" };
     }
     if (chose !== "Install it") {
       return { ok: false, content: `The person declined; '${preview.meta.name}' was not installed.`, error: "declined" };
