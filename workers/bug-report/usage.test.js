@@ -122,3 +122,18 @@ test('POST /usage is rate limited per IP, using the bug-report limiter', async (
   expect((await post('1.2.3.4')).status).toBe(429);
   expect((await post('5.6.7.8')).status).toBe(400);
 });
+
+test('one address cannot bring the 20 installs that put a model on the public table', async () => {
+  const { default: worker } = await import('./worker.js');
+  const db = fakeD1();
+  const today = new Date().toISOString().slice(0, 10);
+  const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  const post = (code, ip) => worker.fetch(new Request('https://w/usage', {
+    method: 'POST', body: JSON.stringify(payload({ code, day: yesterday })), headers: { 'cf-connecting-ip': ip },
+  }), { USAGE: db });
+  const code = (i) => String(i).padStart(32, 'c');
+  for (let i = 0; i < 5; i++) expect((await post(code(i), '9.9.9.9')).status).toBe(204);
+  expect((await post(code(0), '9.9.9.9')).status).toBe(204); // a code already seen may resend
+  expect((await post(code(5), '9.9.9.9')).status).toBe(429);
+  expect((await post(code(5), '8.8.8.8')).status).toBe(204);
+});

@@ -59,6 +59,19 @@ export function validatePayload(b, now = Date.now()) {
   return { ok: true };
 }
 
+// The app picks its own code, so the worker cannot tell a real install from a
+// made-up one. It can see where codes come from: one address brings a few new
+// codes a day (a household, an office), not the MIN_INSTALLS that put a model
+// on the public table.
+export const NEW_CODES_PER_IP_PER_DAY = 5;
+
+/** Whether `code` may report from an address that already brought `seen` today. */
+export function admitCode(seen, code, max = NEW_CODES_PER_IP_PER_DAY) {
+  if (seen.includes(code)) return { ok: true, seen };
+  if (seen.length >= max) return { ok: false, seen };
+  return { ok: true, seen: [...seen, code] };
+}
+
 /** 95% Wilson interval for k successes out of n. */
 export function wilson(k, n, z = 1.96) {
   if (!n) return null;

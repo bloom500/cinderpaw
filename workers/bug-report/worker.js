@@ -8,7 +8,7 @@
 // POST /usage {v,code,day,app,os,groups} -> 204 | 400 | 413 | 429  (opt-in daily usage summary)
 // GET  /leaderboard?month=YYYY-MM -> 200 {month, minInstalls, minTasks, installs, hidden, models, counting}
 
-import { aggregate, validatePayload } from './usage.js';
+import { admitCode, aggregate, validatePayload } from './usage.js';
 
 // 64 KB, not 8: the app sends up to LOG_TAIL_BYTES (48 KB) of log plus the
 // description, and at 8 KB every report that kept the log ticked came back
@@ -115,6 +115,19 @@ async function overLimit(req, scope, perHour) {
   return false;
 }
 
+// ponytail: per-colo Cache API like overLimit, so a speed bump (20 made-up
+// installs now take days or many addresses), not a wall. A KV or D1 table of
+// hashed addresses is the upgrade if the table is ever gamed anyway.
+async function admitted(req, code) {
+  const ip = req.headers.get('cf-connecting-ip') ?? 'unknown';
+  const key = new Request(`https://codes.local/${ip}/${new Date().toISOString().slice(0, 10)}`);
+  const hit = await caches.default.match(key);
+  const seen = hit ? JSON.parse(await hit.text()) : [];
+  const r = admitCode(seen, code);
+  if (r.seen !== seen) await caches.default.put(key, new Response(JSON.stringify(r.seen), { headers: { 'cache-control': 'max-age=86400' } }));
+  return r.ok;
+}
+
 // The app sends at most 30 days in one catch-up; two machines behind one router still fit.
 const USAGE_PER_HOUR = 60;
 async function storeUsage(req, env) {
@@ -124,6 +137,7 @@ async function storeUsage(req, env) {
   try { body = await req.json(); } catch { return new Response('bad json', { status: 400 }); }
   const v = validatePayload(body);
   if (!v.ok) return new Response(v.error, { status: 400 });
+  if (!(await admitted(req, body.code))) return new Response('too many installs from one address today', { status: 429 });
   if (!env.USAGE) return new Response(null, { status: 204 });
   // Replace, never add: one machine's day counts once however often it arrives.
   const stmts = [env.USAGE.prepare('DELETE FROM usage_day WHERE code = ? AND day = ?').bind(body.code, body.day)];
