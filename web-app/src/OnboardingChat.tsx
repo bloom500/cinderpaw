@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { answerAsk, chatFailure, finishToolIn, saveSecret, stopChat, streamChat, whatsappQr, type ChatFailure, type SecretAsk } from "./chatStream";
+import { answerAsk, chatFailure, finishToolIn, saveSecret, stopChat, streamChat, whatsappQr, withPreview, type ChatFailure, type SecretAsk } from "./chatStream";
 import { CinderpawMascot, type MascotState } from "./brand";
 import { COPY } from "./copy";
 import { Reply } from "./Reply";
@@ -132,8 +132,7 @@ export function OnboardingChat() {
         // The answer continues in a fresh bubble once the agent resumes.
         add({ who: "agent", text: "", tools: [] });
       } else if (e.type === "ask") {
-        // A four-backtick fence, so a SKILL.md's own code blocks cannot close it.
-        add({ who: "agent", text: e.preview ? `${e.question}\n\n\`\`\`\`\n${e.preview}\n\`\`\`\`` : e.question });
+        add({ who: "agent", text: withPreview(e.question, e.preview) });
         setPlainAsk(e);
         add({ who: "agent", text: "", tools: [] });
       } else if (e.type === "error") {

@@ -262,3 +262,16 @@ export function chatFailure(detail: string): ChatFailure {
   if (/failed to fetch|networkerror|ENOTFOUND|ECONNREFUSED|timed? ?out/i.test(detail)) return "offline";
   return "other";
 }
+
+/**
+ * A question with the text it asks about, as Markdown: the text inside a code
+ * fence one backtick longer than any run of backticks in it, so a SKILL.md
+ * cannot close the fence and have the rest rendered (an image loaded before
+ * the yes, a heading that looks like ours).
+ */
+export function withPreview(question: string, preview?: string): string {
+  if (!preview) return question;
+  const longest = Math.max(0, ...(preview.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = "`".repeat(Math.max(3, longest + 1));
+  return `${question}\n\n${fence}\n${preview}\n${fence}`;
+}
