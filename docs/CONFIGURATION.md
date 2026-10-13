@@ -314,6 +314,7 @@ it from the voice settings in the app.
 | `CINDERPAW_LIVE_VOICE` | `livekit.rs` | Voice id. |
 | `CINDERPAW_LIVE_INSTRUCTIONS` | `livekit.rs` | The system brief for the call. |
 | `CINDERPAW_LIVE_TOOLS` | `livekit.rs` | JSON tool declarations the voice agent may call. |
+| `CINDERPAW_LIVE_TOOLS_NO_SEARCH` | `livekit.rs` | The same declarations written for a Gemini session without Google Search; used after Google refuses search mid-call. |
 | `CINDERPAW_LIVE_PIPELINE` | `livekit.rs` | `1` = STT→LLM→TTS pipeline instead of a native realtime API. |
 | `CINDERPAW_LIVE_TTS_ENGINE` | `livekit.rs` | Pipeline mode only. Default `piper`. |
 | `CINDERPAW_LIVE_STT_MODEL` | `livekit.rs` | Pipeline mode only. Default `small`. |
@@ -431,6 +432,7 @@ CINDERPAW_LIVE_STT_LANGUAGE
 CINDERPAW_LIVE_STT_MODEL
 CINDERPAW_LIVE_STT_PROVIDER
 CINDERPAW_LIVE_TOOLS
+CINDERPAW_LIVE_TOOLS_NO_SEARCH
 CINDERPAW_LIVE_TTS_ENGINE
 CINDERPAW_LIVE_VOICE
 CINDERPAW_LOCAL_API_KEY
