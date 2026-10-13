@@ -1258,6 +1258,12 @@ func renderAskQuestions(questions []api.AskQuestion) string {
 		} else {
 			b.WriteString(q.Question + "\n")
 		}
+		// All of it: an install from a link puts exactly this text on disk.
+		if q.Preview != "" {
+			for _, line := range strings.Split(strings.TrimRight(q.Preview, "\n"), "\n") {
+				b.WriteString("  │ " + line + "\n")
+			}
+		}
 		for j, o := range q.Options {
 			star := ""
 			if o.Recommended {
