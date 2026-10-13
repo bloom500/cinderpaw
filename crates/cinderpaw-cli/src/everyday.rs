@@ -280,13 +280,15 @@ pub fn agents() -> i32 {
 // ── backup ───────────────────────────────────────────────────────────────────
 
 /// Left out of a copy: models and voices (gigabytes, downloadable again), the
-/// browser profile (cookies of every site the agent signed into), logs, and the
-/// API token. Keys are in the OS keychain, never in the folder, so a copy holds
-/// no keys either.
+/// browser profile (cookies of every site the agent signed into), logs, the API
+/// token, and the chat-app logins kept as files (WhatsApp and Zalo: whoever holds
+/// them can act as the person's linked device). Keys are in the OS keychain,
+/// never in the folder, so a copy holds no keys either.
 const NOT_COPIED: &[&str] = &[
     "models", "kokoro", "piper", "moonshine", "livekit", "bin", "logs",
     "browser-profile", "browser-extensions", "browser-adblock", "browser-downloads",
     "api-token", "gateway.pid",
+    "whatsapp-auth", "whatsapp-qr.json", "zalouser-session.json", "zalouser-qr.png",
 ];
 const MARKER: &str = "cinderpaw-backup.json";
 
@@ -337,7 +339,7 @@ pub fn backup(action: Option<BackupAction>) -> i32 {
                     println!("{}", json!({ "folder": dst, "files": files }));
                 } else {
                     println!("{OK}✓{RESET} saved a copy ({files} files) in:\n  {}", dst.display());
-                    println!("{DIM}{META}Your keys stay in your computer's keychain, so they are not in the copy.{RESET}");
+                    println!("{DIM}{META}Your keys stay in your computer's keychain and chat-app logins stay out, so neither is in the copy.{RESET}");
                 }
                 0
             }
@@ -749,10 +751,11 @@ mod tests {
     }
 
     #[test]
-    fn a_copy_leaves_out_models_browser_cookies_logs_and_the_token() {
+    fn a_copy_leaves_out_models_browser_cookies_logs_the_token_and_chat_logins() {
         let src = tempfile::tempdir().unwrap();
         for (p, body) in [("byok.json", "{}"), ("conversations/a.json", "{}"), ("models/big.gguf", "x"),
-                          ("browser-profile/Cookies", "x"), ("gateway.log", "x"), ("api-token", "secret")] {
+                          ("browser-profile/Cookies", "x"), ("gateway.log", "x"), ("api-token", "secret"),
+                          ("whatsapp-auth/creds.json", "x"), ("zalouser-session.json", "x")] {
             let f = src.path().join(p);
             std::fs::create_dir_all(f.parent().unwrap()).unwrap();
             std::fs::write(f, body).unwrap();
@@ -760,7 +763,7 @@ mod tests {
         let dst = tempfile::tempdir().unwrap();
         assert_eq!(copy_tree(src.path(), dst.path(), true).unwrap(), 2);
         assert!(dst.path().join("conversations/a.json").is_file());
-        for gone in ["models", "browser-profile", "gateway.log", "api-token"] {
+        for gone in ["models", "browser-profile", "gateway.log", "api-token", "whatsapp-auth", "zalouser-session.json"] {
             assert!(!dst.path().join(gone).exists(), "{gone} was copied");
         }
     }
