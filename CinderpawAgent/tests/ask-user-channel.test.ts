@@ -104,6 +104,23 @@ describe("ChannelAskRouter", () => {
     expect(router.handleInbound("discord:123", "hello")).toBe(false);
   });
 
+  it("a message with only a file is not an answer: nothing is picked, the person is told", async () => {
+    const sent: string[] = [];
+    const router = new ChannelAskRouter();
+    router.registerSender("discord", async (_s, text) => {
+      sent.push(text);
+    });
+    const allow: AskUserQuestion = { question: "Allow 12 lines of generated code to run?", options: [{ label: "Allow" }, { label: "Deny" }] };
+    const p = router.ask([allow], "discord:7");
+    await Bun.sleep(0);
+    expect(router.handleInbound("discord:7", "")).toBe(true); // swallowed: no agent turn for it
+    await Bun.sleep(0);
+    expect(router.pendingCount).toBe(1);
+    expect(sent[1]).toContain("I still need your answer");
+    router.handleInbound("discord:7", "2");
+    expect((await p)[0]!.selected).toEqual(["Deny"]);
+  });
+
   it("times out with AskUserTimeoutError (tool auto-resolve contract)", async () => {
     const router = new ChannelAskRouter(10);
     router.registerSender("discord", async () => {});

@@ -272,6 +272,13 @@ export class ChannelAskRouter {
   handleInbound(sessionId: string, text: string): boolean {
     const p = this.#pending.get(sessionId);
     if (!p) return false;
+    // A message with only a picture or a file has no text. It is not an answer:
+    // read as one, it picked the first option, which is "Allow" on every
+    // permission question. The question stays open and the person is told so.
+    if (!text.trim()) {
+      void this.notify(sessionId, "I still need your answer to the question above: reply with the option number.");
+      return true;
+    }
     if (p.timer) clearTimeout(p.timer);
     this.#pending.delete(sessionId);
     try {
