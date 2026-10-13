@@ -1222,6 +1222,13 @@ pub async fn start(
                 "CINDERPAW_LIVE_TOOLS",
                 serde_json::to_string(&crate::live::bridge::declarations_for(p.id == "google"))
                     .unwrap_or_else(|_| "[]".into()),
+            )
+            // For the reopen when Google refuses its search: the doors without
+            // "use your own Google Search".
+            .env(
+                "CINDERPAW_LIVE_TOOLS_NO_SEARCH",
+                serde_json::to_string(&crate::live::bridge::declarations_for(false))
+                    .unwrap_or_else(|_| "[]".into()),
             );
         // Where to send a tool call, and the credential for it. The API server
         // is already listening on loopback for the sidecar; this reuses it

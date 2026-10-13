@@ -29,7 +29,8 @@ function worker(provider: string, tuning?: string, env: Record<string, string> =
     history = { copy: () => ({ truncate: (n: number) => ({ carried: n }) }) };
     constructor(public options: any) { sessions.push(this); }
     on(event: string, fn: (e: any) => void) { this.handlers[event] = fn; }
-    async start(_o: any) {}
+    started: any;
+    async start(o: any) { this.started = o; }
     generateReply(o: any) { this.replies.push(o); }
     interrupt() {}
   }
@@ -180,6 +181,19 @@ test("a session Google refuses over the search tool reopens without it", async (
   await settle();
   expect(w.sessions).toHaveLength(2);
   expect((await w.REALTIME.google()).options.geminiTools).toBeUndefined();
+});
+
+test("after Google refuses its search, ask_cinder no longer says to use it", async () => {
+  const w = worker("google", undefined, {
+    CINDERPAW_LIVE_TOOLS: JSON.stringify([{ name: "ask_cinder", parameters: {}, description: "use your own Google Search" }]),
+    CINDERPAW_LIVE_TOOLS_NO_SEARCH: JSON.stringify([{ name: "ask_cinder", parameters: {}, description: "the only way to the web" }]),
+  });
+  await w.assistant({ room: w.room });
+  expect(w.sessions[0].started.agent.options.tools.ask_cinder.description).toBe("use your own Google Search");
+  w.sessions[0].handlers.error({ error: { error: { message: "google_search is not supported for this model", statusCode: 1007 } } });
+  w.sessions[0].handlers.close({ reason: "error" });
+  await settle();
+  expect(w.sessions[1].started.agent.options.tools.ask_cinder.description).toBe("the only way to the web");
 });
 
 test("the lookup guard does not start a second search while one is still running", async () => {

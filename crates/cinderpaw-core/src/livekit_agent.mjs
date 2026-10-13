@@ -526,6 +526,10 @@ let nativeSearch = PROVIDER === 'google';
 
 /** Declared by Rust, not here. See `live::bridge::declarations`. */
 const TOOL_DECLARATIONS = JSON.parse(process.env.CINDERPAW_LIVE_TOOLS || '[]');
+// The same doors described for a session without Google Search. Gemini's own
+// description says "use your own Google Search"; once Google refuses search and
+// the call reopens without it, that sentence sent quick facts nowhere.
+const TOOL_DECLARATIONS_NO_SEARCH = JSON.parse(process.env.CINDERPAW_LIVE_TOOLS_NO_SEARCH || 'null');
 
 /**
  * Tool calls, answered over the app's own loopback API.
@@ -938,7 +942,7 @@ const BLANK_LINE = String.fromCharCode(10, 10);
  *  session live NOW: a vendor that drops the line gets a new one mid-call. */
 function toolsFromDeclarations(getSession) {
   const out = {};
-  for (const decl of TOOL_DECLARATIONS) {
+  for (const decl of (nativeSearch || !TOOL_DECLARATIONS_NO_SEARCH ? TOOL_DECLARATIONS : TOOL_DECLARATIONS_NO_SEARCH)) {
     out[decl.name] = llm.tool({
       description: decl.description,
       // The JSON Schema Rust already wrote. Restating it as a zod schema here
@@ -1082,7 +1086,7 @@ async function assistant(ctx, makeSession) {
 
   // Built once, before the handlers, so the lookup guard can run the same
   // ask_cinder the model would have (row on screen, spoken answer and all).
-  const tools = toolsFromDeclarations(() => session);
+  let tools = toolsFromDeclarations(() => session);
   /**
    * What the person said in THIS turn, the request a guarded lookup is made
    * with. Emptied when they start speaking again and once it has been used, so
@@ -1246,6 +1250,7 @@ async function assistant(ctx, makeSession) {
       const searchRefused = nativeSearch && /search|grounding/i.test(why);
       if (searchRefused) {
         nativeSearch = false;
+        tools = toolsFromDeclarations(() => session);
         console.error('voice_native_search refused; reopening without it');
       }
       if (!makeSession && String(e?.reason ?? '') === 'error' && (transient || searchRefused) && reopens < MAX_REOPENS && ctx.room.isConnected) {
