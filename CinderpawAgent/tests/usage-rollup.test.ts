@@ -61,6 +61,15 @@ describe("rollup", () => {
     expect(modelLabel("openrouter", "anthropic/claude-sonnet-5.5")).toBe("anthropic/claude-sonnet-5.5");
   });
 
+  test("a fine-tune named after a person's account stays home", () => {
+    expect(modelLabel("together", "maria-pop/support-bot-v2")).toBe("together-other");
+    expect(modelLabel("huggingface", "dariusr/my-notes-lora")).toBe("huggingface-other");
+    expect(modelLabel("deepinfra", "meta-llama/Llama-3.3-70B-Instruct")).toBe("meta-llama/Llama-3.3-70B-Instruct");
+    expect(modelLabel("together", "Qwen/Qwen3-235B-A22B")).toBe("Qwen/Qwen3-235B-A22B");
+    // OpenRouter lists only public models, so community authors stay visible there.
+    expect(modelLabel("openrouter", "thedrummer/rocinante-12b")).toBe("thedrummer/rocinante-12b");
+  });
+
   // Final review M1: these five left the machine as hostname + raw name.
   test("what leaves names a public provider and a public model, never a host or a file name", () => {
     const db = openDatabase(":memory:");

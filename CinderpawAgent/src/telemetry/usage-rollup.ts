@@ -43,6 +43,15 @@ export function bucketOf(ms: number): number {
 const LOCAL_FAMILY = /^(qwen|llama|gemma|mistral|phi|deepseek|glm|minimax|gpt|smollm|granite|olmo|kimi)[\d.]*$/;
 const QUANT = /^(i?q\d.*|f16|bf16|fp16|f32)$/;
 const VARIANT = /^([a-z]{0,2}\d[a-z\d.]*|instruct|it|chat|coder|vl|base|thinking|oss|moe)$/;
+// On these clouds a person can run their own fine-tune, named `<their account>/<model>`.
+// Only a known publisher before the slash leaves the machine. ponytail: a short
+// publisher list; a new lab shows as `<provider>-other` until it is added.
+const USER_MODEL_HOSTS = new Set(["together", "deepinfra", "huggingface", "featherless", "novita", "baseten"]);
+const PUBLISHERS = new Set([
+  "openai", "anthropic", "google", "meta-llama", "mistralai", "qwen", "deepseek-ai", "moonshotai", "zai-org", "thudm",
+  "minimaxai", "x-ai", "cohereforai", "coherelabs", "nvidia", "microsoft", "nousresearch", "ibm-granite", "allenai",
+  "black-forest-labs", "stepfun-ai", "baidu", "tencent", "bytedance-seed", "openai-community", "huggingfaceh4",
+]);
 /** The worker's charset for names (workers/bug-report/usage.js): outside it the whole day is refused. */
 const SENDABLE = /^[A-Za-z0-9._:/@+-]{1,128}$/;
 /** `provider` is the public label (provider-label.ts `publicProvider`). */
@@ -52,6 +61,9 @@ export function modelLabel(provider: string, model: string): string {
   // Account-scoped ids (Fireworks `accounts/<who>/...`, Volcengine/BytePlus
   // `ep-<id>`) are the same every month, so they would follow one install.
   if (/^(accounts\/|ep-)/.test(base) || !SENDABLE.test(base)) return `${provider}-other`;
+  if (USER_MODEL_HOSTS.has(provider) && base.includes("/") && !PUBLISHERS.has(base.split("/")[0]!.toLowerCase())) {
+    return `${provider}-other`;
+  }
   if (provider !== "local" && provider !== "custom") return base;
   const parts = base.toLowerCase().replace(/\.gguf$/, "").split(/[-_:]/);
   if (!LOCAL_FAMILY.test(parts[0] ?? "")) return `${provider}-other`;
