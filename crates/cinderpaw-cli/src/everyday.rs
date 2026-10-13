@@ -89,7 +89,7 @@ pub fn ask(question: &[String]) -> i32 {
         }
         Err(e) => {
             eprintln!("{FAIL}No answer came back.{RESET} {e}");
-            eprintln!("Run `cinderpaw doctor` if this keeps happening.");
+            eprintln!("If that is about your key or your model, run `cinderpaw setup`. For anything else, `cinderpaw doctor` checks the rest.");
             1
         }
     }
@@ -375,6 +375,14 @@ pub fn backup(action: Option<BackupAction>) -> i32 {
                 println!("Nothing changed.");
                 return 0;
             }
+            // Stopped before anything is read or written: the safety copy and the
+            // restore both touch the live SQLite file, which a running engine still
+            // has open. One that will not stop means nothing changes.
+            let port = crate::common::api_port();
+            if crate::common::port_in_use(port) && (crate::admin::gateway_stop() != 0 || crate::common::port_in_use(port)) {
+                eprintln!("{FAIL}Cinderpaw is still running, so nothing was changed.{RESET} Close the Cinderpaw app, then run this again.");
+                return 1;
+            }
             let safety = match create_backup(None, " before restore") {
                 Ok((dst, _)) => dst,
                 Err(e) => {
@@ -382,10 +390,6 @@ pub fn backup(action: Option<BackupAction>) -> i32 {
                     return 1;
                 }
             };
-            let was_running = crate::common::port_in_use(crate::common::api_port());
-            if was_running {
-                crate::admin::gateway_stop();
-            }
             match copy_tree(&folder, &cinderpaw_core::paths::cinderpaw_dir(), false) {
                 Ok(_) => {
                     let _ = std::fs::remove_file(cinderpaw_core::paths::cinderpaw_dir().join(MARKER));
