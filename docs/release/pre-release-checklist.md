@@ -53,8 +53,11 @@ Status as of 23 Sep 2026, evening. `[x]` done, `[ ]` open, `[~]` partly.
 
 ## 4. The gate he set (19 Sep)
 
-- [ ] Astra reviews the recent work (voice + workstation).
-- [ ] Mascot done.
+- [ ] Astra reviews the recent work (voice + workstation). Her two reviews of 19 Sep are answered on
+      main (`ab8b383` pre-release, `17ff104` voice); her voice verdict stayed "necertificat", 7 of 14
+      rows unverifiable for lack of correlated logs.
+
+Mascot gate dropped by Darius on 13 Oct: the app ships with Cubby.
 
 ## 5. Release notes
 
