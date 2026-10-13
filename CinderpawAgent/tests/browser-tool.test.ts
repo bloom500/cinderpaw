@@ -138,6 +138,18 @@ describe("publishing on a social network waits for the person", () => {
     expect((await blog.tool.execute({ action: "click", ref: "2" }, blog.ctx)).ok).toBe(true);
   });
 
+  test("a site in Romanian, German, French or Spanish is asked about too", async () => {
+    for (const name of ["Postează", "Publică", "Trimiteți", "Răspunde", "Posten", "Teilen", "Publier", "Répondre", "Publicar", "Compartir"]) {
+      const page = { ...xPage, elements: [xPage.elements[0], { ref: "2", tag: "button", name }] };
+      const calls: string[] = [];
+      const ctx = { sessionId: "s1", desktopControl: { request: async (a: string) => { calls.push(a); return a === "browser.snapshot" ? page : { ok: true }; } } } as never;
+      const tool = createBrowserTool();
+      await tool.execute({ action: "snapshot" }, ctx);
+      expect({ name, res: await tool.execute({ action: "click", ref: "2" }, ctx) }).toMatchObject({ name, res: { error: "publish_needs_approval" } });
+      expect(calls).toEqual(["browser.snapshot"]);
+    }
+  });
+
   test("an unknown control on a social site, or a submitted form, is asked about too", async () => {
     const t = social();
     await t.tool.execute({ action: "open", url: "x.com" }, t.ctx);

@@ -83,7 +83,12 @@ function fail(content: string, error = "browser_error"): ToolResult {
 // (a "Share" that only opens a menu) costs one question; a missed one costs a
 // public post, so unknown controls on these sites are asked about too.
 const SOCIAL_HOST = /(^|\.)(x\.com|twitter\.com|instagram\.com|facebook\.com|threads\.(net|com)|linkedin\.com|tiktok\.com|youtube\.com|reddit\.com|bsky\.app|pinterest\.com|tumblr\.com|mastodon\.social)$/i;
-const PUBLISH_WORD = /\b(post|tweet|reply|repost|retweet|share|publish|send|upload|comment|postează|publică|trimite|distribuie)\b/i;
+// Word STARTS, so a site in another language is caught too: "Postează", "Publică",
+// "Posten", "Teilen", "Publier", "Publicar", "Répondre". `\b` without the `u` flag
+// treats "ă" as a non-letter, so the old whole-word list never matched Romanian.
+// ponytail: stems, not a dictionary; a language missing here falls back to asking
+// only when the control is unread. Add its stem when one turns up.
+const PUBLISH_WORD = /(?<!\p{L})(post|tweet|repl|repost|retweet|share|publi|send|upload|comment|koment|coment|trimi|distribui|răspun|teil|antwort|veröffentl|partag|compart|envo|envi|répon|respon)/iu;
 
 function hostOf(url?: string): string | null {
   try { return url ? new URL(url).hostname : null; } catch { return null; }
