@@ -425,6 +425,20 @@ pub async fn install_from_catalogue(id: &str) -> Result<SkillMeta> {
     Ok(meta)
 }
 
+/// The id a fetched file is saved under: its file name without `.md`, or, for
+/// the usual `<folder>/SKILL.md`, the folder. Every SKILL.md used to become
+/// `skill`, so the second skill added from a link replaced the first.
+fn provisional_id(url: &str) -> String {
+    let mut segments = url.split(['?', '#']).next().unwrap_or(url).rsplit('/').filter(|s| !s.is_empty());
+    let last = segments.next().unwrap_or("unknown");
+    let name = if last.eq_ignore_ascii_case("skill.md") { segments.next().unwrap_or("skill") } else { last };
+    name.trim_end_matches(".md")
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
 /// Fetch the raw SKILL.md from a remote URL, validate host, parse frontmatter.
 pub async fn fetch_remote_preview(url: &str) -> Result<SkillPreview> {
     validate_content_url(url)?;
@@ -439,18 +453,7 @@ pub async fn fetch_remote_preview(url: &str) -> Result<SkillPreview> {
         .text()
         .await?;
 
-    // Derive a provisional id from the URL filename (without .md extension).
-    let provisional_id = url
-        .rsplit('/')
-        .next()
-        .unwrap_or("unknown")
-        .trim_end_matches(".md")
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect::<String>();
-
-    let mut meta = parse_frontmatter(&provisional_id, &content);
+    let mut meta = parse_frontmatter(&provisional_id(url), &content);
     meta.source_provider = SourceProvider::GitHub;
     meta.trust_label = TrustLabel::Community;
     meta.content_url = Some(url.to_string());
@@ -700,6 +703,14 @@ pub fn remove_skill(id: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn two_skills_added_from_links_do_not_share_an_id() {
+        let base = "https://raw.githubusercontent.com/acme/skills/main";
+        assert_eq!(provisional_id(&format!("{base}/pdf-tools/SKILL.md")), "pdf-tools");
+        assert_eq!(provisional_id(&format!("{base}/web_search/skill.md?raw=1")), "web-search");
+        assert_eq!(provisional_id(&format!("{base}/notes.md")), "notes");
+    }
 
     #[test]
     fn valid_id_accepted() {
