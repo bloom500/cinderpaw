@@ -482,13 +482,13 @@ jobs:
   cuda:
     name: NVIDIA CUDA build (${{ matrix.name }})
     needs: release            # the GitHub release must exist before we upload to it
-    # On a manual run the `release` job is skipped, and a skipped dependency
-    # would skip this one too — so accept that case explicitly.
+    # Manual runs only for now: the CUDA builds failed on rc3 (Windows: no
+    # bundle matched *-setup.exe; Linux: rust-lld -fPIC) and are not part of
+    # v2026.10.16. Put `|| needs.release.result == 'success'` back once a manual
+    # run is green. On a manual run the `release` job is skipped, and a skipped
+    # dependency would skip this one too, hence always().
     if: >-
-      always() && (
-        github.event_name == 'workflow_dispatch' ||
-        needs.release.result == 'success'
-      )
+      always() && github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false        # a CUDA failure must never sink the main release
