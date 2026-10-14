@@ -242,7 +242,8 @@ cargo tauri build
 
 ### Signing & updater
 
-Releases are signed with `TAURI_SIGNING_PRIVATE_KEY` (empty-password key). The
+Releases are signed with `TAURI_SIGNING_PRIVATE_KEY` and its password,
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (both repository secrets). The
 signing key was replaced in v0.2.0; `docs/UPDATER_KEY_MIGRATION.md` is the
 historical record of that change. The
 auto-updater requires every release to ship `latest.json` + `.sig` files.

@@ -157,7 +157,7 @@ it is wide open for someone who wants real impact.
 ## Please don't break these
 
 Two subsystems are the product's differentiator and have the deepest test
-coverage in the repo (115 of ~230 test files):
+coverage in the repo (137 of the 450 agent test files):
 
 - `CinderpawAgent/src/rsi/**` — self-improvement layers
 - `CinderpawAgent/src/memory/fractal/**` — fractal memory search
@@ -170,7 +170,7 @@ cd CinderpawAgent && bun test tests/rsi-*.test.ts tests/fractal-*.test.ts \
   tests/tree-builder-context-cap.test.ts tests/embed-cpu-mode.test.ts tests/recall.test.ts
 ```
 
-Expected: **1104 pass, 5 skip, 0 fail.** Any deviation means stop and look.
+Expected (14 Oct 2026): **1329 pass, 7 skip, 0 fail.** Any deviation means stop and look.
 
 ---
 

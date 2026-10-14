@@ -530,7 +530,7 @@ Every model in the Local Models tab gets a 0–100 fitness score across 4 weight
 | **Quality** | 20% | Quantization rank (F32=110 → Q1=8), normalized to 0–100. |
 | **Context** | 10% | Declared context window. ≥32K = 95 pts, ≥8K = 75 pts, ≥4K = 60 pts. |
 
-Fit levels: **🟢 Perfect** (≥50% utilization, comfortable) · **🔵 Good** (under-utilizing or slightly tight) · **🟡 Marginal** (80–100% utilization) · **🔴 Too large** (exceeds capacity).
+Fit levels: **🟢 Perfect** (≥50% utilization, comfortable) · **🔵 Good** (under-utilizing or slightly tight) · **🟡 Tight fit** (80–100% utilization) · **🔴 Too large** (exceeds capacity).
 
 Press **Show details** on a local model card to see the score, the 4-component breakdown, memory utilization percentage, estimated tok/s, and where it runs (GPU / GPU + CPU / CPU). Models on the Hugging Face tab show a simpler label instead: it fits, it may be slow, or it won't fit.
 
