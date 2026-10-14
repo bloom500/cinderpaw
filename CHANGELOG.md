@@ -5,11 +5,18 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
-## 2026.10.15
+## 2026.10.16
 
-> The last release was **v2026.08.11**. The two sections below this one,
-> `2026.08.15` and `2026.08.21`, were written but never released, so this
-> update brings all three at once.
+> The last release was **v2026.08.11**, when the app was still called Feral.
+> If you have it, it updates to this one by itself.
+>
+> **Feral is now Cinderpaw.** Your chats, settings, connectors, models and saved
+> API keys come with you. On the first start, `~/.feral` is copied to
+> `~/.cinderpaw` and the old folder is left where it was. On a Mac, the system may
+> ask once whether Cinderpaw can read a key that Feral saved: say yes. The command
+> is now `cinderpaw`. The full story is in the `2026.08.15` and `2026.08.21`
+> sections of the [changelog](https://github.com/bloom500/cinderpaw/blob/main/CHANGELOG.md),
+> which were written but never released on their own.
 
 ### Added
 
@@ -85,7 +92,7 @@
 
 **Look and feel**
 - Appearance -> Background: **Glass** (your desktop shows through) or **Solid**.
-- The v2 mascot, with 73 animations, reacts to what the agent is doing.
+- Cubby reacts to what the agent is doing.
 
 ### Security
 
@@ -102,7 +109,7 @@
   cost, thumbs up and down. Never your messages, files, links or keys. Each
   summary is saved on your computer before it leaves, and Settings shows it.
   Everyone's totals are on the new **Leaderboard** tab. The full list is in
-  [PROMISES.md](PROMISES.md), promise 4.
+  [PROMISES.md](https://github.com/bloom500/cinderpaw/blob/main/PROMISES.md), promise 4.
 
 - **Cinderpaw counts installs now, once, and says so before it does.** Promise 4
   used to read "no automatic analytics or crash-report uploads". It no longer
@@ -168,9 +175,9 @@
   like a fresh install.
 
   The old names keep working where they can. `feral` stays as a second name for
-  the command, every `CINDERPAW_*` environment variable is still read (the
+  the command, every `FERAL_*` environment variable is still read (the
   `CINDERPAW_*` one wins, and the old one warns once), and a `~/.local/share/feral`
-  bundle from before the rename is still found. See RENAME-PLAN.md.
+  bundle from before the rename is still found.
 
 ### Added
 
