@@ -141,7 +141,7 @@ they remain hand-maintained here and are still covered by
 
 | Var | Type | Default | Security | Description |
 |---|---|---|---|---|
-| `CINDERPAW_WHATSAPP_MODULE` | path | `null` | yes | Absolute path to a trusted external whatsapp.js bundle built from @whiskeysockets/baileys@7.0.0-rc13. Loaded as executable code only when WhatsApp connects or pairs. Unset = WhatsApp unavailable; the default executable does not embed the WhatsApp library. See CinderpawAgent/README.md for installation. |
+| `CINDERPAW_WHATSAPP_MODULE` | path | `null` | yes | Absolute path to a trusted external whatsapp.js bundle built from @whiskeysockets/baileys@7.0.0-rc13. Loaded as executable code only when WhatsApp connects or pairs. Unset = the copy downloaded into ~/.cinderpaw/whatsapp/ when the person asks to connect WhatsApp; the default executable does not embed the WhatsApp library (part of it is GPL-3.0). See CinderpawAgent/README.md. |
 | `CINDERPAW_DB_KEY` | string | `null` | yes | 32-byte base64 key for at-rest encryption of sensitive DB columns. Anyone who can read this can read the DB. |
 | `CINDERPAW_WORKSPACE` | list | `null` | yes | TS sidecar path-list of FS roots. Unset = launch cwd + the user's home dir (broad by default; set to RESTRICT). The call-time deny wall (tool-permissions.ts) protects ~/.cinderpaw, ~/.ssh and CINDERPAW_FS_DENY regardless of roots. |
 | `CINDERPAW_FS_DENY` | list | `null` | yes | Extra comma/semicolon-separated paths the fs tools may never touch, on top of the built-in ~/.cinderpaw + ~/.ssh deny wall. |
@@ -289,7 +289,7 @@ unset, the exporter refuses to start and nothing leaves the machine.
 | --- | ---- | ------- | ----- |
 | `CINDERPAW_PUBLIC_JOURNAL_URL` | url | unset | Ingest endpoint. Must be `https:` unless the host is `localhost`/`127.0.0.1` — the exporter refuses to send its bearer token in the clear. |
 | `CINDERPAW_PUBLIC_JOURNAL_TOKEN` | string | unset | Shared secret for that endpoint. The endpoint maps token → publisher identity; the payload cannot choose its own. |
-| `CINDERPAW_PUBLIC_JOURNAL_PUBLISHER` | enum | `cubby` | `cubby` (this private instance) or `paw` (the community bot). Must match what the token is registered as. |
+| `CINDERPAW_PUBLIC_JOURNAL_PUBLISHER` | enum | `cubby` | `cubby` (a local Cinderpaw install publishing its own journal) or `paw` (the community support bot). Must match what the token is registered as. |
 | `CINDERPAW_PUBLIC_JOURNAL_DIR` | path | `paths().journalDir` | Journal directory to export from. Override for testing against a fixture. |
 | `CINDERPAW_PUBLIC_JOURNAL_LIMIT` | int | `200` | Max events per run. A backlog drains over successive runs. |
 | `CINDERPAW_PUBLIC_JOURNAL_VERSION` | string | unset | Version string reported in the heartbeat. Dropped unless it matches `[0-9A-Za-z.\-+]{1,24}`. |
@@ -330,6 +330,17 @@ it from the voice settings in the app.
 | `CINDERPAW_GOOGLE_CLIENT_SECRET` | `google.rs`, build time | The matching client secret. Same absence rule. |
 | `CINDERPAW_NO_BROWSER` | `install.rs` (CLI) | When set, the installer and `cinderpaw open` print the page address instead of opening a browser (CI, SSH). |
 | `CINDERPAW_PATH_TOUCH` | `footprint.rs` (Windows install) | Never holds a value: deleting it is how the installer tells Windows the user PATH changed. |
+
+## 3d. Terminal client and install scripts
+
+You set these yourself. They are read outside the Rust and TypeScript sources
+that `scripts/check-env-docs.mjs` scans, so they are kept out of the fenced
+list at the bottom: listed there, the check would flag them as unknown.
+
+| Var | Read by | Notes |
+| --- | ------- | ----- |
+| `CINDERPAW_ASCII` | `tui/ui/glyphs.go` | `1` = the terminal chat (`cinderpaw chat`) draws plain ASCII instead of Unicode symbols and box lines. Also chosen on its own when `TERM=dumb` or the locale is not UTF-8. The old name `FERAL_ASCII` still works. |
+| `CINDERPAW_DOWNLOAD_BASE` | `scripts/install.sh`, `scripts/install.ps1` | A web folder holding the release archives and `SHA256SUMS`, used instead of the GitHub release. Meant for CI. The installer still checks each archive against `SHA256SUMS`. |
 
 ## 4. Footnotes
 

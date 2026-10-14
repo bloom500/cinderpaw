@@ -68,7 +68,7 @@ test("compiled WhatsApp loader supports the external installation and explains m
         cwd: dir, env: { ...process.env, CINDERPAW_WHATSAPP_MODULE: setting }, timeout: 30_000,
       });
       expect(missing.exitCode).toBe(1);
-      expect(missing.stderr.toString()).toContain("WhatsApp is an optional external dependency");
+      expect(missing.stderr.toString()).toContain("WhatsApp support is not downloaded yet");
       expect(missing.stderr.toString()).toContain("CINDERPAW_WHATSAPP_MODULE");
     }
   } finally {
