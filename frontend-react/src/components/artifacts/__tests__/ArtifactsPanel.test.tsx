@@ -570,6 +570,8 @@ describe('rename, archive and delete in the list', () => {
 });
 
 describe('the Google button', () => {
+  // Each test reads the link it opened, not one an earlier test opened.
+  beforeEach(() => { shellOpen.mockReset(); shellOpen.mockResolvedValue(undefined); });
   const docOpen = () => useArtifacts.setState({
     loaded: true, editing: null, google: null,
     open: { row: row({ kind: 'document', title: 'Q3: report' }), content: '<p>hi</p>', showing: 2, versions: [] },
@@ -590,6 +592,8 @@ describe('the Google button', () => {
     expect(g.connect).toHaveBeenCalledTimes(1);
     expect(g.upload).toHaveBeenCalledWith('Q3- report', 'text/html', '<p>hi</p>', null, true, false);
     expect(await screen.findByText('open it')).toHaveAttribute('href', 'https://docs.google.com/document/d/abc/edit');
+    // 12 Oct: the Doc opens in the person's own browser, where they are signed in.
+    expect(shellOpen).toHaveBeenCalledWith('https://docs.google.com/document/d/abc/edit');
   });
 
   it('lists all four places, and greys Sheets for a document with the reason', async () => {

@@ -385,7 +385,7 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
           {shared && google && (
             <span className={cn('self-center text-2xs', google.error ? 'text-(--warning)' : 'text-text-muted')}>
               {google.signingIn
-                ? 'Finish signing in to Google in your browser.'
+                ? <>{'Finish signing in to Google in your browser. '}<button type="button" onClick={() => useArtifacts.getState().cancelGoogle()} className="underline hover:text-text-primary">Cancel</button></>
                 : google.busy
                 ? 'Sending to Google Drive…'
                 : google.error

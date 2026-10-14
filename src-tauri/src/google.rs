@@ -1,7 +1,7 @@
 //! "Send to Google Docs": one Google login, then one click per document.
 //!
-//! The login is the standard OAuth flow for an installed app, run inside the
-//! built-in browser: Google's consent page opens in the Browser panel, and
+//! The login is the standard OAuth flow for an installed app, run in the
+//! person's own browser: Google's consent page opens there, and
 //! when the person approves, Google sends the browser to `127.0.0.1:<port>`,
 //! where this module is listening for that one request. The refresh token
 //! goes to the OS keychain under `google-docs`; nothing else is stored.
@@ -145,8 +145,58 @@ async fn access_token() -> Result<String, String> {
         .form(&[("refresh_token", refresh.as_str()), ("client_id", c.id.as_str()), ("client_secret", c.secret.as_str()), ("grant_type", "refresh_token")])
         .send().await.map_err(|e| e.to_string())?
         .json().await.map_err(|e| e.to_string())?;
-    v.get("access_token").and_then(|t| t.as_str()).map(String::from)
-        .ok_or_else(|| "Google no longer accepts the saved login; connect again.".to_string())
+    match read_token_reply(&v) {
+        Ok(token) => Ok(token),
+        Err(Refusal::LoginGone) => {
+            // Kept, a dead login still counts as connected, so the button never
+            // offers sign-in again and every click fails the same way (12 Oct).
+            // Forgotten, the next try signs in from scratch.
+            disconnect()?;
+            Err("Your Google sign-in expired. Sign in again.".into())
+        }
+        Err(Refusal::Other(why)) => Err(format!("Google refused the saved sign-in: {why}")),
+    }
+}
+
+/// Why Google gave no access token for the saved login.
+enum Refusal {
+    /// The login itself is dead: the person removed Cinderpaw from their
+    /// Google account, it went unused for six months, or a client still in
+    /// Google's "Testing" mode passed its seven days. Signing in again fixes it.
+    LoginGone,
+    /// Anything else, in Google's own words: signing in again would not help.
+    Other(String),
+}
+
+fn read_token_reply(v: &Value) -> Result<String, Refusal> {
+    if let Some(token) = v.get("access_token").and_then(|t| t.as_str()) {
+        return Ok(token.to_string());
+    }
+    let code = v.get("error").and_then(|e| e.as_str()).unwrap_or("");
+    if code == "invalid_grant" {
+        return Err(Refusal::LoginGone);
+    }
+    let why = v.get("error_description").and_then(|e| e.as_str()).filter(|s| !s.is_empty());
+    Err(Refusal::Other(why.unwrap_or(if code.is_empty() { "no reason given" } else { code }).to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_dead_login_is_told_apart_from_other_refusals() {
+        assert!(matches!(read_token_reply(&json!({ "access_token": "ya29" })), Ok(t) if t == "ya29"));
+        assert!(matches!(
+            read_token_reply(&json!({ "error": "invalid_grant", "error_description": "Token has been expired or revoked." })),
+            Err(Refusal::LoginGone)
+        ));
+        assert!(matches!(
+            read_token_reply(&json!({ "error": "invalid_client", "error_description": "The OAuth client was not found." })),
+            Err(Refusal::Other(why)) if why == "The OAuth client was not found."
+        ));
+        assert!(matches!(read_token_reply(&json!({})), Err(Refusal::Other(why)) if why == "no reason given"));
+    }
 }
 
 /// Upload one file to the person's Drive. `convert` turns text or HTML into a

@@ -1,5 +1,5 @@
 import { ChevronDown, FileText, HardDrive, Mail, Sheet, type LucideIcon } from 'lucide-react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { googlePlan, GOOGLE_DESTS, type GoogleDest } from '@/stores/artifacts';
 import { cn } from '@/lib/utils';
 
@@ -21,7 +21,7 @@ export function googleCanTake(kind: string, content: string, title = ''): boolea
  * Gmail. A place that cannot take this artifact stays in the list, greyed,
  * with the reason, so nobody wonders where Sheets went.
  */
-export function GoogleMenu({ kind, content, title, disabled, className, onSend }: {
+export function GoogleMenu({ kind, content, title, disabled, className, onSend, onSignOut }: {
   kind: string;
   content: string;
   /** A file's type is in its title (leads.csv), and that decides Sheets. */
@@ -29,6 +29,8 @@ export function GoogleMenu({ kind, content, title, disabled, className, onSend }
   disabled?: boolean;
   className?: string;
   onSend: (dest: GoogleDest) => void;
+  /** Picked the wrong account on Google's page? This is the way back. */
+  onSignOut?: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -56,6 +58,15 @@ export function GoogleMenu({ kind, content, title, disabled, className, onSend }
             </DropdownMenuItem>
           );
         })}
+        {onSignOut && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onSignOut} className="flex flex-col items-start gap-0 rounded-xl p-2">
+              <span className="text-sm text-text-primary">Sign out of Google</span>
+              <span className="text-2xs text-text-muted">Next time, pick which account to use</span>
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

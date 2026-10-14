@@ -106,7 +106,7 @@ export function ArtifactsPanel({
   const {
     rows, loaded, open, busy, error, lastExport, refresh, close, deleteArtifact,
     editing, startEdit, cancelEdit, save, importPdf, showingArchived, showArchived,
-    google, panelTab: tab,
+    google, cancelGoogle, panelTab: tab,
   } = useArtifacts();
   // Delete is for good now, so the header's Delete asks first, in the panel.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -302,7 +302,7 @@ export function ArtifactsPanel({
       {open && google && (
         <p className={cn('border-b border-border-subtle px-3 py-2 text-2xs', google.error ? 'text-(--warning)' : 'text-text-muted')}>
           {google.signingIn
-            ? 'Finish signing in to Google in your browser, then come back here.'
+            ? <>{'Finish signing in to Google in your browser, then come back here. '}<button type="button" onClick={cancelGoogle} className="underline hover:text-text-primary">Cancel</button></>
             : google.busy
             ? `Sending to ${GOOGLE_PLACE[google.dest ?? 'drive']}…`
             : google.error
@@ -311,7 +311,7 @@ export function ArtifactsPanel({
                 ? google.dest === 'gmail'
                   ? <>{'A new email with the link is open in your browser. '}<ExternalLink href={google.link}>See the file</ExternalLink></>
                   : <>{`In ${GOOGLE_PLACE[google.dest ?? 'drive']}: `}<ExternalLink href={google.link}>open it</ExternalLink></>
-                : null}
+                : google.note ?? null}
         </p>
       )}
 
@@ -888,7 +888,7 @@ function Preview({ kind, title, content, id = '' }: { kind: string; title: strin
  */
 function Overview({ googleRegistered, onOpen }: { googleRegistered: boolean; onOpen: () => void }) {
   const {
-    open, busy, exportArtifact, sendToGoogle, google, showVersion, showChanges, restore, lastExport,
+    open, busy, exportArtifact, sendToGoogle, signOutGoogle, google, showVersion, showChanges, restore, lastExport,
   } = useArtifacts();
   const summary = useMemo(() => (open ? summaryOf(shownKind(open.row.kind, open.content), open.content) : ''), [open?.row.kind, open?.content]);
   if (!open) return null;
@@ -939,6 +939,7 @@ function Overview({ googleRegistered, onOpen }: { googleRegistered: boolean; onO
               title={row.title}
               disabled={busy || google?.busy === true}
               onSend={(dest) => void sendToGoogle(undefined, dest)}
+              onSignOut={() => void signOutGoogle()}
               className={cn(button, 'flex-1 border-border-default bg-bg-elevated text-text-primary hover:bg-bg-hover')}
             />
           )}

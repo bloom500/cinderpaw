@@ -106,7 +106,11 @@ interface ArtifactsStore {
   /** Set after an export, so the panel can say where the file went. */
   lastExport: { path: string; note: string } | null;
   /** After Send to Google Docs: the link, or what went wrong. */
-  google: { link?: string; error?: string; busy?: boolean; signingIn?: boolean; dest?: GoogleDest } | null;
+  google: { link?: string; error?: string; note?: string; busy?: boolean; signingIn?: boolean; dest?: GoogleDest } | null;
+  /** Gives up waiting on a sign-in the person walked away from; the buttons work again at once. */
+  cancelGoogle: () => void;
+  /** Forgets the saved Google login, so the next send asks which account. */
+  signOutGoogle: () => Promise<void>;
   /**
    * Send the open artifact to the person's Google Drive: text and HTML become
    * a Google Doc, a PDF stays a PDF. First time, it logs them in through the
@@ -191,6 +195,8 @@ let wanted: string | null = null;
  *  field parsing; `versions` does not). Kept until the document opens. */
 let earlyVersions: { id: string; versions: ArtifactVersionRow[] } | null = null;
 let seq = 0;
+/** Which Send to Google is current; Cancel moves it on, so a late answer is dropped. */
+let googleRun = 0;
 const nextId = () => `artifact-${Date.now()}-${++seq}`;
 
 async function send(
@@ -223,6 +229,19 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   conflict: null,
   review: null,
   google: null,
+  cancelGoogle: () => {
+    googleRun++;
+    set({ google: null });
+  },
+  signOutGoogle: async () => {
+    googleRun++;
+    try {
+      await tauri.google.disconnect();
+      set({ google: { note: 'Signed out of Google. The next send asks which account to use.' } });
+    } catch (e) {
+      set({ google: { error: String(e) } });
+    }
+  },
   focus: null,
   clearFocus: () => set({ focus: null }),
 
@@ -234,26 +253,53 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     if (!doc) return;
     const plan = googlePlan(shownKind(doc.row.kind, doc.content), dest, doc.content, doc.row.title);
     if (!plan) return;
-    set({ google: { busy: true, dest } });
+    // A sign-in waits up to 5 minutes for the browser. Cancel starts a new run,
+    // and whatever the old one brings back later is dropped, not shown.
+    const run = ++googleRun;
+    const show = (g: ArtifactsStore['google']) => {
+      if (run === googleRun) set({ google: g });
+    };
+    show({ busy: true, dest });
+    // Opens Google's consent page in the person's own browser and resolves
+    // once they have approved; the artifact stays open underneath.
+    const signIn = async () => {
+      show({ busy: true, signingIn: true, dest });
+      await tauri.google.connect();
+      if (run !== googleRun) throw new Error('cancelled');
+      show({ busy: true, dest });
+    };
     try {
+      let signedIn = false;
       if (!(await tauri.google.status())) {
-        // Opens Google's consent page in the person's own browser and resolves
-        // once they have approved; the artifact stays open underneath.
-        set({ google: { busy: true, signingIn: true, dest } });
-        await tauri.google.connect();
-        set({ google: { busy: true, dest } });
+        await signIn();
+        signedIn = true;
       }
       const name = plan.convert ? fileName(doc.row.title) : downloadName(doc.row.title, doc.row.kind);
       const data = plan.content ?? doc.content;
       const encoding = plan.content === undefined && doc.encoding === 'base64' ? 'base64' : null;
-      const link = await tauri.google.upload(name, plan.mime, data, encoding, plan.convert, dest === 'gmail');
-      if (dest === 'gmail') {
-        const compose = gmailCompose(doc.row.title, link);
-        await openUrl(compose).catch(() => window.open(compose, '_blank', 'noopener,noreferrer'));
+      const upload = () => tauri.google.upload(name, plan.mime, data, encoding, plan.convert, dest === 'gmail');
+      let link: string;
+      try {
+        link = await upload();
+      } catch (e) {
+        // google.rs forgets a saved login Google stopped accepting. Sign in once
+        // more instead of failing the same way on every click (12 Oct).
+        if (signedIn || (await tauri.google.status()) !== false) throw e;
+        await signIn();
+        link = await upload();
       }
-      set({ google: { link, dest } });
+      // The file opens in the person's own browser, already signed in to Google.
+      const target = dest === 'gmail' ? gmailCompose(doc.row.title, link) : link;
+      // The file is in Google by now: a browser that will not open falls back
+      // to a new window, never to an error that says the send failed.
+      try {
+        await openUrl(target);
+      } catch {
+        window.open(target, '_blank', 'noopener,noreferrer');
+      }
+      show({ link, dest });
     } catch (e) {
-      set({ google: { error: String(e), dest } });
+      show({ error: String(e), dest });
     }
   },
 
