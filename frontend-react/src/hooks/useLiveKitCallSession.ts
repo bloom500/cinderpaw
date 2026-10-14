@@ -75,8 +75,10 @@ export function callFailureLine(raw: string): string {
   if (/429|quota|rate.?limit|RESOURCE_EXHAUSTED/i.test(text)) {
     return 'Google cut the call off: the free tier limits how much voice you get. Wait a few minutes, or add billing to that key.';
   }
+  // Not only a model that never speaks: on 14 Oct the default model answered
+  // three times, then Google stopped the call with this same refusal.
   if (/CONTENT_TYPE_AUDIO|not supported for this model/i.test(text)) {
-    return 'That model cannot speak: it accepts a live session but refuses audio. Pick another model in the call settings.';
+    return 'Google stopped the call: it turned down a voice setting for this model. Press Call to try again. If it stops right away every time, pick another model in the call settings.';
   }
   return text || 'The call reported an error.';
 }

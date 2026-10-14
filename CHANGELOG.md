@@ -96,6 +96,12 @@
 - Appearance -> Background: **Glass** (your desktop shows through) or **Solid**.
 - Cubby reacts to what the agent is doing.
 
+### Known problems
+
+- **Voice calls are in beta.** A call with Gemini can stop on its own partway
+  through, and the agent can cut off the last word of a sentence. When a call
+  stops, the screen says why: press Call to start again. Both are being worked on.
+
 ### Security
 
 - A prompt-injection gate checks tool calls before they run.

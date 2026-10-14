@@ -928,6 +928,7 @@ export function CallOverlay({
           const expanded = settingsOpen || noEngine || keyMissing || ready === false || jevBlocked;
           return (
           <div className="relative flex w-full max-w-xl flex-col items-center gap-3">
+            <p className="max-w-md text-center text-2xs text-text-muted">{t('call.beta')}</p>
             {/* The one line that stays: who answers, where the audio goes, and
                 the way to everything else. Read before the microphone opens. */}
             <div className="flex items-center gap-2 text-sm">

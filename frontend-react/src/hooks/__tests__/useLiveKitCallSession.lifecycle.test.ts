@@ -387,7 +387,7 @@ describe('a call that ends on its own leaves nothing behind for the next one', (
       act(() => emit!({ kind: 'closed', text: 'CONTENT_TYPE_AUDIO is not supported for this model' } as LiveKitAgentEvent));
       act(() => { vi.advanceTimersByTime(2000); });
       expect(result.current.phase).toBe('ready');
-      expect(result.current.notice).toMatch(/cannot speak/);
+      expect(result.current.notice).toMatch(/Google stopped the call.*Press Call to try again/);
     } finally {
       vi.useRealTimers();
     }
