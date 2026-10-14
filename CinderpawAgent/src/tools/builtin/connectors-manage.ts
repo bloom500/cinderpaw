@@ -64,10 +64,11 @@ export const CATALOG: Record<string, CatalogEntry> = {
       "Click New Application. Type a name for your bot. Tick the box and click Create.",
       "On the left, click Bot.",
       "Find Message Content Intent and turn it on. Click Save. Without it, I can't read what you write.",
-      "Click Reset Token, then Yes, then Copy. Discord shows it just once.",
-      "Paste the token in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
+      // The token comes last, so it goes straight from Discord into the box and never waits around.
       "Now bring the bot to your server. On the left, click OAuth2. Scroll to the URL Generator. Tick bot. Then tick Send Messages and Read Message History.",
       "Open the link at the bottom. Pick your server and click the button to add it.",
+      "Go back to the Discord page. On the left, click Bot. Click Reset Token, then Yes, then Copy. If Discord asks for your password or a code, type it. Discord shows the token just once.",
+      "Paste the token in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Last, send your bot a message. I will ask you: is that you?",
     ],
   },
