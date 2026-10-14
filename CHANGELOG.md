@@ -13,8 +13,10 @@
 > **Feral is now Cinderpaw.** Your chats, settings, connectors, models and saved
 > API keys come with you. On the first start, `~/.feral` is copied to
 > `~/.cinderpaw` and the old folder is left where it was. On a Mac, the system may
-> ask once whether Cinderpaw can read a key that Feral saved: say yes. The command
-> is now `cinderpaw`. The full story is in the `2026.08.15` and `2026.08.21`
+> ask once whether Cinderpaw can read a key that Feral saved: say yes. On Windows,
+> Feral may still be in your list of apps next to Cinderpaw: once Cinderpaw has
+> opened, you can uninstall Feral and keep everything. The command is now
+> `cinderpaw`. The full story is in the `2026.08.15` and `2026.08.21`
 > sections of the [changelog](https://github.com/bloom500/cinderpaw/blob/main/CHANGELOG.md),
 > which were written but never released on their own.
 

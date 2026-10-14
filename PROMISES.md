@@ -82,8 +82,9 @@ usage; stopping the display is not proof that every remote request stopped.
 Remove the app and your settings, memory, keys and downloaded models stay
 where they are, so putting it back later picks up where you left off. When you
 want the profile directory removed, `cinderpaw uninstall --purge` removes it.
-It does not clear credentials from the OS key store or promise secure erasure
-of backups or previously deleted disk data.
+After the one-command install it also removes the saved AI keys from the OS
+key store; after any other install those stay until you remove them. It does
+not promise secure erasure of backups or previously deleted disk data.
 
 **8. Automatic update checks can be disabled.**
 The desktop's **Settings → General** switch controls its startup update check.

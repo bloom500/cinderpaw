@@ -96,9 +96,9 @@ export interface AgentLoopConfig {
    * Grammar-constrained tool calls. When true, every main-loop completion
    * carries a GBNF grammar (lazy, triggered on a tool-call fence) so the local
    * engine can only emit a valid tool-call JSON once the model opens one —
-   * prose answers stay unconstrained. Off by default: it requires the bundled
-   * llama.cpp engine (the grammar field is a no-op on other backends) and the
-   * text parser remains the proven fallback. Enable with CINDERPAW_TOOL_GRAMMAR=true.
+   * prose answers stay unconstrained. On by default; CINDERPAW_TOOL_GRAMMAR=false
+   * turns it off. Only the bundled llama.cpp engine reads the grammar (it is a
+   * no-op on other backends), and the text parser remains the fallback.
    */
   useToolGrammar: boolean;
   /**
