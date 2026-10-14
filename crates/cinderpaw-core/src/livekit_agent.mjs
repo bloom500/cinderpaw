@@ -778,7 +778,7 @@ const talk = { agent: '', user: '', agentSpokeAt: 0 };
  * never a word of what was said. `turnMark` is called from the session's
  * state handlers and from the tool wrapper.
  */
-const turn = { n: 0, userEndAt: 0, tools: 0, toolMs: 0, open: false, called: false, guarded: false };
+const turn = { n: 0, userEndAt: 0, tools: 0, toolMs: 0, open: false, called: false, guarded: false, said: 0 };
 function turnMark(what, ms = 0) {
   if (what === 'user_end') {
     turn.n += 1;
@@ -793,6 +793,7 @@ function turnMark(what, ms = 0) {
     turn.toolMs += ms;
   } else if (what === 'agent_speaks' && turn.open) {
     turn.open = false;
+    turn.said += 1;
     console.log(
       `voice_turn turn=${turn.n} reply_ms=${Date.now() - turn.userEndAt} tools=${turn.tools} tool_ms=${turn.toolMs} provider=${PROVIDER}`,
     );
@@ -1244,7 +1245,13 @@ async function assistant(ctx, makeSession) {
       // Not on quota, a key, or a model that refuses: those fail again at
       // once, and the person needs the reason on screen instead.
       const why = lastError;
-      const transient = TRANSIENT_CODES.has(lastCode) || /internal error|unavailable|deadline|reset/i.test(why);
+      // CONTENT_TYPE_AUDIO too, but only once the model has spoken: other
+      // projects see Google send it at random to native-audio sessions that
+      // ran fine a moment earlier (LiveKit forum, AVA #700, ParrotVoiceApp #4;
+      // here 17-18 Sep and 14 Oct). A model that refuses audio from the start
+      // never speaks, and gets the reason on screen instead of three retries.
+      const transient = TRANSIENT_CODES.has(lastCode) || /internal error|unavailable|deadline|reset/i.test(why)
+        || (turn.said > 0 && /CONTENT_TYPE_AUDIO/i.test(why));
       // A model that will not open a session with Google Search in it gets one
       // without, rather than a call that cannot start at all.
       const searchRefused = nativeSearch && /search|grounding/i.test(why);
@@ -1330,7 +1337,10 @@ async function assistant(ctx, makeSession) {
   await open();
 
   console.log(
-    `CINDERPAW_AGENT_READY mode=assistant provider=${PROVIDER} persona=${INSTRUCTIONS.length} tools=${TOOL_DECLARATIONS.length}`,
+    // The model id too: on 14 Oct "You exceeded your current quota" came back
+    // for a key whose quota page showed 0 used, and nothing said which model
+    // the session had asked for.
+    `CINDERPAW_AGENT_READY mode=assistant provider=${PROVIDER} model=${MODEL || 'default'} persona=${INSTRUCTIONS.length} tools=${TOOL_DECLARATIONS.length}`,
   );
 
   if (!listened) {
