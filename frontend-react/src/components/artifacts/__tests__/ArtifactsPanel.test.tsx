@@ -596,6 +596,24 @@ describe('the Google button', () => {
     expect(shellOpen).toHaveBeenCalledWith('https://docs.google.com/document/d/abc/edit');
   });
 
+  // 14 Oct, beta.1: he closed Google's sign-in tab and the button stayed grey.
+  it('a sign-in page closed without finishing leaves the button working: Google again starts over', async () => {
+    const user = userEvent.setup();
+    const { tauri: t } = await import('@/lib/tauri');
+    const g = t.google as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    g.status = vi.fn().mockResolvedValue(false);
+    g.connect = vi.fn(() => new Promise<void>(() => {})); // the page was closed: Google never answers
+    docOpen();
+    render(<ArtifactsPanel onClose={() => {}} />);
+    await user.click(await screen.findByLabelText('Send to Google'));
+    await user.click(await screen.findByText('Google Docs'));
+    expect(await screen.findByText(/Closed that page\? Pick Google again/)).toBeTruthy();
+    expect(screen.getByLabelText('Send to Google')).toBeEnabled();
+    await user.click(screen.getByLabelText('Send to Google'));
+    await user.click(await screen.findByText('Google Docs'));
+    await waitFor(() => expect(g.connect).toHaveBeenCalledTimes(2));
+  });
+
   it('lists all four places, and greys Sheets for a document with the reason', async () => {
     const user = userEvent.setup();
     const { tauri: t } = await import('@/lib/tauri');

@@ -385,7 +385,7 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
           {shared && google && (
             <span className={cn('self-center text-2xs', google.error ? 'text-(--warning)' : 'text-text-muted')}>
               {google.signingIn
-                ? <>{'Finish signing in to Google in your browser. '}<button type="button" onClick={() => useArtifacts.getState().cancelGoogle()} className="underline hover:text-text-primary">Cancel</button></>
+                ? <>{'Finish signing in to Google in your browser. Closed it? Click Share again. '}<button type="button" onClick={() => useArtifacts.getState().cancelGoogle()} className="underline hover:text-text-primary">Cancel</button></>
                 : google.busy
                 ? 'Sending to Google Drive…'
                 : google.error
@@ -409,7 +409,7 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
             type="button"
             aria-label="Share"
             title="Share to Google Drive"
-            disabled={google?.busy === true}
+            disabled={google?.busy === true && !google.signingIn}
             onClick={() => {
               setShared(true);
               void useArtifacts.getState().sendToGoogle({ title: f.title, kind: f.kind, content }, shareTo ?? 'drive');

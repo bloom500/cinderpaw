@@ -302,7 +302,7 @@ export function ArtifactsPanel({
       {open && google && (
         <p className={cn('border-b border-border-subtle px-3 py-2 text-2xs', google.error ? 'text-(--warning)' : 'text-text-muted')}>
           {google.signingIn
-            ? <>{'Finish signing in to Google in your browser, then come back here. '}<button type="button" onClick={cancelGoogle} className="underline hover:text-text-primary">Cancel</button></>
+            ? <>{'Finish signing in to Google in your browser, then come back here. Closed that page? Pick Google again. '}<button type="button" onClick={cancelGoogle} className="underline hover:text-text-primary">Cancel</button></>
             : google.busy
             ? `Sending to ${GOOGLE_PLACE[google.dest ?? 'drive']}…`
             : google.error
@@ -937,7 +937,9 @@ function Overview({ googleRegistered, onOpen }: { googleRegistered: boolean; onO
               kind={shownKind(row.kind, content)}
               content={content}
               title={row.title}
-              disabled={busy || google?.busy === true}
+              // Not while signing in: whoever closed Google's page clicks
+              // again to start over, instead of a grey button for 5 minutes.
+              disabled={busy || (google?.busy === true && !google.signingIn)}
               onSend={(dest) => void sendToGoogle(undefined, dest)}
               onSignOut={() => void signOutGoogle()}
               className={cn(button, 'flex-1 border-border-default bg-bg-elevated text-text-primary hover:bg-bg-hover')}
