@@ -98,9 +98,11 @@
 
 ### Known problems
 
-- **Voice calls are in beta.** A call with Gemini can stop on its own partway
-  through, and the agent can cut off the last word of a sentence. When a call
-  stops, the screen says why: press Call to start again. Both are being worked on.
+- **Voice calls with Gemini are in beta.** A Gemini call can stop on its own
+  partway through, and the agent can cut off the last word of a sentence: both
+  come from Google's side, and other apps report them too. When a call stops,
+  the screen says why, and a call that had already started reconnects by itself.
+  **OpenAI Realtime is the recommended voice** and the first one offered.
 
 ### Security
 

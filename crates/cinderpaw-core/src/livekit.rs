@@ -210,18 +210,12 @@ pub struct S2sProvider {
 /// would need a chain we assemble and then maintain, which is the thing this
 /// migration exists to stop doing — see `docs/voice-livekit.md`.
 pub const S2S_PROVIDERS: &[S2sProvider] = &[
-    S2sProvider {
-        id: "google",
-        label: "Gemini Realtime",
-        plugin: "@livekit/agents-plugin-google",
-        // Kept identical to the engine this replaces (`commands/live.rs`), so
-        // the migration changes the machinery and not the voice a person
-        // already knows.
-        model: "gemini-2.5-flash-native-audio-latest",
-        voice: "Kore",
-        voices: &["Kore", "Puck", "Charon", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr"],
-        pipeline: false,
-    },
+    // OpenAI first: the order is the default for a call nobody picked a
+    // vendor for (`resolve_provider` takes the first with a key, and the
+    // call screen mirrors it). On 14 Oct GPT-Live ran a whole agent task
+    // flawlessly while Gemini's native-audio models dropped calls and cut
+    // last words (a known Google-side problem), so OpenAI is the
+    // recommended one. A stored pick of Gemini is still honoured.
     S2sProvider {
         id: "openai",
         label: "OpenAI Realtime",
@@ -238,6 +232,18 @@ pub const S2S_PROVIDERS: &[S2sProvider] = &[
             "marin", "cinder", "aster", "beacon", "stone", "vesper", "quartz", "ripple", "willow", "gleam",
             "meridian", "bossa", "tempo", "delta",
         ],
+        pipeline: false,
+    },
+    S2sProvider {
+        id: "google",
+        label: "Gemini Realtime",
+        plugin: "@livekit/agents-plugin-google",
+        // Kept identical to the engine this replaces (`commands/live.rs`), so
+        // the migration changes the machinery and not the voice a person
+        // already knows.
+        model: "gemini-2.5-flash-native-audio-latest",
+        voice: "Kore",
+        voices: &["Kore", "Puck", "Charon", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr"],
         pipeline: false,
     },
     // The pipeline, assembled from parts that already ship in this binary.

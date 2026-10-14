@@ -206,6 +206,13 @@ describe('ProviderToggle', () => {
     expect(screen.getByText('Gemini Realtime')).toBeInTheDocument();
     expect(screen.getByText('OpenAI Realtime')).toBeInTheDocument();
   });
+
+  // 14 Oct: OpenAI held a whole agent task; Gemini dropped calls on Google's side.
+  it('marks OpenAI as the recommended vendor, and only OpenAI', () => {
+    render(<ProviderToggle providers={providers} effective="google" willEcho={false} onChange={() => {}} t={t as never} />);
+    expect(screen.getAllByText('call.recommended')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /OpenAI Realtime/ })).toHaveTextContent('call.recommended');
+  });
 });
 
 describe('shownS2sProvider', () => {

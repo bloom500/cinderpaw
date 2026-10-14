@@ -928,7 +928,9 @@ export function CallOverlay({
           const expanded = settingsOpen || noEngine || keyMissing || ready === false || jevBlocked;
           return (
           <div className="relative flex w-full max-w-xl flex-col items-center gap-3">
-            <p className="max-w-md text-center text-2xs text-text-muted">{t('call.beta')}</p>
+            {currentS2s?.id === 'google' && (
+              <p className="max-w-md text-center text-2xs text-text-muted">{t('call.beta')}</p>
+            )}
             {/* The one line that stays: who answers, where the audio goes, and
                 the way to everything else. Read before the microphone opens. */}
             <div className="flex items-center gap-2 text-sm">
@@ -2121,7 +2123,7 @@ export function ProviderToggle({
   /** True when that provider has no key, so the far end will only echo. */
   willEcho: boolean;
   onChange: (id: string) => void;
-  t: (key: 'call.providerNoKey' | 'call.providerNone' | 'call.groupPipeline' | 'call.groupS2s') => string;
+  t: (key: 'call.providerNoKey' | 'call.providerNone' | 'call.groupPipeline' | 'call.groupS2s' | 'call.recommended') => string;
 }) {
   if (providers.length === 0) return null;
   // Two kinds of call, then the vendor. Three flat pills put "Gemini",
@@ -2182,6 +2184,13 @@ export function ProviderToggle({
               className={pill(p.id === effective, 'whitespace-nowrap')}
             >
               {p.label}
+              {/* The one that held a whole agent task on 14 Oct; Gemini still
+                  drops calls on Google's side. */}
+              {p.id === 'openai' && (
+                <span className={cn('text-micro', p.id === effective ? 'opacity-80' : 'text-brand')}>
+                  {t('call.recommended')}
+                </span>
+              )}
               {/* Said on the button itself, not only in a tooltip or a log: a
                   vendor with no key produces an echo, and "why did it just repeat
                   me" is not a question the app should make somebody research. */}

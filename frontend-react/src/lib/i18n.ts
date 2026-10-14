@@ -90,10 +90,12 @@ const en = {
   'voice.provider.confirm': 'Use this',
   // Voice call
   'call.aria': 'Start a voice call',
-  'call.title': 'Voice call (beta)',
-  // 14 Oct, beta.1: calls dropped and last words got cut. Said before the
-  // microphone opens, so a drop is a known problem, not a broken app.
-  'call.beta': 'Voice calls are in beta. A call can stop on its own, or cut off its last word. If it stops, press Call again.',
+  'call.title': 'Voice call',
+  // 14 Oct, beta.1: Gemini calls dropped and cut last words (Google-side);
+  // OpenAI ran clean. Said before the microphone opens, for Gemini only, so a
+  // drop is a known problem with a way round it, not a broken app.
+  'call.beta': 'Gemini calls are in beta: a call can stop on its own, or cut off its last word. For the steadiest call, pick OpenAI Realtime.',
+  'call.recommended': 'Recommended',
   'call.disclosure': 'Before the microphone opens, this is what will handle the call:',
   // These name the ENGINE, not the hardware. "Your voice → Groq" read as if Groq
   // were the microphone; the direction of the conversion is what makes it clear.
