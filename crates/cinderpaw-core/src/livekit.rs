@@ -57,6 +57,16 @@ struct Ports {
     worker: u16,
 }
 
+/// The installed app has no console, so on Windows every console program it
+/// starts (node, npm, the LiveKit server) opened a black terminal window of its
+/// own: beta.1 showed them on entering voice and two more on every call. Dev
+/// never does, because `cargo tauri dev` runs in a terminal they share.
+fn no_console(cmd: &mut Command) -> &mut Command {
+    #[cfg(windows)]
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    cmd
+}
+
 /// Ask the OS for a free TCP port by binding to 0 and letting go.
 ///
 /// There is a window between letting go and the server binding it, and nothing
@@ -899,7 +909,7 @@ pub(crate) async fn ensure_agent(
     // left the person on the call screen with a spinner and no sentence,
     // for as long as they cared to wait. Five minutes is generous for four
     // packages on a slow line, and the message says what to check.
-    let child = Command::new(npm)
+    let child = no_console(&mut Command::new(npm))
         .args(["install", "--no-audit", "--no-fund"])
         .args(&specs)
         .current_dir(&root)
@@ -1042,7 +1052,7 @@ pub async fn start(
     // six of them.
     reap_orphan_server();
 
-    let mut server = Command::new(&server_bin)
+    let mut server = no_console(&mut Command::new(&server_bin))
         .arg("--config")
         .arg(&cfg)
         .stdout(Stdio::null())
@@ -1238,7 +1248,7 @@ pub async fn start(
                 .env("CINDERPAW_API_TOKEN", rt.local_api_token.as_ref());
         }
     }
-    let mut agent = cmd.spawn().map_err(|e| format!("cannot start the voice agent: {e}"))?;
+    let mut agent = no_console(&mut cmd).spawn().map_err(|e| format!("cannot start the voice agent: {e}"))?;
 
     // Both pipes are drained from the moment the child exists, and that is a
     // correctness requirement rather than tidiness. stderr used to be read only
