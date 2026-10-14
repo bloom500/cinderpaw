@@ -1054,6 +1054,10 @@ fn url_join(base: &str, path: &str) -> String {
 /// to Cinderpaw so it never collides with other apps' credentials.
 const KEYCHAIN_SERVICE: &str = "ai.bloom.cinderpaw.byok";
 
+/// Where Feral, this app's name until September 2026, kept the keys. Read
+/// on a miss and moved: see [`crate::secret_store::move_legacy`].
+const LEGACY_KEYCHAIN_SERVICE: &str = "ai.bloom.feral.byok";
+
 /// Human label for a keychain-probe error, so callers (e.g. `cinderpaw doctor`)
 /// can report the kind without depending on the `keyring` crate themselves.
 pub fn keychain_error_kind(err: &keyring::Error) -> &'static str {
@@ -1129,12 +1133,16 @@ pub fn byok_set(provider_id: &str, key: &str) -> anyhow::Result<()> {
 /// caller treats absent key the same as unreadable key.
 pub fn byok_get(provider_id: &str) -> Option<String> {
     crate::secret_store::get_with_file_key(KEYCHAIN_SERVICE, provider_id, provider_id)
+        .or_else(|| crate::secret_store::move_legacy(LEGACY_KEYCHAIN_SERVICE, KEYCHAIN_SERVICE, provider_id))
 }
 
 /// Remove a provider's API key from BOTH stores. The keychain and the
 /// file fallback are siblings, not primary/replica: clearing must clear
 /// both so a later write can't resurrect a key from the other side.
 fn clear_key(provider_id: &str) -> anyhow::Result<()> {
+    // A key the move could not write is still under the old name; a removed
+    // key must not come back from there.
+    let _ = keyring::Entry::new(LEGACY_KEYCHAIN_SERVICE, provider_id).and_then(|e| e.delete_credential());
     crate::secret_store::clear_with_file_key(KEYCHAIN_SERVICE, provider_id, provider_id)
 }
 
