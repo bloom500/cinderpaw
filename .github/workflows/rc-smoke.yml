@@ -58,6 +58,21 @@ jobs:
         run: |
           npm install --no-save --no-package-lock --prefix scripts/rc-smoke playwright-core@1
           node scripts/rc-smoke/windows.mjs
+      # A failure with no picture was all beta.1 left behind ("no WebView2
+      # DevTools port"): say whether the window was there, what ran, and what
+      # the app logged.
+      - name: What was on screen
+        if: failure()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force smoke-out | Out-Null
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save("smoke-out/windows-desktop.png")
+          Get-Process cinderpaw*, msedgewebview2 -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, MainWindowTitle -AutoSize | Out-File smoke-out/processes.txt
+          Copy-Item "$HOME/.cinderpaw/logs" smoke-out/logs -Recurse -ErrorAction SilentlyContinue
       - uses: actions/upload-artifact@v4
         if: always()
         with:
