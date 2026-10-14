@@ -284,6 +284,19 @@ pub(crate) fn file_args(args: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// The main window on a screen too small for its 1280x800: shrunk to the
+/// screen's free area (taskbar and dock left out) and centered in it. `None`
+/// when it already fits.
+fn fit_into(window: (u32, u32), area: &tauri::PhysicalRect<i32, u32>) -> Option<(u32, u32, i32, i32)> {
+    let (w, h) = (window.0.min(area.size.width), window.1.min(area.size.height));
+    if (w, h) == window {
+        return None;
+    }
+    let x = area.position.x + ((area.size.width - w) / 2) as i32;
+    let y = area.position.y + ((area.size.height - h) / 2) as i32;
+    Some((w, h, x, y))
+}
+
 /// Appearance -> Background: Solid. Read from settings once at startup and
 /// flipped by `set_window_solid`; a static because the focus handler below
 /// runs on every focus change and must not read a file each time.
@@ -979,6 +992,20 @@ Everything is there and nothing is at risk. Cinderpaw will                      
                 *pending = file_args(&std::env::args().collect::<Vec<_>>());
             }
 
+            // tauri.conf.json opens the window at 1280x800. On a smaller screen
+            // (a 1366x768 laptop, any laptop at 125%) it hung past the edges and
+            // the first screen's Get started sat under the taskbar: the beta.1
+            // install smoke on a 1024x768 Mac showed the welcome cut off (14 Oct).
+            #[cfg(desktop)]
+            if let Some(w) = app.get_window("main") {
+                if let (Ok(Some(m)), Ok(size)) = (w.current_monitor(), w.inner_size()) {
+                    if let Some((width, height, x, y)) = fit_into((size.width, size.height), m.work_area()) {
+                        let _ = w.set_size(tauri::PhysicalSize::new(width, height));
+                        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+                    }
+                }
+            }
+
             // Alt+Space from anywhere brings Cinderpaw to the front with the
             // cursor in the composer. If another app already owns Alt+Space
             // (PowerToys Run does), Ctrl+Alt+Space is tried instead, and the
@@ -1204,6 +1231,17 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn a_window_bigger_than_the_screen_is_shrunk_and_centered() {
+        let rect = |x, y, w, h| tauri::PhysicalRect { position: tauri::PhysicalPosition::new(x, y), size: tauri::PhysicalSize::new(w, h) };
+        // A big screen: left alone.
+        assert_eq!(fit_into((1280, 800), &rect(0, 0, 1920, 1040)), None);
+        // 1366x768 with a 48 px taskbar: too tall only, so full height, centered across.
+        assert_eq!(fit_into((1280, 800), &rect(0, 0, 1366, 720)), Some((1280, 720, 43, 0)));
+        // A second monitor to the right, under a menu bar.
+        assert_eq!(fit_into((1280, 800), &rect(1920, 25, 1024, 743)), Some((1024, 743, 1920, 25)));
+    }
 
     #[test]
     fn download_key_format() {
