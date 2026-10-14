@@ -1,7 +1,7 @@
 # CINDERPAW HTTP API reference
 
-> **Stability policy:** As of v1.0 the Cinderpaw HTTP API is **unstable
-> pre-2.0**. Every response carries
+> **Stability policy:** Apart from the two compat surfaces below, the
+> Cinderpaw HTTP API is **unstable**. Every response carries
 > `X-Cinderpaw-Api-Stability: stable|unstable`. The **only** stable
 > surfaces are the third-party protocol compat:
 >   * `/api/*` — Ollama-compatible.
@@ -10,9 +10,10 @@
 > Everything else (`/runtime/*`, `/meta/*`, `/governance/*`,
 > `/modules/*`, `/system_info`, `/providers/test`, `/tokenize`,
 > `/events`, the catalog reads) is `unstable`. Additive changes are
-> fine; breaking changes can land between minor releases without a
-> deprecation cycle. Decision recorded in the spec at
-> `docs/2026-07-09-v1-architecture-hardening-spec.md` §B1.
+> fine; breaking changes can land in any release without a
+> deprecation cycle. The header is set by `api_stability_header` in
+> `crates/cinderpaw-core/src/api.rs` and checked by
+> `crates/cinderpaw-core/tests/api_stability.rs`.
 
 The list below mirrors `crates/cinderpaw-core/src/api.rs::router()`.
 That file is the source of truth — `scripts/check-api-docs.mjs`

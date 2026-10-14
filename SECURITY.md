@@ -90,9 +90,9 @@ Every tool call passes a security layer before execution:
 
 - Releases are signed (tauri-plugin-updater / minisign) and verified against
   the public key embedded in the installed app.
-- The 0.1.x signing key was exposed in git history and has been **rotated**;
-  see `docs/UPDATER_KEY_MIGRATION.md` for the migration plan and its
-  transition-window risk analysis.
+- The 0.1.x signing key was exposed in git history and was **rotated** in
+  v0.2.0. `docs/UPDATER_KEY_MIGRATION.md` is the historical record of that
+  change and its risk analysis.
 
 ### Privacy
 

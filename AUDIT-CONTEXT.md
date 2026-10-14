@@ -20,32 +20,35 @@ Roughly 500k tokens of Rust and 1.2M of TypeScript excluding tests. It does
 not fit in one context. Audit one area at a time.
 
 **Scope the audit with `git ls-files`, not by walking the filesystem.**
-The working tree contains `.worktrees/`, which holds full copies of the repo on
-other branches, plus `node_modules`, `target` and `vendor`. Walking the disk
-reads the same source five times and audits stale branches as if they were
-current. Counted one way there are 109 `ponytail:` comments; counted the other
-way, 550. Only the tracked files are the product.
+A working checkout can hold extra git worktrees (full copies of the repo on
+other branches), plus `node_modules`, `target` and `vendor`. Walking the disk
+can read the same source several times and audit stale branches as if they
+were current. Only the tracked files are the product.
 
 ## Decisions that are not bugs
 
-**On-device TTS is off on Linux, on purpose.**
-`piper` and `kokoro` both ride ONNX Runtime, which has a glibc floor higher
-than the distros we target. Enabling them would produce a binary that fails to
-start on the machines it was built for. See the comment at
-`.github/workflows/release.yml:75` and the feature block in
-`crates/cinderpaw-core/Cargo.toml`. Do not recommend adding them to the
-default feature set.
+**On-device TTS ships only where it can, on purpose.**
+`piper` ships in no build: `piper-rs` compiles espeak-ng (GPLv3) into the
+binary, and the installers go out under Apache-2.0. `kokoro` rides ONNX
+Runtime, whose Linux prebuilt needs glibc 2.38, newer than the distros we
+target (Ubuntu 22.04, Debian 12), and which has no prebuilt for Intel Macs. So
+Kokoro ships on Windows and Apple Silicon macOS only. See the comments on the
+build matrix in `.github/workflows/release.yml` and on `default` in
+`src-tauri/Cargo.toml`. Do not recommend adding them to the default feature
+set.
 
 **Native features are optional and off by default.**
-`inference`, `whisper`, `piper`, `kokoro` all pull native toolchains. Off by
-default so a broken toolchain cannot block the workspace build. The desktop
+`whisper`, `moonshine`, `piper`, `kokoro` all pull native toolchains. Off by
+default so a broken toolchain cannot block the workspace build; `inference`
+(CPU llama.cpp) is the one default. The desktop
 build turns on what each platform can carry. `tts::catalog()` reports an
 engine as unavailable when its feature is off, so the picker cannot offer an
 engine the build does not contain. This is deliberate, not a missing feature.
 
 **`ponytail:` comments are a tracked debt ledger, not stray TODOs.**
-109 of them across 78 files. Each one marks a deliberate simplification with
-a known ceiling and, where relevant, the upgrade path. Reporting them as
+About 200 of them across about 150 tracked files (`git grep -c "ponytail:"`).
+Each one marks a deliberate simplification with a known ceiling and, where
+relevant, the upgrade path. Reporting them as
 "incomplete implementation" is noise. Reporting that a specific one has now
 hit its stated ceiling in production is useful.
 
@@ -70,18 +73,20 @@ points at the old name, that IS a bug and worth reporting.
 
 ## Claims to treat carefully
 
-Benchmark numbers appear in the `CHECKPOINT_*.md` files. Some are measured
-under pinned model routing and some are estimates that are labelled as
-estimates in the same document. Unpinned OpenRouter routing has been observed
-to swing an identical benchmark by tens of points, so any number without a
+Benchmark numbers appear in specs and design notes under `docs/`. Some are
+measured under pinned model routing and some are estimates that are labelled as
+estimates in the same document. The raw results behind the tau2 numbers we
+publish are in `bench-results/tau2/`, with a script to re-score them.
+Unpinned OpenRouter routing has been observed to swing an identical
+benchmark by tens of points, so any number without a
 pinned endpoint next to it is not evidence of anything. Do not audit the
 numbers. Audit the code.
 
-One number in the repo is stale and says the opposite of the current result.
-`CHECKPOINT_20260830_TAU2_RESULT_AND_ROADMAP.md` reports 82.0% against a
-reference agent's 86.0% under a heading that calls it the number that stands,
-and `docs/minimax-m3-bugfix-spec.md` repeats it. That run was unpinned. The
-pinned rerun reversed it. Ignore both.
+One old number says the opposite of the current result.
+`docs/minimax-m3-bugfix-spec.md` quotes a 2026-08-30 tau2 run: 82.0% against a
+reference agent's 86.0%. That run was unpinned. The pinned rerun reversed it
+(90.0% against 82.0%, in `bench-results/tau2/`). The spec marks the old pair
+as retracted. Ignore it.
 
 `PROMISES.md` states user-facing guarantees as fact. It has been wrong before:
 a guarantee was stated there while the code did not hold it. Checking each

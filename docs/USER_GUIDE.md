@@ -40,8 +40,9 @@ Agent mode.
 | `scan_workspace` | Finds hardcoded secrets / risky patterns in your code | never prints the secret values |
 | `shell_exec` | Run shell commands | **on by default**; disable with `CINDERPAW_ENABLE_SHELL_EXEC=false` |
 
-While the agent works, tool calls appear as small bubbles next to the mascot —
-click a finished bubble to see exactly what the tool returned.
+While the agent works, each tool it uses shows up as a step in a card on its
+reply. The card folds away once the answer is done. Click the card to open it
+again, and click a step to see more about it.
 
 Sometimes the agent asks *you* something mid-task (a question card appears in
 the chat). Answer it and the agent continues. After the default 5-minute timeout,
@@ -59,8 +60,8 @@ the app.
 
 Skills are instruction packs that teach the agent new workflows.
 
-- **Install:** sidebar → Skills → browse the catalog → Install. New skills are
-  available to the agent on your very next message — no restart.
+- **Install:** Settings → Capabilities → Skills → Discover → Install. New skills
+  are ready for the agent on your very next message. No restart needed.
 - **What happens under the hood:** the agent sees a one-line menu of your
   installed skills and loads a skill's full instructions only when relevant.
 - **Create your own:** drop a folder into `~/.cinderpaw/skills/<my-skill>/` with a
@@ -73,7 +74,7 @@ Skills are instruction packs that teach the agent new workflows.
 Your agent can answer you from your messaging apps — same brain, same memory,
 still running on your machine.
 
-- **Set up:** sidebar → Connectors, or just ask the agent in chat ("connect
+- **Set up:** Settings → Accounts, or ask the agent in chat ("connect
   yourself to Discord"). WhatsApp pairs by scanning a QR code; Discord and
   Slack take a bot token.
 - **Only allowlisted people** can talk to your agent — you choose who when
@@ -93,9 +94,9 @@ still running on your machine.
 
 | Symptom | Likely cause / fix |
 |---|---|
-| Chat input disabled | No model loaded and no cloud key — Models → download/load, or Settings → Cloud Keys |
+| Cinderpaw answers "I need a model before I can do that" | No model loaded and no cloud key. Use the buttons under that answer, or open Models to download one, or add a key in Models → Cloud tab |
 | "Agent offline" banner | The agent process crashed; it restarts automatically. If the banner says restarts were suspended, restart the app |
 | First reply takes minutes | Normal on CPU for the first message (model load + prompt processing) — the indicator under the message explains what's happening |
 | "The model stopped responding…" | Model/provider hung; retry, or switch to a smaller/faster model |
-| Key rejected (401) | Settings → Cloud Keys — re-paste the key, check it's active with the provider |
-| Empty answer from a thinking model | The model spent its whole budget thinking — raise max tokens in the controls popover, or use a larger model |
+| Key rejected (401) | Models → Cloud tab. Paste the key again, and check with the provider that it is still active |
+| Empty answer from a thinking model | The model used its whole budget thinking. In Chat mode, turn off **Think** in the Tools menu, or use a larger model |

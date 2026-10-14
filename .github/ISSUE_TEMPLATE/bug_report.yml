@@ -5,8 +5,13 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time! The `cinderpaw doctor` output below answers 90% of
-        our first questions — please include it if you can.
+        Thanks for taking the time! If you installed Cinderpaw with the one-line
+        terminal command, the `cinderpaw doctor` output below answers most of our
+        first questions, so please include it.
+
+        Only have the desktop app? You can also report from inside it:
+        Settings → About → Report a bug. It can attach the last lines of the app
+        log, and shows them to you before anything is sent.
   - type: textarea
     id: what-happened
     attributes:
@@ -21,8 +26,11 @@ body:
       label: Diagnostic output
       description: |
         Run `cinderpaw doctor` in a terminal and paste the output here.
-        (No terminal? Tell us your OS, how you installed Cinderpaw, and whether you
-        use a local model or a cloud key.)
+        The desktop app alone does not add the `cinderpaw` command. In that case,
+        tell us your OS, how you installed Cinderpaw, and whether you use a local
+        model or a cloud key. The last lines of the app log help too:
+        `~/.cinderpaw/logs/cinderpaw.log` (Windows: `%USERPROFILE%\.cinderpaw\logs\cinderpaw.log`).
+        Check them for anything private before you paste.
       render: text
     validations:
       required: false

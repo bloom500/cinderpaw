@@ -54,7 +54,8 @@ have the contribution and talk about it than have you walk away quietly.
 ## Five minutes to a running build
 
 ```bash
-# Prereqs: Rust stable, Node 20+, Bun 1.x
+# Prereqs: Rust stable, Node 20+, Bun 1.x, CMake, LLVM/libclang
+# (the llama.cpp build needs the last two; see the Contributor Guide §3)
 # Tauri CLI is not bundled with Rust, install it once:
 cargo install tauri-cli --version "^2"
 
@@ -73,7 +74,6 @@ silently ignore `default_gpu_layers`:
 
 ```bash
 cargo tauri dev --features inference-vulkan     # GPU
-cargo tauri dev --features whisper              # on-device STT (needs LLVM on Windows)
 ```
 
 **Just want to work on the agent?** You do not need the desktop app at all:
@@ -92,7 +92,10 @@ Three runtimes, three languages, one repo:
 
 ```
 src-tauri/        Rust — Tauri v2 shell
-  src/lib.rs          command handlers (chat, models, BYOK, skills, …)
+  src/lib.rs          app setup; registers every command and event
+  src/commands/       command handlers (chat, models, BYOK, settings, …)
+
+crates/cinderpaw-core/  Rust, shared by the desktop app and the headless CLI
   src/inference.rs    llama.cpp engine: model load, context pool, KV reuse
   src/api.rs          loopback OpenAI/Ollama-compatible HTTP API (:11435, token-gated)
   src/cinderpaw_agent.rs  sidecar spawn + supervision + stdio bridge
@@ -141,7 +144,7 @@ mode, so you are not guessing at intent:
 | Interrupted-turn marker | `src/core/agent-loop.ts` | A stopped turn leaves no record that a side-effectful tool may have half-run. The next turn should be told. |
 | Cross-turn loop detection | `src/core/agent-loop.ts` | Loop counters reset every turn, so a model steered back into the same failing action is undetected. |
 | Typed exit reason | `src/core/agent-loop.ts` | "Why did execution stop?" is encoded in prose, not a field. Not machine-answerable. |
-| Desktop tests | `src-tauri/`, `frontend-react/` | The desktop app has **zero** test files. Highest-visibility, weakest-evidenced surface. |
+| Desktop end-to-end tests | `src-tauri/`, `frontend-react/` | The desktop app has unit tests (about 180 frontend test files, `#[cfg(test)]` modules in about 34 Rust files), but **nothing drives the built app end to end**. Highest-visibility surface, weakest end-to-end evidence. |
 
 **Rung 3 — the big one**
 
@@ -198,7 +201,8 @@ send, stop mid-stream, switch tabs mid-stream, send again.
 - **Two streaming paths, one semantics.** Stop/interrupt behaviour stays
   identical between `chatStream.ts` and `cinderpawAgentStream.ts`. UI calls
   `streamControl.stopActiveStream()` — never one path directly.
-- **Strings:** user-facing UI text goes through `lib/i18n.ts` (EN + RO).
+- **Strings:** the UI is English only for now. `lib/i18n.ts` holds the
+  existing keys; new user-facing text can be plain English and does not need a key.
 - **Security:** anything touching filesystem, network or child processes goes
   through the sandbox layers (see [SECURITY.md](../SECURITY.md)). New tools must
   declare manifest permissions — the registry validates them at registration.
