@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { finishTool, finishToolIn, parseSse, saveSecret, ThinkSplitter, streamChat, type ChatEvent, whatsappQr, stopChat, chatFailure, withPreview } from "./chatStream";
+import { answerAsk, finishTool, finishToolIn, parseSse, saveSecret, ThinkSplitter, streamChat, type ChatEvent, whatsappQr, stopChat, chatFailure, withPreview } from "./chatStream";
 
 test("SSE records are split on blank lines and keep their event name", () => {
   const { events, rest } = parseSse('data: {"a":1}\n\nevent: tool_start\ndata: {"id":"t1"}\n\ndata: {"par');
@@ -106,13 +106,34 @@ test("an ask_user frame with a secret becomes a secure-field event; a plain one 
   const plainQ = { type: "ask_user", id: "req-2", sessionId: "chat", questions: [{ question: "Which server?", options: [{ label: "Home" }, { label: "Work" }], multiSelect: false }] };
   const got = await run(body([`event: ask_user\ndata: ${JSON.stringify(secretQ)}\n\n`, `event: ask_user\ndata: ${JSON.stringify(plainQ)}\n\n`, "data: [DONE]\n\n"]));
   expect(got[0]).toEqual({ type: "secret", requestId: "req-1", question: "Your Discord bot token", connector: "discord", field: "DISCORD_TOKEN" });
-  expect(got[1]).toEqual({ type: "ask", requestId: "req-2", question: "Which server?", options: ["Home", "Work"] });
+  expect(got[1]).toEqual({ type: "ask", requestId: "req-2", questions: [{ question: "Which server?", options: [{ label: "Home" }, { label: "Work" }], multiSelect: false }] });
 });
 
 test("a question with text to read carries it to the page", async () => {
   const q = { type: "ask_user", id: "req-3", sessionId: "chat", questions: [{ question: "Install the skill?", options: [{ label: "Install it" }, { label: "Not now" }], multiSelect: false, preview: "---\nname: PDF Tools\n---\nUse qpdf." }] };
   const got = await run(body([`event: ask_user\ndata: ${JSON.stringify(q)}\n\n`, "data: [DONE]\n\n"]));
-  expect(got[0]).toEqual({ type: "ask", requestId: "req-3", question: "Install the skill?", options: ["Install it", "Not now"], preview: "---\nname: PDF Tools\n---\nUse qpdf." });
+  expect(got[0]).toEqual({ type: "ask", requestId: "req-3", questions: [{ question: "Install the skill?", options: [{ label: "Install it" }, { label: "Not now" }], multiSelect: false, preview: "---\nname: PDF Tools\n---\nUse qpdf." }] });
+});
+
+// The page used to show only questions[0] and only the labels: the agent was
+// told "(no selection)" for questions nobody saw, and "Allow once" lost the
+// line saying Cinderpaw will ask again.
+test("every question of an ask reaches the page, with what each option means", async () => {
+  const questions = [
+    { question: "Run the tool?", options: [{ label: "Allow once", description: "Cinderpaw will ask again next time." }, { label: "Deny", recommended: true }], multiSelect: false },
+    { question: "Which days?", options: [{ label: "Mon" }, { label: "Tue" }], multiSelect: true },
+  ];
+  const q = { type: "ask_user", id: "req-4", sessionId: "chat", questions };
+  const got = await run(body([`event: ask_user\ndata: ${JSON.stringify(q)}\n\n`, "data: [DONE]\n\n"]));
+  expect(got[0]).toEqual({ type: "ask", requestId: "req-4", questions });
+});
+
+test("the answers to every question go back together, typed ones too", async () => {
+  let sent: any;
+  const f = async (url: string, init?: RequestInit) => { sent = { url, body: JSON.parse(String(init?.body)) }; return new Response("{}", { status: 200 }); };
+  const answers = [{ question: "Run the tool?", selected: ["Deny"] }, { question: "Which days?", selected: [], customText: "Friday" }];
+  expect(await answerAsk(f, "req-4", answers)).toBe(true);
+  expect(sent).toEqual({ url: "/runtime/ask/respond", body: { requestId: "req-4", answers } });
 });
 
 test("saving a secret sends the value only to the engine, and only 'Saved' to the agent", async () => {
