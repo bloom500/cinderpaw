@@ -19,7 +19,7 @@ import { forgetEdge } from "./memory/forget.ts";
 import { cfgBool, cfgInt, cfgPath } from "./config.ts";
 import { runUnattended } from "./core/unattended.ts";
 import { withHumanReplies } from "./cowork/runtime.ts";
-import { removeTeammate } from "./tools/builtin/cowork.ts";
+import { removeTeammate, teammateRepliesBrief } from "./tools/builtin/cowork.ts";
 import { parseDoneWhenFromMessage } from "./cron/done-when.ts";
 import { sha256Canonical } from "./rsi/infra/hash-chain.ts";
 import { defaultJournalDir, journalFilename, verifyJournal } from "./rsi/infra/journal.ts";
@@ -1844,15 +1844,20 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         // description cannot say "right now". Composed with the voice brief
         // rather than replacing it: a call made from the browser is both.
         const browserBrief = browserSurfaceBrief(msg.browserPage);
+        // Teammate answers that landed since the last turn, handed over rather
+        // than left for the agent to remember to fetch. Read only where the brief
+        // is set: reading marks them read, and an answer marked read that no
+        // brief carried would be lost.
+        const repliesBrief = () => teammateRepliesBrief(sessionId, coworkAgents, coworkMailbox);
         // The local web page can show a password card; nothing else can.
         // Per message, because the terminal and the page share the session.
         markCardSurface(sessionId, msg.surface === "web");
         if (msg.surface === "voice") {
-          agent.setSessionSurface(sessionId, [VOICE_SURFACE_BRIEF, browserBrief].filter(Boolean).join("\n\n"), { spoken: true });
+          agent.setSessionSurface(sessionId, [VOICE_SURFACE_BRIEF, browserBrief, repliesBrief()].filter(Boolean).join("\n\n"), { spoken: true });
         } else if (msg.surface === "text" || msg.surface === "web") {
           // Explicitly typed → drop the spoken brief. Only the desktop sends this
           // field, so a connector's own brief is never touched here.
-          agent.setSessionSurface(sessionId, browserBrief);
+          agent.setSessionSurface(sessionId, [browserBrief, repliesBrief()].filter(Boolean).join("\n\n"));
         }
         // Image attachments (data URLs) forwarded by the host. Passed through
         // to the agent loop so vision-capable models receive real pixels.

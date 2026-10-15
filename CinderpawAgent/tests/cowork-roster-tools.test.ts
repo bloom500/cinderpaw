@@ -12,6 +12,7 @@ import { CoworkAgentRepo } from "../src/cowork/agent-store.ts";
 import { CoworkMailboxRepo } from "../src/cowork/mailbox.ts";
 import { HUMAN } from "../src/cowork/runtime.ts";
 import { createCoworkCreateTool, TEAMMATE_DEFAULT_TOOLS } from "../src/tools/builtin/cowork-create.ts";
+import { teammateRepliesBrief } from "../src/tools/builtin/cowork.ts";
 import type { ToolRegistry } from "../src/tools/registry.ts";
 import type { Tool } from "../src/types.ts";
 
@@ -199,6 +200,36 @@ describe("cowork_replies", () => {
       const r = await h.tool("cowork_replies").execute({}, chat);
       expect(r.content).toContain("Atlas could not answer");
       expect(r.content).toContain("model is down");
+    } finally {
+      h.close();
+    }
+  });
+});
+
+// 15 Oct 2026: Atlas answered 28 s after the brief, the agent had polled once
+// before that, and eight minutes later it wrote the plan alone while the answer
+// sat unread. An answer that arrived between turns now reaches the next one.
+describe("teammateRepliesBrief", () => {
+  test("hands an answer that arrived between turns to the next turn, once", async () => {
+    const h = harness();
+    try {
+      await h.create.execute({ name: "Atlas", role: "r" }, chat);
+      const q = h.mailbox.send({ fromAgentId: HUMAN, toAgentId: "atlas", threadId: "chat-1", body: "plan the pricing" });
+      h.mailbox.updateStatus(q.id, "processed");
+      expect(teammateRepliesBrief("chat-1", h.agents, h.mailbox)).toBe("");
+
+      h.mailbox.send({
+        fromAgentId: "atlas", toAgentId: HUMAN, threadId: "chat-1", body: "Three models, services first.",
+        payloadJson: JSON.stringify({ coworkHops: 0, replyTo: q.id }),
+      });
+      expect(teammateRepliesBrief("chat-2", h.agents, h.mailbox)).toBe("");
+      const brief = teammateRepliesBrief("chat-1", h.agents, h.mailbox);
+      expect(brief).toContain('Atlas (to "plan the pricing")');
+      expect(brief).toContain("Three models, services first.");
+
+      expect(teammateRepliesBrief("chat-1", h.agents, h.mailbox)).toBe("");
+      const polled = await h.tool("cowork_replies").execute({}, chat);
+      expect(polled.content).toContain("No new replies.");
     } finally {
       h.close();
     }
