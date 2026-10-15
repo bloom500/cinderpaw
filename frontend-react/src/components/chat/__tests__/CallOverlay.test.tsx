@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { CallAnswer, CallTranscript, HandoffCard, ProviderToggle, chooseSpeechEngine, compactCallTranscript, keyOwner, shownS2sProvider, voiceAnswerFor } from '../CallOverlay';
+import { CallAnswer, CallTranscript, HandoffCard, ProviderCards, chooseSpeechEngine, compactCallTranscript, keyOwner, shownS2sProvider, voiceAnswerFor } from '../CallOverlay';
 import type { TtsProviderInfo } from '@/lib/tauri';
 
 describe('compactCallTranscript', () => {
@@ -170,48 +170,61 @@ describe('CallTranscript', () => {
   });
 });
 
-describe('ProviderToggle', () => {
+describe('ProviderCards', () => {
   const providers = [
-    { id: 'google', label: 'Gemini Realtime', pipeline: false, connected: false, voices: [], defaultVoice: '' },
     { id: 'openai', label: 'OpenAI Realtime', pipeline: false, connected: true, voices: [], defaultVoice: '' },
-    { id: 'pipeline', label: 'Transcribe → answer → speak', pipeline: true, connected: true, voices: [], defaultVoice: '' },
+    { id: 'google', label: 'Gemini Realtime', pipeline: false, connected: false, voices: [], defaultVoice: '' },
+    { id: 'jev', label: 'Jev', pipeline: false, connected: false, voices: [], defaultVoice: '' },
   ] as never[];
-  const t = (k: string) => ({ 'call.groupPipeline': 'STT + TTS', 'call.groupS2s': 'Speech to speech' }[k] ?? k);
+  const t = (k: string) => k;
+  const card = (name: RegExp) => screen.getByRole('radio', { name });
 
-  it('shows two kinds of call, and the vendors only under speech to speech', () => {
-    const { rerender } = render(
-      <ProviderToggle providers={providers} effective="pipeline" willEcho={false} onChange={() => {}} t={t as never} />,
-    );
-    expect(screen.getByRole('button', { name: 'STT + TTS' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.queryByText('Gemini Realtime')).toBeNull();
-
-    rerender(<ProviderToggle providers={providers} effective="google" willEcho={false} onChange={() => {}} t={t as never} />);
-    expect(screen.getByRole('button', { name: 'Speech to speech' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByText('Gemini Realtime')).toBeInTheDocument();
-    expect(screen.getByText('OpenAI Realtime')).toBeInTheDocument();
+  it('one card per vendor, the selected one checked', () => {
+    render(<ProviderCards providers={providers} selected="google" onChange={() => {}} t={t as never} />);
+    expect(screen.getAllByRole('radio')).toHaveLength(3);
+    expect(card(/Gemini Realtime/)).toHaveAttribute('aria-checked', 'true');
+    expect(card(/OpenAI Realtime/)).toHaveAttribute('aria-checked', 'false');
   });
 
-  it('switching to speech to speech lands on a vendor that has a key', () => {
-    const picked: string[] = [];
-    render(<ProviderToggle providers={providers} effective="pipeline" willEcho={false} onChange={(id: string) => picked.push(id)} t={t as never} />);
-    screen.getByRole('button', { name: 'Speech to speech' }).click();
-    expect(picked).toEqual(['openai']);
-  });
-
-  it('with STT + TTS parked, shows the vendors directly, even before any key exists', () => {
-    const s2sOnly = providers.slice(0, 2).map((p: never) => ({ ...(p as object), connected: false })) as never[];
-    render(<ProviderToggle providers={s2sOnly} effective={null} willEcho={false} onChange={() => {}} t={t as never} />);
-    expect(screen.queryByRole('button', { name: 'Speech to speech' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'STT + TTS' })).toBeNull();
-    expect(screen.getByText('Gemini Realtime')).toBeInTheDocument();
-    expect(screen.getByText('OpenAI Realtime')).toBeInTheDocument();
+  it('writes the key state on every card', () => {
+    render(<ProviderCards providers={providers} selected="openai" onChange={() => {}} t={t as never} />);
+    expect(card(/OpenAI Realtime/)).toHaveTextContent('Key saved');
+    expect(card(/Gemini Realtime/)).toHaveTextContent('No key yet');
+    expect(card(/Jev/)).toHaveTextContent('No key yet');
   });
 
   // 14 Oct: OpenAI held a whole agent task; Gemini dropped calls on Google's side.
-  it('marks OpenAI as the recommended vendor, and only OpenAI', () => {
-    render(<ProviderToggle providers={providers} effective="google" willEcho={false} onChange={() => {}} t={t as never} />);
+  it('marks OpenAI Recommended and Gemini Beta, and nobody else', () => {
+    render(<ProviderCards providers={providers} selected="openai" onChange={() => {}} t={t as never} />);
     expect(screen.getAllByText('call.recommended')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: /OpenAI Realtime/ })).toHaveTextContent('call.recommended');
+    expect(card(/OpenAI Realtime/)).toHaveTextContent('call.recommended');
+    expect(screen.getAllByText('Beta')).toHaveLength(1);
+    expect(card(/Gemini Realtime/)).toHaveTextContent('Beta');
+  });
+
+  it('picking a card reports it; the card already picked does nothing', () => {
+    const picked: string[] = [];
+    render(<ProviderCards providers={providers} selected="openai" onChange={(id: string) => picked.push(id)} t={t as never} />);
+    card(/OpenAI Realtime/).click();
+    card(/Jev/).click();
+    expect(picked).toEqual(['jev']);
+  });
+
+  it('a fresh install, nothing picked and no key anywhere, shows the first vendor selected', () => {
+    const fresh = providers.map((p: never) => ({ ...(p as object), connected: false })) as never[];
+    const selected = shownS2sProvider(fresh as { id: string }[], null)!.id;
+    render(<ProviderCards providers={fresh} selected={selected} onChange={() => {}} t={t as never} />);
+    expect(card(/OpenAI Realtime/)).toHaveAttribute('aria-checked', 'true');
+    expect(card(/OpenAI Realtime/)).toHaveTextContent('No key yet');
+  });
+
+  it('the pipeline card says nothing about a key, because it needs none', () => {
+    const withPipeline = [
+      ...providers,
+      { id: 'pipeline', label: 'Transcribe → answer → speak', pipeline: true, connected: true, voices: [], defaultVoice: '' },
+    ] as never[];
+    render(<ProviderCards providers={withPipeline} selected="openai" onChange={() => {}} t={t as never} />);
+    expect(card(/Transcribe/)).not.toHaveTextContent(/key/i);
   });
 });
 

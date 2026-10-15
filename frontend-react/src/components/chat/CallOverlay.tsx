@@ -29,7 +29,9 @@ import { preferredVoice, shortlistVoices } from '@/lib/voices';
 import { MessageItem } from './MessageItem';
 import { MoltenOrb } from './MoltenOrb';
 import { CallToolScreen } from './CallToolScreen';
-import { S2sModelPicker } from './S2sModelPicker';
+import { S2sModelPicker, useS2sModelLabel } from './S2sModelPicker';
+import { ModelLogo } from '@/lib/modelLogos';
+import typesafeMark from '@/assets/brands/typesafe.png';
 import { CallArtifacts } from './CallArtifacts';
 import { AskUserCard } from './AskUserCard';
 import { useAskUser, voiceAnswerFor } from '@/stores/askUser';
@@ -389,10 +391,6 @@ export function CallOverlay({
   // fresh install has neither); the blocker text below says which.
   const jevBlocked = jevSelected && (!jevStored || (sttProvider === null && localSttName === null));
   const jevRow: S2sProviderInfo = { id: JEV_PROVIDER_ID, label: 'Jev', voices: [], default_voice: '', pipeline: false, connected: jevStored };
-  // What THIS call will do. Picking a vendor with no key is an echo even when
-  // another vendor is connected, because the host refuses to quietly run the
-  // other one — so this cannot be "is anything connected".
-  const willEcho = !jevSelected && s2sList.length > 0 && !currentS2s?.connected;
   useEffect(() => {
     // Write the resolved default back once it is known. Without this the voice
     // picker below has no provider to file a choice under, and the choice is
@@ -403,6 +401,11 @@ export function CallOverlay({
   // "does one model do the whole call", not "which one". LiveKit and the
   // previous engine differ in machinery, not in that answer.
   const live = callEngine === 'live' || callEngine === 'livekit';
+  // Named on the pre-call card. Asked only while that screen is open: the
+  // overlay is mounted all the time, and the vendor's model list is a request.
+  const modelLabel = useS2sModelLabel(
+    phase === 'ready' && live && currentS2s && !currentS2s.pipeline ? currentS2s.id : null,
+  );
   /**
    * Can this call DO anything, or only talk?
    *
@@ -926,34 +929,53 @@ export function CallOverlay({
           // Open when asked, and by itself only when the call cannot be made —
           // there the settings are the way out, not decoration.
           const expanded = settingsOpen || noEngine || keyMissing || ready === false || jevBlocked;
+          const shown = jevSelected ? jevRow : currentS2s;
+          const languageLabel = (CALL_LANGUAGES.find((l) => l.value === callLanguage) ?? CALL_LANGUAGES[0]!).label;
+          // Where the audio goes, as a sentence under the card (it was a 10px
+          // badge). A realtime vendor hears the audio itself; Jev hears a
+          // transcript, so for Jev the transcriber is where the audio goes.
+          const voiceGoes = jevSelected
+            ? sttProvider === 'local'
+              ? 'Your voice is transcribed on this computer. Only the words go to Jev.'
+              : sttProvider
+                ? `Your voice goes to ${CLOUD_STT[sttProvider].name}. The words go to Jev.`
+                : null
+            : currentS2s && !currentS2s.pipeline
+              ? `Your voice goes to ${currentS2s.label}.`
+              : null;
           return (
           <div className="relative flex w-full max-w-xl flex-col items-center gap-3">
-            {currentS2s?.id === 'google' && (
-              <p className="max-w-md text-center text-2xs text-text-muted">{t('call.beta')}</p>
-            )}
-            {/* The one line that stays: who answers, where the audio goes, and
-                the way to everything else. Read before the microphone opens. */}
-            <div className="flex items-center gap-2 text-sm">
-              {!currentS2s?.pipeline ? (
-                <EngineLine
-                  label=""
-                  name={jevSelected ? (jevStored ? 'Jev' : 'Jev (no key)') : (currentS2s?.label ?? t('call.providerNoneShort'))}
-                  local={jevSelected ? false : currentS2s ? false : null}
-                  t={t}
-                />
-              ) : (
-                <span className="text-text-secondary">{t('call.groupPipeline')}</span>
-              )}
+            {/* Who answers, read before the microphone opens: the vendor, the
+                language, the model. Only the gear opens the settings (15 Oct,
+                his call): a whole card that is secretly a button gets pressed
+                by accident. */}
+            <div className="flex w-full max-w-md items-center gap-3 rounded-2xl border border-border-default bg-bg-elevated px-4 py-3 shadow-sm">
+              {shown && <VendorMark provider={shown} />}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-sm font-medium text-text-primary">
+                    {shown?.label ?? t('call.providerNoneShort')}
+                  </span>
+                  {shown && <VendorTag id={shown.id} t={t} />}
+                </div>
+                <div className="truncate text-xs text-text-muted">
+                  {[languageLabel, modelLabel].filter(Boolean).join(' · ')}
+                </div>
+              </div>
               <button
                 type="button"
                 aria-label={t('call.settings')}
                 aria-expanded={expanded}
                 onClick={() => setSettingsOpen((v) => !v)}
-                className="rounded-full p-1 text-text-muted hover:bg-bg-hover hover:text-text-primary"
+                className="rounded-full p-1.5 text-text-muted hover:bg-bg-hover hover:text-text-primary"
               >
-                <Settings2 size={14} />
+                <Settings2 size={16} />
               </button>
             </div>
+            {voiceGoes && <p className="max-w-md text-center text-xs text-text-muted">{voiceGoes}</p>}
+            {currentS2s?.id === 'google' && (
+              <p className="max-w-md text-center text-2xs text-text-muted">{t('call.beta')}</p>
+            )}
 
             {/* The one thing standing between them and the call. */}
             {blocker && !expanded && (
@@ -981,16 +1003,14 @@ export function CallOverlay({
               >
               <motion.div
                 onClick={(e) => e.stopPropagation()}
-                className="max-h-full w-full max-w-xl overflow-y-auto rounded-2xl border border-border-default bg-bg-primary p-4 text-left shadow-lg"
+                className="max-h-full w-full max-w-2xl overflow-y-auto rounded-2xl border border-border-default bg-bg-primary p-5 text-left shadow-lg"
                 initial={{ opacity: 0, scale: 0.96, y: 8 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.96, y: 8 }}
                 transition={{ duration: 0.18, ease: 'easeOut' }}
               >
-                <div className="mb-3 flex items-center justify-between">
-                  <span className="text-xs font-medium uppercase tracking-wide text-text-muted">
-                    {t('call.settings')}
-                  </span>
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="font-display text-xl text-text-primary">{t('call.settings')}</h2>
                   <button
                     type="button"
                     onClick={() => setSettingsOpen(false)}
@@ -1004,31 +1024,49 @@ export function CallOverlay({
                   <p className="mb-3 text-xs text-(--warning)">{blocker}</p>
                 )}
 
-                <div className="grid grid-cols-[5.5rem_1fr] items-center gap-x-3 gap-y-3">
-                  {/* Who answers. The row IS the choice, so the engine is named
-                      once on this screen instead of three times. */}
-                  <SettingRow label={t('call.provider')}>
-                    <ProviderToggle
-                      providers={[...s2sList, jevRow]}
-                      effective={effectiveS2s}
-                      willEcho={willEcho}
-                      onChange={setS2sProvider}
-                      t={t}
-                    />
-                  </SettingRow>
+                {/* Who answers: one card per vendor, the key state written on
+                    each. The selected card is the one this screen describes,
+                    so on a fresh install (nothing picked, no key) the first
+                    vendor is selected and its key field is open below. */}
+                <ProviderCards
+                  providers={[...s2sList, jevRow]}
+                  selected={jevSelected ? JEV_PROVIDER_ID : (currentS2s?.id ?? null)}
+                  onChange={setS2sProvider}
+                  t={t}
+                />
 
-                  {/* The language spoken on the call, for every engine. Here and
-                      not in Settings: a language sent is an order, and an order
-                      nobody can see goes wrong silently (23 Sep). */}
-                  <SettingRow label="Language">
-                    <SelectMenu
-                      ariaLabel="Language spoken on the call"
-                      value={callLanguage}
-                      options={CALL_LANGUAGES}
-                      onChange={setCallLanguage}
-                    />
-                  </SettingRow>
+                {/* The key for the selected vendor, under the cards rather than
+                    inside one: three cards in a row leave no room for a field
+                    and a button. */}
+                {keyField && (
+                  <div className="mt-3 flex flex-col gap-1.5">
+                    <div className="flex gap-2">
+                      <Input
+                        type="password"
+                        autoComplete="off"
+                        value={key}
+                        onChange={(e) => setKey(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') void saveKey(); }}
+                        placeholder={
+                          keyOwner(currentS2s, voice)
+                            ? `Paste the API key for ${keyOwner(currentS2s, voice)!.label}`
+                            : t('call.keyPlaceholder')
+                        }
+                        aria-label={t('call.key')}
+                        className="h-9 text-sm"
+                      />
+                      <Button size="sm" onClick={() => void saveKey()} disabled={!key.trim() || saving}>
+                        {saving ? <Loader2 size={14} className="animate-spin" /> : t('call.keySave')}
+                      </Button>
+                    </div>
+                    {currentS2s?.connected && (
+                      <span className="text-2xs text-text-muted">{t('call.keyStored')}</span>
+                    )}
+                  </div>
+                )}
 
+                {(jevSelected || currentS2s?.pipeline) && (
+                <div className="mt-4 grid grid-cols-[5.5rem_1fr] items-center gap-x-3 gap-y-3">
                   {/* Jev hears a transcript, so its first setting is who
                       transcribes: the app's STT choice, on device or cloud. */}
                   {jevSelected && (
@@ -1052,13 +1090,6 @@ export function CallOverlay({
                           to the call, not three screens away. */}
                       {jevStored && <DesktopControlRow />}
                     </>
-                  )}
-
-                  {/* The model, for a realtime vendor. A setting, not a repair. */}
-                  {live && currentS2s && !currentS2s.pipeline && (
-                    <SettingRow label={t('call.model')}>
-                      <S2sModelPicker provider={currentS2s.id} label={currentS2s.label} />
-                    </SettingRow>
                   )}
 
                   {/* The pipeline is three choices, so it discloses three. */}
@@ -1095,35 +1126,32 @@ export function CallOverlay({
                     </>
                   )}
 
-                  {/* The hardware. Last, because it is the one nobody changes. */}
-                  <SettingRow label={t('call.mic')}>
-                    <span className="truncate text-xs text-text-secondary">{mic ?? t('call.micDefault')}</span>
-                  </SettingRow>
+                </div>
+                )}
 
-                  {keyField && (
-                    <SettingRow label={t('call.key')}>
-                      <div className="flex w-full flex-col gap-1.5">
-                        <div className="flex gap-2">
-                          <Input
-                            type="password"
-                            autoComplete="off"
-                            value={key}
-                            onChange={(e) => setKey(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') void saveKey(); }}
-                            placeholder={t('call.keyPlaceholder')}
-                            className="h-9 text-sm"
-                          />
-                          <Button size="sm" onClick={() => void saveKey()} disabled={!key.trim() || saving}>
-                            {saving ? <Loader2 size={14} className="animate-spin" /> : t('call.keySave')}
-                          </Button>
-                        </div>
-                        {currentS2s?.connected && (
-                          <span className="text-2xs text-text-muted">{t('call.keyStored')}</span>
-                        )}
-                      </div>
-                    </SettingRow>
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {/* The language spoken on the call, for every engine. Here and
+                      not in Settings: a language sent is an order, and an order
+                      nobody can see goes wrong silently (23 Sep). */}
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <span className="text-xs text-text-muted">Language</span>
+                    <SelectMenu
+                      ariaLabel="Language spoken on the call"
+                      value={callLanguage}
+                      options={CALL_LANGUAGES}
+                      onChange={setCallLanguage}
+                    />
+                  </div>
+                  {/* The model, for a realtime vendor. A setting, not a repair. */}
+                  {live && currentS2s && !currentS2s.pipeline && (
+                    <S2sModelPicker provider={currentS2s.id} label={currentS2s.label} />
                   )}
                 </div>
+
+                {/* The hardware. Last, because it is the one nobody changes. */}
+                <p className="mt-4 truncate border-t border-border-subtle pt-3 text-xs text-text-muted">
+                  {t('call.mic')}: {mic ?? t('call.micDefault')}
+                </p>
               </motion.div>
               </motion.div>
             )}
@@ -2110,106 +2138,91 @@ export function shownS2sProvider<P extends { id: string }>(list: P[], effective:
   return list.find((p) => p.id === effective) ?? list[0] ?? null;
 }
 
-export function ProviderToggle({
+/**
+ * Who answers the call, one card per vendor (15 Oct, from the mock he chose).
+ *
+ * The key state is written on every card, not only on the selected one: a
+ * vendor with no key cannot answer, and "why is Call grey" should be readable
+ * before anyone presses anything. The pipeline, while it is offered, is one
+ * more card; it needs no key, so it says nothing about one.
+ */
+export function ProviderCards({
   providers,
-  effective,
-  willEcho,
+  selected,
   onChange,
   t,
 }: {
   providers: S2sProviderInfo[];
-  /** What will run — the pick, or the fallback the host would resolve to. */
-  effective: string | null;
-  /** True when that provider has no key, so the far end will only echo. */
-  willEcho: boolean;
+  /** The vendor this screen describes: the pick, or the one the host falls back to. */
+  selected: string | null;
   onChange: (id: string) => void;
-  t: (key: 'call.providerNoKey' | 'call.providerNone' | 'call.groupPipeline' | 'call.groupS2s' | 'call.recommended') => string;
+  t: (key: 'call.recommended' | 'call.provider') => string;
 }) {
   if (providers.length === 0) return null;
-  // Two kinds of call, then the vendor. Three flat pills put "Gemini",
-  // "OpenAI" and "Transcribe → answer → speak" side by side as if they were
-  // three vendors, when the third is a different kind of call altogether:
-  // our own STT + TTS chain, with its engines chosen elsewhere. The first row
-  // is that choice; the vendor row only appears for speech to speech.
-  const pipeline = providers.find((p) => p.pipeline) ?? null;
-  const s2s = providers.filter((p) => !p.pipeline);
-  const current = providers.find((p) => p.id === effective) ?? null;
-  const s2sSelected = current !== null && !current.pipeline;
-  // Switching to speech to speech picks the vendor that can actually answer,
-  // so the switch itself never lands on an echo when a keyed vendor exists.
-  const firstS2s = s2s.find((p) => p.connected) ?? s2s[0] ?? null;
-  const pill = (active: boolean, extra?: string) =>
-    cn(
-      'flex items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-colors',
-      active ? 'bg-brand text-on-brand' : 'text-text-muted hover:text-text-primary',
-      extra,
-    );
-  // With STT + TTS parked there is one kind of call left, and a row holding a
-  // single always-pressed pill is a choice that is not one. The mode row only
-  // appears when there are two modes; otherwise the vendors show straight away,
-  // including on a machine with no key yet, where nothing is selected.
-  const showVendors = s2s.length > 0 && (s2sSelected || !pipeline);
   return (
-    <div className="flex flex-col items-center gap-2">
-      {pipeline && (
-        <div className="flex items-center gap-1 rounded-full border border-border-subtle bg-bg-surface/70 p-1">
+    <div role="radiogroup" aria-label={t('call.provider')} className="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-3">
+      {providers.map((p) => {
+        const on = p.id === selected;
+        return (
           <button
+            key={p.id}
             type="button"
-            onClick={() => { if (pipeline.id !== effective) onChange(pipeline.id); }}
-            aria-pressed={current?.id === pipeline.id}
-            className={pill(current?.id === pipeline.id)}
+            role="radio"
+            aria-checked={on}
+            onClick={() => { if (!on) onChange(p.id); }}
+            className={cn(
+              'flex flex-col items-start gap-1.5 rounded-2xl border p-3 text-left transition-colors',
+              on ? 'border-brand bg-brand/10' : 'border-border-default bg-bg-elevated hover:border-brand/50',
+            )}
           >
-            {t('call.groupPipeline')}
+            <span className="flex w-full items-start justify-between">
+              <VendorMark provider={p} />
+              <span
+                aria-hidden
+                className={cn(
+                  'flex size-4 items-center justify-center rounded-full border',
+                  on ? 'border-brand' : 'border-border-default',
+                )}
+              >
+                {on && <span className="size-2 rounded-full bg-brand" />}
+              </span>
+            </span>
+            <span className="text-sm font-medium text-text-primary">{p.label}</span>
+            <VendorTag id={p.id} t={t} />
+            {!p.pipeline && (
+              <span className={cn('text-xs', p.connected ? 'text-(--badge-ok-fg)' : 'text-text-muted')}>
+                {p.connected ? 'Key saved' : 'No key yet'}
+              </span>
+            )}
           </button>
-          {firstS2s && (
-            <button
-              type="button"
-              onClick={() => { if (!s2sSelected) onChange(firstS2s.id); }}
-              aria-pressed={s2sSelected}
-              className={pill(s2sSelected)}
-            >
-              {t('call.groupS2s')}
-            </button>
-          )}
-        </div>
-      )}
-      {showVendors && (
-        <div className="flex items-center gap-1 rounded-full border border-border-subtle bg-bg-surface/70 p-1">
-          {s2s.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => { if (p.id !== effective) onChange(p.id); }}
-              aria-pressed={p.id === effective}
-              className={pill(p.id === effective, 'whitespace-nowrap')}
-            >
-              {p.label}
-              {/* The one that held a whole agent task on 14 Oct; Gemini still
-                  drops calls on Google's side. */}
-              {p.id === 'openai' && (
-                <span className={cn('text-micro', p.id === effective ? 'opacity-80' : 'text-brand')}>
-                  {t('call.recommended')}
-                </span>
-              )}
-              {/* Said on the button itself, not only in a tooltip or a log: a
-                  vendor with no key produces an echo, and "why did it just repeat
-                  me" is not a question the app should make somebody research. */}
-              {!p.connected && (
-                <span className={cn('text-micro', p.id === effective ? 'opacity-80' : 'text-text-disabled')}>
-                  ({t('call.providerNoKey')})
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
-      {willEcho && (
-        <p className="max-w-sm text-center text-xs text-text-muted">
-          {t('call.providerNone').replace('{provider}', current?.label ?? '')}
-        </p>
-      )}
+        );
+      })}
     </div>
   );
+}
+
+/** OpenAI held a whole agent task on 14 Oct; Gemini still drops calls on Google's side. */
+function VendorTag({ id, t }: { id: string; t: (key: 'call.recommended') => string }) {
+  if (id === 'openai') {
+    return <span className="rounded-full bg-brand/10 px-2 py-0.5 text-micro font-medium text-brand">{t('call.recommended')}</span>;
+  }
+  if (id === 'google') {
+    return <span className="rounded-full bg-bg-hover px-2 py-0.5 text-micro font-medium text-text-muted">Beta</span>;
+  }
+  return null;
+}
+
+/**
+ * The vendor's own mark, so the choice reads at a glance. Jev is TypeSafe AI's
+ * model, and its mark is typesafe.ai's own icon (`assets/brands/typesafe.png`).
+ */
+function VendorMark({ provider }: { provider: S2sProviderInfo }) {
+  if (provider.id === JEV_PROVIDER_ID) {
+    return <img src={typesafeMark} alt="" aria-hidden className="size-8 shrink-0 rounded-full" />;
+  }
+  // Our own chain, not a vendor's: an icon rather than a borrowed logo.
+  if (provider.pipeline) return <AudioLines aria-hidden className="size-8 shrink-0 p-1 text-text-secondary" />;
+  return <ModelLogo provider={provider.id} className="size-8 text-text-primary" />;
 }
 
 function EngineLine({
