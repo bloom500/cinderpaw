@@ -19,7 +19,6 @@ import { LinkChip } from './LinkChip';
 import { splitLinks } from '@/lib/linkLabel';
 import { timeline } from '@/lib/timeline';
 import { useChat, type ChatMessage } from '@/stores/chat';
-import { useUI } from '@/stores/ui';
 import { useAskUser } from '@/stores/askUser';
 import { useRlmWorkers, workersFor, type RlmWorker } from '@/stores/rlmWorkers';
 import { useT } from '@/lib/i18n';
@@ -158,7 +157,6 @@ export const MessageItem = memo(function MessageItem({
 }) {
   const isUser = message.role === 'user';
   const [draft, setDraft] = useState<string | null>(null);
-  const reasoningMode = useUI((s) => s.reasoningMode);
   const t = useT();
   const navigate = useNavigate();
 
@@ -260,7 +258,7 @@ export const MessageItem = memo(function MessageItem({
     );
   }
 
-  const showThinking = message.thinking != null && reasoningMode !== 'off';
+  const showThinking = message.thinking != null;
   const pieces = timeline(message.content, message.toolActivity ?? []);
   const isTruncated = message.truncated === true;
   const askUser = message.askUser;

@@ -406,16 +406,6 @@ export function CallOverlay({
   const modelLabel = useS2sModelLabel(
     phase === 'ready' && live && currentS2s && !currentS2s.pipeline ? currentS2s.id : null,
   );
-  /**
-   * Can this call DO anything, or only talk?
-   *
-   * Agent mode routes every turn through the sidecar, which carries its own
-   * tools whatever this store says; chat mode offers exactly `enabledTools`,
-   * and that list is empty until someone turns one on. A call with none is a
-   * perfectly good call — but it must not be mistaken for one that searched and
-   * found nothing, which is what an empty tool panel looks like.
-   */
-  const inputMode = useUI((s) => s.inputMode);
   // The pending question, if the agent asked one while this call is up.
   const ask = useAskUser((s) => s.pending);
   // The page the agent opened, framed beside the call rather than floating
@@ -460,8 +450,6 @@ export function CallOverlay({
     });
     return () => { void pending.then((un) => un()); };
   }, [ask, phase]);
-  const toolCount = useUI((s) => s.enabledTools.length);
-  const hasTools = live || inputMode === 'agent' || toolCount > 0;
   // Both call modes end up asking the same agent, and the agent reports its
   // tools on one channel, so one listener serves both. Only while the call is
   // actually up — a listener attached at `idle` would collect the tool calls of
@@ -923,9 +911,7 @@ export function CallOverlay({
                   : t('call.keyNeeded'))
               : ready === false && voice?.needsDownload
                 ? t('call.voiceMissing')
-                : !hasTools
-                  ? `${t('call.tools')} ${t('call.toolsOff')}`
-                  : null;
+                : null;
           // Open when asked, and by itself only when the call cannot be made —
           // there the settings are the way out, not decoration.
           const expanded = settingsOpen || noEngine || keyMissing || ready === false || jevBlocked;

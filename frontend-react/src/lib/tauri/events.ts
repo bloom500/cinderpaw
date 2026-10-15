@@ -7,17 +7,6 @@
 import { listen, type UnlistenFn, type EventCallback } from '@tauri-apps/api/event';
 
 // Payload types — mirrors events.rs structs (camelCase due to serde rename_all)
-export interface TokenEvent        { sessionId: string; text: string }
-export interface StreamDoneEvent   { sessionId: string }
-export interface StreamErrorEvent  { sessionId: string; error: string }
-/**
- * Emitted when an OpenAI-compatible provider reports `finish_reason: "length"`
- * — the model hit its server-side max_tokens cap before producing a natural
- * stop. The frontend surfaces this as a small "truncated" hint on the message
- * bubble so the user knows the response was cut off by the provider, not by
- * Cinderpaw.
- */
-export interface StreamTruncatedEvent { sessionId: string; reason: string }
 export interface DownloadProgressEvent { repoId: string; filename: string; progress: number }
 export interface DownloadCompleteEvent { repoId: string; filename: string; path: string }
 export interface DownloadErrorEvent    { repoId: string; filename: string; error: string; cancelled: boolean }
@@ -75,16 +64,10 @@ export interface LiveKitAgentEvent {
   ok?: boolean;
 }
 
-/** Emitted right before generation starts with the real prompt token count (local models only). */
-export interface StreamStartEvent  { sessionId: string; promptTokens: number }
-/** Emitted at the end of a cloud stream when the provider returns usage stats. */
-export interface StreamUsageEvent  { sessionId: string; promptTokens: number; completionTokens: number }
 /**
- * Heartbeat for in-flight inference — emitted by the local Rust watchdog on
- * `cinderpaw://stream-progress` and by the sidecar (agent path) as a
- * `stream_progress` line on `cinderpaw://agent-output`. The React
- * `streamProgressEvent` (raw Rust) + `onStreamProgress` (filtered sidecar)
- * listeners fan this into the `streamProgress` zustand store.
+ * Heartbeat for in-flight inference — emitted by the sidecar as a
+ * `stream_progress` line on `cinderpaw://agent-output`, and read through
+ * `onStreamProgress`.
  */
 export interface StreamProgressEvent {
   sessionId: string;
@@ -440,19 +423,6 @@ function wrap<T>(channel: string) {
 }
 
 export const events = {
-  tokenEvent:             wrap<TokenEvent>('cinderpaw://token'),
-  streamDoneEvent:        wrap<StreamDoneEvent>('cinderpaw://stream-done'),
-  streamErrorEvent:       wrap<StreamErrorEvent>('cinderpaw://stream-error'),
-  streamTruncatedEvent:   wrap<StreamTruncatedEvent>('cinderpaw://stream-truncated'),
-  streamStartEvent:       wrap<StreamStartEvent>('cinderpaw://stream-start'),
-  streamUsageEvent:       wrap<StreamUsageEvent>('cinderpaw://stream-usage'),
-  /**
-   * Live progress heartbeat for the local Rust inference path — emitted on
-   * `cinderpaw://stream-progress` by the watchdog in `chat_stream`. The
-   * sidecar's equivalent (`stream_progress` OutboundEvent) arrives on
-   * `cinderpaw://agent-output` and is filtered by `onStreamProgress` below.
-   */
-  streamProgressEvent:    wrap<StreamProgressEvent>('cinderpaw://stream-progress'),
   downloadProgressEvent:  wrap<DownloadProgressEvent>('cinderpaw://download-progress'),
   downloadCompleteEvent:  wrap<DownloadCompleteEvent>('cinderpaw://download-complete'),
   downloadErrorEvent:     wrap<DownloadErrorEvent>('cinderpaw://download-error'),

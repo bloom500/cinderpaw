@@ -5,7 +5,6 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ApprovalCard } from '@/components/chat/ApprovalCard';
 import { SiteIcon } from '@/components/chat/LinkChip';
-import { CHAT_TOOLS, SwitchRow } from '@/components/chat/ToolsMenu';
 import { useChatContext } from '@/hooks/useChatContext';
 import type { DisplayAttachment } from '@/lib/attachmentDisplay';
 import { siteName } from '@/lib/sources';
@@ -18,7 +17,6 @@ import { useChat, type MemoryUsedItem } from '@/stores/chat';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
 import { useConversations } from '@/stores/conversations';
 import { useProjects } from '@/stores/projects';
-import { useUI } from '@/stores/ui';
 
 function openUrl(url: string) {
   void open(url).catch(() => window.open(url, '_blank', 'noopener,noreferrer'));
@@ -333,9 +331,6 @@ export function ContextTab({ onCompose, onAttach }: {
   const exchanges = useCoworkTranscript((s) => s.exchanges);
   const threadId = useCoworkTranscript((s) => s.activeThreadId);
   const approvals = exchanges.filter((e) => e.kind === 'approval' && e.status === 'running' && !!threadId && e.threadId === threadId);
-  const inputMode = useUI((s) => s.inputMode);
-  const enabledTools = useUI((s) => s.enabledTools);
-  const toggleTool = useUI((s) => s.toggleTool);
   const currentId = useConversations((s) => s.currentId);
   const convo = useConversations((s) => s.list.find((c) => c.id === s.currentId));
   const project = useProjects((s) => (currentId ? s.list.find((p) => p.conversation_ids.includes(currentId)) : undefined));
@@ -413,13 +408,7 @@ export function ContextTab({ onCompose, onAttach }: {
               ))}
             </Rows>
           )}
-          {inputMode === 'chat' ? (
-            <div className="flex flex-col rounded-xl border border-border-default bg-bg-surface p-1">
-              {CHAT_TOOLS.map((t) => (
-                <SwitchRow key={t.id} label={t.label} hint={t.hint} checked={enabledTools.includes(t.id)} onChange={() => toggleTool(t.id)} />
-              ))}
-            </div>
-          ) : none('In Agent mode Cinderpaw picks the tools it needs for each task.')}
+          {none('Cinderpaw picks the tools it needs for each task.')}
         </Fold>
 
         <Fold id="ctx-model" icon={Cpu} title="Model" value={<span className="flex min-w-0 items-center gap-1.5 text-sm text-text-secondary">{cloudId && <ModelLogo modelId={cloudId} className="size-4 shrink-0" />}<span className="truncate">{model ?? 'None chosen'}</span></span>}>

@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Info, X } from 'lucide-react';
-import { useUI } from '@/stores/ui';
 import { readLocal, writeLocal } from '@/lib/utils';
 import { ShareUsageCard } from '@/components/usage/ShareUsageCard';
 
@@ -52,8 +51,7 @@ interface NewChatEmptyStateProps {
 }
 
 export function NewChatEmptyState({ isEmpty }: NewChatEmptyStateProps) {
-  const isAgentMode = useUI((s) => s.inputMode) === 'agent';
-  if (!isEmpty || !isAgentMode) return null;
+  if (!isEmpty) return null;
 
   // The greeting moved into the composer's wrapper, where the centring already
   // knows how tall everything is. What is left here is the one note that has

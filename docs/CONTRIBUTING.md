@@ -115,9 +115,8 @@ CinderpawAgent/       Bun + TS — the agent sidecar (compiled to a single binar
   src/rsi/          self-improvement layers L1–L6
 ```
 
-Data flow: React → Tauri commands → either the local engine (chat mode) or the
-sidecar's stdin (agent mode). Streaming returns as Tauri events
-(`cinderpaw://token`, `cinderpaw://agent-output`, …). The sidecar infers through the
+Data flow: React → Tauri commands → the sidecar's stdin. Streaming returns as
+Tauri events (`cinderpaw://agent-output`, …). The sidecar infers through the
 loopback API on `:11435` (or a BYOK provider) — never directly against the GGUF.
 
 ---

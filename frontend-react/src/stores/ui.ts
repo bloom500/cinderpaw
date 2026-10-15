@@ -4,11 +4,8 @@ import { persist } from 'zustand/middleware';
 
 export type ThemePref = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
-export type ReasoningMode = 'auto' | 'on' | 'off';
-export type ToolId = 'web_search' | 'http_request' | 'file_read' | 'file_write' | 'code_execute';
 // English only this release; the next one adds ~70 languages.
 export type LangPref = 'en';
-export type InputMode = 'chat' | 'agent';
 /** The typeface of the chat's messages (spec 7.4): the app's Geist, or the
  *  one the computer uses everywhere else. */
 export type ChatFont = 'geist' | 'system';
@@ -71,13 +68,6 @@ interface UIStore {
   theme: ThemePref;
   resolvedTheme: ResolvedTheme;
   language: LangPref;
-  /** Set from the composer's Tools menu, where every switch that is on also
-   *  shows as a chip, so a choice is never out of sight. Still not persisted:
-   *  each launch starts at the defaults (see `partialize`). */
-  reasoningMode: ReasoningMode;
-  enabledTools: ToolId[];
-  setReasoningMode: (mode: ReasoningMode) => void;
-  toggleTool: (id: ToolId) => void;
   setTheme: (t: ThemePref) => void;
   searchOpen:  boolean;
   /**
@@ -95,8 +85,6 @@ interface UIStore {
    *  offer above the composer. Not persisted: it belongs to this task. */
   skillTip: boolean;
   setSkillTip: (v: boolean) => void;
-  inputMode: InputMode;
-  setInputMode: (m: InputMode) => void;
   /** #24: pixel-art mascot on the typing bar. Some users want it off. */
   mascotEnabled: boolean;
   setMascotEnabled: (v: boolean) => void;
@@ -221,14 +209,6 @@ export const useUI = create<UIStore>()(
       theme: 'system',
       resolvedTheme: getSystemTheme(),
       language: 'en',
-      reasoningMode: 'auto',
-      enabledTools: [],
-      setReasoningMode: (reasoningMode) => set({ reasoningMode }),
-      toggleTool: (id) => set((s) => ({
-        enabledTools: s.enabledTools.includes(id)
-          ? s.enabledTools.filter((t) => t !== id)
-          : [...s.enabledTools, id],
-      })),
       setTheme: (theme) => {
         const resolved = resolveTheme(theme);
         applyTheme(resolved);
@@ -243,8 +223,6 @@ export const useUI = create<UIStore>()(
       closeSkills: () => set({ skillsOpen: false }),
       skillTip: false,
       setSkillTip: (skillTip) => set({ skillTip }),
-      inputMode: 'chat',
-      setInputMode: (inputMode) => set({ inputMode }),
       mascotEnabled: true,
       setMascotEnabled: (mascotEnabled) => set({ mascotEnabled }),
       emberGameEnabled: true,
@@ -286,15 +264,6 @@ export const useUI = create<UIStore>()(
         navCollapsed: s.navCollapsed,
         starredChats: s.starredChats,
         theme: s.theme,
-        // `reasoningMode` and `enabledTools` are deliberately NOT persisted.
-        // They were once, from composer controls that were later removed, and
-        // a saved value became a setting with no way back: someone who once
-        // picked "Off: suppress thinking blocks", or ticked File Write, carried
-        // that choice forever with nothing on screen explaining it. The Tools
-        // menu sets them again, but only for this launch; every launch starts
-        // at `auto` and an empty tool list, which agent mode overrides with the
-        // agent's own tools.
-        inputMode: s.inputMode,
         mascotEnabled: s.mascotEnabled,
         emberGameEnabled: s.emberGameEnabled,
         emberBest: s.emberBest,
@@ -309,16 +278,15 @@ export const useUI = create<UIStore>()(
         callLanguage: s.callLanguage,
         ttsVoice: s.ttsVoice,
       }),
-      // Dropping the two keys from `partialize` only stops them being WRITTEN.
-      // Every machine that already ran an older build still has them sitting in
-      // `cinderpaw-ui`, and rehydration merges that blob over the defaults — so
-      // without this the person the change was made for is the one person it
-      // does not reach, and "Off" stays off forever. `merge` runs before the
-      // store exists, which is the only point where the stale value can be
-      // removed rather than reapplied.
+      // Chat mode is gone, and with it `inputMode` and the Tools menu's
+      // `reasoningMode` and `enabledTools`. Every machine that ran an older
+      // build still has them sitting in `cinderpaw-ui`, and rehydration merges
+      // that blob over the defaults, so they would come back as keys nothing
+      // reads. `merge` runs before the store exists, which is the only point
+      // where a stale value can be removed rather than reapplied.
       merge: (persisted, current) => {
-        const { reasoningMode: _r, enabledTools: _t, ...rest } =
-          (persisted ?? {}) as Partial<UIStore>;
+        const { reasoningMode: _r, enabledTools: _t, inputMode: _m, ...rest } =
+          (persisted ?? {}) as Partial<UIStore> & Record<'reasoningMode' | 'enabledTools' | 'inputMode', unknown>;
         const merged = { ...current, ...rest };
         // The Romanian interface was removed; a machine that picked it still
         // has 'ro' saved, and the voice shortlist and dates read this field.

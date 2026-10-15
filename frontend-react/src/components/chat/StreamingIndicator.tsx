@@ -60,9 +60,7 @@ export function StreamingIndicator({ phase = 'thinking', tool, icon }: Streaming
     return () => clearTimeout(t);
   }, [sessionId, phase]);
 
-  // Subscribe to progress heartbeats from both paths:
-  // - streamProgressEvent: Rust local inference (chat tab, cinderpaw://stream-progress)
-  // - onStreamProgress: sidecar agent inference (agent tab, filtered cinderpaw://agent-output)
+  // Progress heartbeats from the agent's inference (filtered cinderpaw://agent-output).
   useEffect(() => {
     setProgress(null);
     // See App.tsx: a listener whose `listen()` resolves after unmount must be
@@ -73,7 +71,6 @@ export function StreamingIndicator({ phase = 'thinking', tool, icon }: Streaming
     const set = (e: StreamProgressEvent) => {
       if (!cancelled && phase === 'thinking' && e.sessionId === sessionId) setProgress(e);
     };
-    events.streamProgressEvent.listen((e) => set(e.payload)).then(keep);
     events.onStreamProgress.listen(set).then(keep);
     return () => { cancelled = true; unlistens.forEach((u) => u()); };
   }, [sessionId, phase]);

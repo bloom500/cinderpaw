@@ -99,4 +99,4 @@ still running on your machine.
 | First reply takes minutes | Normal on CPU for the first message (model load + prompt processing) — the indicator under the message explains what's happening |
 | "The model stopped responding…" | Model/provider hung; retry, or switch to a smaller/faster model |
 | Key rejected (401) | Models → Cloud tab. Paste the key again, and check with the provider that it is still active |
-| Empty answer from a thinking model | The model used its whole budget thinking. In Chat mode, turn off **Think** in the Tools menu, or use a larger model |
+| Empty answer from a thinking model | The model used its whole budget thinking. Use a larger model, or one that does not think first |

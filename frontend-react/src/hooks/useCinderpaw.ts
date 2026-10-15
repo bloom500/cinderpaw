@@ -1,9 +1,8 @@
 /**
  * useCinderpaw — React integration for the Cinderpaw Agent sidecar.
  *
- * Wraps `cinderpaw_send_message` + `cinderpaw://agent-output` events into the same
- * callback interface that useChatStream uses, so useSendMessage can drop it in
- * as a third inference path without changing the streaming logic.
+ * Wraps `cinderpaw_send_message` + `cinderpaw://agent-output` events into a
+ * streaming callback interface. The only inference path the composer has.
  */
 
 import { useEffect, useCallback } from 'react';
@@ -121,10 +120,9 @@ export function useCinderpawStream(chatSessionId: string) {
     ) => {
       await ensureCinderpawListener();
 
-      // Parity with `startChatStream`: a fresh send is an implicit interrupt
-      // of any stream still in flight for this session. Without this, the
-      // previous generation's chunks keep racing the new one into the same
-      // chat (stop/retry semantics must match across both paths — audit A2).
+      // A fresh send is an implicit interrupt of any stream still in flight
+      // for this session. Without this, the previous generation's chunks keep
+      // racing the new one into the same chat (audit A2).
       if (isCinderpawStreaming(chatSessionId)) {
         await requestCinderpawStop(chatSessionId);
       }

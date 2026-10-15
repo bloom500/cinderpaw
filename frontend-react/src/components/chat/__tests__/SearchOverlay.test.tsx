@@ -231,15 +231,6 @@ describe('actions', () => {
     expect(useUI.getState().searchOpen).toBe(false);
   });
 
-  it('switches mode from the keyboard and names the mode it switches to', async () => {
-    setup();
-    useUI.setState({ inputMode: 'chat' } as never);
-    await userEvent.type(screen.getByRole('combobox'), 'mode');
-    await waitFor(async () => expect((await rows()).join(' ')).toContain('Switch to Agent mode'));
-    await userEvent.keyboard('{Enter}');
-    expect(useUI.getState().inputMode).toBe('agent');
-  });
-
   it('stays out of the browse list when nothing is typed', async () => {
     setup();
     expect((await rows()).join(' ')).not.toContain('Settings:');

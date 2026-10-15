@@ -16,17 +16,15 @@ import { ComposerPlaceholder } from './ComposerPlaceholder';
 import { motion } from 'framer-motion';
 import { ModelPill } from './ModelPill';
 import { ContextRing } from './ContextRing';
-import { ToolsMenu } from './ToolsMenu';
 import { MascotPerch } from './mascot/MascotPerch';
 import { useMascotState } from './mascot/useMascotState';
 import { useEmberRun } from './ember/useEmberRun';
 import { EmberInvite } from './ember/EmberInvite';
 import { EmberPanel } from './ember/EmberPanel';
-import { useModel } from '@/stores/model';
 import { useChat, type ChatMessage } from '@/stores/chat';
 import { useUI, type CallEngine } from '@/stores/ui';
 import { useConversations } from '@/stores/conversations';
-import { useSendMessage, saveVoiceBlobToDisk, transcribeVoiceBlob, buildUserContent } from '@/hooks/useSendMessage';
+import { saveVoiceBlobToDisk, transcribeVoiceBlob, buildUserContent } from '@/hooks/useSendMessage';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { useCallSession } from '@/hooks/useCallSession';
 import { useLiveCallSession } from '@/hooks/useLiveCallSession';
@@ -54,11 +52,10 @@ export interface ChatInputHandle {
 export interface ChatInputProps {
   isEmpty?: boolean;
   /**
-   * When provided, overrides the default useSendMessage routing.
-   * Used by the Agents tab to route through the Cinderpaw Agent sidecar.
+   * Sends a turn to the Cinderpaw Agent sidecar (`useCinderpawSendMessage`).
    * `images` carries attachment data URLs for vision-capable models.
    */
-  sendFn?: (
+  sendFn: (
     text: string,
     images?: string[],
     opts?: {
@@ -68,12 +65,6 @@ export interface ChatInputProps {
       surface?: 'voice' | 'text';
     },
   ) => Promise<void>;
-  /**
-   * When true, the input is always enabled regardless of whether a local
-   * model or cloud key is active. Used by the Agents tab (Cinderpaw Agent
-   * provides its own Ollama-backed inference).
-   */
-  alwaysEnabled?: boolean;
 }
 
 /**
@@ -116,7 +107,7 @@ export function writeDraft(id: string, text: string): void {
 
 // Mobile UX (deferred): swap to Enter=newline + explicit send button.
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
-function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
+function ChatInput({ isEmpty, sendFn }, ref) {
   const [text, setText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   // Links pasted on their own become chips beside the files instead of a
@@ -172,11 +163,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     return () => window.removeEventListener('pagehide', save);
   }, [convId]);
   const [dragOver, setDragOver] = useState(false);
-  const loaded      = useModel((s) => s.loaded);
-  const cloudModel  = useModel((s) => s.cloudModel);
   const status = useChat((s) => s.streamStatus);
-  const inputMode    = useUI((s) => s.inputMode);
-  const setInputMode = useUI((s) => s.setInputMode);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   // In use until a press lands outside it. Not blur: the model menu and the
@@ -194,7 +181,6 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     document.addEventListener('pointerdown', onDown);
     return () => document.removeEventListener('pointerdown', onDown);
   }, [engaged]);
-  const send = useSendMessage();
   const t = useT();
   const rec = useVoiceRecorder();
   const [voicePeaks, setVoicePeaks] = useState<number[]>([]);
@@ -205,15 +191,11 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const micHoldTimer = useRef<number | null>(null);
   const micHeldRef = useRef(false);
 
-  // A call turn is routed exactly like a typed or recorded one: through the
-  // Cinderpaw Agent sidecar in agent mode, the chat pipeline otherwise. Without this
-  // the call would hit the (unloaded) local model in agent mode — the same bug
-  // the voice path already had.
+  // A call turn is routed exactly like a typed or recorded one: to the agent.
   const pipelineCall = useCallSession(async (text: string) => {
     // `surface: 'voice'` is what tells the agent this answer gets spoken. Without
     // it a call received the desktop's full markdown answer read out loud.
-    if (sendFn) await sendFn(text, undefined, { surface: 'voice' });
-    else await send(text, [], { surface: 'voice' });
+    await sendFn(text, undefined, { surface: 'voice' });
   });
   // Both loops are mounted, and only one is ever running: an unopened call is a
   // handful of refs. Choosing the hook at call time instead would mean calling a
@@ -232,8 +214,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   // Jev does not recognise goes to the agent, and its reply is spoken back on
   // the call (see `handOff`), so the agent is told to answer for the ear.
   const jevCall = useJevCallSession(async (text: string) => {
-    if (sendFn) await sendFn(text, undefined, { surface: 'voice' });
-    else await send(text, [], { surface: 'voice' });
+    await sendFn(text, undefined, { surface: 'voice' });
   });
   const s2sProvider = useUI((s) => s.s2sProvider);
   // Three engines, one overlay. LiveKit is the only one offered now; the other
@@ -458,51 +439,9 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     isUserTyping: text.trim().length > 0,
   });
   const ember = useEmberRun();
-  /**
-   * No local model loaded and no cloud key configured.
-   *
-   * This used to disable the composer outright (and ChatPage replaced the
-   * whole screen with a "No model selected" card), so the first thing a new
-   * user typed was refused by a dead text box that told them to go
-   * configure something. The composer now stays live and `trySend` answers
-   * the message instead — see `noModelReply`.
-   */
-  const noModel = !alwaysEnabled && !loaded && !cloudModel;
-  /**
-   * Answer a message when there is no model to answer it with.
-   *
-   * This reply is written by the product, not generated — you cannot ask a
-   * model to explain that there is no model. It is deliberately phrased as
-   * Cinderpaw speaking, because from the user's side that is what happened:
-   * they asked for something and got an answer plus the two real ways
-   * forward, instead of a disabled box pointing at Settings.
-   */
-  const noModelReply = (asked: string | null) => {
-    const now = Date.now();
-    // `null` means the user's turn is already on screen (the voice path adds
-    // its bubble optimistically before transcription finishes).
-    if (asked !== null) {
-      useChat.getState().addMessage({
-        id: crypto.randomUUID(),
-        role: 'user',
-        content: asked,
-        createdAt: now,
-      });
-    }
-    useChat.getState().addMessage({
-      id: crypto.randomUUID(),
-      role: 'assistant',
-      content: t('chat.noModel.reply'),
-      createdAt: now + 1,
-      completedAt: now + 1,
-      actions: [
-        { label: t('chat.noModel.download'), route: '/models' },
-        { label: t('chat.noModel.addKey'), route: '/models?tab=cloud' },
-      ],
-    });
-  };
   // Kept as a name because several controls read it; nothing sets it from
-  // model state any more. Sending is gated by `noModel` in trySend.
+  // model state any more. With no model, the agent's own error says so
+  // (humanizeError: "No model is chosen yet", with a button to Models).
   const disabled = false;
 
   const trySend = async () => {
@@ -531,25 +470,10 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
         const transcript = await transcribeVoiceBlob(blob, audioPath);
         const body = transcript || '(unintelligible)';
         const voice = { audioPath, durationMs, transcript, peaks };
-        // Route the transcript exactly like a typed message: through the Cinderpaw
-        // Agent sidecar in agent mode (sendFn), or the local/cloud chat
-        // pipeline otherwise. `existingUserId` fills in the optimistic bubble
-        // instead of adding a duplicate. Previously voice always used the chat
-        // pipeline, so in agent mode it hit the (unloaded) local model → "no
-        // model loaded" while the agent's own model sat idle.
-        if (noModel) {
-          // The recording is transcribed and kept — whisper is local and had
-          // nothing to do with the missing chat model — but there is nobody
-          // to answer it, so the same reply the typed path gives lands here.
-          // Dropping it silently would be the worse dead end: the user speaks
-          // and nothing at all happens.
-          useChat.getState().patchMessage(userId, { voice, voicePending: false });
-          noModelReply(null);
-        } else if (sendFn) {
-          await sendFn(body, undefined, { voice, existingUserId: userId });
-        } else {
-          await send(body, [], { voice, existingUserId: userId });
-        }
+        // Route the transcript exactly like a typed message, to the agent.
+        // `existingUserId` fills in the optimistic bubble instead of adding a
+        // duplicate.
+        await sendFn(body, undefined, { voice, existingUserId: userId });
       } catch (err) {
         console.error('[voice] sendVoice FAILED', err);
         // Drop the optimistic bubble — transcription failed before any reply.
@@ -572,13 +496,6 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     const composed = links.length > 0
       ? `${links.join(' ')}${text.trim() ? `\n${text}` : ''}`
       : text;
-    if (noModel) {
-      noModelReply(composed);
-      setText('');
-      setAttachedFiles([]);
-      setLinks([]);
-      return;
-    }
     const content = composed;
     const files = attachedFiles;
     // Cleared optimistically, because waiting for the whole turn before the
@@ -591,17 +508,12 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     setAttachedFiles([]);
     setLinks([]);
     try {
-      if (sendFn) {
-        // Agent path: inline text attachments into the content (same as the
-        // chat path) and hand image data URLs over separately so the sidecar
-        // can pass real pixels to vision-capable models.
-        const images = files
-          .filter((f) => f.kind === 'image' && f.dataUrl)
-          .map((f) => f.dataUrl!);
-        await sendFn(buildUserContent(content, files), images.length > 0 ? images : undefined);
-      } else {
-        await send(content, files);
-      }
+      // Text attachments go inline in the content; image data URLs go
+      // separately so the sidecar can pass real pixels to vision models.
+      const images = files
+        .filter((f) => f.kind === 'image' && f.dataUrl)
+        .map((f) => f.dataUrl!);
+      await sendFn(buildUserContent(content, files), images.length > 0 ? images : undefined);
     } catch (err) {
       // Put it back only if nothing made it onto the transcript. Once a user
       // bubble exists the words are safe there, and restoring the draft as
@@ -736,7 +648,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                 onPaste={onPaste}
                 // The visible placeholder is drawn below, animated; the box keeps
                 // an accessible name so a screen reader still hears what it is for.
-                aria-label={alwaysEnabled ? t('chat.placeholder.agent') : t('chat.placeholder')}
+                aria-label={t('chat.placeholder.agent')}
                 disabled={disabled}
                 rows={1}
                 className={cn(
@@ -754,7 +666,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                     // forty blurred letters every 3.2 s behind the transcript
                     // and every streamed reply; there the field says what it is.
                     active={!!isEmpty && !engaged && !disabled}
-                    fallback={alwaysEnabled ? t('chat.placeholder.agent') : t('chat.placeholder')}
+                    fallback={t('chat.placeholder.agent')}
                   />
                 </div>
               )}
@@ -825,7 +737,6 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                 group never does. */}
             <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
               <div className="flex min-w-0 items-center gap-1">
-                {inputMode === 'chat' && <ToolsMenu />}
                 <ModelPill />
                 <span
                   className={cn(
@@ -839,36 +750,6 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <ContextRing />
-                <div className="flex rounded-full border border-border-default bg-bg-elevated h-7 overflow-hidden shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setInputMode('agent')}
-                    aria-label="Switch to Agent mode"
-                    aria-pressed={inputMode === 'agent'}
-                    className={cn(
-                      'px-2.5 text-2xs font-medium transition-colors',
-                      inputMode === 'agent'
-                        ? 'bg-bg-hover text-text-primary'
-                        : 'text-text-muted hover:text-text-secondary',
-                    )}
-                  >
-                    Agent
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setInputMode('chat')}
-                    aria-label="Switch to Chat mode"
-                    aria-pressed={inputMode === 'chat'}
-                    className={cn(
-                      'px-2.5 text-2xs font-medium transition-colors',
-                      inputMode === 'chat'
-                        ? 'bg-bg-hover text-text-primary'
-                        : 'text-text-muted hover:text-text-secondary',
-                    )}
-                  >
-                    Chat
-                  </button>
-                </div>
               </div>
             </div>
           </motion.div>

@@ -9,20 +9,13 @@
 
 const en = {
   // Chat input
-  'chat.placeholder': 'Ask anything…',
   'chat.placeholder.agent': 'Ask Cinderpaw…',
   'chat.placeholder.noModel': 'Load a model or add a cloud key to start chatting',
   'chat.noModelHint': 'No model loaded. Open Models to download one, or add a cloud key in Models, Cloud tab.',
-  // Spoken by the product, not the model — there is no model to speak. See
-  // ChatInput.noModelReply.
-  'chat.noModel.reply':
-    "I need a model before I can do that. I can run a small one locally on this machine, which works offline, or use an API key if you already have one.",
-  'chat.noModel.download': 'Download a model',
   // Model picker trigger when nothing is pinned. Choosing by hand is an
   // override now, not a prerequisite — Brain routes per turn.
   'model.automatic': 'Automatic',
   'model.add': 'Add a model',
-  'chat.noModel.addKey': 'Add a key',
   // Shown when automatic model selection failed and the default was used.
   // A fallback is allowed; a hidden one is not.
   'chat.routed.fallback': 'I used your default model. Automatic model choice was unavailable.',
@@ -102,8 +95,6 @@ const en = {
   'call.stt': 'Speech → text',
   'call.tts': 'Text → speech',
   'call.mic': 'Microphone',
-  'call.tools': 'Tools',
-  'call.toolsOff': 'none in this call, it answers from what it knows',
   'call.micDefault': 'System default',
   'call.onDevice': 'on device',
   'call.leavesDevice': 'leaves device',

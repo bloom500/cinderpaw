@@ -404,7 +404,6 @@ Cinderpaw has two runtime layers that talk to each other:
 ├─────────────────────────────────────────────────────────┤
 │  React + TypeScript frontend (Vite)                     │
 │  ├── Chat UI with streaming + thinking block rendering  │
-│  ├── Agent/Chat mode toggle                             │
 │  ├── Models page (local + HuggingFace browse)           │
 │  ├── Model fitness scoring (llmfit-adapted)             │
 │  └── SkillHub + Settings                                │

@@ -25,14 +25,12 @@ import { StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
 import { WorkersCard } from '@/components/chat/WorkersCard';
 import { ComposerTip, TEACH_PROMPT } from '@/components/chat/ComposerTip';
 import { AgentsOnboarding } from '@/components/agents/onboarding/AgentsOnboarding';
-import { ONBOARDING_KEY } from '@/components/agents/agentUtils';
 import { useOnboarding } from '@/stores/onboarding';
 import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
 import { CoworkTranscriptPanel } from '@/components/chat/CoworkTranscriptPanel';
 import { CoworkerStrip } from '@/components/chat/CoworkerStrip';
 import { useCinderpawSendMessage } from '@/hooks/useCinderpaw';
 import { useCinderpawStore } from '@/stores/cinderpaw';
-import { readLocal } from '@/lib/utils';
 import { setChatDockHeight } from '@/lib/chatDock';
 
 export function ChatPage() {
@@ -44,11 +42,8 @@ export function ChatPage() {
   const isEmpty     = useChat((s) => s.messages.length === 0);
   const loadingConversation = useConversations((s) => s.loadingConversation);
 
-  const inputMode    = useUI((s) => s.inputMode);
-  const setInputMode = useUI((s) => s.setInputMode);
   const sessionId    = useChat((s) => s.sessionId);
   const cinderpawSend    = useCinderpawSendMessage(sessionId);
-  const isAgentMode  = inputMode === 'agent';
 
   // The composer is always live. Cinderpaw used to gate the whole screen on
   // `hasModel`, which meant a fresh install — the one machine that has no
@@ -67,13 +62,15 @@ export function ChatPage() {
     return () => window.removeEventListener('cinderpaw-focus-composer', focus);
   }, []);
   // Another screen (Settings > Team) can open a chat with words already in the
-  // box: `navigate('/chat', { state: { compose } })`. Read once, then dropped
-  // from the history entry so Back does not type it a second time.
+  // box: `navigate('/chat', { state: { compose } })`. Settings > Agent opens it
+  // on the agent-creation steps the same way: `{ newAgent: true }`. Read once,
+  // then dropped from the history entry so Back does not do it a second time.
   const location = useLocation();
   useEffect(() => {
-    const compose = (location.state as { compose?: string } | null)?.compose;
-    if (!compose) return;
-    chatInputRef.current?.setText(compose);
+    const state = location.state as { compose?: string; newAgent?: boolean } | null;
+    if (!state?.compose && !state?.newAgent) return;
+    if (state.compose) chatInputRef.current?.setText(state.compose);
+    if (state.newAgent) setShowAgentOnboarding(true);
     navigate(location.pathname, { replace: true, state: null });
   }, [location, navigate]);
   // Explorer's Send to > Cinderpaw: files the app was started with, and files
@@ -106,8 +103,9 @@ export function ChatPage() {
     wasBrowserOpen.current = browserOpen;
   }, [browserOpen]);
   const [translateY, setTranslateY] = useState(0);
-  // #17: agent-creation onboarding — shown in agent mode when no agent
-  // exists, but never while the first-run wizard is still on screen.
+  // #17: agent-creation onboarding. Only when asked for, from Settings > Agent:
+  // a new install meets the composer, not a second wizard after the first one
+  // (15 Oct 2026, Darius). Never while the first-run wizard is on screen.
   const [showAgentOnboarding, setShowAgentOnboarding] = useState(false);
   const wizardActive = useOnboarding((s) => s.active);
 
@@ -203,8 +201,8 @@ export function ChatPage() {
   const setSkillTip = useUI((s) => s.setSkillTip);
   useEffect(() => { setSkillTip(false); }, [id, setSkillTip]);
 
-  // Open conversation when route changes; auto-switch to agent mode
-  // if the conversation was created under a Cinderpaw Agent.
+  // Open conversation when route changes, and select the agent it was
+  // created under.
   useEffect(() => {
     if (!id) return;
     const targetId = id;
@@ -220,7 +218,6 @@ export function ChatPage() {
         useAgent.getState().setReopenSessionId(null);
         return;
       }
-      setInputMode('agent');
       await useAgent.getState().refresh();
       // Guard again after second await.
       if (useAgent.getState().reopenSessionId !== targetId) return;
@@ -230,7 +227,7 @@ export function ChatPage() {
     return () => {
       useAgent.getState().setReopenSessionId(null);
     };
-  }, [id, setInputMode]);
+  }, [id]);
 
   // Clear the reopen flag once the target conversation is active.
   const reopenSessionId = useAgent((s) => s.reopenSessionId);
@@ -240,25 +237,18 @@ export function ChatPage() {
     }
   }, [reopenSessionId, sessionId]);
 
-  // When the user switches to agent mode:
-  // 1. Ensure an agent is selected so cinderpawSend can tag conversations.
+  // 1. Ensure an agent is selected, when one exists, so cinderpawSend can tag
+  //    conversations. Sending works without one.
   // 2. Hot-swap the Cinderpaw sidecar to the currently loaded local model.
   //    The sidecar persists its own model config and may be pointing at
   //    an Ollama model name that doesn't match what's loaded in the
   //    Cinderpaw inference backend (port 11435). Without this sync, all
   //    sidecar requests fail silently.
   useEffect(() => {
-    if (inputMode !== 'agent') return;
-
     if (!useAgent.getState().current) {
       void useAgent.getState().refresh().then(() => {
         const first = useAgent.getState().list[0];
         if (first?.id) useAgent.getState().setCurrent(first.id);
-        // #17: no agent exists — offer the agent-creation onboarding. It was
-        // previously unreachable (the "New agent" button navigated here and
-        // nothing mounted it). Sequenced below so it never stacks on top of
-        // the first-run wizard. Skip if already dismissed/completed (survives CTRL+R).
-        else if (!readLocal(ONBOARDING_KEY)) setShowAgentOnboarding(true);
       });
     }
 
@@ -279,7 +269,7 @@ export function ChatPage() {
         }).catch(console.error);
       }
     }
-  }, [inputMode, loaded]);
+  }, [loaded]);
 
   const handleSuggestion = (text: string) => {
     chatInputRef.current?.setText(text);
@@ -295,7 +285,7 @@ export function ChatPage() {
   // without two copies of it in the tree.
   const chatColumn = (
     <div className="flex flex-col h-full min-w-[28rem] flex-1">
-      {isAgentMode && showAgentOnboarding && !wizardActive && (
+      {showAgentOnboarding && !wizardActive && (
         <AgentsOnboarding
           onDone={() => setShowAgentOnboarding(false)}
           onSkip={() => setShowAgentOnboarding(false)}
@@ -303,8 +293,8 @@ export function ChatPage() {
       )}
       {!showAgentOnboarding && <ChatHeader />}
 
-      {isAgentMode && <CinderpawGlobalMount />}
-      {isAgentMode && <AgentOfflineBanner />}
+      <CinderpawGlobalMount />
+      <AgentOfflineBanner />
       {!showAgentOnboarding && <CoworkerStrip />}
 
       {/* Positioning context for absolute children */}
@@ -375,13 +365,11 @@ export function ChatPage() {
           <StreamErrorNotice />
           <ComposerTip
             isEmpty={isEmpty}
-            // A new chat, in agent mode (create_skill is a tool, and only the
-            // agent has tools), with the request typed in and the caret after
-            // it. Not sent: sending is theirs, and it costs money.
+            // A new chat with the request typed in and the caret after it.
+            // Not sent: sending is theirs, and it costs money.
             onTry={() => {
               useConversations.getState().newChat();
               navigate('/chat');
-              setInputMode('agent');
               chatInputRef.current?.setText(TEACH_PROMPT);
               chatInputRef.current?.focus();
             }}
@@ -389,8 +377,7 @@ export function ChatPage() {
           <ChatInput
             ref={chatInputRef}
             isEmpty={isEmpty}
-            sendFn={isAgentMode ? cinderpawSend : undefined}
-            alwaysEnabled={isAgentMode}
+            sendFn={cinderpawSend}
           />
           {/* Inside the composer's wrapper, not floating near it: the wrapper
               is what gets centred, and its measured height is what the centring

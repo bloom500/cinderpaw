@@ -53,8 +53,8 @@ export interface CinderpawStreamHandlers {
   chatMessageId?: string;
   /**
    * Chat session this stream belongs to. Lets `requestCinderpawStop(sessionId)`
-   * stop only that session's streams instead of every in-flight stream —
-   * the same per-session stop semantics `lib/chatStream` has (audit A2).
+   * stop only that session's streams instead of every in-flight stream
+   * (audit A2).
    */
   sessionId?: string;
 }

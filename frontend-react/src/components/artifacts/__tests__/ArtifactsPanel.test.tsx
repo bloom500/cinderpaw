@@ -7,7 +7,6 @@ import userEvent from '@testing-library/user-event';
 import { APP_IFRAME_SANDBOX } from '@/lib/artifactSandbox';
 import { tauri } from '@/lib/tauri';
 import { useChat, type ChatMessage } from '@/stores/chat';
-import { useUI } from '@/stores/ui';
 import { useNotifications } from '@/stores/notifications';
 import { useConversations } from '@/stores/conversations';
 import { useProjects } from '@/stores/projects';
@@ -729,24 +728,21 @@ describe('the Artifact Dock', () => {
 });
 
 describe('the Context tab', () => {
-  it('says what will show up in a new chat, and lists the Chat mode tools as switches', async () => {
-    useUI.setState({ inputMode: 'chat', enabledTools: [] });
+  it('says what will show up in a new chat, and has no tool switches', () => {
     // Opened from the chat's Context button; the panel has no tab strip.
     useArtifacts.setState({ panelTab: 'context' });
     render(<ArtifactsPanel onClose={() => {}} />);
     expect(screen.getByText(/Nothing here yet. Files you add/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('switch', { name: /Web search/ }));
-    expect(useUI.getState().enabledTools).toContain('web_search');
+    expect(screen.queryByRole('switch', { name: /Web search/ })).toBeNull();
   });
 
-  it("lists the chat's files, and says Agent mode picks its own tools", () => {
-    useUI.setState({ inputMode: 'agent' });
+  it("lists the chat's files, and says Cinderpaw picks its own tools", () => {
     useChat.setState({ messages: [{ id: 'u', role: 'user', content: '[Image attached: cat.png]\n\nhi', createdAt: 0 }] });
     useArtifacts.setState({ panelTab: 'context' });
     render(<ArtifactsPanel onClose={() => {}} />);
     expect(screen.getByRole('region', { name: 'Files' })).toHaveTextContent('cat.png');
     expect(screen.queryByText(/Nothing here yet/)).toBeNull();
-    expect(screen.getByText(/In Agent mode Cinderpaw picks/)).toBeInTheDocument();
+    expect(screen.getByText(/Cinderpaw picks the tools it needs/)).toBeInTheDocument();
   });
 
   it('says what the chat is about, folds each kind of context, and Add fills the composer', () => {

@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { useModel } from '@/stores/model';
-import { useUI } from '@/stores/ui';
 import userEvent from '@testing-library/user-event';
 import { ModelPickerPopover } from '@/components/chat/ModelPickerPopover';
 import { CinderpawModelSelector } from '@/components/agents/CinderpawModelSelector';
@@ -77,7 +76,6 @@ describe('the chat model picker', () => {
 describe('the Model Switcher (spec 8)', () => {
   it('offers roles: Local is the model on disk, Fast asks to be chosen, and picking a role switches to it', async () => {
     useModel.setState({ roles: {}, cloudModel: null, loaded: null });
-    useUI.setState({ inputMode: 'chat' });
     const load = vi.spyOn(useModel.getState(), 'load').mockResolvedValue(undefined);
     render(<ModelPickerPopover />);
     await userEvent.click(screen.getByRole('button'));

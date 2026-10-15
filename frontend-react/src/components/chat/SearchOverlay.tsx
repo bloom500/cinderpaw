@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, X, Folder, Globe, Sun, Moon, Bot, MessageSquare, KeyRound, type LucideIcon } from 'lucide-react';
+import { Search, X, Folder, Globe, Sun, Moon, KeyRound, type LucideIcon } from 'lucide-react';
 import { useBrowser, type BrowserTab } from '@/stores/browser';
 import { fuzzyScore } from '@/lib/browserHistory';
 import { useNavigate } from 'react-router-dom';
@@ -95,8 +95,6 @@ export function SearchOverlay() {
   const allProjects = useProjects((s) => s.list);
   const resolvedTheme = useUI((s) => s.resolvedTheme);
   const setTheme      = useUI((s) => s.setTheme);
-  const inputMode     = useUI((s) => s.inputMode);
-  const setInputMode  = useUI((s) => s.setInputMode);
 
   const [query, setQuery]     = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -192,9 +190,6 @@ export function SearchOverlay() {
     resolvedTheme === 'dark'
       ? { id: 'theme', label: 'Switch to light theme', hint: 'Appearance', icon: Sun, keywords: 'theme', run: () => setTheme('light') }
       : { id: 'theme', label: 'Switch to dark theme', hint: 'Appearance', icon: Moon, keywords: 'theme', run: () => setTheme('dark') },
-    inputMode === 'agent'
-      ? { id: 'mode', label: 'Switch to Chat mode', hint: 'Answers only, no tools', icon: MessageSquare, keywords: 'mode', run: () => setInputMode('chat') }
-      : { id: 'mode', label: 'Switch to Agent mode', hint: 'Cinderpaw can use tools and act', icon: Bot, keywords: 'mode', run: () => setInputMode('agent') },
     ...CATS.map((c): PaletteAction => ({
       id: `settings:${c.id}`, label: `Settings: ${c.label}`, hint: 'Open settings', icon: c.icon,
       keywords: SETTINGS_KEYWORDS[c.id], run: () => navigate(`/settings?cat=${c.id}`),

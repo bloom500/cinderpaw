@@ -67,7 +67,7 @@ export function AgentSettingsTab() {
           type="button"
           onClick={() => {
             useAgent.getState().clear();
-            navigate('/chat');
+            navigate('/chat', { state: { newAgent: true } });
           }}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors"
         >
@@ -94,7 +94,7 @@ export function AgentSettingsTab() {
             type="button"
             onClick={() => {
               useAgent.getState().clear();
-              navigate('/chat');
+              navigate('/chat', { state: { newAgent: true } });
             }}
             className="px-3 py-1.5 rounded-md bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors"
           >

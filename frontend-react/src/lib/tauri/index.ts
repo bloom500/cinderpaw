@@ -6,10 +6,6 @@
 import { invoke, Channel } from '@tauri-apps/api/core';
 export { Channel };
 import type {
-  TokenEvent,
-  StreamDoneEvent,
-  StreamErrorEvent,
-  StreamTruncatedEvent,
   DownloadProgressEvent,
   DownloadCompleteEvent,
   DownloadErrorEvent,
@@ -20,7 +16,6 @@ import type {
 import { events as agentEvents } from './events';
 
 // ── Types (mirrors Rust structs exactly — snake_case, no rename_all) ──────────
-export type { TokenEvent, StreamDoneEvent, StreamErrorEvent, StreamTruncatedEvent };
 export type { DownloadProgressEvent, DownloadCompleteEvent, DownloadErrorEvent };
 export type { ModelLoadProgressEvent };
 export type { StreamProgressEvent, RsiEngineEventLine, FractalActivityLine, DreamCycleLine, MemoryNotesLine } from './events';
@@ -856,9 +851,6 @@ const raw = {
   startModelLoad:        (path: string, maxContext?: number) => invoke<LoadedModel>('start_model_load', { path, maxContext }),
   unloadModel:           ()    => invoke<void>('unload_model'),
   deleteModel:           (path: string) => invoke<void>('delete_model', { path }),
-  chatStream:            (messages: Message[], params: InferParams, sessionId: string) =>
-    invoke<void>('chat_stream', { messages, params, sessionId }),
-  stopGeneration:        (sessionId: string) => invoke<void>('stop_generation', { sessionId }),
   downloadModel:         (repoId: string, filename: string) =>
     invoke<string>('download_model', { repoId, filename }),
   cancelDownload:        (modelId: string) =>
@@ -937,8 +929,6 @@ const raw = {
     invoke<{ answers: Record<string, { type: string; choice?: string; confidence?: number; noul?: number }>; usage: unknown; ms: number }>('jev_decide', { state, questions }),
   testByokProvider:      (providerId: string, apiKey: string, baseUrl?: string | null) =>
     invoke<object>('test_byok_provider', { providerId, apiKey, baseUrl }),
-  chatCloudStream:       (providerId: string, model: string, messages: Message[], params: InferParams, sessionId: string) =>
-    invoke<void>('chat_cloud_stream', { providerId, model, messages, params, sessionId }),
   readFileAsText:        (path: string) => invoke<string>('read_file_as_text', { path }),
   listInstalledSkills:      () => invoke<SkillMeta[]>('list_installed_skills'),
   getInstalledSkillContent: (id: string) => invoke<string>('get_installed_skill_content', { id }),
@@ -1017,8 +1007,6 @@ const raw = {
   // Returns `{ task, workspace_id, workspace_name, last_active_at }`; every
   // field is null on first launch.
   getLastTask:              () => invoke<LastTaskView>('get_last_task'),
-  chatCompleteLocal:        (messages: Message[], params: InferParams) =>
-    invoke<string>('chat_complete_local', { messages, params }),
   chatCloudComplete:        (providerId: string, model: string, messages: Message[], params: InferParams) =>
     invoke<string>('chat_cloud_complete', { providerId, model, messages, params }),
   // ── RSI (Fractal Memory) commands. Field names match Rust snake_case
@@ -1234,14 +1222,6 @@ const raw = {
 // ── Public façade ─────────────────────────────────────────────────────────────
 export const tauri = {
   raw,
-
-  chat: {
-    stream:      async (messages: Message[], params: InferParams, sessionId: string) =>
-      raw.chatStream(messages, params, sessionId),
-    cloudStream: async (providerId: string, model: string, messages: Message[], params: InferParams, sessionId: string) =>
-      raw.chatCloudStream(providerId, model, messages, params, sessionId),
-    stop: async (sessionId: string) => raw.stopGeneration(sessionId),
-  },
 
   conversations: {
     list:     async () => raw.loadConversations(),

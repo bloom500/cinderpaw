@@ -63,7 +63,6 @@ impl cinderpaw_core::host::HostEvents for TauriEvents {
 use crate::agents::AgentConfig;
 use crate::inference::{InferParams, Message};
 use crate::models::ModelInfo;
-use crate::perf_policy::{deadline_message, perf_policy, DeadlineReason, PerfPolicy};
 use crate::settings::Settings;
 use crate::sysinfo_mod::SystemInfo;
 
@@ -581,8 +580,6 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             unload_model,
             set_lora_adapter,
             delete_model,
-            chat_stream,
-            stop_generation,
             get_system_info,
             disk_encryption::disk_encryption_status,
             artifact_frame::artifact_frame_put,
@@ -670,8 +667,6 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             downloads_card::downloads_card_open,
             downloads_card::downloads_card_close,
             test_byok_provider,
-            chat_cloud_stream,
-            chat_complete_local,
             chat_cloud_complete,
             read_file_as_text,
             read_file_as_data_url,
@@ -772,11 +767,6 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             rsi::commands::rsi_champion_tree,
         ])
         .events(tauri_specta::collect_events![
-            crate::events::TokenEvent,
-            crate::events::StreamDoneEvent,
-            crate::events::StreamErrorEvent,
-            crate::events::StreamTruncatedEvent,
-            crate::events::StreamProgressEvent,
             crate::events::DownloadProgressEvent,
             crate::events::DownloadCompleteEvent,
             crate::events::DownloadErrorEvent,

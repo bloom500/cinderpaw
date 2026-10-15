@@ -43,7 +43,6 @@ vi.mock('@/hooks/useJevCallSession',      () => ({ useJevCallSession: () => IDLE
 // The download store subscribes to host events when it is imported; there is no host here.
 vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
 vi.mock('@/hooks/useSendMessage', () => ({
-  useSendMessage: () => vi.fn(async () => {}),
   saveVoiceBlobToDisk: vi.fn(),
   transcribeVoiceBlob: vi.fn(),
   buildUserContent: (text: string) => text,
@@ -71,7 +70,7 @@ async function type(text: string) {
 describe('a send that fails', () => {
   it('gives the message back when nothing reached the transcript', async () => {
     const sendFn = vi.fn(async () => { throw new Error('cinderpaw-agent is not running'); });
-    render(<ChatInput alwaysEnabled sendFn={sendFn} />);
+    render(<ChatInput sendFn={sendFn} />);
 
     const box = await type('the thing I spent a minute writing');
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -92,7 +91,7 @@ describe('a send that fails', () => {
       useChat.getState().addMessage({ id: 'u1', role: 'user', content: text, createdAt: Date.now() });
       throw new Error('stream died');
     });
-    render(<ChatInput alwaysEnabled sendFn={sendFn} />);
+    render(<ChatInput sendFn={sendFn} />);
 
     const box = await type('already on screen');
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -103,7 +102,7 @@ describe('a send that fails', () => {
 
   it('clears the box on the happy path', async () => {
     const sendFn = vi.fn(async () => {});
-    render(<ChatInput alwaysEnabled sendFn={sendFn} />);
+    render(<ChatInput sendFn={sendFn} />);
 
     const box = await type('hello');
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -120,7 +119,7 @@ describe('a file dropped on the composer', () => {
   it('is attached through the same helper as a paste', async () => {
     const attachments = await import('@/lib/attachments');
     const spy = vi.spyOn(attachments, 'attachmentsFromClipboard').mockResolvedValue([]);
-    render(<ChatInput alwaysEnabled />);
+    render(<ChatInput sendFn={vi.fn(async () => {})} />);
     const composer = screen.getByRole('textbox').closest('[class*="rounded-[28px]"]') as HTMLElement;
     expect(composer).not.toBeNull();
     const dataTransfer = { types: ['Files'], items: [], files: [] } as unknown as DataTransfer;
@@ -137,7 +136,7 @@ describe('a file dropped on the composer', () => {
 describe('a pasted link', () => {
   it('becomes a chip in the composer and goes first in the message', async () => {
     const sendFn = vi.fn(async () => {});
-    render(<ChatInput alwaysEnabled sendFn={sendFn} />);
+    render(<ChatInput sendFn={sendFn} />);
     const box = screen.getByRole('textbox') as HTMLTextAreaElement;
     await userEvent.click(box);
     await userEvent.paste('https://github.com/jd-opensource/JoyAI-Video-Edit');
@@ -155,7 +154,7 @@ describe('a pasted link', () => {
   });
 
   it('stays text when it is part of a sentence', async () => {
-    render(<ChatInput alwaysEnabled sendFn={vi.fn(async () => {})} />);
+    render(<ChatInput sendFn={vi.fn(async () => {})} />);
     const box = screen.getByRole('textbox') as HTMLTextAreaElement;
     await userEvent.click(box);
     await userEvent.paste('vezi https://hotnews.ro/ceva-anume');
@@ -163,7 +162,7 @@ describe('a pasted link', () => {
   });
 
   it('comes back out with Backspace in an empty box', async () => {
-    render(<ChatInput alwaysEnabled sendFn={vi.fn(async () => {})} />);
+    render(<ChatInput sendFn={vi.fn(async () => {})} />);
     const box = screen.getByRole('textbox');
     await userEvent.click(box);
     await userEvent.paste('https://github.com/a/b');
@@ -176,7 +175,7 @@ describe('a pasted link', () => {
 describe('a draft', () => {
   it('stays with its conversation across a switch', async () => {
     useConversations.setState({ currentId: 'c1' });
-    render(<ChatInput alwaysEnabled sendFn={vi.fn()} />);
+    render(<ChatInput sendFn={vi.fn()} />);
     const box = await type('half a sentence');
 
     act(() => useConversations.setState({ currentId: 'c2' }));
@@ -187,7 +186,7 @@ describe('a draft', () => {
 
   it('does not wipe text typed in for the person as the chat switches (Teach)', async () => {
     const ref = createRef<{ setText: (t: string) => void }>();
-    render(<ChatInput ref={ref as never} alwaysEnabled sendFn={vi.fn()} />);
+    render(<ChatInput ref={ref as never} sendFn={vi.fn()} />);
     act(() => {
       useConversations.setState({ currentId: 'fresh' });
       ref.current!.setText('Teach me a skill');
@@ -201,7 +200,7 @@ describe('a long paste', () => {
     fireEvent.paste(screen.getByRole('textbox'), { clipboardData: { getData: () => text, items: [] } });
 
   it('becomes a card instead of filling the box, and a click shows all of it', async () => {
-    render(<ChatInput alwaysEnabled sendFn={vi.fn(async () => {})} />);
+    render(<ChatInput sendFn={vi.fn(async () => {})} />);
     const log = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join('\n');
     paste(log);
 
@@ -211,7 +210,7 @@ describe('a long paste', () => {
   });
 
   it('a short paste stays text', () => {
-    render(<ChatInput alwaysEnabled sendFn={vi.fn(async () => {})} />);
+    render(<ChatInput sendFn={vi.fn(async () => {})} />);
     paste('just a sentence');
     expect(screen.queryByRole('button', { name: /^Open Pasted text/ })).toBeNull();
   });
@@ -223,10 +222,10 @@ describe('a long paste', () => {
 describe('the campfire game', () => {
   it('hides the perch mascot while the game is open, and brings it back after', () => {
     ember.open = true;
-    const { rerender } = render(<ChatInput alwaysEnabled />);
+    const { rerender } = render(<ChatInput sendFn={vi.fn(async () => {})} />);
     expect(screen.getByTestId('perch').closest('[hidden]')).not.toBeNull();
     ember.open = false;
-    rerender(<ChatInput alwaysEnabled />);
+    rerender(<ChatInput sendFn={vi.fn(async () => {})} />);
     expect(screen.getByTestId('perch').closest('[hidden]')).toBeNull();
   });
 });

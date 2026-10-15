@@ -5,7 +5,6 @@ import { useChat, type AgentPhase } from '@/stores/chat';
 import { useModel } from '@/stores/model';
 import { StreamingIndicator } from '../StreamingIndicator';
 
-let emitLocal: (event: StreamProgressEvent) => void;
 let emitAgent: (event: StreamProgressEvent) => void;
 const progress = (patch: Partial<StreamProgressEvent> = {}): StreamProgressEvent => ({
   sessionId: 'active', phase: 'generating', elapsedMs: 1200,
@@ -17,10 +16,6 @@ beforeEach(() => {
   vi.useFakeTimers();
   useChat.setState({ sessionId: 'active' });
   useModel.setState({ isLoading: false, loadProgress: null });
-  vi.spyOn(events.streamProgressEvent, 'listen').mockImplementation((cb) => {
-    emitLocal = (payload) => cb({ payload } as Parameters<typeof cb>[0]);
-    return Promise.resolve(vi.fn());
-  });
   vi.spyOn(events.onStreamProgress, 'listen').mockImplementation((cb) => {
     emitAgent = cb;
     return Promise.resolve(vi.fn());
@@ -39,12 +34,12 @@ describe('StreamingIndicator', () => {
     expect(screen.getByRole('status')).toHaveTextContent(label);
   });
 
-  it('ignores other sessions on both progress channels and resets when switching chats', () => {
+  it('ignores other sessions and resets when switching chats', () => {
     render(<StreamingIndicator />);
     settle();
-    act(() => { emitLocal(progress({ sessionId: 'other' })); emitAgent(progress({ sessionId: 'other' })); });
+    act(() => emitAgent(progress({ sessionId: 'other' })));
     expect(screen.queryByText(/20.0 tok\/s/)).not.toBeInTheDocument();
-    act(() => emitLocal(progress()));
+    act(() => emitAgent(progress()));
     expect(screen.getByText(/20.0 tok\/s/)).toBeInTheDocument();
     act(() => useChat.setState({ sessionId: 'next' }));
     settle();
@@ -68,13 +63,13 @@ describe('StreamingIndicator', () => {
   it('omits invalid durations and rates while retaining valid progress', () => {
     render(<StreamingIndicator />);
     settle();
-    act(() => emitLocal(progress({ tokensPerSec: Infinity })));
+    act(() => emitAgent(progress({ tokensPerSec: Infinity })));
     expect(screen.getByText('Generating…')).toBeInTheDocument();
-    act(() => emitLocal(progress({ phase: 'prefill', elapsedMs: NaN })));
+    act(() => emitAgent(progress({ phase: 'prefill', elapsedMs: NaN })));
     expect(screen.getByText('Prefill…')).toBeInTheDocument();
-    act(() => emitLocal(progress({ phase: 'prefill', elapsedMs: -1000 })));
+    act(() => emitAgent(progress({ phase: 'prefill', elapsedMs: -1000 })));
     expect(screen.getByText('Prefill…')).toBeInTheDocument();
-    act(() => emitLocal(progress({ phase: 'prefill', elapsedMs: 65000 })));
+    act(() => emitAgent(progress({ phase: 'prefill', elapsedMs: 65000 })));
     expect(screen.getByText('Prefill · 1m 5s')).toBeInTheDocument();
   });
 
@@ -88,17 +83,13 @@ describe('StreamingIndicator', () => {
     expect(screen.getByText('Thinking…')).toBeInTheDocument();
   });
 
-  it('releases listeners that finish registering after unmount', async () => {
-    let resolveLocal!: (unlisten: () => void) => void;
+  it('releases a listener that finishes registering after unmount', async () => {
     let resolveAgent!: (unlisten: () => void) => void;
-    vi.mocked(events.streamProgressEvent.listen).mockReturnValue(new Promise((resolve) => { resolveLocal = resolve; }));
     vi.mocked(events.onStreamProgress.listen).mockReturnValue(new Promise((resolve) => { resolveAgent = resolve; }));
-    const local = vi.fn();
     const agent = vi.fn();
     const { unmount } = render(<StreamingIndicator />);
     unmount();
-    await act(async () => { resolveLocal(local); resolveAgent(agent); });
-    expect(local).toHaveBeenCalledTimes(1);
+    await act(async () => { resolveAgent(agent); });
     expect(agent).toHaveBeenCalledTimes(1);
   });
 });
