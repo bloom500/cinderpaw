@@ -3,6 +3,20 @@
 </p>
 
 <p align="center">
+  <a href="https://elevenlabs.io/startup-grants">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/elevenlabs-grants-on-dark.webp" />
+      <img src="docs/assets/elevenlabs-grants-on-light.webp" alt="ElevenLabs Grants" width="250" />
+    </picture>
+  </a>
+</p>
+
+<p align="center">
+  <b>Cinderpaw has received an <a href="https://elevenlabs.io/startup-grants">ElevenLabs Startup Grant</a>
+  and is a member of Anthropic's Claude Startups program.</b>
+</p>
+
+<p align="center">
   <a href="https://github.com/bloom500/cinderpaw/releases/latest"><img src="https://img.shields.io/github/v/release/bloom500/cinderpaw?style=for-the-badge&color=blue&label=version" alt="Version" /></a>
   <img src="https://img.shields.io/badge/license-Apache%202.0-green?style=for-the-badge" alt="License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=for-the-badge" alt="Platform" />
@@ -656,8 +670,7 @@ Cinderpaw was previously source-available under BSL 1.1. It moved to Apache 2.0 
 </p>
 
 <p align="center">
-  <em>Built with 🖤🧡 by <a href="https://github.com/bloom500">Bloom Media</a></em><br />
-  <sub>Cinderpaw is a member of Anthropic's Claude Startups program.</sub>
+  <em>Built with 🖤🧡 by <a href="https://github.com/bloom500">Bloom Media</a></em>
 </p>
 
 *Cinderpaw collects no telemetry you did not say yes to. It counts an install once, if you leave that box ticked at the end of setup, and shares a daily usage summary only if you turn it on ([what each sends](PROMISES.md#the-promises)), and it has never once asked you to "sign up to unlock the full experience." That would be very un-Cinderpaw of it.*
