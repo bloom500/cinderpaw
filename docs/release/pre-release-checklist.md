@@ -81,3 +81,19 @@ Mascot gate dropped by Darius on 13 Oct: the app ships with Cubby.
       release. Then open each download button once: none may still give `Feral_*`.
 - [ ] A Windows machine with Feral v2026.08.11 and a saved API key: let it update. Cinderpaw
       opens with the key and the old memories readable (keys move on first read, 1c0b7f5).
+
+## 7. The update a real person gets (GATE: no final tag without it)
+
+2026.10.16 shipped with the item above unticked, and as written it would have passed anyway:
+the installer starts the new app once by itself (`/R`), so "Cinderpaw opens" is true even when
+nothing on the machine can open it a second time. That is exactly what happened: a Feral update
+left Cinderpaw with no shortcut and Feral still in place (fixed in `src-tauri/windows/hooks.nsh`).
+
+On a machine with the CURRENT public release installed (GitHub "Latest", not a beta):
+- [ ] Run the candidate's `*-setup.exe /P /R /UPDATE` (what the updater runs; it only ever reads
+      the Latest release, so a beta never reaches the real updater).
+- [ ] Close the app. Open it again from the Start menu, then from the Desktop if there was a
+      shortcut. Both open the NEW version.
+- [ ] Settings > Apps: one entry, the new one. The old one is gone if the name changed.
+- [ ] Anything that changes `productName`, `identifier` or `mainBinaryName` gets this test on
+      Windows, macOS and Linux before tagging, not after.
