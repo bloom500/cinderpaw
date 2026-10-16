@@ -244,7 +244,11 @@ jobs:
           old_bin="/usr/bin/$({ grep -h -m1 '^Exec=' $old_desktop /dev/null || true; } | cut -d= -f2 | cut -d' ' -f1)"
 
           problems=()
-          if ! rpm -U "new/$new" > rpm.log 2>&1; then
+          # A beta of an already released version is the same version, which
+          # rpm -U refuses; the updater never offers that, so reinstall instead.
+          same=()
+          [ "$old_pkg" != "$new_pkg" ] || [ "$(rpm -q --qf '%{VERSION}' "$old_pkg")" != "$new_ver" ] || same=(--replacepkgs)
+          if ! rpm -U "${same[@]}" "new/$new" > rpm.log 2>&1; then
             problems+=("rpm -U, which the in-app updater runs, failed (a new required dependency?): $(grep -v -m1 NOKEY rpm.log || true)")
           fi
           ver=$(rpm -q --qf '%{VERSION}' "$new_pkg" 2>/dev/null || true)
