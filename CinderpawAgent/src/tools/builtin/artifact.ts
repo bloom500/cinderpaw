@@ -964,8 +964,8 @@ export function createArtifactSendTool(deps: { db: Database; store: ArtifactStor
             // Bytes onto a third party's server: never auto-answered.
             forceEscalate: true,
             options: [
-              { label: "No", description: "Keep it on this computer." },
               { label: "Yes, send it", description: `Upload it to ${platform}.` },
+              { label: "No", description: "Keep it on this computer." },
             ],
           }],
           ctx.sessionId,

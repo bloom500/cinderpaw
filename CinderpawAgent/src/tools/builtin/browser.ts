@@ -189,8 +189,8 @@ export function createBrowserTool(): Tool {
             // In the person's name and public: never auto-answered.
             forceEscalate: true,
             options: [
-              { label: "No, don't post", description: "Nothing is published." },
               { label: "Yes, post it", description: "Allow this one action." },
+              { label: "No, don't post", description: "Nothing is published." },
             ],
           }], ctx.sessionId);
           if (!(answer?.selected?.[0]?.toLowerCase().startsWith("yes") ?? false)) {
