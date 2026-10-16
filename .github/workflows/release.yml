@@ -191,7 +191,11 @@ jobs:
         uses: jakoch/install-vulkan-sdk-action@v1
         with:
           install_runtime: true
-          cache: true
+          # No cache: a cache hit restores the SDK folder but skips the runtime
+          # installer, so System32\vulkan-1.dll (copied below) is missing and the
+          # Windows build fails. The second run of a tag hit it (v2026.10.16
+          # rebuilt, 16 Oct), since caches are kept per tag.
+          cache: false
 
       # Ship the Vulkan LOADER next to the exe. `inference-vulkan` links
       # vulkan-1.dll at load time, and a Windows with no GPU driver (a VM, a
