@@ -55,8 +55,19 @@
       "nsis": { "installerHooks": "./windows/hooks.nsh" }
     },
     "linux": {
-      "deb": { "depends": ["git", "xdotool"] },
-      "rpm": { "depends": ["git", "xdotool"] }
+      "deb": {
+        "depends": ["git"],
+        "recommends": ["xdotool"],
+        "conflicts": ["feral"],
+        "replaces": ["feral"],
+        "files": { "/usr/bin/feral": "linux/feral" }
+      },
+      "rpm": {
+        "depends": ["git"],
+        "recommends": ["xdotool"],
+        "obsoletes": ["feral"],
+        "files": { "/usr/bin/feral": "linux/feral" }
+      }
     },
     "externalBin": [
       "binaries/cinderpaw-agent"
