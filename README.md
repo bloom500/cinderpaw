@@ -86,8 +86,9 @@ spend. On a model running on your own machine it is free, so it just does it.
 **New here?** [Install it](#quick-install) · [How to use it](docs/USER_GUIDE.md) · [What we promise](PROMISES.md) · [Help build it](docs/CONTRIBUTING.md)
 
 <sub>What Cinderpaw sends about itself, and only with your yes: at the end of
-setup it offers to count the install once (its version and your operating
-system, nothing else), and you can untick that box right there. It can also
+setup it offers to count the install once (its version, your operating system
+and, if you press one, where you heard about Cinderpaw), and you can untick
+that box right there. It can also
 send a daily usage summary, which is off until you turn it on. Neither one
 holds your messages, file names, links or keys. See [PROMISES.md](PROMISES.md#the-promises).</sub>
 
@@ -342,7 +343,7 @@ terminal client and [docs/API.md](docs/API.md) for the local HTTP API.
 - **Web tools:** agent tools like `web_search`, `deep_research`, and `fetch_url` make outbound requests (DuckDuckGo or your own SearXNG instance, Jina Reader, or any public site the agent needs) when the agent uses them — through an egress proxy with SSRF protection, rate limiting, and an audit log.
 - **Update check:** the desktop can check GitHub Releases at launch. **Settings → General** disables that automatic check; it does not disable model/toolchain downloads or other network activity.
 - **What Cinderpaw says about itself, only with your yes:**
-  - **An install count.** At the end of first-run setup a ticked box offers to count the install once: its version and your operating system, nothing else, never again. Untick it and nothing is sent. `~/.cinderpaw/.install-counted` records exactly what happened, so you can check rather than take our word.
+  - **An install count.** At the end of first-run setup a ticked box offers to count the install once: its version and your operating system, plus where you heard about Cinderpaw if you press one of the buttons for it, nothing else, never again. Untick it and nothing is sent. `~/.cinderpaw/.install-counted` records exactly what happened, so you can check rather than take our word.
   - **A daily usage summary, off unless you turn it on** (an unticked box on the last setup screen, a one-time question on the home screen, or **Settings → Privacy**). Once a day it sends the version, your operating system, and counts for each model: tasks, how they ended, time, tokens, cost, tool calls, and your thumbs up and down. Never your messages, file names, links, keys or exact times. It carries a random code that changes every month. Each summary is written to `~/.cinderpaw/telemetry-sent.jsonl` before it leaves, and Settings → Privacy shows that file. Turn it off and sending stops right away. Everyone's totals are on the **Leaderboard** tab.
   - Bug reports are sent only when you write one and press the button.
 

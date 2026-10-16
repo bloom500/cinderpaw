@@ -54,7 +54,7 @@ hit its stated ceiling in production is useful.
 
 **No telemetry, with two exceptions the person says yes to.**
 See `PROMISES.md` promise 4. There is no crash reporting and no phone-home.
-There is one install count: version + OS, once, offered with a tick box on the
+There is one install count: version + OS (+ an optional fixed word for where they heard about Cinderpaw), once, offered with a tick box on the
 last screen of setup and recorded in `~/.cinderpaw/.install-counted`. And there
 is an opt-in daily usage summary (`CinderpawAgent/src/telemetry/`): off unless
 `usage_sharing` is true, per-model counts only, logged to

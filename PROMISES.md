@@ -32,7 +32,10 @@ That is no longer true, and pretending otherwise would be the worse thing to
 ship. On the last screen of first-run setup there is a ticked box explaining
 that Cinderpaw will send, once, its version number and your operating system —
 two short strings, with no identifier, no timestamp of yours, nothing about
-you and nothing about what you do here. Untick it and nothing is sent at all.
+you and nothing about what you do here. Below it you can press one button for
+where you heard about Cinderpaw (Reddit, YouTube, a friend...); if you press
+one, that one word goes with the same message, and if you press none, nothing
+is added. Untick the box and nothing is sent at all.
 Either way the file `~/.cinderpaw/.install-counted` is written with exactly
 what happened, so the claim on this page is checkable on your own disk.
 

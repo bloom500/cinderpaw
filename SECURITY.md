@@ -101,7 +101,8 @@ Every tool call passes a security layer before execution:
 - Complete `<private>…</private>` blocks are stripped from the agent loop's
   episodic text, not every memory or transcript writer. The model sees the input.
 - One automatic message in the runtime's life: an install count sent at the
-  end of first-run setup, carrying the version and the OS and nothing else,
+  end of first-run setup, carrying the version, the OS and, only if the person
+  pressed one, a fixed word for where they heard about Cinderpaw, nothing else,
   refusable on the screen that describes it, recorded in
   `~/.cinderpaw/.install-counted`.
 - An opt-in daily usage summary (per-model task, time and cost counts, never

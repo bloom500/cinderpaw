@@ -129,7 +129,8 @@
   does, and the honest thing is to say that in the same release rather than
   quietly stop being true. On the last screen of first-run setup there is a
   ticked box: Cinderpaw sends one message containing its version number and
-  your operating system. No identifier, no timestamp of yours, nothing about
+  your operating system, and, if you press one of the buttons below it, where
+  you heard about Cinderpaw. No identifier, no timestamp of yours, nothing about
   you and nothing about what you do. Untick it and nothing is sent. Either way
   `~/.cinderpaw/.install-counted` is written with exactly what happened, so the
   claim is checkable on your own disk.

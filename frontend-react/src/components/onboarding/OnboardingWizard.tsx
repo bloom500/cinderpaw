@@ -1020,6 +1020,47 @@ function DoneStep() {
         <DiskEncryptionNotice />
         <InstallCountNotice />
         <ShareUsageNotice />
+        <HeardFromQuestion />
+      </div>
+    </div>
+  );
+}
+
+/** The buttons' words, in the order shown. The host and the worker accept only these ids. */
+const HEARD_FROM: [string, string][] = [
+  ['reddit', 'Reddit'], ['youtube', 'YouTube'], ['github', 'GitHub'], ['discord', 'Discord'], ['instagram', 'Instagram'],
+  ['tiktok', 'TikTok'], ['x', 'X'], ['hackernews', 'Hacker News'], ['friend', 'A friend'], ['other', 'Somewhere else'],
+];
+
+/**
+ * Where the person heard about Cinderpaw: optional, nothing picked for them,
+ * sent once with the install count and only while that box is ticked. A
+ * button, never a text box, so the ping cannot carry anything they typed.
+ */
+function HeardFromQuestion() {
+  const counting = useOnboarding((s) => s.countInstall);
+  const picked = useOnboarding((s) => s.heardFrom);
+  const setPicked = useOnboarding((s) => s.setHeardFrom);
+  if (!counting) return null;
+  return (
+    <div role="group" aria-label="Where did you hear about Cinderpaw?" className="rounded-xl border border-border-subtle bg-bg-surface px-3.5 py-2.5 text-xs leading-relaxed text-text-muted sm:col-span-2">
+      <span className="font-medium text-text-primary">Where did you hear about Cinderpaw?</span>{' '}
+      Optional. It goes with the install count, once, so we know where to say thanks.
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {HEARD_FROM.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={picked === id}
+            onClick={() => setPicked(picked === id ? null : id)}
+            className={cn(
+              'rounded-full border px-2.5 py-1 transition-colors',
+              picked === id ? 'border-brand bg-brand text-on-brand' : 'border-border-default text-text-secondary hover:bg-bg-hover',
+            )}
+          >
+            {label}
+          </button>
+        ))}
       </div>
     </div>
   );

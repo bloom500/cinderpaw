@@ -3,8 +3,9 @@
 // app binary (the repo is public).
 //
 // POST /          {description, version, os, log}  ->  204 | 400 | 413 | 429 | 502
-// POST /install   {version, os}                    ->  204  (counts one install)
-// GET  /install                                    ->  200 {total, byVersion, byOs, counting}
+// POST /install   {version, os, heard?}            ->  204  (counts one install)
+// GET  /install                                    ->  200 {total, byVersion, byOs, bySource, counting}
+// POST /visit     {source, step}  (the site)       ->  204  (counts one visit or download click)
 // POST /usage {v,code,day,app,os,groups} -> 204 | 400 | 413 | 429  (opt-in daily usage summary)
 // GET  /leaderboard?month=YYYY-MM -> 200 {month, minInstalls, minTasks, installs, hidden, models, counting}
 
@@ -46,11 +47,48 @@ async function countInstall(req, env) {
   // and thrown away is the one that gets "put to use" later, quietly, by
   // whoever notices it is already arriving.
   const os = String(body.os ?? 'unknown').slice(0, 32);
+  // Where they heard about Cinderpaw: one of the wizard's buttons, or nothing.
+  // Anything else is dropped, so this key can never hold text someone typed.
+  const heard = HEARD_FROM.includes(body.heard) ? [`src:${body.heard}`] : [];
   if (!env.INSTALLS) return new Response(null, { status: 204 });
-  for (const key of ['total', `v:${version}`, `os:${os}`]) {
+  for (const key of ['total', `v:${version}`, `os:${os}`, ...heard]) {
     const current = Number((await env.INSTALLS.get(key)) ?? 0);
     await env.INSTALLS.put(key, String(current + 1));
   }
+  return new Response(null, { status: 204 });
+}
+
+/** The wizard's "where did you hear about Cinderpaw?" buttons (src-tauri system.rs HEARD_FROM). */
+export const HEARD_FROM = ['reddit', 'youtube', 'github', 'discord', 'instagram', 'tiktok', 'x', 'hackernews', 'friend', 'other'];
+/** What the site can tell from a link or the page someone came from (`search`, `direct` added). */
+export const VISIT_SOURCES = ['reddit', 'youtube', 'github', 'discord', 'instagram', 'tiktok', 'x', 'hackernews', 'producthunt', 'search', 'direct', 'other'];
+
+/** A visit from the site as a row to count, or null. Only known words pass: nothing typed, no page, no address. */
+export function parseVisit(body) {
+  const source = VISIT_SOURCES.includes(body?.source) ? body.source : null;
+  const step = body?.step === 'view' || body?.step === 'download' ? body.step : null;
+  return source && step ? { source, step } : null;
+}
+
+// A person opens a few pages and may press Download twice; far below this.
+const VISITS_PER_HOUR = 30;
+/**
+ * One visit (or one Download click) on cinderpaw.dev, counted per source and
+ * UTC day. Counts only: no address is stored (the rate limit keeps it an hour
+ * in the colo's cache), no cookie, no page path. D1, not KV: a Reddit day can
+ * bring thousands of visits and KV's daily writes would run out, taking the
+ * install counter down with them.
+ */
+async function countVisit(req, env) {
+  if (Number(req.headers.get('content-length') ?? 0) > 1024) return new Response('too large', { status: 413 });
+  let body;
+  try { body = JSON.parse(await req.text()); } catch { return new Response('bad json', { status: 400 }); }
+  const row = parseVisit(body);
+  if (!row) return new Response('unknown source or step', { status: 400 });
+  if (await overLimit(req, 'visit', VISITS_PER_HOUR)) return new Response(null, { status: 204 });
+  if (!env.USAGE) return new Response(null, { status: 204 });
+  await env.USAGE.prepare('INSERT INTO visit_day (day, source, step, n) VALUES (?, ?, ?, 1) ON CONFLICT(day, source, step) DO UPDATE SET n = n + 1')
+    .bind(new Date().toISOString().slice(0, 10), row.source, row.step).run();
   return new Response(null, { status: 204 });
 }
 
@@ -72,6 +110,7 @@ async function readInstalls(env) {
     total: Number((await env.INSTALLS.get('total')) ?? 0),
     byVersion: await group('v:'),
     byOs: await group('os:'),
+    bySource: await group('src:'),
     // Says out loud that the store is wired, so a zero can be told apart from
     // a worker deployed without its KV namespace.
     counting: true,
@@ -153,6 +192,7 @@ export default {
   async fetch(req, env) {
     const path = new URL(req.url).pathname;
     if (path === '/usage' && req.method === 'POST') return storeUsage(req, env);
+    if (path === '/visit' && req.method === 'POST') return countVisit(req, env);
     if (path === '/leaderboard' && req.method === 'GET') return leaderboard(req, env);
     if (path === '/install') {
       if (req.method === 'GET') return readInstalls(env);

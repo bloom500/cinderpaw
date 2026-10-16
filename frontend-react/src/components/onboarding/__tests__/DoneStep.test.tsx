@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { OnboardingWizard } from '../OnboardingWizard';
 import { tauri } from '@/lib/tauri';
@@ -44,5 +44,22 @@ describe('the last board', () => {
     useModel.setState({ cloudModel: { providerId: 'openai', providerName: 'OpenAI', modelId: 'gpt-4o' } });
     renderLast();
     expect(await screen.findByText('Model selected')).toBeInTheDocument();
+  });
+});
+
+// Optional, nothing picked for them, and only while the install count is on:
+// the source rides on that one ping and has no way out of its own.
+describe('where did you hear about Cinderpaw', () => {
+  it('shows buttons only while the count is ticked, and a click picks one', async () => {
+    useOnboarding.setState({ countInstall: true, heardFrom: null });
+    renderLast();
+    const reddit = await screen.findByRole('button', { name: 'Reddit' });
+    expect(reddit).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(reddit);
+    expect(useOnboarding.getState().heardFrom).toBe('reddit');
+    fireEvent.click(screen.getByRole('button', { name: 'Reddit' }));
+    expect(useOnboarding.getState().heardFrom).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Count this install/ }));
+    expect(screen.queryByRole('button', { name: 'Reddit' })).not.toBeInTheDocument();
   });
 });

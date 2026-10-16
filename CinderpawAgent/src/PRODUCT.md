@@ -357,7 +357,7 @@ token footnote), `/restart` (restart the runtime).
 
 - Not a cloud service: conversations, memory, and models stay on-device
   unless the user configures a cloud model provider.
-- No telemetry of chat content. One install count at setup (version + OS,
+- No telemetry of chat content. One install count at setup (version + OS + an optional button for where they heard about Cinderpaw,
   once, refusable) and an opt-in daily usage summary per model, no
   text; see PROMISES.md 4.
 - Not unsupervised in the user's project by default: writes are refused

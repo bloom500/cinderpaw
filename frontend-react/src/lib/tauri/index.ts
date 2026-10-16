@@ -863,7 +863,7 @@ const raw = {
   bugReportLogPreview:   ()    => invoke<string>('bug_report_log_preview'),
   submitBugReport:       (description: string, includeLog: boolean) =>
     invoke<void>('submit_bug_report', { description, includeLog }),
-  countInstall:          (send: boolean) => invoke<void>('count_install', { send }),
+  countInstall:          (send: boolean, heard: string | null) => invoke<void>('count_install', { send, heard }),
   setUsageSharing:       (on: boolean) => invoke<void>('set_usage_sharing', { on }),
   saveAgent:             (cfg: AgentConfig) => invoke<AgentConfig>('save_agent', { cfg }),
   getAgents:             ()    => invoke<AgentConfig[]>('get_agents'),
@@ -1312,7 +1312,7 @@ export const tauri = {
     submitBugReport: async (description: string, includeLog: boolean) =>
       raw.submitBugReport(description, includeLog),
     /** Once, from the last step of onboarding, where the notice lives. */
-    countInstall: async (send: boolean) => raw.countInstall(send),
+    countInstall: async (send: boolean, heard: string | null = null) => raw.countInstall(send, heard),
     setUsageSharing: async (on: boolean) => raw.setUsageSharing(on),
   },
 

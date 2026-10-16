@@ -12,3 +12,13 @@ CREATE TABLE IF NOT EXISTS usage_day (
   PRIMARY KEY (code, day, provider, model)
 );
 CREATE INDEX IF NOT EXISTS usage_day_month ON usage_day(month);
+
+-- Site visits and Download clicks per channel per UTC day (POST /visit).
+-- Counts only: no address, no cookie, no page.
+CREATE TABLE IF NOT EXISTS visit_day (
+  day TEXT NOT NULL,
+  source TEXT NOT NULL,
+  step TEXT NOT NULL,
+  n INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, source, step)
+);

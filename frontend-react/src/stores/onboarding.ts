@@ -68,6 +68,13 @@ export interface OnboardingState {
   countInstall: boolean;
   setCountInstall: (on: boolean) => void;
   /**
+   * Where the person heard about Cinderpaw, if they picked a button on the
+   * last screen. Nothing is picked for them; it rides on the install count,
+   * once, and only when that box is ticked.
+   */
+  heardFrom: string | null;
+  setHeardFrom: (source: string | null) => void;
+  /**
    * Whether to share the daily usage summary. Default OFF, unlike the install
    * count: it repeats every day, so it is asked, never assumed ("if we ever
    * want your data, we'll ask", 3 Oct). Recorded either way at finish, so the
@@ -127,6 +134,7 @@ export const DEFAULTS = {
   skipped: false,
   completedAt: null,
   countInstall: true,
+  heardFrom: null,
   shareUsage: false,
   active: false,
   step: FIRST_STEP,
@@ -250,7 +258,7 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
     // now. Anything that pinged earlier — at launch, at install — would have
     // sent it before they could say no. Failures are the counter's problem:
     // nothing about it belongs in front of the user.
-    void tauri.system.countInstall(get().countInstall).catch(() => {});
+    void tauri.system.countInstall(get().countInstall, get().countInstall ? get().heardFrom : null).catch(() => {});
     // Opt-in: false unless ticked. Recorded either way, and the settings store
     // reloaded, so the home card (already mounted under the wizard with "never
     // asked") does not ask again the moment the wizard closes.
@@ -258,6 +266,7 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
   },
 
   setCountInstall: (on: boolean) => set({ countInstall: on }),
+  setHeardFrom: (source: string | null) => set({ heardFrom: source }),
   setShareUsage: (on: boolean) => set({ shareUsage: on }),
 
   loadPersisted: async () => {

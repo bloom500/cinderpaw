@@ -278,7 +278,7 @@ describe('the install count fires from the end of onboarding, and nowhere else',
     const spy = vi.spyOn(tauri.system, 'countInstall').mockResolvedValue(undefined);
     useOnboarding.setState({ userName: 'Darius', countInstall: true });
     await useOnboarding.getState().finish();
-    expect(spy).toHaveBeenCalledWith(true);
+    expect(spy).toHaveBeenCalledWith(true, null);
     spy.mockRestore();
   });
 
@@ -288,7 +288,19 @@ describe('the install count fires from the end of onboarding, and nowhere else',
     const spy = vi.spyOn(tauri.system, 'countInstall').mockResolvedValue(undefined);
     useOnboarding.setState({ userName: 'Darius', countInstall: false });
     await useOnboarding.getState().finish();
-    expect(spy).toHaveBeenCalledWith(false);
+    expect(spy).toHaveBeenCalledWith(false, null);
+    spy.mockRestore();
+  });
+
+  it('carries where they heard about Cinderpaw, and only with the count', async () => {
+    const spy = vi.spyOn(tauri.system, 'countInstall').mockResolvedValue(undefined);
+    useOnboarding.setState({ userName: 'Darius', countInstall: true, heardFrom: 'reddit' });
+    await useOnboarding.getState().finish();
+    expect(spy).toHaveBeenCalledWith(true, 'reddit');
+    reset();
+    useOnboarding.setState({ userName: 'Darius', countInstall: false, heardFrom: 'reddit' });
+    await useOnboarding.getState().finish();
+    expect(spy).toHaveBeenLastCalledWith(false, null);
     spy.mockRestore();
   });
 
