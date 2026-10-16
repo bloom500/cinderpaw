@@ -58,8 +58,7 @@ Cinderpaw is one repo, three runtimes, three languages:
 - **State:** one Zustand store per domain in `src/stores/` (chat, model,
   conversations, agent, cinderpaw, settings, ui, …). Stores are module-global —
   they survive page/tab switches; components subscribe to slices.
-- **Streaming:** two parallel paths with deliberately identical semantics:
-  - `src/lib/chatStream.ts` — local llama.cpp / cloud BYOK chat
+- **Streaming:** every message goes to the agent, on one path:
   - `src/lib/cinderpawAgentStream.ts` — Cinderpaw Agent sidecar (persistent global
     listener; streams survive navigation; `src/lib/cinderpawLiveSession.ts`
     mirrors in-flight state so re-entering a chat rehydrates it)
@@ -259,8 +258,7 @@ CI in `.github/workflows/` builds the installer matrix.
   (A2, P0-3, #18, …) where one exists.
 - **Errors must reach the user.** No silent `catch {}` on user-facing paths;
   humanize via `lib/humanizeError.ts`, surface as toasts/stream errors.
-- **Two streaming paths, one semantics.** Stop/retry/interrupt behaviour stays
-  identical between chat and agent paths; UI calls
+- **One way to stop.** UI code stops an answer through
   `streamControl.stopActiveStream()` only.
 - **No raw `invoke()` in components** — add typed wrappers in `lib/tauri/`.
 - **User-facing strings:** the UI is English only for now. `lib/i18n.ts` holds

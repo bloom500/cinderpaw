@@ -3,27 +3,33 @@
 A short, practical guide. For installation and hardware requirements see the
 [README](../README.md).
 
-## Chat vs Agent — which toggle do I want?
+## Start here
 
-The switch at the right of the typing bar changes who answers you.
+Everything you type goes to the agent. It reads what you asked, works out what
+it needs (a file, a web search, a command), does it, and answers. There is no
+mode to pick.
 
-| | **Chat** | **Agent** |
-|---|---|---|
-| What it is | A direct line to the model | An autonomous assistant wrapped around the model |
-| Can read/write files | No | Yes (workspace roots default to launch dir + home + scratch; protected-path checks apply) |
-| Can search the web | No | Yes (`web_search`, `deep_research`, `read_webpage`, `fetch_url`) |
-| Can run commands | No | Yes (`shell_exec`; disable with `CINDERPAW_ENABLE_SHELL_EXEC=false`) |
-| Remembers across sessions | No (per-conversation history only) | Yes — 4-layer persistent memory |
-| Speed | Fastest (one completion per message) | Slower (may loop through several tool calls) |
-| Best for | Quick questions, drafting, brainstorming | Tasks: "summarize this folder", "research X and write a report" |
+**First, give it a brain.** The agent thinks with a model, and it needs one
+before it can answer:
 
-Rule of thumb: if your request contains a verb that touches the outside world
-(read, write, search, run, check), use **Agent**. If it's all in the model's
-head, use **Chat**.
+- **Easiest:** press **Sign in with OpenRouter** on the home screen. Your
+  browser opens, you log in, and that is it.
+- **Already have a key?** Open **Models → Cloud** and paste it (OpenAI,
+  Anthropic, Google and about 30 more).
+- **Want it free and offline?** Open **Models → Hugging Face** and pick a model
+  the app says fits your computer. Small models make more mistakes.
 
-Both modes work with a local GGUF model or a cloud key (BYOK). The agent can
-run on a different model than chat — pick it from the model selector while in
-Agent mode.
+**Three things to try first:**
+
+1. "What is in my Downloads folder? Group it by type." It reads your files.
+2. "Find three reviews of the Framework 13 laptop and sum them up." It searches
+   the web.
+3. "Make me a one-page PDF with my plan for this week: ..." It makes a file you
+   can open, edit and send.
+
+Every step it takes shows up in a card on its reply, so you can see what it
+did. It asks you first before anything you cannot take back: deleting outside
+your folders, installing software, posting online, or sending a file to a chat.
 
 ## What the agent can do (built-in tools)
 

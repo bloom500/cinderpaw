@@ -83,7 +83,7 @@ still thinking, and on a paid model that is your money, so it is OFF until you
 say yes. Flip it on in **Settings → Learning**, where you can also cap what it may
 spend. On a model running on your own machine it is free, so it just does it.
 
-**New here?** [What we promise](PROMISES.md) · [How to use it](docs/USER_GUIDE.md) · [Install it](#quick-install)
+**New here?** [Install it](#quick-install) · [How to use it](docs/USER_GUIDE.md) · [What we promise](PROMISES.md) · [Help build it](docs/CONTRIBUTING.md)
 
 <sub>What Cinderpaw sends about itself, and only with your yes: at the end of
 setup it offers to count the install once (its version and your operating
@@ -319,7 +319,7 @@ Before you download, every model in **Models → Hugging Face** says whether it 
 2. **Get a model** (either path works):
    - **Local:** open **Models → Hugging Face**, pick a model, and click download — Cinderpaw pre-selects the quantization that best fits your hardware. Already have GGUF files? Drop them in via **Models → Local**.
    - **Cloud (BYOK):** press **Sign in with OpenRouter**, or open **Models → Cloud** and paste an API key — OpenAI, Anthropic, Google Gemini, DeepSeek, Groq, Mistral, OpenRouter, Kimi, GLM, MiniMax and two dozen more, or any custom OpenAI-compatible endpoint. Keys are stored locally and never proxied through anyone's server.
-3. **Chat.** Or flip the composer toggle to **Agent mode** to unleash the sidecar: tool-use, persistent memory, file access, and web research.
+3. **Ask for something.** Every message goes to the agent: it can use tools, remember you, work with your files and research the web. There is no mode to switch. The [User guide](docs/USER_GUIDE.md) has three good first things to try.
 
 For deep research, ask the agent something like *"Research the current state of open-source LLMs"* — it calls `deep_research` on its own and comes back with a cited Markdown report.
 
@@ -359,7 +359,7 @@ The full list of what we promise, what we deliberately do not promise, and how t
 | Feature | Description |
 |---|---|
 | **Chat** | Persistent conversations with any local or cloud model. Projects keep related chats grouped and sane. |
-| **Agent Mode** | A full TypeScript sidecar agent with tool-use, 4-layer memory, and an agentic loop. It thinks. Sometimes too much. |
+| **The agent** | Every message goes to a TypeScript agent with tools, 4-layer memory and an agent loop. It thinks. Sometimes too much. |
 | **Memory** | See everything Cinderpaw remembers about you as plain sentences, each with **Forget**. Live self-improvement status and dream history in **Settings → Learning**. |
 | **RSI (Self-Improvement)** | Cinderpaw tunes its own parameters while you're away. Evolutionary algorithm tests configs, keeps what works. Early-stage, functional. |
 | **Connectors** | Talk to your agent from 21 chat platforms, among them Telegram, WhatsApp (QR pairing), Discord and Slack. Same brain, same memory, running on your machine, not a cloud. |
@@ -419,7 +419,7 @@ Cinderpaw has two runtime layers that talk to each other:
 
 ## Cinderpaw Agent — the agentic runtime
 
-When you flip the toggle to **Agent mode**, your messages go to a Bun/TypeScript sidecar process instead of the Rust backend directly. This sidecar is where all the interesting stuff happens.
+Every message you send goes to a Bun/TypeScript sidecar process, not to the Rust backend directly. This sidecar is where all the interesting stuff happens.
 
 ![Agent settings](frontend-react/public/READMEdemo6.png)
 
@@ -634,12 +634,13 @@ Found a vulnerability? Please report it responsibly — see [SECURITY.md](SECURI
 
 Contributions are welcome — code, docs, bug reports, model recommendations, or just telling us what confused you.
 
-**[→ Start here: CONTRIBUTING.md](docs/CONTRIBUTING.md)** — five minutes to a running build, plus a ladder of genuinely scoped first tasks.
+**[→ Start here: CONTRIBUTING.md](docs/CONTRIBUTING.md)**: three commands to a running test suite, a list of first tasks checked against the code, and a map of where things live.
 
 You don't need the desktop app, a GPU, or a model to work on the agent:
 
 ```bash
-cd CinderpawAgent && bun install && bun test    # the whole agent test suite
+git clone https://github.com/bloom500/cinderpaw && cd cinderpaw/CinderpawAgent
+bun install && bun test    # the whole agent test suite
 ```
 
 That's the fastest loop in the repo and where most of the interesting work is. If you want real impact, the biggest open gap is **end-to-end tests against a live provider** — the entire suite currently mocks `fetch`, and that single gap is the main limit on Cinderpaw's release maturity.
