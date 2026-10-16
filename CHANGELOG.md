@@ -43,13 +43,22 @@
 - **Install with one command** into one folder, `~/.cinderpaw`, then
   `cinderpaw open`. The everyday CLI commands use the names OpenClaw users
   already know.
+- **Install a skill from a link**: paste a GitHub link to a skill in the chat.
+  Cinderpaw fetches it, checks it for dangerous instructions, shows you every
+  line, and installs it only after your yes.
+- **The agent can build a small tool of its own** when none of its tools fits
+  the job. It shows you the code and runs it only after your yes; a tool that
+  uses the internet names the sites it may reach.
+- **Sounds**: soft sounds when you send, when a reply finishes and when a
+  switch flips, on by default at 35%. Settings has the switch and the volume.
 
 **Getting started**
 - **Sign in with OpenRouter** instead of pasting a key: one button, your browser
   opens, and the key goes straight to the system keychain. On a computer with no
   model at all, the home screen is this button, not a text box nothing can answer.
 - On a small machine, setup recommends a cloud model first, and says why.
-- 24 more providers in Cloud Keys.
+- 24 more cloud providers, now in **Models → Cloud** next to the models on
+  your computer.
 
 **The chat**
 - A built-in **browser** beside the chat, with tabs, an ad blocker (Brave's
@@ -65,6 +74,14 @@
   name you choose is kept.
 - Delete a chat with **Undo** instead of "Are you sure?".
 - The app **reopens the conversation you left**.
+- Star the chats you come back to. Long conversations get a chapter rail and a
+  scrollbar you can grab.
+- A long paste becomes a small "Pasted text" card, and a pasted link shows the
+  site's icon and name.
+- Under a reply, "N memories used" shows what it remembered for that answer,
+  and answers list the sources they used.
+- When work finishes while you are looking somewhere else, a notification
+  tells you.
 - Drop a file anywhere on the chat page. On Windows, **Send to > Cinderpaw**
   from Explorer attaches it.
 - **Alt+Space** brings Cinderpaw up from anywhere, with the cursor in the
@@ -107,6 +124,27 @@
 ### Security
 
 - A prompt-injection gate checks tool calls before they run.
+- When someone new writes to your helper on a chat app, Cinderpaw asks you "Is
+  that you?" before it answers them.
+- When a connector needs a password or token, the agent asks for it in a
+  secure field, never in the chat.
+
+### Fixed
+
+The ones you would notice, from the last weeks before this release:
+
+- **Sign in with Google** happens in your own browser, can be cancelled, and
+  Google can be signed out; an expired login asks again.
+- Google Sheets loads in the built-in browser.
+- On Windows, voice calls no longer open black terminal windows.
+- The window fits screens smaller than 1280×800.
+- A tool the agent built that uses the internet no longer stops the agent from
+  starting.
+- A second skill added from a link no longer replaces the first.
+- On a chat app, a message with only a picture or a file no longer answers
+  "Allow" to a question that was waiting.
+- Approval boxes always show **Allow** or **Yes** on top, and **Deny** or
+  **No** below.
 
 ### Changed
 
