@@ -276,7 +276,10 @@ export function createCustomTool(
   const manifest: ToolManifest = {
     name: record.name,
     description: `[custom tool] ${record.description}`,
-    permissions: ["process:spawn", "fs:read"],
+    // validateManifest requires `network:outbound` exactly when networkAccess
+    // is true. Without it, every forged tool with a domain was refused at
+    // registration and the agent died on every start (16 Oct, beta.5).
+    permissions: allowedDomains.length > 0 ? ["process:spawn", "fs:read", "network:outbound"] : ["process:spawn", "fs:read"],
     // ENFORCED in the child, not decorative: the runner installs an
     // EgressProxy-backed fetch from the same list before importing the
     // module. false here = the child's fetch refuses every request.

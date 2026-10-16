@@ -122,7 +122,15 @@ export function registerPersistedCustomTools(deps: ToolForgeDeps): string[] {
       deleteCustomTool(dir, record.name);
       continue;
     }
-    deps.registry.register(createCustomTool(record, dir, deps.workspaceRoots, runtime));
+    // A saved tool is a file on disk: hand-edited, or forged before a rule it
+    // now breaks. One the registry refuses is skipped and said in the log;
+    // throwing here stopped the whole agent on every start (16 Oct, beta.5).
+    try {
+      deps.registry.register(createCustomTool(record, dir, deps.workspaceRoots, runtime));
+    } catch (err) {
+      console.warn(`[cinderpaw] custom tool "${record.name}" was not loaded: ${String(err)}`);
+      continue;
+    }
     registered.push(record.name);
   }
   return registered;
