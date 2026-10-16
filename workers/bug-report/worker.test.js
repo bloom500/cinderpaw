@@ -31,6 +31,7 @@ test('a site visit is counted per source and day, and only known words get in', 
   expect(parseVisit({ source: 'youtube', step: 'download' })).toEqual({ source: 'youtube', step: 'download' });
   expect(parseVisit({ source: 'https://evil.example/?id=1', step: 'view' })).toBeNull();
   expect(parseVisit({ source: 'reddit', step: 'bought' })).toBeNull();
+  for (const source of ['linkedin', 'facebook', 'friend']) expect(parseVisit({ source, step: 'view' })).toEqual({ source, step: 'view' });
   const runs = [];
   const db = { prepare: (sql) => ({ bind: (...args) => ({ run: async () => { runs.push({ sql, args }); } }) }) };
   // sendBeacon posts text/plain, so the body is read as text, not as a JSON request.

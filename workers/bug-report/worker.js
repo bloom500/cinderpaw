@@ -60,8 +60,8 @@ async function countInstall(req, env) {
 
 /** The wizard's "where did you hear about Cinderpaw?" buttons (src-tauri system.rs HEARD_FROM). */
 export const HEARD_FROM = ['reddit', 'youtube', 'github', 'discord', 'instagram', 'tiktok', 'x', 'hackernews', 'friend', 'other'];
-/** What the site can tell from a link or the page someone came from (`search`, `direct` added). */
-export const VISIT_SOURCES = ['reddit', 'youtube', 'github', 'discord', 'instagram', 'tiktok', 'x', 'hackernews', 'producthunt', 'search', 'direct', 'other'];
+/** What the site can tell from a link or the page someone came from: the buttons' words plus `producthunt`, `linkedin`, `facebook`, `search` and `direct`. */
+export const VISIT_SOURCES = ['reddit', 'youtube', 'github', 'discord', 'instagram', 'tiktok', 'x', 'hackernews', 'producthunt', 'linkedin', 'facebook', 'friend', 'search', 'direct', 'other'];
 
 /** A visit from the site as a row to count, or null. Only known words pass: nothing typed, no page, no address. */
 export function parseVisit(body) {
