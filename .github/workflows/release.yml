@@ -461,6 +461,19 @@ jobs:
           $msi = Get-ChildItem -Recurse -Path signpath-out -Include *.msi | Select-Object -First 1
           if ($msi) { gh release upload $tag "$($msi.FullName)" --clobber }
 
+  # Install the previous public release (and the last Feral), update it to the
+  # installer just published, and check the shortcuts and the app list. After
+  # every build, not only when someone remembers: see update-path.yml for the
+  # bug that made this a job. !cancelled(): a failed Mac build must not hide a
+  # broken Windows update.
+  update-path:
+    name: Update path
+    needs: release
+    if: ${{ !cancelled() && github.event_name == 'push' }}
+    uses: ./.github/workflows/update-path.yml
+    with:
+      tag: ${{ github.ref_name }}
+
   # ── NVIDIA / CUDA build (opt-in download, not the default) ──────────────────
   #
   # Why a SEPARATE job and a separate asset instead of another matrix entry:

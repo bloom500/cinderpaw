@@ -89,6 +89,11 @@ the installer starts the new app once by itself (`/R`), so "Cinderpaw opens" is 
 nothing on the machine can open it a second time. That is exactly what happened: a Feral update
 left Cinderpaw with no shortcut and Feral still in place (fixed in `src-tauri/windows/hooks.nsh`).
 
+Windows is automatic: the Release run's **Update path** job (`.github/workflows/update-path.yml`)
+installs the previous public release and the last Feral, updates both to the new installer, and
+fails if a shortcut, the app list or the old app is wrong. It must be green on the beta you promote.
+The steps below are for macOS and Linux, and for Windows when that job could not run.
+
 On a machine with the CURRENT public release installed (GitHub "Latest", not a beta):
 - [ ] Run the candidate's `*-setup.exe /P /R /UPDATE` (what the updater runs; it only ever reads
       the Latest release, so a beta never reaches the real updater).

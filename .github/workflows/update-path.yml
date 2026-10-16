@@ -1,0 +1,123 @@
+name: Update path
+
+# Updates a Windows machine the way a person's machine gets updated, then checks
+# what that person sees. The in-app updater runs the new installer with /UPDATE,
+# and Tauri's installer makes no shortcuts in that mode. 2026.10.16 shipped
+# exactly that bug: a Feral update left Cinderpaw installed with nothing that
+# opened it, and Feral still in place. "It opened" proves nothing here, because
+# the installer starts the new app once by itself. What counts is the Start menu,
+# the desktop, the app list, and the old app gone when the name changed.
+#
+# Runs after every release build (release.yml calls it), on a push to a
+# `smoke/...` branch (like rc-smoke.yml), or by hand once this file is on main.
+# Updates TO the given tag, or to the newest pre-release.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  push:
+    branches: ["smoke/**"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to update to (default: the newest pre-release)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows, from ${{ matrix.from }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # previous: the newest public release before this one, what most people
+        # update from. v2026.08.11: the last Feral, so the rename stays covered
+        # while Feral installs are still out there.
+        from: [previous, v2026.08.11]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      TO_TAG: ${{ inputs.tag }}
+      FROM_TAG: ${{ matrix.from }}
+    steps:
+      - name: Install the old version, update it, look
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $releases = gh release list --repo $env:REPO --limit 50 --json tagName,isPrerelease,isDraft | ConvertFrom-Json
+          $to = $env:TO_TAG
+          if (-not $to) { $to = ($releases | Where-Object isPrerelease | Select-Object -First 1).tagName }
+          $from = $env:FROM_TAG
+          if ($from -eq 'previous') {
+            $from = ($releases | Where-Object { -not $_.isPrerelease -and -not $_.isDraft -and $_.tagName -match '^v\d' -and $_.tagName -ne $to } |
+              Select-Object -First 1).tagName
+          }
+          if (-not $to -or -not $from) { throw "Could not pick the releases (to: '$to', from: '$from')." }
+
+          # The plain NSIS installer, Name_1.2.3_x64-setup.exe (not a suffixed CUDA one).
+          function Get-Setup($tag) {
+            $pattern = '^([^_]+)_(\d+\.\d+\.\d+)_x64-setup\.exe$'
+            $asset = (gh release view $tag --repo $env:REPO --json assets | ConvertFrom-Json).assets.name |
+              Where-Object { $_ -match $pattern } | Select-Object -First 1
+            if (-not $asset) { throw "Release $tag has no Windows installer." }
+            $null = $asset -match $pattern
+            $dir = Join-Path $env:RUNNER_TEMP $tag
+            gh release download $tag --repo $env:REPO --pattern $asset --dir $dir
+            [pscustomobject]@{ Tag = $tag; Path = Join-Path $dir $asset; Name = $Matches[1]; Version = $Matches[2] }
+          }
+          $old = Get-Setup $from
+          $new = Get-Setup $to
+          Write-Host "Updating $($old.Name) $($old.Version) ($from) to $($new.Name) $($new.Version) ($to)"
+
+          $apps = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
+          $startMenu = [Environment]::GetFolderPath('Programs')
+          $desktop = [Environment]::GetFolderPath('Desktop')
+
+          # A fresh silent install makes the Start menu and desktop shortcuts.
+          Start-Process $old.Path -ArgumentList '/S' -Wait
+          if (-not (Test-Path "$apps\$($old.Name)")) { throw "Installing $from left no $($old.Name) in the app list." }
+
+          # What the updater runs, minus /P: passive mode can stop on a message box
+          # nobody will click. /S takes the same shortcut and hook paths.
+          Start-Process $new.Path -ArgumentList '/S', '/UPDATE' -Wait
+
+          $problems = @()
+          $entry = Get-ItemProperty "$apps\$($new.Name)" -ErrorAction SilentlyContinue
+          if (-not $entry) { $problems += "$($new.Name) is not in the app list after the update." }
+          elseif ($entry.DisplayVersion -ne $new.Version) {
+            $problems += "The app list shows $($new.Name) $($entry.DisplayVersion), expected $($new.Version)."
+          }
+          $shell = New-Object -ComObject WScript.Shell
+          foreach ($place in @(@('Start menu', $startMenu), @('desktop', $desktop))) {
+            $lnk = Join-Path $place[1] "$($new.Name).lnk"
+            if (-not (Test-Path $lnk)) {
+              $problems += "No $($new.Name) shortcut on the $($place[0]): after this update nothing there opens the app."
+            } elseif ($entry -and $shell.CreateShortcut($lnk).TargetPath -ne $entry.DisplayIcon.Trim('"')) {
+              $problems += "The $($place[0]) shortcut opens $($shell.CreateShortcut($lnk).TargetPath), not $($entry.DisplayIcon)."
+            }
+          }
+          if ($old.Name -ne $new.Name) {
+            # The new installer starts the old app's uninstaller and does not wait for it.
+            $deadline = (Get-Date).AddSeconds(90)
+            while ((Test-Path "$apps\$($old.Name)") -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 3 }
+            if (Test-Path "$apps\$($old.Name)") { $problems += "$($old.Name) is still installed next to $($new.Name)." }
+            foreach ($place in @(@('Start menu', $startMenu), @('desktop', $desktop))) {
+              if (Test-Path (Join-Path $place[1] "$($old.Name).lnk")) {
+                $problems += "The $($place[0]) still has a $($old.Name) shortcut, which opens the old app."
+              }
+            }
+          }
+
+          $title = "Update from $($old.Name) $($old.Version) to $($new.Name) $($new.Version)"
+          if ($problems) {
+            "### $title`: FAILED`n" + (($problems | ForEach-Object { "- $_" }) -join "`n") >> $env:GITHUB_STEP_SUMMARY
+            $problems | ForEach-Object { Write-Host "::error::$_" }
+            exit 1
+          }
+          "### $title`: OK`nShortcuts open $($new.Name), the app list shows $($new.Version)." >> $env:GITHUB_STEP_SUMMARY
