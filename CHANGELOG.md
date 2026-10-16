@@ -110,6 +110,9 @@
 
 ### Changed
 
+- **Chat mode is gone.** Every message now goes to the agent, which can still
+  just talk when that is all you need. The Agent/Chat switch and the Tools menu
+  under the message box are gone with it. Your conversations stay.
 - The interface is English only for this release, and the language setting is
   gone. More than 70 languages are planned for the next one. Talking to
   Cinderpaw in your own language, by text or voice, works as before.
