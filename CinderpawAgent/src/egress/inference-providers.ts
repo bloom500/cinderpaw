@@ -330,6 +330,9 @@ export class OllamaProvider implements InferenceProvider {
                 };
               }
             }
+            if (acc.name) {
+              req.onToolArgs?.(idx, acc.name, acc.argumentsObject ? JSON.stringify(acc.argumentsObject) : acc.argumentsString);
+            }
           }
         }
 
@@ -802,6 +805,8 @@ export class OpenAICompatibleProvider implements InferenceProvider {
             if (tc.function?.arguments) {
               toolCallsAccumulator[idx].arguments += tc.function.arguments;
             }
+            const acc = toolCallsAccumulator[idx];
+            if (acc.name) req.onToolArgs?.(idx, acc.name, acc.arguments);
           }
         }
 
@@ -1088,6 +1093,7 @@ export class AnthropicProvider implements InferenceProvider {
           activeBlockType = cb?.type ?? "";
           if (cb?.type === "tool_use" && cb.name) {
             toolBlocks.set(idx, { name: cb.name, json: "" });
+            req.onToolArgs?.(idx, cb.name, "");
           }
         } else if (type === "content_block_delta") {
           const delta = (chunk as { delta?: { type?: string; text?: string; partial_json?: string } }).delta;
@@ -1098,7 +1104,10 @@ export class AnthropicProvider implements InferenceProvider {
           } else if (delta.type === "input_json_delta") {
             // Accumulate partial JSON for the current tool_use block.
             const block = toolBlocks.get(activeBlockIndex);
-            if (block) block.json += delta.partial_json ?? "";
+            if (block) {
+              block.json += delta.partial_json ?? "";
+              req.onToolArgs?.(activeBlockIndex, block.name, block.json);
+            }
           }
         } else if (type === "content_block_stop") {
           if (activeBlockType === "tool_use") {

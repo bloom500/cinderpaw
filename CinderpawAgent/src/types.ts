@@ -723,6 +723,14 @@ export interface InferenceRequest {
    */
   onToken?: (token: string) => void;
   /**
+   * A native tool call's arguments as they stream: called when its name is
+   * first known (with `""`) and every time its argument text grows. `call`
+   * tells parallel calls apart within this completion. The finished call
+   * still reaches `content` as a `<tool_call>` exactly as before; this only
+   * lets the desktop show a document while it is being written.
+   */
+  onToolArgs?: (call: number, name: string, argsSoFar: string) => void;
+  /**
    * Heartbeat progress callback fired by the sidecar's
    * `deadlineController` on a ~750 ms cadence (and once at start so the
    * UI sees activity immediately, even during prefill silence). The
