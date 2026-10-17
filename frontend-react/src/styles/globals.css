@@ -1485,6 +1485,39 @@ body { overflow: hidden; }
   .word-fade { animation: none; }
 }
 
+/* Live writing in the Artifacts panel (Darius's pick, 17 Oct, "blur that
+   sharpens, and ember that cools"): a letter arrives out of focus and glowing,
+   sharpens first, then cools to the text colour a little later, so a short
+   warm trail follows the writing edge. An edit takes old letters out the same
+   way backwards. emberLetters.ts decides which letters wear these. A word never
+   breaks across lines; its letters move on their own. */
+:root {
+  --ember-hot: #ff9a6c;
+  --ember-warm: #f6c9b0;
+}
+/* The demo's in-between colours are for a dark page: pale peach on a light one
+   all but disappears halfway through. Mixed from the brand and the text
+   colour instead, so they stay readable and still cool towards the text. */
+:root[data-theme="light"] {
+  --ember-hot: color-mix(in oklab, var(--brand) 80%, var(--text-primary));
+  --ember-warm: color-mix(in oklab, var(--brand) 35%, var(--text-primary));
+}
+@keyframes in-ember {
+  0%  { opacity: 0; filter: blur(6px); color: var(--brand); text-shadow: 0 0 12px var(--brand); }
+  35% { opacity: 1; filter: blur(1px); color: var(--ember-hot); text-shadow: 0 0 8px #e8643bcc; }
+  70% { filter: none; color: var(--ember-warm); text-shadow: 0 0 3px #e8643b55; }
+}
+@keyframes out-ember {
+  to { opacity: 0; filter: blur(5px); color: var(--text-muted); }
+}
+.ember-word { white-space: nowrap; }
+.ember-word > span { display: inline-block; }
+.ember-in { animation: in-ember 700ms ease-out both; }
+.ember-out { animation: out-ember 240ms ease-in both; }
+@media (prefers-reduced-motion: reduce) {
+  .ember-in, .ember-out { animation: none; }
+}
+
 /* The logo head under a reply that is still being written (MessageItem's
    ReplyHead): a small bob and tilt, as one keyframed transform so the
    compositor runs it. Still with reduced motion. */
