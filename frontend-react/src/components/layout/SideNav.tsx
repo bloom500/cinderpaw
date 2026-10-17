@@ -389,18 +389,6 @@ export function SideNav() {
   const toggle = useUI((s) => s.toggleNav);
   const openSearch = useUI((s) => s.openSearch);
   const { pathname } = useLocation();
-  const panelOpen = useArtifacts((s) => s.panelOpen);
-  // The panel lives on the chat page, so from Models or Settings the row
-  // goes there and opens it, rather than toggling something off screen.
-  const openArtifacts = () => {
-    useBrowser.getState().setPanel(false);
-    // On the Context tab, the row switches to Artifacts rather than closing.
-    const st = useArtifacts.getState();
-    if (pathname === '/chat' && st.panelOpen && st.panelTab === 'artifacts') { st.togglePanel(); return; }
-    useArtifacts.setState({ panelOpen: true, panelTab: 'artifacts' });
-    if (pathname === '/chat') return;
-    navigate('/chat');
-  };
   const browserOpen = useBrowser((s) => s.panelOpen);
   // Same shape as Artifacts: it lives beside the chat, so from elsewhere the
   // row goes there. The two panels do not share the space.
@@ -537,8 +525,9 @@ export function SideNav() {
           {/* The artifacts' entrance. It sat in the chat header first, right
               under the window's maximize button, where a miss resizes the window.
               Named Artifacts, not Workspace: the agent's scratch folder is already
-              called workspace, and one word for two places confused the agent. */}
-          <Row icon={FileBox} label="Artifacts" collapsed={false} onClick={openArtifacts} active={pathname === '/chat' && panelOpen && !browserOpen} />
+              called workspace, and one word for two places confused the agent.
+              It opens the gallery page; a card there opens the side panel. */}
+          <Row icon={FileBox} label="Artifacts" collapsed={false} to="/artifacts" />
           <Row icon={Globe} label="Browser" collapsed={false} onClick={openBrowser} active={pathname === '/chat' && browserOpen} />
           {NAV.map((n) => (
             <Row key={n.to} icon={n.icon} label={n.label} collapsed={false} to={n.to} />
