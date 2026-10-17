@@ -47,18 +47,20 @@ type Art = 'doc' | 'pdf' | 'table' | 'board' | 'chart' | 'design' | 'motion';
  * there is no Slides tile. Each starts a new chat with the words in the box and
  * stops there: the person finishes the sentence and sends it.
  */
-const MAKE: { label: string; hint: string; prompt: string; art: Art }[] = [
+type Tile = { label: string; hint: string; prompt: string; art: Art; isNew?: boolean };
+
+const MAKE: Tile[] = [
   { label: 'Document', hint: 'Plans and reports', prompt: 'Write me a document about ', art: 'doc' },
   { label: 'PDF', hint: 'To sign or send', prompt: 'Make me a PDF of ', art: 'pdf' },
   { label: 'Table', hint: 'Opens in Excel', prompt: 'Make me a table of ', art: 'table' },
-  { label: 'Board', hint: 'A plan at a glance', prompt: 'Make me a board that shows ', art: 'board' },
+  { label: 'Board', hint: 'A plan at a glance', prompt: 'Make me a board that shows ', art: 'board', isNew: true },
   { label: 'Chart', hint: 'From your numbers', prompt: 'Make me an interactive chart of ', art: 'chart' },
-  { label: 'Design', hint: 'A page or a poster', prompt: 'Design a one-page poster for ', art: 'design' },
-  { label: 'Motion', hint: 'A short animation', prompt: 'Make me a short animation that shows ', art: 'motion' },
+  { label: 'Design', hint: 'A page or a poster', prompt: 'Design a one-page poster for ', art: 'design', isNew: true },
+  { label: 'Motion', hint: 'A short animation', prompt: 'Make me a short animation that shows ', art: 'motion', isNew: true },
 ];
 
 /** The fresh install's one tile: a whole request, ready to send. */
-const FIRST = { label: 'A plan for this week', hint: 'One page, ready to print', prompt: 'Make me a one-page plan for this week.', art: 'doc' as const };
+const FIRST: Tile = { label: 'A plan for this week', hint: 'One page, ready to print', prompt: 'Make me a one-page plan for this week.', art: 'doc' };
 
 const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
 
@@ -273,7 +275,7 @@ function Card({ row, archived, onOpen }: { row: ArtifactRow; archived: boolean; 
 }
 
 function MakeTile({ tile, onPick, className }: {
-  tile: { label: string; hint: string; prompt: string; art: Art };
+  tile: Tile;
   onPick: (prompt: string) => void;
   className?: string;
 }) {
@@ -286,8 +288,11 @@ function MakeTile({ tile, onPick, className }: {
         className,
       )}
     >
-      <span className="grid h-16 place-items-center rounded-xl bg-bg-active/60 text-text-muted">
+      <span className="relative grid h-16 place-items-center rounded-xl bg-bg-active/60 text-text-muted">
         <TileArt art={tile.art} />
+        {tile.isNew && (
+          <span className="absolute right-1.5 top-1.5 rounded-full bg-brand px-1.5 text-micro font-semibold text-brand-foreground">New</span>
+        )}
       </span>
       <span className="min-w-0 px-1 pb-0.5">
         <span className="block text-sm font-semibold text-text-primary">{tile.label}</span>

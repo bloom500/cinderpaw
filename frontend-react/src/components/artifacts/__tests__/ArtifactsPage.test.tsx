@@ -100,6 +100,14 @@ describe('ArtifactsPage', () => {
     expect(navigate).toHaveBeenCalledWith('/chat', { state: { compose: 'Make me a table of ' } });
   });
 
+  it('marks Board, Design and Motion as new, and nothing else', () => {
+    useArtifacts.setState({ loaded: true, rows: [row({})] });
+    mount();
+    const tiles = screen.getByRole('region', { name: 'Make something new' });
+    const marked = within(tiles).getAllByText('New').map((el) => el.closest('button')!.textContent);
+    expect(marked).toEqual([expect.stringContaining('Board'), expect.stringContaining('Design'), expect.stringContaining('Motion')]);
+  });
+
   it('files every kind under a filter, new ones under Files', () => {
     expect(['markdown', 'document', 'docx', 'pdf'].map(filterOf)).toEqual(Array(4).fill('documents'));
     expect(['app', 'html', 'board'].map(filterOf)).toEqual(Array(3).fill('apps'));
