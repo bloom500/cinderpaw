@@ -1678,6 +1678,24 @@ export type OutboundEvent =
   | { type: "tool_start"; id: string; tool: string; args: Record<string, unknown>; traceId: string; sessionId?: string }
   | { type: "tool_progress"; sessionId: string; tool: string; stage: string; progress: number | null; message: string; data?: unknown; traceId?: string; id?: string }
   | { type: "tool_done"; id: string; tool: string; result: unknown; traceId?: string; sessionId?: string }
+  /**
+   * The document an `artifact_create` call is writing, while the model is
+   * still writing it, so the desktop can show it letter by letter. `append` is
+   * only the text added since the last event for this `draft`; a new `draft`
+   * value is a new document (a second call, a retry, a fallback model). The
+   * turn's own `tool_done` / `done` / `error` close it. Surfaces that cannot
+   * show it ignore it, as they do every type they do not know.
+   */
+  | {
+      type: "artifact_draft";
+      id: string;
+      sessionId: string;
+      draft: string;
+      kind?: string;
+      title?: string;
+      append: string;
+      traceId?: string;
+    }
   | { type: "proactive"; content: string; traceId?: string }
   | { type: "model_set"; provider: string; model: string }
   | { type: "model_error"; message: string; traceId?: string }

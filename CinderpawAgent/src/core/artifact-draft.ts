@@ -155,22 +155,31 @@ export function createArtifactDraftTracker(
   prefix: string,
   emit: (u: DraftUpdate) => void,
 ): { fromArgs(call: number, name: string, args: string): void; fromText(streamed: string): void } {
-  const seen = new Map<string, { kind?: string; title?: string; sent: number }>();
+  const seen = new Map<string, { id: string; restarts: number; kind?: string; title?: string; content: string }>();
 
-  const update = (draft: string, args: unknown): void => {
+  const update = (call: string, args: unknown): void => {
     const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
     const kind = typeof a.kind === "string" ? a.kind : undefined;
     const title = typeof a.title === "string" ? a.title : undefined;
     const content = typeof a.content === "string" ? a.content : "";
-    const prev = seen.get(draft);
-    if (prev && prev.kind === kind && prev.title === title && content.length <= prev.sent) return;
-    const sent = prev?.sent ?? 0;
-    seen.set(draft, { kind, title, sent: Math.max(sent, content.length) });
+    let prev = seen.get(call);
+    // Text that no longer continues what was sent (the router fell back to
+    // another model mid-stream) is a new draft: an append cannot take back
+    // letters already on screen.
+    if (prev && !content.startsWith(prev.content) && !prev.content.startsWith(content)) {
+      prev = { id: `${call}~${prev.restarts + 1}`, restarts: prev.restarts + 1, content: "" };
+      seen.set(call, prev);
+    }
+    if (prev && prev.kind === kind && prev.title === title && content.length <= prev.content.length) return;
+    const sent = prev?.content ?? "";
+    const longer = content.length > sent.length ? content : sent;
+    const draft = prev?.id ?? call;
+    seen.set(call, { id: draft, restarts: prev?.restarts ?? 0, kind, title, content: longer });
     emit({
       draft,
       ...(kind !== undefined ? { kind } : {}),
       ...(title !== undefined ? { title } : {}),
-      append: content.slice(sent),
+      append: content.slice(sent.length),
     });
   };
 

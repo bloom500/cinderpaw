@@ -88,6 +88,13 @@ describe("createArtifactDraftTracker", () => {
     expect(updates.map((u) => u.append).join("")).toBe("a\nb");
   });
 
+  it("starts a new draft when the text starts over (a fallback model)", () => {
+    const { updates, tracker } = collect();
+    tracker.fromArgs(0, "artifact_create", '{"content":"Hello wor');
+    tracker.fromArgs(0, "artifact_create", '{"content":"Hi');
+    expect(updates[1]).toEqual({ draft: "0:0~1", append: "Hi" });
+  });
+
   it("reads a tool call the model wrote as text", () => {
     const { updates, tracker } = collect();
     tracker.fromText('Sure.<tool_call>\n{"name": "artifact_create", "args": {"kind":"markdown","title":"T","content":"ab');
@@ -100,5 +107,75 @@ describe("createArtifactDraftTracker", () => {
     const { updates, tracker } = collect();
     tracker.fromText('<invoke name="artifact_create"><parameter name="content">Hel');
     expect(updates).toEqual([{ draft: "0:t0", append: "" }]);
+  });
+});
+
+// The loop sends the draft to the desktop while the model writes it.
+import { AgentLoop } from "../src/core/agent-loop.ts";
+import { ToolRegistry } from "../src/tools/registry.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
+import { EgressProxy } from "../src/egress/egress-proxy.ts";
+import { InferenceRouter } from "../src/egress/inference-router.ts";
+import { EpisodicMemory } from "../src/memory/episodic.ts";
+import { SemanticMemory } from "../src/memory/semantic.ts";
+import { RecallEngine } from "../src/memory/recall.ts";
+import { RealProcessSandbox } from "../src/egress/process-sandbox.ts";
+import { openDatabase } from "../src/db.ts";
+
+async function eventsFor(first: Record<string, unknown>): Promise<Array<Record<string, unknown>>> {
+  const originalFetch = globalThis.fetch;
+  const events: Array<Record<string, unknown>> = [];
+  try {
+    let i = 0;
+    globalThis.fetch = (async () => {
+      const message = i++ === 0 ? first : { content: "Done." };
+      return new Response(JSON.stringify({ message, done: true, prompt_eval_count: 10, eval_count: 5 }) + "\n", { status: 200 });
+    }) as unknown as typeof fetch;
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const router = new InferenceRouter(
+      {
+        primary: { provider: "ollama", model: "m", baseUrl: "http://localhost:11434" },
+        tokenBudget: { perConversation: 50_000, perDay: 500_000, onExhausted: "stop" },
+      },
+      audit.logger,
+      db.raw,
+    );
+    const episodic = new EpisodicMemory(db.raw, audit.logger);
+    const recall = new RecallEngine(episodic, new SemanticMemory(db.raw, audit.logger));
+    const registry = new ToolRegistry(new EgressProxy(audit.logger), audit, new RealProcessSandbox(audit.logger));
+    const agent = new AgentLoop(router, registry, episodic, {}, recall);
+    await agent.handle("s1", "write me a plan", "m1", (e: unknown) => events.push(e as Record<string, unknown>));
+    return events;
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+describe("the agent loop", () => {
+  it("emits artifact_draft for a native tool call", async () => {
+    const events = await eventsFor({
+      content: "",
+      tool_calls: [{ function: { name: "artifact_create", arguments: { kind: "markdown", title: "Plan", content: "# Plan\nDay one." } } }],
+    });
+    const drafts = events.filter((e) => e.type === "artifact_draft");
+    expect(drafts.length).toBeGreaterThan(0);
+    expect(drafts[0]).toMatchObject({ id: "m1", sessionId: "s1", draft: "0:0" });
+    expect(drafts.at(-1)).toMatchObject({ title: "Plan", kind: "markdown" });
+    expect(drafts.map((d) => d.append).join("")).toBe("# Plan\nDay one.");
+  });
+
+  it("emits artifact_draft for a tool call written as text", async () => {
+    const events = await eventsFor({
+      content: '<tool_call>\n{"name": "artifact_create", "args": {"kind": "markdown", "title": "T", "content": "Hello"}}\n</tool_call>',
+    });
+    const drafts = events.filter((e) => e.type === "artifact_draft");
+    expect(drafts.at(-1)).toMatchObject({ id: "m1", draft: "0:t0", title: "T" });
+    expect(drafts.map((d) => d.append).join("")).toBe("Hello");
+  });
+
+  it("says nothing for a reply without a document", async () => {
+    const events = await eventsFor({ content: "Just an answer." });
+    expect(events.some((e) => e.type === "artifact_draft")).toBe(false);
   });
 });

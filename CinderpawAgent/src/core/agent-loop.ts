@@ -81,6 +81,7 @@ import { buildNotebookSection, WORKER_BRIEF } from "../rlm/prompt.ts";
 import { toIdentifier } from "../rlm/repl.ts";
 import { isConnectorTool, isCoreTool, isOwnerOnlyTool } from "../tools/tiers.ts";
 import { selectTools } from "../tools/tool-intent.ts";
+import { createArtifactDraftTracker } from "./artifact-draft.ts";
 // Vendored from OpenClaw (MIT) — see src/vendor/tool-call-repair/README.md.
 import {
   parseStandalonePlainTextToolCallBlocks,
@@ -1740,11 +1741,23 @@ export class AgentLoop {
       const sentAt = Date.now();
       let firstTokenAt = 0;
       let streamedChunks = 0;
+      // The document an artifact_create call is writing, sent to the desktop
+      // while it is written so it can appear letter by letter. One tracker per
+      // model call: a retry is a new draft, never more of the old one.
+      const drafts = createArtifactDraftTracker(String(i), (u) =>
+        ctx.emit({ type: "artifact_draft", id: messageId, sessionId, ...u, traceId }),
+      );
+      // A call written as text is read from the stream itself, but only once
+      // the tool's name has shown up: re-reading every reply on every token
+      // would cost each answer for the few that write a document.
+      let writesDocument = false;
       const onToken = (token: string) => {
         if (firstTokenAt === 0) firstTokenAt = Date.now();
         streamedChunks++;
         streamedSoFar += token;
         hold.push(token);
+        writesDocument ||= streamedSoFar.includes("artifact_create", Math.max(0, streamedSoFar.length - token.length - 20));
+        if (writesDocument) drafts.fromText(streamedSoFar);
       };
 
       const { content: completion, finishReason, promptTokens, completionTokens } = await this.#complete(
@@ -1755,6 +1768,7 @@ export class AgentLoop {
         ctx,
         messageId,
         traceId,
+        (call, name, args) => drafts.fromArgs(call, name, args),
       );
       // Surface REAL token usage so the UI context ring reflects actual context
       // consumption (the latest call's prompt = full context fed to the model,
@@ -2344,6 +2358,8 @@ export class AgentLoop {
     ctx?: SessionRunContext,
     messageId?: string,
     traceId?: string,
+    /** A native tool call's arguments as they stream (InferenceRequest.onToolArgs). */
+    onToolArgs?: (call: number, name: string, argsSoFar: string) => void,
   ): Promise<CompletionOutcome> {
     // Pick up any tools registered since the last turn (MCP servers finish
     // connecting after boot) before deriving this turn's schemas from them.
@@ -2507,6 +2523,7 @@ export class AgentLoop {
         maxTokens,
         temperature,
         onToken,
+        onToolArgs,
         cachePrompt: true,
         // The main loop is the one place in the product where this is
         // unambiguously true: system prompt and tool schemas are rebuilt only
