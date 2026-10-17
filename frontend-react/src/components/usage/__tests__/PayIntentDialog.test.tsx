@@ -80,6 +80,18 @@ describe('the paid-extra question', () => {
     expect(shouldAskPayIntent()).toBe(false);
   });
 
+  it('a click outside the card does not close it (a stray click would end the question for good)', async () => {
+    realUse();
+    render(<PayIntentDialog />);
+    // Radix starts listening for outside clicks one tick after it opens.
+    await new Promise((r) => setTimeout(r, 0));
+    fireEvent.pointerDown(document.body);
+    fireEvent.mouseDown(document.body);
+    fireEvent.click(document.body);
+    expect(screen.getByText('Cinderpaw stays free')).toBeTruthy();
+    expect(shouldAskPayIntent()).toBe(true);
+  });
+
   it('No thanks is an answer too, and is sent as none', () => {
     realUse();
     render(<PayIntentDialog />);
