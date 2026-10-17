@@ -1,7 +1,8 @@
 import { useEffect, useState, type CSSProperties } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import type { MascotState } from './frames';
 import { SCENES, type Layers, type Part, type Scene, type SceneName } from './scenes';
-import './mascot.css';
+import MASCOT_CSS from './mascot.css?raw';
 
 /**
  * The creature, drawn as vectors.
@@ -21,6 +22,14 @@ import './mascot.css';
  *
  * The drawing is 128x132 with the soles at y=110, the same footprint the
  * sprite had, so the perch's placement above the composer still holds.
+ *
+ * It is shown as an <img> of its own SVG, not as inline SVG. A CSS transform
+ * moving a part INSIDE an inline <svg> (the breathing, the wag) made Chromium
+ * walk the whole page again in PrePaint and CompositingInputs on every frame
+ * anything else changed. The cost grew with the chat: at 600 messages a
+ * keystroke took 24-35 ms and a scroll step 34-49 ms, with one mascot moving
+ * anywhere on the page (17 Oct 2026). Inside an image the same animation runs
+ * in a document of its own and the page never sees it.
  */
 
 /** Width at scale 1, and the drawing's own width. Height follows at 132/128. */
@@ -436,9 +445,48 @@ const LOOK: Record<Exclude<Look, 'scan'>, string> = {
   center: 'translate(0px, 0px)', side: 'translate(1.8px, 0.4px)', up: 'translate(-1.2px, -1.8px)',
 };
 
+/** Room around the drawing, in its own units: confetti, the sleeper's tail
+ *  and a jump reach past the 128x132 box, which an image would cut off. */
+const PAD = 24;
+
+/** The motion, without its comments: one of them says "<g>", and a stray tag
+ *  inside the image's XML stops it from loading at all. */
+const IMAGE_CSS = MASCOT_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+
+/** One image per look: every cover in a long chat shares the same few. */
+const urls = new Map<string, string>();
+
 /** `width` is the rendered width in px; the height follows at 132/128. Not
  *  `size`: that name is kept for icons, which come in four fixed sizes. */
 export function CinderpawMascot({ state, flip = false, width = BASE_W }: { state: MascotState; flip?: boolean; width?: number }) {
+  const still = usePrefersReducedMotion();
+  const key = `${state}|${flip}|${width}|${still}`;
+  let src = urls.get(key);
+  if (!src) {
+    // The page's reduced-motion rule, applied unconditionally: an image does
+    // not have to follow the page's media queries.
+    const css = still ? IMAGE_CSS.replace('@media (prefers-reduced-motion: reduce)', '@media all') : IMAGE_CSS;
+    src = `data:image/svg+xml,${encodeURIComponent(renderToStaticMarkup(<MascotSvg state={state} flip={flip} width={width} css={css} />))}`;
+    urls.set(key, src);
+  }
+  const scale = width / BASE_W;
+  return (
+    <img
+      src={src}
+      alt=""
+      aria-hidden="true"
+      data-mascot-state={state}
+      width={Math.round((BASE_W + 2 * PAD) * scale)}
+      height={Math.round((BASE_H + 2 * PAD) * scale)}
+      draggable={false}
+      // The padding hangs outside the footprint: laid out, it is still width
+      // by width*132/128, exactly where the inline SVG sat.
+      style={{ display: 'block', pointerEvents: 'none', maxWidth: 'none', margin: -PAD * scale }}
+    />
+  );
+}
+
+function MascotSvg({ state, flip, width, css }: { state: MascotState; flip: boolean; width: number; css: string }) {
   const pose = POSES[state] ?? POSES.idle;
   const scene = SCENES[pose.scene];
   const colors = scene.colors;
@@ -452,14 +500,14 @@ export function CinderpawMascot({ state, flip = false, width = BASE_W }: { state
 
   return (
     <svg
-      aria-hidden="true"
+      xmlns="http://www.w3.org/2000/svg"
       data-mascot-state={state}
       className={`cpm cpm--${pose.motion}`}
-      width={width}
-      height={Math.round((width * BASE_H) / BASE_W)}
-      viewBox={`0 0 ${BASE_W} ${BASE_H}`}
-      style={{ display: 'block', pointerEvents: 'none' }}
+      width={Math.round(((BASE_W + 2 * PAD) * width) / BASE_W)}
+      height={Math.round(((BASE_H + 2 * PAD) * width) / BASE_W)}
+      viewBox={`${-PAD} ${-PAD} ${BASE_W + 2 * PAD} ${BASE_H + 2 * PAD}`}
     >
+      <style>{css}</style>
       <g transform={flip ? `translate(${BASE_W} 0) scale(-1 1)` : undefined}>
         <ellipse cx={64} cy={111} rx={pose.scene === 'laptop' || drift ? 50 : 26} ry={2.6} fill="#000" opacity={0.07} />
 

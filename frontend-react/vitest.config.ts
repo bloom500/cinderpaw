@@ -26,6 +26,11 @@ export default defineConfig({
      */
     pool: 'threads',
 
+    // The mascot's image embeds this stylesheet as text (`?raw`); vitest
+    // empties CSS by default, which would leave the drawing in tests unanimated
+    // and its reduced-motion rule untestable.
+    css: { include: [/mascot\.css/] },
+
     server: {
       deps: {
         /**
