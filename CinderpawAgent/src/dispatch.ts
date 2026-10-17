@@ -745,8 +745,10 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
               id: replyId,
               ok: true,
               // `content: "archived"` asks for the archive instead of the list.
+              // The store's own ceiling, not its default of 50: the Artifacts page
+              // shows every card, and a 51st artifact must not quietly vanish.
               items: artifacts
-                .list({ workspaceId: activeWorkspaceId(db.raw), archived: msg.content === "archived" })
+                .list({ workspaceId: activeWorkspaceId(db.raw), archived: msg.content === "archived", limit: 500 })
                 .map(toPanelRow),
             });
             break;
