@@ -12,14 +12,15 @@ const req = { messages: [{ role: "user", content: "Hi" }] } as unknown as Infere
 describe("anthropicSampling", () => {
   test("older Claude models still get a temperature", () => {
     for (const m of ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-6", "claude-sonnet-4-5-20250929",
-      "claude-opus-4-1-20250805", "claude-sonnet-4-20250514", "claude-3-5-haiku-20241022"]) {
+      "claude-opus-4-1-20250805", "claude-sonnet-4-20250514", "claude-3-5-haiku-20241022", "claude-2.1",
+      "claude-instant-1.2"]) {
       expect(anthropicSampling(target(m), req)).toEqual({ temperature: 0.7 });
     }
   });
 
   test("current and unknown models get none, since they refuse it with a 400", () => {
     for (const m of ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5",
-      "claude-opus-4-7", "claude-opus-4-8", "claude-fable-5-1", "claude-something-next"]) {
+      "claude-opus-4-7", "claude-opus-4-8", "claude-fable-5-1", "claude-something-next", "claude-5-5", "claude-4"]) {
       expect(anthropicSampling(target(m), req)).toEqual({});
     }
   });
@@ -45,7 +46,7 @@ describe("a key that must name its workspace", () => {
     const first = await new AnthropicProvider().complete(t, req, false);
     expect(first.content).toBe("Hello!");
     expect(seen.map((s) => s.url.replace("https://api.anthropic.com", ""))).toEqual([
-      "/v1/messages", "/v1/organizations/workspaces?include_default=true&limit=100", "/v1/messages"]);
+      "/v1/messages", "/v1/organizations/workspaces?include_default=true&limit=1000", "/v1/messages"]);
     expect(seen[2]!.headers["anthropic-workspace-id"]).toBe("wrkspc_default");
     expect(seen[2]!.body).not.toHaveProperty("temperature");
 
@@ -53,6 +54,43 @@ describe("a key that must name its workspace", () => {
     await new AnthropicProvider().complete(t, req, false);
     expect(seen).toHaveLength(4);
     expect(seen[3]!.headers["anthropic-workspace-id"]).toBe("wrkspc_default");
+  });
+
+  test("reads every page of workspaces before picking, so a Default on page two still wins", async () => {
+    const lookups: string[] = [];
+    let used = "";
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      if (url.includes("/v1/organizations/workspaces")) {
+        lookups.push(url);
+        return url.includes("after_id=wrkspc_a")
+          ? Response.json({ data: [{ id: "wrkspc_default", name: "Default" }], has_more: false, last_id: "wrkspc_default" })
+          : Response.json({ data: [{ id: "wrkspc_a", name: "Alpha" }], has_more: true, last_id: "wrkspc_a" });
+      }
+      used = (init.headers as Record<string, string>)["anthropic-workspace-id"] ?? "";
+      return used ? Response.json({ content: [{ type: "text", text: "ok" }] }) : new Response(NEEDS_WORKSPACE, { status: 400 });
+    }) as typeof fetch;
+
+    await new AnthropicProvider().complete(target("claude-haiku-5-5"), req, false);
+    expect(lookups).toHaveLength(2);
+    expect(lookups[0]).toContain("limit=1000");
+    expect(used).toBe("wrkspc_default");
+  });
+
+  test("a chat cancelled during the lookup stops there and is not sent again", async () => {
+    const abort = new AbortController();
+    let messages = 0;
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      if (url.includes("/v1/organizations/workspaces")) {
+        abort.abort();
+        if (init.signal?.aborted) throw init.signal.reason;
+        return Response.json({ data: [{ id: "wrkspc_default", name: "Default" }] });
+      }
+      messages++;
+      return new Response(NEEDS_WORKSPACE, { status: 400 });
+    }) as typeof fetch;
+
+    await expect(new AnthropicProvider().complete(target("claude-haiku-5-5"), { ...req, signal: abort.signal }, false)).rejects.toThrow();
+    expect(messages).toBe(1);
   });
 
   test("when the workspace cannot be found, the person reads what to do", async () => {

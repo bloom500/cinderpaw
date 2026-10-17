@@ -924,7 +924,8 @@ export class AnthropicProvider implements InferenceProvider {
       const key = target.apiKey;
       if (!key || anthropicWorkspaces.has(key) || !(e instanceof InferenceError)
         || e.status !== 400 || !e.message.includes("anthropic-workspace-id")) throw e;
-      anthropicWorkspaces.set(key, await findAnthropicWorkspace(target.baseUrl, key));
+      anthropicWorkspaces.set(key, await findAnthropicWorkspace(target.baseUrl, key, req.signal));
+      req.signal?.throwIfAborted();
       return run();
     }
   }
@@ -1717,7 +1718,7 @@ function cloudTemperature(target: ModelTarget, req: InferenceRequest): number {
  * one; any model id this list does not know, including every future one, gets
  * none, which is what the new models require.
  */
-const ANTHROPIC_TAKES_TEMPERATURE = /^claude-(?:\d|instant)|^claude-(?:opus|sonnet|haiku)-4(?:-[0156])?(?:-\d{8})?$/;
+const ANTHROPIC_TAKES_TEMPERATURE = /^claude-(?:2|3|instant)(?:[-.]|$)|^claude-(?:opus|sonnet|haiku)-4(?:-[0156])?(?:-\d{8})?$/;
 
 export function anthropicSampling(target: ModelTarget, req: InferenceRequest): { temperature?: number } {
   return ANTHROPIC_TAKES_TEMPERATURE.test(target.model) ? { temperature: cloudTemperature(target, req) } : {};
@@ -1741,19 +1742,28 @@ function anthropicHeaders(target: ModelTarget): Record<string, string> {
  * Workspace, which every member can use, else the first open one. A key that is
  * not tied to a workspace may read the workspace list itself.
  */
-export async function findAnthropicWorkspace(baseUrl: string, apiKey: string): Promise<string> {
+export async function findAnthropicWorkspace(baseUrl: string, apiKey: string, signal?: AbortSignal): Promise<string> {
+  // The person cancelling the chat cancels the lookup too; the timeout caps it otherwise.
+  const stop = signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
   try {
-    const res = await fetchFollowingSameOriginOnly(
-      `${trimSlash(baseUrl)}/v1/organizations/workspaces?include_default=true&limit=100`,
-      { headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, signal: AbortSignal.timeout(15_000) },
-    );
-    if (res.ok) {
-      const { data = [] } = (await res.json()) as { data?: { id: string; name?: string; archived_at?: string | null }[] };
-      const open = data.filter((w) => !w.archived_at);
-      const pick = open.find((w) => w.name === "Default") ?? open[0];
-      if (pick) return pick.id;
+    type Page = { data?: { id: string; name?: string; archived_at?: string | null }[]; has_more?: boolean; last_id?: string | null };
+    const open: { id: string; name?: string }[] = [];
+    // Every page before choosing: the Default Workspace may sit on any of them.
+    for (let after = ""; ;) {
+      const res = await fetchFollowingSameOriginOnly(
+        `${trimSlash(baseUrl)}/v1/organizations/workspaces?include_default=true&limit=1000${after ? `&after_id=${encodeURIComponent(after)}` : ""}`,
+        { headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, signal: stop },
+      );
+      if (!res.ok) break;
+      const page = (await res.json()) as Page;
+      open.push(...(page.data ?? []).filter((w) => !w.archived_at));
+      if (!page.has_more || !page.last_id) break;
+      after = page.last_id;
     }
-  } catch {
+    const pick = open.find((w) => w.name === "Default") ?? open[0];
+    if (pick) return pick.id;
+  } catch (e) {
+    if (signal?.aborted) throw e;
     // Falls through to the sentence below: the person needs a next step, not a stack.
   }
   throw new InferenceError(
