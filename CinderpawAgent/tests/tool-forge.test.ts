@@ -20,6 +20,7 @@ import {
   QUARANTINE_CALLS,
   resolveToolRuntime,
   saveCustomTool,
+  toolPreview,
   transpileToolCode,
   validateCustomTool,
   type CustomToolRecord,
@@ -389,11 +390,26 @@ function quarantined(answer: string, calls = 0) {
   };
 }
 
+test("the New tool card shows the code and where the tool may reach", async () => {
+  const { state, call } = forge();
+  await call({ action: "create", name: "release_check", description: "latest release", code: GOOD_CODE, allowed_domains: ["api.github.com"] });
+  expect(state.asked).toHaveLength(1);
+  expect(state.asked[0]!.preview).toContain("It can reach only: api.github.com.");
+  expect(state.asked[0]!.preview).toContain(GOOD_CODE.trim().split("\n")[0]!);
+});
+
+test("toolPreview names an offline tool and cuts very long code with a count", () => {
+  const preview = toolPreview({ code: "line\n".repeat(3000) }, 100);
+  expect(preview.startsWith("It cannot use the internet.")).toBe(true);
+  expect(preview).toMatch(/more lines not shown$/);
+});
+
 test("an experimental tool asks before each call and counts approvals", async () => {
   const t = quarantined("Allow once");
   expect((await t.run()).ok).toBe(true);
   expect(t.asked).toHaveLength(1);
   expect(t.asked[0]!.question).toContain(`1 of ${QUARANTINE_CALLS}`);
+  expect(t.asked[0]!.question).toContain("It cannot use the internet.");
   expect(t.storedCalls()).toBe(1);
 
   expect((await t.run()).ok).toBe(true);
