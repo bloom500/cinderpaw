@@ -198,7 +198,9 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
     description:
       // The first sentence is all the drawer index shows, so "board" has to be in it (1 Oct:
       // asked for a board, the model never saw the word and drew a widget table instead).
-      "Make a document, chart, board or file (plan, itinerary, dashboard, diagram, CSV) the user keeps. " +
+      // "design" and "animation" too: list_tools filters on these words, and a
+      // drawer search for "animation" that finds nothing ends in "I can't" (17 Oct).
+      "Make a document, chart, board, design, animation or file (plan, itinerary, dashboard, poster, animated title, diagram, CSV) the user keeps. " +
       "Put the result HERE instead of in the reply whenever it is longer than " +
       "about 15 lines, stands on its own, or is something the user will want to " +
       "edit, re-read or reuse after this conversation: a report, a summary, a " +
@@ -217,7 +219,12 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       "file's text in content; it downloads under that name), pdf (write the content as markdown: # headings, " +
       "paragraphs, - lists; it becomes a real A4 PDF the user can sign and fill in the panel).\n\n" +
       "app = " + APP_AUTHORING_BRIEF + " Charts are apps: there is no separate " +
-      "chart kind, because a chart is an app with no controls.\n\n" +
+      "chart kind, because a chart is an app with no controls. So are designs (a poster, flyer, " +
+      "invitation, social post or page mockup: laid out with HTML and CSS, keeping its proportions " +
+      "and scaling down to fit the window's width, since the panel can be narrow; system fonts " +
+      "only, since web fonts do not load) and animations (an animated title, logo, explainer " +
+      "or loop: it plays by itself and loops, with CSS @keyframes or requestAnimationFrame, never a " +
+      "video file). Never answer that you cannot design or animate: make the app.\n\n" +
       "Prefer a board for anything the user will look at rather than read: a plan, a dashboard, a diagram, " +
       "an itinerary, a campaign. " + BOARD_BRIEF + "\n\n" + DRAFT_IN_PARTS,
     permissions: ["fs:write", "fs:read"],
@@ -233,6 +240,7 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
         description:
           "markdown | document | app | board | table | code | json | html | file | pdf. " +
           "Pick 'markdown' for anything the user will read; 'pdf' when they asked for a PDF; " +
+          "'app' for a chart, a tool, a design or an animation; " +
           "'file' with the extension in the title (leads.csv) when they asked for a CSV or any other file type.",
         required: true,
       },
