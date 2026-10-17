@@ -309,12 +309,9 @@ export function ChatPage() {
           <div className="absolute inset-x-0 top-0 h-0.5 bg-brand animate-pulse z-10" />
         )}
 
-        {/* Content: messages, no-model state, or empty overlay */}
-        {!isEmpty ? (
-          <MessageList onFollowUp={handleFollowUp} />
-        ) : (
-          <NewChatEmptyState isEmpty={isEmpty} />
-        )}
+        {/* Content: the messages. A new chat's notes live in the composer's
+            wrapper below, under the intent cards. */}
+        {!isEmpty && <MessageList onFollowUp={handleFollowUp} />}
 
         {/* Live agent-to-agent transcript (Agent Cowork). Self-hiding: with
             zero cowork traffic it renders nothing, so a fresh install sees
@@ -385,6 +382,7 @@ export function ChatPage() {
               guessed a second time, and would drift the first time the field
               grew a line. */}
           {isEmpty && !showAgentOnboarding && <HomeIntents onPick={handleSuggestion} />}
+          <NewChatEmptyState isEmpty={isEmpty} />
           </div>
         </div>
       </div>

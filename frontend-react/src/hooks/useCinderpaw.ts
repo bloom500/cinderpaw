@@ -40,6 +40,7 @@ import { extractMainArg } from '@/components/chat/mascot/extractMainArg';
 import { startActivity, finishActivity, type ToolActivity } from '@/hooks/useLiveToolActivity';
 import { emojiForTool } from '@/components/chat/mascot/emojiForTool';
 import type { MascotState } from '@/components/chat/mascot/frames';
+import { recordRealTask } from '@/lib/payIntent';
 
 interface StreamCallbacks {
   onToken:      (chunk: string) => void;
@@ -519,6 +520,9 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           if (state.toolCallCount > 3 && mascotSink) {
             mascotSink.setMascotState('cool');
           }
+          // Counts toward the one paid-extra question (lib/payIntent.ts):
+          // asked only of someone who has had real work done.
+          if (!stopped && state.toolCallCount > 0) recordRealTask();
           useConversations.getState().unmarkStreaming(sessionId);
         },
         onError: (err) => {

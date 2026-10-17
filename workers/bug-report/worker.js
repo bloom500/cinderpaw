@@ -6,6 +6,8 @@
 // POST /install   {version, os, heard?}            ->  204  (counts one install)
 // GET  /install                                    ->  200 {total, byVersion, byOs, bySource, counting}
 // POST /visit     {source, step}  (the site)       ->  204  (counts one visit or download click)
+// POST /interest  {extra, price, answer} (the app) ->  204 | 400 | 413  (one answer to the paid-extra question)
+// GET  /interest                                   ->  200 {rows: [{extra, price, answer, n}], counting}
 // POST /usage {v,code,day,app,os,groups} -> 204 | 400 | 413 | 429  (opt-in daily usage summary)
 // GET  /leaderboard?month=YYYY-MM -> 200 {month, minInstalls, minTasks, installs, hidden, models, counting}
 
@@ -90,6 +92,47 @@ async function countVisit(req, env) {
   await env.USAGE.prepare('INSERT INTO visit_day (day, source, step, n) VALUES (?, ?, ?, 1) ON CONFLICT(day, source, step) DO UPDATE SET n = n + 1')
     .bind(new Date().toISOString().slice(0, 10), row.source, row.step).run();
   return new Response(null, { status: 204 });
+}
+
+/** The in-app paid-extra question (frontend-react/src/lib/payIntent.ts). */
+export const INTEREST_EXTRAS = ['apps', 'packs', 'always_on', 'ai_included', 'none'];
+export const INTEREST_ANSWERS = ['yes', 'maybe', 'no', 'none'];
+
+/** An answer as a row to count, or null. Known words and a short price tag only, so nothing typed can land here. */
+export function parseInterest(body) {
+  const extra = INTEREST_EXTRAS.includes(body?.extra) ? body.extra : null;
+  const answer = INTEREST_ANSWERS.includes(body?.answer) ? body.answer : null;
+  const price = typeof body?.price === 'string' && /^[0-9a-z]{1,8}$/.test(body.price) ? body.price : null;
+  if (!extra || !answer || !price) return null;
+  // "No thanks" is the only answer without a price question, and the only one.
+  if ((extra === 'none') !== (answer === 'none')) return null;
+  return { extra, price, answer };
+}
+
+// One machine answers once; a few retries or a shared office router still fit.
+const INTEREST_PER_HOUR = 10;
+/** One answer, counted per UTC day. Like a visit: no address stored, no id, no text. */
+async function countInterest(req, env) {
+  if (Number(req.headers.get('content-length') ?? 0) > 1024) return new Response('too large', { status: 413 });
+  let body;
+  try { body = JSON.parse(await req.text()); } catch { return new Response('bad json', { status: 400 }); }
+  const row = parseInterest(body);
+  if (!row) return new Response('unknown extra, price or answer', { status: 400 });
+  if (await overLimit(req, 'interest', INTEREST_PER_HOUR)) return new Response(null, { status: 204 });
+  if (!env.USAGE) return new Response(null, { status: 204 });
+  await env.USAGE.prepare('INSERT INTO interest_day (day, extra, price, answer, n) VALUES (?, ?, ?, ?, 1) ON CONFLICT(day, extra, price, answer) DO UPDATE SET n = n + 1')
+    .bind(new Date().toISOString().slice(0, 10), row.extra, row.price, row.answer).run();
+  return new Response(null, { status: 204 });
+}
+
+/** The totals, for Darius to read in a browser: answers per extra and price, all days. */
+async function readInterest(env) {
+  const rows = env.USAGE
+    ? (await env.USAGE.prepare('SELECT extra, price, answer, SUM(n) AS n FROM interest_day GROUP BY extra, price, answer ORDER BY extra, price, answer').all()).results
+    : [];
+  return new Response(JSON.stringify({ rows, counting: Boolean(env.USAGE) }), {
+    headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' },
+  });
 }
 
 async function readInstalls(env) {
@@ -193,6 +236,8 @@ export default {
     const path = new URL(req.url).pathname;
     if (path === '/usage' && req.method === 'POST') return storeUsage(req, env);
     if (path === '/visit' && req.method === 'POST') return countVisit(req, env);
+    if (path === '/interest' && req.method === 'POST') return countInterest(req, env);
+    if (path === '/interest' && req.method === 'GET') return readInterest(env);
     if (path === '/leaderboard' && req.method === 'GET') return leaderboard(req, env);
     if (path === '/install') {
       if (req.method === 'GET') return readInstalls(env);

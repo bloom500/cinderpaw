@@ -20,7 +20,7 @@ function AgentByokNote() {
   };
 
   return (
-    <div className="mt-4 flex items-start gap-2 max-w-md px-3 py-2 rounded-lg border border-border-subtle bg-bg-surface/60 text-text-muted pointer-events-auto">
+    <div className="mt-4 flex items-start gap-2 max-w-md px-3 py-2 rounded-lg border border-border-subtle bg-(--surface-typing) text-text-muted pointer-events-auto">
       <Info size={14} className="shrink-0 mt-0.5 text-text-muted" />
       <p className="text-xs leading-relaxed">
         Local models need significant compute. For smoother performance we
@@ -53,11 +53,13 @@ interface NewChatEmptyStateProps {
 export function NewChatEmptyState({ isEmpty }: NewChatEmptyStateProps) {
   if (!isEmpty) return null;
 
-  // The greeting moved into the composer's wrapper, where the centring already
-  // knows how tall everything is. What is left here is the one note that has
-  // to sit clear of the field.
+  // Rendered inside the composer's wrapper, under the intent cards, like the
+  // greeting: the centring there knows how tall everything is. Pinned to the
+  // window's bottom edge instead, it slid under the intent cards on a short
+  // window (a Mac, 17 Oct 2026), both see-through, the two texts on top of
+  // each other.
   return (
-    <div className="absolute inset-x-0 bottom-4 flex flex-col items-center pointer-events-none">
+    <div className="flex flex-col items-center px-4 pb-4 pointer-events-none">
       <AgentByokNote />
       {/* Hides itself unless the usage question was never answered. */}
       <ShareUsageCard />

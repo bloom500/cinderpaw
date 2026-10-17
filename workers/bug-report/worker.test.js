@@ -45,3 +45,32 @@ test('a site visit is counted per source and day, and only known words get in', 
   for (let i = 0; i < 40; i++) await post({ source: 'x', step: 'view' }, '6.6.6.6');
   expect(runs.filter((r) => r.args[1] === 'x')).toHaveLength(30); // one address cannot flood a channel
 });
+
+test('a paid-extra answer is counted per extra, price and answer, and only known words get in', async () => {
+  const { default: worker, parseInterest } = await import('./worker.js');
+  expect(parseInterest({ extra: 'apps', price: '35to17', answer: 'yes' })).toEqual({ extra: 'apps', price: '35to17', answer: 'yes' });
+  expect(parseInterest({ extra: 'none', price: '0', answer: 'none' })).toEqual({ extra: 'none', price: '0', answer: 'none' });
+  // Typed text, a made-up extra, a half "no thanks" and a long price never get in.
+  expect(parseInterest({ extra: 'apps', price: 'call me at 0722', answer: 'yes' })).toBeNull();
+  expect(parseInterest({ extra: 'crypto', price: '10', answer: 'yes' })).toBeNull();
+  expect(parseInterest({ extra: 'none', price: '0', answer: 'yes' })).toBeNull();
+  expect(parseInterest({ extra: 'packs', price: '10', answer: 'none' })).toBeNull();
+  expect(parseInterest({ extra: 'packs', price: '123456789', answer: 'no' })).toBeNull();
+  const runs = [];
+  const db = {
+    prepare: (sql) => ({
+      bind: (...args) => ({ run: async () => { runs.push({ sql, args }); } }),
+      all: async () => ({ results: [{ extra: 'packs', price: '10', answer: 'maybe', n: 2 }] }),
+    }),
+  };
+  // The app posts with mode no-cors, so the body arrives as text/plain.
+  const post = (b, ip = '8.8.4.4') => worker.fetch(new Request('https://w/interest', {
+    method: 'POST', body: JSON.stringify(b), headers: { 'content-type': 'text/plain', 'cf-connecting-ip': ip } }), { USAGE: db });
+  expect((await post({ extra: 'packs', price: '10', answer: 'maybe' })).status).toBe(204);
+  expect(runs[0].args.slice(1)).toEqual(['packs', '10', 'maybe']);
+  expect(runs[0].sql).toContain('n = n + 1');
+  expect((await post({ extra: 'packs', price: '10', answer: 'sure!' })).status).toBe(400);
+  expect(runs).toHaveLength(1);
+  const totals = await (await worker.fetch(new Request('https://w/interest'), { USAGE: db })).json();
+  expect(totals).toEqual({ rows: [{ extra: 'packs', price: '10', answer: 'maybe', n: 2 }], counting: true });
+});

@@ -66,7 +66,9 @@ export function WhatsNew() {
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) hide(); }}>
-      <DialogContent className="max-w-xl gap-0 overflow-hidden p-0 sm:rounded-2xl">
+      {/* Closed only by its own buttons or X (Darius, 18 Oct 2026): a stray
+          click outside, or closing the Alpha card, used to dismiss it. */}
+      <DialogContent className="max-w-xl gap-0 overflow-hidden p-0 sm:rounded-2xl" onInteractOutside={(e) => e.preventDefault()}>
         <ReleasePicture name={RELEASE.hero} src={RELEASE.picture} />
 
         <div className="px-6 pb-6 pt-5">
