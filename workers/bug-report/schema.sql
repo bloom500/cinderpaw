@@ -22,3 +22,14 @@ CREATE TABLE IF NOT EXISTS visit_day (
   n INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (day, source, step)
 );
+
+-- Answers to the in-app paid-extra question (POST /interest), per UTC day.
+-- Counts only: the extra picked, the price tag shown, yes/maybe/no. No address, no id.
+CREATE TABLE IF NOT EXISTS interest_day (
+  day TEXT NOT NULL,
+  extra TEXT NOT NULL,
+  price TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  n INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, extra, price, answer)
+);
