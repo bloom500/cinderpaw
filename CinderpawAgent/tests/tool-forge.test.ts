@@ -401,7 +401,11 @@ test("the New tool card shows the code and where the tool may reach", async () =
 test("toolPreview names an offline tool and cuts very long code with a count", () => {
   const preview = toolPreview({ code: "line\n".repeat(3000) }, 100);
   expect(preview.startsWith("It cannot use the internet.")).toBe(true);
-  expect(preview).toMatch(/more lines not shown$/);
+  expect(preview).toMatch(/… \d+ more characters \(\d+ more lines\) not shown$/);
+});
+
+test("toolPreview says so plainly when a tool may reach any site", () => {
+  expect(toolPreview({ code: "x", allowedDomains: ["*"] })).toStartWith("It can reach any public site on the internet.");
 });
 
 test("an experimental tool asks before each call and counts approvals", async () => {

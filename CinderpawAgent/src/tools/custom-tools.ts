@@ -364,6 +364,7 @@ export function createCustomTool(
 /** The sentence that says where a tool may reach, for the person approving it. */
 export function reachSentence(record: Pick<CustomToolRecord, "allowedDomains">): string {
   const domains = record.allowedDomains ?? [];
+  if (domains.includes("*")) return "It can reach any public site on the internet.";
   return domains.length > 0 ? `It can reach only: ${domains.join(", ")}.` : "It cannot use the internet.";
 }
 
@@ -373,10 +374,10 @@ export function reachSentence(record: Pick<CustomToolRecord, "allowedDomains">):
  * could read. Very long code is cut with a count of what was left out.
  */
 export function toolPreview(record: Pick<CustomToolRecord, "allowedDomains" | "code">, maxChars = 6000): string {
-  const code = record.code.length > maxChars
-    ? `${record.code.slice(0, maxChars)}\n… ${record.code.slice(maxChars).split("\n").length} more lines not shown`
-    : record.code;
-  return `${reachSentence(record)}\n\n${code}`;
+  if (record.code.length <= maxChars) return `${reachSentence(record)}\n\n${record.code}`;
+  const rest = record.code.slice(maxChars);
+  const lines = rest.replace(/\n$/, "").split("\n").length;
+  return `${reachSentence(record)}\n\n${record.code.slice(0, maxChars)}\n… ${rest.length} more characters (${lines} more line${lines === 1 ? "" : "s"}) not shown`;
 }
 
 /**
