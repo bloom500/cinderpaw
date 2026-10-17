@@ -1,9 +1,10 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
+import { fastMessageScroller } from './vite.config';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [fastMessageScroller(), react()],
   resolve: { alias: { '@': resolve(__dirname, './src') } },
   test: {
     environment: 'jsdom',
@@ -46,7 +47,9 @@ export default defineConfig({
          * Inlining makes Vite transform these itself, so every worker sees the
          * same module in the same form.
          */
-        inline: [/@radix-ui\//],
+        // @shadcn/react: so fastMessageScroller (vite.config.ts) applies in
+        // tests too; an external dependency skips plugins.
+        inline: [/@radix-ui\//, /@shadcn\/react\//],
       },
     },
   },
