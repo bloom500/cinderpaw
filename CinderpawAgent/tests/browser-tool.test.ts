@@ -129,6 +129,62 @@ describe("publishing on a social network waits for the person", () => {
     expect(no.calls).toEqual(["browser.snapshot"]);
   });
 
+  test("the Publish card shows the text Cinderpaw typed on that site", async () => {
+    const previews: Array<string | undefined> = [];
+    const ctx = {
+      sessionId: "s2",
+      askUser: {
+        ask: async (qs: Array<{ preview?: string }>) => { previews.push(qs[0].preview); return [{ selected: ["Yes, post it"] }]; },
+      },
+      desktopControl: {
+        request: async (action: string) => (action === "browser.snapshot" ? xPage : { ok: true, url: "https://x.com/compose/post" }),
+      },
+    } as never;
+    const tool = createBrowserTool();
+    await tool.execute({ action: "snapshot" }, ctx);
+    await tool.execute({ action: "type", ref: "1", text: "Cinderpaw is live today." }, ctx);
+    await tool.execute({ action: "snapshot" }, ctx);
+    expect((await tool.execute({ action: "click", ref: "2" }, ctx)).ok).toBe(true);
+    expect(previews[0]).toBe("Text Cinderpaw put on this page:\n\nCinderpaw is live today.");
+
+    // Posted: the next Publish card starts empty instead of repeating old words.
+    await tool.execute({ action: "snapshot" }, ctx);
+    await tool.execute({ action: "click", ref: "2" }, ctx);
+    expect(previews[1]).toBeUndefined();
+  });
+
+  function publishCard() {
+    const previews: Array<string | undefined> = [];
+    const ctx = {
+      sessionId: "s3",
+      askUser: {
+        ask: async (qs: Array<{ preview?: string }>) => { previews.push(qs[0].preview); return [{ selected: ["Yes, post it"] }]; },
+      },
+      desktopControl: {
+        request: async (action: string) => (action === "browser.snapshot" ? xPage : { ok: true, url: "https://x.com/compose/post" }),
+      },
+    } as never;
+    return { tool: createBrowserTool(), ctx, previews };
+  }
+
+  test("a post filled by a compose link shows its text on the Publish card", async () => {
+    const t = publishCard();
+    await t.tool.execute({ action: "open", url: "https://x.com/intent/post?text=Hello%20from%20Cinderpaw" }, t.ctx);
+    await t.tool.execute({ action: "snapshot" }, t.ctx);
+    await t.tool.execute({ action: "click", ref: "2" }, t.ctx);
+    expect(t.previews[0]).toBe("Text Cinderpaw put on this page:\n\nHello from Cinderpaw");
+  });
+
+  test("typing into the same field again shows only the newest text", async () => {
+    const t = publishCard();
+    await t.tool.execute({ action: "snapshot" }, t.ctx);
+    await t.tool.execute({ action: "type", ref: "1", text: "first draft" }, t.ctx);
+    await t.tool.execute({ action: "type", ref: "1", text: "final words" }, t.ctx);
+    await t.tool.execute({ action: "snapshot" }, t.ctx);
+    await t.tool.execute({ action: "click", ref: "2" }, t.ctx);
+    expect(t.previews[0]).toBe("Text Cinderpaw put on this page:\n\nfinal words");
+  });
+
   test("ordinary clicks on X, and Post buttons elsewhere, are not asked about", async () => {
     const t = social();
     await t.tool.execute({ action: "snapshot" }, t.ctx);

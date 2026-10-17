@@ -361,6 +361,25 @@ export function createCustomTool(
   };
 }
 
+/** The sentence that says where a tool may reach, for the person approving it. */
+export function reachSentence(record: Pick<CustomToolRecord, "allowedDomains">): string {
+  const domains = record.allowedDomains ?? [];
+  if (domains.includes("*")) return "It can reach any public site on the internet.";
+  return domains.length > 0 ? `It can reach only: ${domains.join(", ")}.` : "It cannot use the internet.";
+}
+
+/**
+ * What the New tool card shows under its question: where the tool may reach,
+ * then the code itself, so "Allow" is a decision about something the person
+ * could read. Very long code is cut with a count of what was left out.
+ */
+export function toolPreview(record: Pick<CustomToolRecord, "allowedDomains" | "code">, maxChars = 6000): string {
+  if (record.code.length <= maxChars) return `${reachSentence(record)}\n\n${record.code}`;
+  const rest = record.code.slice(maxChars);
+  const lines = rest.replace(/\n$/, "").split("\n").length;
+  return `${reachSentence(record)}\n\n${record.code.slice(0, maxChars)}\n… ${rest.length} more characters (${lines} more line${lines === 1 ? "" : "s"}) not shown`;
+}
+
 /**
  * Confirm one call of a still-experimental forged tool. Same fail-closed
  * discipline as the forge's creation gate (`confirmForge`) and computer_use's
@@ -385,7 +404,7 @@ async function confirmQuarantinedCall(
   }
   const question: AskUserQuestion = {
     question:
-      `Run the agent-built tool "${record.name}" (${record.description})? ` +
+      `Run the agent-built tool "${record.name}" (${record.description})? ${reachSentence(record)} ` +
       `Call ${seen + 1} of ${QUARANTINE_CALLS} while it is still experimental. Arguments: ${rendered}`,
     header: "Run tool",
     options: [
