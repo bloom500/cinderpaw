@@ -912,9 +912,21 @@ export class AnthropicProvider implements InferenceProvider {
     isFallback: boolean,
   ): Promise<InferenceResponse> {
     const url = `${trimSlash(target.baseUrl)}/v1/messages`;
-    return req.onToken
+    const run = () => req.onToken
       ? this.#stream(url, target, req, isFallback)
       : this.#nonStream(url, target, req, isFallback);
+    try {
+      return await run();
+    } catch (e) {
+      // A personal Anthropic key that works in several workspaces must name
+      // one on every request. Nobody setting up Cinderpaw knows that, so the
+      // first refusal looks the workspace up once and the request goes again.
+      const key = target.apiKey;
+      if (!key || anthropicWorkspaces.has(key) || !(e instanceof InferenceError)
+        || e.status !== 400 || !e.message.includes("anthropic-workspace-id")) throw e;
+      anthropicWorkspaces.set(key, await findAnthropicWorkspace(target.baseUrl, key));
+      return run();
+    }
   }
 
   async #nonStream(
@@ -933,15 +945,14 @@ export class AnthropicProvider implements InferenceProvider {
       // The user's explicit override always wins.
       max_tokens: req.maxTokens ?? 128_000,
       messages: userMessages,
-      temperature: cloudTemperature(target, req),
+      ...anthropicSampling(target, req),
     };
     if (systemText) body.system = systemText;
     // A3: use native function calling when tool definitions are provided.
     if (req.nativeTools && req.nativeTools.length > 0) body.tools = req.nativeTools;
     Object.assign(body, anthropicCacheControl(req));
 
-    const authHeaders: Record<string, string> = { "anthropic-version": "2023-06-01" };
-    if (target.apiKey) authHeaders["x-api-key"] = target.apiKey;
+    const authHeaders = anthropicHeaders(target);
 
     const raw = (await postJson(url, body, authHeaders, req.signal, CLOUD_IDLE_MS)) as {
       content?: { type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }[];
@@ -1011,7 +1022,7 @@ export class AnthropicProvider implements InferenceProvider {
       model: target.model,
       max_tokens: req.maxTokens ?? 128_000,
       messages: userMessages,
-      temperature: cloudTemperature(target, req),
+      ...anthropicSampling(target, req),
       stream: true,
     };
     if (systemText) body.system = systemText;
@@ -1019,10 +1030,7 @@ export class AnthropicProvider implements InferenceProvider {
     if (req.nativeTools && req.nativeTools.length > 0) body.tools = req.nativeTools;
     Object.assign(body, anthropicCacheControl(req));
 
-    const headers: Record<string, string> = {
-      "anthropic-version": "2023-06-01",
-      ...(target.apiKey ? { "x-api-key": target.apiKey } : {}),
-    };
+    const headers = anthropicHeaders(target);
 
     // deadlineController, not idleAbortController — see the same swap in
     // OpenAICompatibleProvider#stream above: this is the streaming path for
@@ -1700,6 +1708,59 @@ function trimDanglingToolCallTag(content: string): string {
 function cloudTemperature(target: ModelTarget, req: InferenceRequest): number {
   const t = req.temperature ?? 0.7;
   return isLoopbackTarget(target) ? t : Math.min(t, 1.0);
+}
+
+/**
+ * Claude models from Opus 4.7, Sonnet 5 and Haiku 5.5 on refuse sampling
+ * settings with a 400 (Haiku 5.5 and Sonnet 5.5 take only the defaults, so our
+ * 0.7 fails too). Only the older models that still accept a temperature get
+ * one; any model id this list does not know, including every future one, gets
+ * none, which is what the new models require.
+ */
+const ANTHROPIC_TAKES_TEMPERATURE = /^claude-(?:\d|instant)|^claude-(?:opus|sonnet|haiku)-4(?:-[0156])?(?:-\d{8})?$/;
+
+export function anthropicSampling(target: ModelTarget, req: InferenceRequest): { temperature?: number } {
+  return ANTHROPIC_TAKES_TEMPERATURE.test(target.model) ? { temperature: cloudTemperature(target, req) } : {};
+}
+
+/** API key -> the workspace its requests run in, for keys that must name one. */
+const anthropicWorkspaces = new Map<string, string>();
+
+function anthropicHeaders(target: ModelTarget): Record<string, string> {
+  const headers: Record<string, string> = { "anthropic-version": "2023-06-01" };
+  if (target.apiKey) {
+    headers["x-api-key"] = target.apiKey;
+    const workspace = anthropicWorkspaces.get(target.apiKey);
+    if (workspace) headers["anthropic-workspace-id"] = workspace;
+  }
+  return headers;
+}
+
+/**
+ * The workspace for a key that is not tied to one: the organization's Default
+ * Workspace, which every member can use, else the first open one. A key that is
+ * not tied to a workspace may read the workspace list itself.
+ */
+export async function findAnthropicWorkspace(baseUrl: string, apiKey: string): Promise<string> {
+  try {
+    const res = await fetchFollowingSameOriginOnly(
+      `${trimSlash(baseUrl)}/v1/organizations/workspaces?include_default=true&limit=100`,
+      { headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, signal: AbortSignal.timeout(15_000) },
+    );
+    if (res.ok) {
+      const { data = [] } = (await res.json()) as { data?: { id: string; name?: string; archived_at?: string | null }[] };
+      const open = data.filter((w) => !w.archived_at);
+      const pick = open.find((w) => w.name === "Default") ?? open[0];
+      if (pick) return pick.id;
+    }
+  } catch {
+    // Falls through to the sentence below: the person needs a next step, not a stack.
+  }
+  throw new InferenceError(
+    "Your Anthropic key works in more than one workspace, and Cinderpaw could not find which one to use. " +
+      "Make a new key inside one workspace at platform.claude.com/settings/keys and paste that one instead.",
+    400,
+  );
 }
 
 /** True when the target is the bundled local engine (loopback address). */
