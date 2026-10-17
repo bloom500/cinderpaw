@@ -129,6 +129,30 @@ describe("publishing on a social network waits for the person", () => {
     expect(no.calls).toEqual(["browser.snapshot"]);
   });
 
+  test("the Publish card shows the text Cinderpaw typed on that site", async () => {
+    const previews: Array<string | undefined> = [];
+    const ctx = {
+      sessionId: "s2",
+      askUser: {
+        ask: async (qs: Array<{ preview?: string }>) => { previews.push(qs[0].preview); return [{ selected: ["Yes, post it"] }]; },
+      },
+      desktopControl: {
+        request: async (action: string) => (action === "browser.snapshot" ? xPage : { ok: true, url: "https://x.com/compose/post" }),
+      },
+    } as never;
+    const tool = createBrowserTool();
+    await tool.execute({ action: "snapshot" }, ctx);
+    await tool.execute({ action: "type", ref: "1", text: "Cinderpaw is live today." }, ctx);
+    await tool.execute({ action: "snapshot" }, ctx);
+    expect((await tool.execute({ action: "click", ref: "2" }, ctx)).ok).toBe(true);
+    expect(previews[0]).toBe("Text Cinderpaw typed on this page:\n\nCinderpaw is live today.");
+
+    // Posted: the next Publish card starts empty instead of repeating old words.
+    await tool.execute({ action: "snapshot" }, ctx);
+    await tool.execute({ action: "click", ref: "2" }, ctx);
+    expect(previews[1]).toBeUndefined();
+  });
+
   test("ordinary clicks on X, and Post buttons elsewhere, are not asked about", async () => {
     const t = social();
     await t.tool.execute({ action: "snapshot" }, t.ctx);

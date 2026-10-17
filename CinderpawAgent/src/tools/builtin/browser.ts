@@ -96,6 +96,9 @@ function hostOf(url?: string): string | null {
 
 export function createBrowserTool(): Tool {
   const lastPage = new Map<string, { url?: string; elements: PageElement[] }>();
+  // What the agent typed on the social site it is on, per session, so the
+  // Publish card shows the words being approved, not only the button.
+  const typedOn = new Map<string, { host: string; texts: string[] }>();
   const manifest: ToolManifest = {
     name: "browser",
     description:
@@ -172,19 +175,26 @@ export function createBrowserTool(): Tool {
       }
       if (action === "scroll" && typeof args.dy === "number") params.dy = args.dy;
 
-      const page = lastPage.get(ctx.sessionId ?? "");
+      const sid = ctx.sessionId ?? "";
+      const page = lastPage.get(sid);
       const host = hostOf(page?.url);
-      if ((action === "click" || action === "type") && host && SOCIAL_HOST.test(host)) {
+      const social = Boolean(host && SOCIAL_HOST.test(host));
+      let publishing = false;
+      if ((action === "click" || action === "type") && host && social) {
         const control = page!.elements.find((e) => e.ref === params.ref);
-        const publishing = action === "click" ? !control || PUBLISH_WORD.test(control.name) : params.submit === true;
+        publishing = action === "click" ? !control || PUBLISH_WORD.test(control.name) : params.submit === true;
         if (publishing) {
           const what = action === "type" ? "submit the form" : `press "${control?.name ?? "a control it has not read"}"`;
           if (!canAskAHuman(Boolean(ctx.askUser))) {
             return fail(`browser: refused. This would ${what} on ${host}, which may publish for everyone to see, and nobody is here to approve it. Leave it for the user.`, "publish_needs_approval");
           }
+          const prior = typedOn.get(sid);
+          const texts = [...(prior?.host === host ? prior.texts : []), ...(action === "type" ? [String(params.text)] : [])];
+          const shown = texts.join("\n\n");
           const [answer] = await ctx.askUser!.ask([{
             question: `Cinderpaw wants to ${what} on ${host}. This may publish in your name, for everyone to see. Allow it?`,
             header: "Publish",
+            ...(shown ? { preview: `Text Cinderpaw typed on this page:\n\n${shown.length > 4000 ? `${shown.slice(0, 4000)}\n…` : shown}` } : {}),
             multiSelect: false,
             // In the person's name and public: never auto-answered.
             forceEscalate: true,
@@ -207,6 +217,11 @@ export function createBrowserTool(): Tool {
       }
       const result = (data ?? {}) as Snapshot & { loading?: boolean };
       if (result.ok === false) return fail(`browser: ${result.error ?? "the page refused that action"}`);
+      if (publishing || (result.url && hostOf(result.url) !== host)) typedOn.delete(sid);
+      else if (action === "type" && social && host) {
+        const prior = typedOn.get(sid);
+        typedOn.set(sid, { host, texts: [...(prior?.host === host ? prior.texts : []), String(params.text)] });
+      }
       // What the agent last saw is what its next ref means. A new address
       // forgets the controls, so a blind click there counts as unknown.
       if (action === "snapshot") lastPage.set(ctx.sessionId ?? "", { url: result.url, elements: result.elements ?? [] });
