@@ -905,3 +905,53 @@ describe('the artifact overview', () => {
     expect(summaryOf('markdown', '# T\n\ntext')).toBe('');
   });
 });
+
+describe('live writing', () => {
+  const draft = (append: string, title = 'Launch plan') =>
+    act(() => useArtifacts.getState().onDraft({ id: 'turn-1', sessionId: 's1', draft: '0:0', title, append, onScreen: true }));
+
+  it('shows the document as it is written, with its title, and nothing to edit yet', () => {
+    useArtifacts.setState({ loaded: true });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    draft('# Launch plan\n\nSeven days.');
+    expect(screen.getByText(/Cinderpaw is writing “Launch plan”/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Launch plan' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Overview/ })).toBeNull();
+  });
+
+  it('becomes the saved version in place: same document on screen, now with its Overview', async () => {
+    useArtifacts.setState({ loaded: true });
+    const { container } = render(<ArtifactsPanel onClose={() => {}} />);
+    draft('# Launch plan\n\nSeven days.');
+    const doc = container.querySelector('.prose');
+    expect(doc).not.toBeNull();
+    act(() => useArtifacts.getState().endDraft('turn-1', { artifactId: 'a1' }));
+    await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'get')).toBe(true));
+    act(() => {
+      useArtifacts.getState().onResult({ id: idOfAction('get'), ok: true, items: [row({ id: 'a1', version: 1, title: 'Launch plan' })], content: '# Launch plan\n\nSeven days.' });
+    });
+    expect(screen.getByRole('button', { name: /Overview/ })).toBeInTheDocument();
+    // Not swapped for a new one: React kept the same document element.
+    expect(container.querySelector('.prose')).toBe(doc);
+    expect(screen.queryByText(/Cinderpaw is writing/)).toBeNull();
+  });
+
+  it('says why when the document was never saved, and keeps what was written', () => {
+    useArtifacts.setState({ loaded: true });
+    const { container } = render(<ArtifactsPanel onClose={() => {}} />);
+    draft('Seven days.');
+    act(() => useArtifacts.getState().endDraft('turn-1', { reason: 'Cinderpaw stopped before saving this.' }));
+    expect(screen.getByText('Cinderpaw stopped before saving this.')).toBeInTheDocument();
+    expect(container.querySelector('.prose')?.textContent).toBe('Seven days.');
+  });
+
+  it('shows an app as its source while it is written', () => {
+    useArtifacts.setState({ loaded: true });
+    const { container } = render(<ArtifactsPanel onClose={() => {}} />);
+    act(() => useArtifacts.getState().onDraft({ id: 'turn-1', sessionId: 's1', draft: '0:0', kind: 'app', title: 'Timer', append: '<div>Hi</div>', onScreen: true }));
+    expect(container.querySelector('iframe')).toBeNull();
+    expect(container.querySelector('pre')?.textContent).toBe('<div>Hi</div>');
+  });
+});

@@ -10,6 +10,7 @@ import {
   ArtifactTitle,
 } from '@/components/ai-elements/artifact';
 import { Markdown } from '@/lib/markdown';
+import { emberText, liveUntil, type Ember } from '@/lib/emberLetters';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SelectMenu } from '@/components/ui/select-menu';
 import { LiveFrame } from './LiveFrame';
@@ -111,7 +112,10 @@ export function ArtifactsPanel({
   } = useArtifacts();
   const pickRef = useRef<HTMLInputElement>(null);
   // Only the newest version is editable; an older one is restored instead.
-  const canEdit = !!open && EDITABLE_KINDS.has(open.row.kind) && open.showing === open.row.version;
+  const canEdit = !!open && EDITABLE_KINDS.has(open.row.kind) && open.showing === open.row.version && open.row.version > 0;
+  // A document still being written (or never saved) is not in the store yet:
+  // there is nothing to ask about, delete or switch from.
+  const isDraft = open?.row.version === 0;
   // A build without Cinderpaw's Google registration (a fork, a local build, a
   // release whose CI secret is missing) gets no button, not one that only fails.
   const [googleRegistered, setGoogleRegistered] = useState(false);
@@ -230,7 +234,7 @@ export function ArtifactsPanel({
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand">
               <FileBox size={16} />
             </span>
-            {editing || rows.length < 2
+            {editing || isDraft || rows.length < 2
               ? <ArtifactTitle className="shrink-0 font-display text-xl font-normal">Artifact</ArtifactTitle>
               : <Switcher rows={rows} current={open.row.id} />}
           </div>
@@ -281,10 +285,10 @@ export function ArtifactsPanel({
           {open && !editing && canEdit && (
             <ArtifactAction tooltip="Edit" icon={Pencil} disabled={busy} onClick={startEdit} />
           )}
-          {open && !editing && onAsk && (
+          {open && !editing && !isDraft && onAsk && (
             <ArtifactAction tooltip="Ask Cinderpaw" icon={MessageSquare} onClick={() => onAsk(open.row)} />
           )}
-          {open && !editing && (
+          {open && !editing && !isDraft && (
             <ArtifactAction
               tooltip="Delete" icon={Trash2} disabled={busy}
               onClick={() => deleteWithUndo(open.row)}
@@ -612,8 +616,18 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
   // A deep dive from a chat card (a section chip) skips the overview too.
   // A board is already its own overview: it opens as itself.
   const direct = (kind?: string) => kind === 'pdf' || kind === 'board';
-  const [full, setFull] = useState(direct(open?.row.kind) || (!!open && focus?.id === open.row.id));
-  useEffect(() => setFull(direct(open?.row.kind) || (!!open && useArtifacts.getState().focus?.id === open.row.id)), [open?.row.id]);
+  const [full, setFull] = useState(direct(open?.row.kind) || !!open?.live || (!!open && focus?.id === open.row.id));
+  // A document Cinderpaw is writing opens on the document itself, and stays
+  // there when the saved version takes its place: the overview in between
+  // would be the jump the live view exists to avoid.
+  const wasDraft = useRef(false);
+  useEffect(() => {
+    const fromDraft = wasDraft.current;
+    wasDraft.current = open?.row.version === 0;
+    setFull(direct(open?.row.kind) || fromDraft || !!open?.live || (!!open && useArtifacts.getState().focus?.id === open.row.id));
+  }, [open?.row.id]);
+  // An edit Cinderpaw makes to the document on screen is shown where it happens.
+  useEffect(() => { if (open?.live && open.row.version > 0) setFull(true); }, [!!open?.live]);
   // A deep dive into the artifact already on screen, its overview included.
   useEffect(() => { if (open && focus?.id === open.row.id) setFull(true); }, [focus, open?.row.id]);
   const viewer = useRef<HTMLDivElement>(null);
@@ -629,8 +643,45 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
     }, 80);
     return () => window.clearTimeout(id);
   }, [full, focus, open?.content, open?.row.id]);
+  // Letters animate on a clock, not on new text: one more render when the old
+  // words have gone and one when the last letter has finished, so the spans
+  // go back to plain text.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const live = open?.live;
+    if (!live) return;
+    const now = Date.now();
+    const due = [live.out?.until ?? 0, liveUntil(live.runs) + 60].filter((t) => t > now);
+    if (due.length === 0) return;
+    const t = window.setTimeout(() => setTick((n) => n + 1), Math.min(...due) - now);
+    return () => window.clearTimeout(t);
+  }, [open?.live, open?.content, tick]);
+  // Follow the writing down the page, unless the person scrolled up to read.
+  const stick = useRef(true);
+  const scroller = () => viewer.current?.querySelector<HTMLElement>('[data-radix-scroll-area-viewport]') ?? null;
+  useEffect(() => {
+    const el = scroller();
+    if (!el) return;
+    const onScroll = () => { stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; };
+    el.addEventListener('scroll', onScroll);
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [open?.row.id, full]);
+  useEffect(() => {
+    const el = scroller();
+    if (open?.live?.writing && stick.current && el) el.scrollTop = el.scrollHeight;
+  }, [open?.content]);
   if (!open) return null;
-  const { row, content, showing, versions } = open;
+  const { row, content, showing, versions, live } = open;
+  const draft = row.version === 0;
+  const now = Date.now();
+  // An edit first shows the old text with its removed words going out.
+  const leaving = live?.out && now < live.out.until ? live.out : null;
+  const ember: Ember | undefined = live ? { runs: leaving ? [] : live.runs, out: leaving?.ranges, now } : undefined;
+  const text = leaving ? leaving.content : content;
+  // While it is written, anything that is not prose shows as its source: a page
+  // or a board half written cannot be drawn, and a frame reloaded on every
+  // letter would flicker. A PDF is written as markdown.
+  const viewKind = draft ? (row.kind === 'pdf' || shownKind(row.kind, text) === 'markdown' ? 'markdown' : 'code') : shownKind(row.kind, text);
 
   if (editing) {
     return (
@@ -692,15 +743,29 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
 
   return (
     <>
+      {/* One row, the same height either way, so nothing below it moves when
+          the saved version takes the draft's place. */}
       <div className="flex items-center border-b border-border-subtle px-3 py-1.5">
-        <button
-          type="button"
-          onClick={() => setFull(false)}
-          className="flex items-center gap-1 rounded-md px-1.5 py-1 text-2xs text-text-muted hover:bg-bg-hover hover:text-text-primary"
-        >
-          <ArrowLeft size={12} />
-          Overview
-        </button>
+        {draft ? (
+          <p role="status" className={cn('flex min-w-0 items-center gap-1.5 px-1.5 py-1 text-2xs', live?.stopped ? 'text-(--warning)' : 'text-text-muted')}>
+            {live?.writing && <span aria-hidden className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-brand motion-reduce:animate-none" />}
+            <span className="truncate">
+              {live?.stopped
+                ?? (live?.writing
+                  ? `Cinderpaw is writing${row.title.trim() ? ` “${row.title.trim()}”` : ''}…`
+                  : 'Saving…')}
+            </span>
+          </p>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setFull(false)}
+            className="flex items-center gap-1 rounded-md px-1.5 py-1 text-2xs text-text-muted hover:bg-bg-hover hover:text-text-primary"
+          >
+            <ArrowLeft size={12} />
+            Overview
+          </button>
+        )}
       </div>
       {/* The version picker, only when there is a choice to make. */}
       {versions.length > 1 && (
@@ -754,7 +819,7 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
         </p>
       )}
 
-      {row.kind === 'pdf' ? (
+      {row.kind === 'pdf' && !draft ? (
         <Suspense fallback={<Loading />}>
           <PdfEditor
             base64={content}
@@ -768,7 +833,7 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
         </Suspense>
       ) : (
         <div ref={viewer} className="contents">
-          <Preview kind={shownKind(row.kind, content)} title={row.title} content={content} id={row.id} />
+          <Preview kind={viewKind} title={row.title} content={text} id={row.id} ember={ember} />
         </div>
       )}
     </>
@@ -789,7 +854,7 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
  * `srcdoc` rather than a URL: there is no origin to serve it from, and none is
  * wanted.
  */
-function Preview({ kind, title, content, id = '' }: { kind: string; title: string; content: string; id?: string }) {
+function Preview({ kind, title, content, id = '', ember }: { kind: string; title: string; content: string; id?: string; ember?: Ember }) {
   const image = kind === 'image' ? artifactImageSource(content) : null;
   if (image) {
     return (
@@ -820,7 +885,7 @@ function Preview({ kind, title, content, id = '' }: { kind: string; title: strin
     return (
       <ScrollArea className="flex-1">
         <div className="px-3 py-3 text-xs">
-          <Markdown>{content}</Markdown>
+          <Markdown ember={ember}>{content}</Markdown>
         </div>
       </ScrollArea>
     );
@@ -828,7 +893,7 @@ function Preview({ kind, title, content, id = '' }: { kind: string; title: strin
   return (
     <ScrollArea className="flex-1">
       <pre className="whitespace-pre-wrap break-words px-3 py-3 text-2xs text-text-primary">
-        {content}
+        {ember ? emberText(content, ember) : content}
       </pre>
     </ScrollArea>
   );
