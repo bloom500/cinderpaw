@@ -19,15 +19,15 @@ export type ExtraId = 'apps' | 'packs' | 'always_on' | 'ai_included';
 export type PayAnswer = 'yes' | 'maybe' | 'no';
 
 // One price for everything (18 Oct 2026, Darius): one Pro plan, $35 the first
-// month, then $17 while you stay. The card asks which extra would make someone
-// take it. Each answer carries the `price` tag it was asked with, so a later
-// price never mixes old answers with new ones.
-const PRO = '$35 the first month, then $17 a month while you stay';
+// month, $25 the second, $17 from the third while you stay. The card asks
+// which extra would make someone take it. Each answer carries the `price` tag
+// it was asked with, so a later price never mixes old answers with new ones.
+const PRO = '$35 the first month, $25 the second, then $17 a month while you stay';
 export const EXTRAS: { id: ExtraId; label: string; price: string; ask: string }[] = [
-  { id: 'apps', label: 'Premium apps inside Cinderpaw', price: '35to17', ask: PRO },
-  { id: 'packs', label: 'Gets better at your job every week', price: '35to17', ask: PRO },
-  { id: 'always_on', label: 'Works while your PC is off', price: '35to17', ask: PRO },
-  { id: 'ai_included', label: 'No API key needed, AI included', price: '35to17', ask: `${PRO}, with a monthly AI limit` },
+  { id: 'apps', label: 'Premium apps inside Cinderpaw', price: '352517', ask: PRO },
+  { id: 'packs', label: 'Gets better at your job every week', price: '352517', ask: PRO },
+  { id: 'always_on', label: 'Works while your PC is off', price: '352517', ask: PRO },
+  { id: 'ai_included', label: 'No API key needed, AI included', price: '352517', ask: `${PRO}, with a monthly AI limit` },
 ];
 
 const KEY_DONE = 'cinderpaw.payIntent.done';

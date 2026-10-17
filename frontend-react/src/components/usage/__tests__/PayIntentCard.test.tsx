@@ -49,10 +49,10 @@ describe('the paid-extra question', () => {
     expect(screen.getByText('Cinderpaw stays free')).toBeTruthy();
     expect(screen.queryByText(/\$/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Gets better at your job every week' }));
-    expect(screen.getByText(/Would you pay \$35 the first month, then \$17 a month while you stay for it\?/)).toBeTruthy();
+    expect(screen.getByText(/Would you pay \$35 the first month, \$25 the second, then \$17 a month while you stay for it\?/)).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Maybe' }));
-    expect(sent()).toEqual([{ extra: 'packs', price: '35to17', answer: 'maybe' }]);
+    expect(sent()).toEqual([{ extra: 'packs', price: '352517', answer: 'maybe' }]);
     expect(screen.getByText('Thank you!')).toBeTruthy();
     expect(shouldAskPayIntent()).toBe(false);
   });
