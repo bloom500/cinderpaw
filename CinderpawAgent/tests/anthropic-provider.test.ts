@@ -76,6 +76,36 @@ describe("a key that must name its workspace", () => {
     expect(used).toBe("wrkspc_default");
   });
 
+  test("a later page that fails ends the lookup instead of picking from half the list", async () => {
+    let messages = 0;
+    globalThis.fetch = (async (url: string) => {
+      if (url.includes("/v1/organizations/workspaces")) {
+        return url.includes("after_id=")
+          ? new Response("{}", { status: 500 })
+          : Response.json({ data: [{ id: "wrkspc_a", name: "Alpha" }], has_more: true, last_id: "wrkspc_a" });
+      }
+      messages++;
+      return new Response(NEEDS_WORKSPACE, { status: 400 });
+    }) as typeof fetch;
+
+    await expect(new AnthropicProvider().complete(target("claude-haiku-5-5"), req, false)).rejects.toThrow(/more than one workspace/);
+    expect(messages).toBe(1);
+  });
+
+  test("a cursor that does not move ends the lookup instead of asking forever", async () => {
+    let lookups = 0;
+    globalThis.fetch = (async (url: string) => {
+      if (url.includes("/v1/organizations/workspaces")) {
+        lookups++;
+        return Response.json({ data: [{ id: "wrkspc_a", name: "Alpha" }], has_more: true, last_id: "wrkspc_a" });
+      }
+      return new Response(NEEDS_WORKSPACE, { status: 400 });
+    }) as typeof fetch;
+
+    await expect(new AnthropicProvider().complete(target("claude-haiku-5-5"), req, false)).rejects.toThrow(/more than one workspace/);
+    expect(lookups).toBe(2);
+  });
+
   test("a chat cancelled during the lookup stops there and is not sent again", async () => {
     const abort = new AbortController();
     let messages = 0;

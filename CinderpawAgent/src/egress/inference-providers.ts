@@ -1754,10 +1754,13 @@ export async function findAnthropicWorkspace(baseUrl: string, apiKey: string, si
         `${trimSlash(baseUrl)}/v1/organizations/workspaces?include_default=true&limit=1000${after ? `&after_id=${encodeURIComponent(after)}` : ""}`,
         { headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, signal: stop },
       );
-      if (!res.ok) break;
+      // A page that fails, or a cursor that does not move, leaves the list
+      // incomplete: choosing from half of it could pick the wrong workspace.
+      if (!res.ok) throw new Error(`workspace list returned ${res.status}`);
       const page = (await res.json()) as Page;
       open.push(...(page.data ?? []).filter((w) => !w.archived_at));
-      if (!page.has_more || !page.last_id) break;
+      if (!page.has_more) break;
+      if (!page.last_id || page.last_id === after) throw new Error("workspace list cursor did not advance");
       after = page.last_id;
     }
     const pick = open.find((w) => w.name === "Default") ?? open[0];
