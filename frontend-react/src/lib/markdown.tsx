@@ -12,6 +12,7 @@ import { MermaidDiagram } from '@/components/chat/MermaidDiagram';
 import { SourceAwareLink } from '@/components/chat/Sources';
 import { rehypeWordFade } from '@/lib/rehypeWordFade';
 import { splitBlocks } from '@/lib/markdownBlocks';
+import { emberActive, rehypeEmber, type Ember } from '@/lib/emberLetters';
 
 function ExpandableTable({ children, ...props }: React.HTMLAttributes<HTMLTableElement>) {
   const [expanded, setExpanded] = useState(false);
@@ -127,24 +128,42 @@ const REHYPE_FADE = [rehypeKatex, rehypeHighlight, rehypeWordFade];
  * again for it was one long frame at the end of every answer.
  */
 export const MarkdownBlock = memo(
-  function MarkdownBlock({ text, fade }: { text: string; fade: boolean }) {
+  function MarkdownBlock({ text, fade, ember }: { text: string; fade: boolean; ember?: Ember & { base: number } }) {
+    // Ember goes last, after maths and highlighting, so it can leave their
+    // nodes alone.
+    const rehype = ember
+      ? ([...REHYPE, [rehypeEmber, { ...ember, source: text }]] as typeof REHYPE)
+      : fade ? REHYPE_FADE : REHYPE;
     return (
-      <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={fade ? REHYPE_FADE : REHYPE} components={COMPONENTS}>
+      <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={rehype} components={COMPONENTS}>
         {text}
       </ReactMarkdown>
     );
   },
-  (prev, next) => prev.text === next.text && (prev.fade === next.fade || !next.fade),
+  (prev, next) => prev.text === next.text && prev.ember === next.ember && (prev.fade === next.fade || !next.fade),
 );
 
-export function Markdown({ children, animateWords }: { children: string; animateWords?: boolean }) {
+/**
+ * `ember` is the Artifacts panel's live writing (emberLetters.ts): letters
+ * arrive one by one as Cinderpaw writes, and an edit's old words go out. Only
+ * a block with something still moving is parsed with it; every other block is
+ * exactly what it is without it, so a settled document is plain markdown.
+ */
+export function Markdown({ children, animateWords, ember }: { children: string; animateWords?: boolean; ember?: Ember }) {
   // Cut into blocks that render the same apart as together (markdownBlocks):
   // while a reply streams, the finished blocks keep their DOM and only the
   // one still growing is parsed again.
   const blocks = splitBlocks(children);
+  // Blocks are the document cut at newlines, so each starts one past the last.
+  let base = 0;
   return (
     <div className="prose dark:prose-invert max-w-none wrap-break-word wrap-anywhere text-text-primary prose-headings:text-text-primary prose-strong:text-text-primary prose-pre:p-0 prose-pre:bg-transparent prose-pre:border-none prose-a:text-brand prose-li:text-text-primary prose-p:text-text-primary">
-      {blocks.map((b, i) => <MarkdownBlock key={i} text={b} fade={Boolean(animateWords)} />)}
+      {blocks.map((b, i) => {
+        const start = base;
+        base += b.length + 1;
+        const live = ember && emberActive(ember, start, start + b.length) ? { ...ember, base: start } : undefined;
+        return <MarkdownBlock key={i} text={b} fade={Boolean(animateWords)} ember={live} />;
+      })}
     </div>
   );
 }
