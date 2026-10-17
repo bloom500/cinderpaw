@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, AppWindow, GraduationCap, KeyRound, Moon, type LucideIcon } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
-import { ReleasePicture, useWhatsNew } from '@/components/WhatsNew';
+import { useWhatsNew } from '@/components/WhatsNew';
 import { useOnboarding } from '@/stores/onboarding';
 import { useSettings } from '@/stores/settings';
 import { closePayIntent, EXTRAS, PRO_STEPS, sendPayIntent, shouldAskPayIntent, type ExtraId, type PayAnswer } from '@/lib/payIntent';
@@ -11,7 +11,7 @@ const ICONS: Record<ExtraId, LucideIcon> = { apps: AppWindow, packs: GraduationC
 /**
  * The one paid-extra question (lib/payIntent.ts says when and what is sent),
  * as a card over the whole app like the What's new one (Darius, 18 Oct 2026):
- * the same picture on top, the page behind it blurred. Decided when the app
+ * a picture on top, the page behind it blurred. Decided when the app
  * opens, so it never interrupts a task in progress; never on top of What's
  * new, the setup wizard, or the usage question.
  */
@@ -44,7 +44,13 @@ export function PayIntentDialog() {
       {/* Closed only by its own buttons or X (Darius, 18 Oct 2026): a stray
           click outside, or closing the Alpha card, used to dismiss it. */}
       <DialogContent className="max-w-xl gap-0 overflow-hidden p-0 sm:rounded-2xl" onInteractOutside={(e) => e.preventDefault()}>
-        <ReleasePicture name="Cinderpaw" src="/releases/2026-09-moth.webp" />
+        {/* ponytail: a warm placeholder until this card has its own picture.
+            Never a copy of another surface's picture (Darius, 18 Oct 2026). */}
+        <div
+          className="h-40"
+          style={{ background: 'radial-gradient(120% 140% at 50% 110%, #f2a35e 0%, #c8673a 38%, #5a2d1c 72%, #2a1a13 100%)' }}
+          aria-hidden
+        />
 
         <div className="px-6 pb-6 pt-5">
           {thanked ? (

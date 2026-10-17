@@ -109,7 +109,7 @@ export function WhatsNew() {
  * it is a picture, the same in either theme. It replaced a CSS dusk horizon
  * that read as a copy of another company's launch picture.
  */
-export function ReleasePicture({ name, src }: { name: string; src: string }) {
+function ReleasePicture({ name, src }: { name: string; src: string }) {
   return (
     <div className="relative flex h-56 items-center justify-center overflow-hidden bg-[#1C1814]">
       <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover" draggable={false} />
