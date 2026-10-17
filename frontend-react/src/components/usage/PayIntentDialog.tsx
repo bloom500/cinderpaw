@@ -44,13 +44,12 @@ export function PayIntentDialog() {
       {/* Closed only by its own buttons or X (Darius, 18 Oct 2026): a stray
           click outside, or closing the Alpha card, used to dismiss it. */}
       <DialogContent className="max-w-xl gap-0 overflow-hidden p-0 sm:rounded-2xl" onInteractOutside={(e) => e.preventDefault()}>
-        {/* ponytail: a warm placeholder until this card has its own picture.
-            Never a copy of another surface's picture (Darius, 18 Oct 2026). */}
-        <div
-          className="h-40"
-          style={{ background: 'radial-gradient(120% 140% at 50% 110%, #f2a35e 0%, #c8673a 38%, #5a2d1c 72%, #2a1a13 100%)' }}
-          aria-hidden
-        />
+        {/* This card's own picture (Google Flow, Nano Banana 2.1, 18 Oct 2026, his
+            pick of four): Cubby at a market stall with the four extras on the
+            counter. Never a copy of another surface's picture. Fixed, both themes. */}
+        <div className="h-56 overflow-hidden bg-[#22304a]">
+          <img src="/pay-intent-stall.webp" alt="" className="h-full w-full object-cover object-[50%_62%]" draggable={false} />
+        </div>
 
         <div className="px-6 pb-6 pt-5">
           {thanked ? (
