@@ -2,15 +2,25 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const { state } = vi.hoisted(() => ({
-  state: { settings: { usage_sharing: true } as { usage_sharing: boolean | null } | null },
+  state: {
+    settings: { usage_sharing: true } as { usage_sharing: boolean | null } | null,
+    fetchSettings: vi.fn().mockResolvedValue(undefined),
+    wizard: false,
+  },
 }));
 vi.mock('@/stores/settings', () => ({ useSettings: (sel: (s: typeof state) => unknown) => sel(state) }));
+vi.mock('@/stores/onboarding', () => ({
+  useOnboarding: Object.assign((sel: (s: { active: boolean }) => unknown) => sel({ active: state.wizard }), {
+    getState: () => ({ loadPersisted: async () => true }),
+  }),
+}));
 
-import { PayIntentCard } from '../PayIntentCard';
+import { PayIntentDialog } from '../PayIntentDialog';
+import { useWhatsNew } from '@/components/WhatsNew';
 import { recordRealTask, shouldAskPayIntent } from '@/lib/payIntent';
 
-const sent = () => fetchMock.mock.calls.map((c) => JSON.parse(String((c[1] as RequestInit).body)));
 const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+const sent = () => fetchMock.mock.calls.map((c) => JSON.parse(String((c[1] as RequestInit).body)));
 
 function realUse(tasks = 5) {
   for (let i = 0; i < tasks; i++) recordRealTask();
@@ -22,6 +32,8 @@ describe('the paid-extra question', () => {
     fetchMock.mockClear();
     vi.stubGlobal('fetch', fetchMock);
     state.settings = { usage_sharing: true };
+    state.wizard = false;
+    useWhatsNew.setState({ open: false });
   });
 
   it('is not asked on a fresh install, only after 5 real tasks or 7 days', () => {
@@ -36,20 +48,31 @@ describe('the paid-extra question', () => {
     expect(shouldAskPayIntent()).toBe(true);
   });
 
-  it('waits while the usage question is still open, so nobody gets two at once', () => {
+  it('never opens over the usage question, What\'s new or the setup wizard', () => {
     realUse();
     state.settings = { usage_sharing: null };
-    const { container } = render(<PayIntentCard />);
-    expect(container).toBeEmptyDOMElement();
+    const a = render(<PayIntentDialog />);
+    expect(screen.queryByText('Cinderpaw stays free')).toBeNull();
+    a.unmount();
+    state.settings = { usage_sharing: false };
+    useWhatsNew.setState({ open: true });
+    const b = render(<PayIntentDialog />);
+    expect(screen.queryByText('Cinderpaw stays free')).toBeNull();
+    b.unmount();
+    useWhatsNew.setState({ open: false });
+    state.wizard = true;
+    render(<PayIntentDialog />);
+    expect(screen.queryByText('Cinderpaw stays free')).toBeNull();
   });
 
   it('says Cinderpaw stays free first, shows no price until an extra is picked, then sends one answer', () => {
     realUse();
-    render(<PayIntentCard />);
+    render(<PayIntentDialog />);
     expect(screen.getByText('Cinderpaw stays free')).toBeTruthy();
-    expect(screen.queryByText(/\$/)).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Gets better at your job every week' }));
-    expect(screen.getByText(/Would you pay \$35 the first month, \$25 the second, then \$17 a month while you stay for it\?/)).toBeTruthy();
+    expect(screen.queryByText('$35')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Gets better at your job every week/ }));
+    expect(screen.getByText('Would you pay this for it?')).toBeTruthy();
+    for (const p of ['$35', '$25', '$17']) expect(screen.getByText(p)).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Maybe' }));
     expect(sent()).toEqual([{ extra: 'packs', price: '352517', answer: 'maybe' }]);
@@ -59,17 +82,16 @@ describe('the paid-extra question', () => {
 
   it('No thanks is an answer too, and is sent as none', () => {
     realUse();
-    render(<PayIntentCard />);
+    render(<PayIntentDialog />);
     fireEvent.click(screen.getByRole('button', { name: "No thanks, I'll stay on free" }));
     expect(sent()).toEqual([{ extra: 'none', price: '0', answer: 'none' }]);
   });
 
-  it('closing sends nothing and never asks again', () => {
+  it('Don\'t ask again sends nothing and never asks again', () => {
     realUse();
-    const { container } = render(<PayIntentCard />);
-    fireEvent.click(screen.getByRole('button', { name: 'Works while your PC is off' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(container).toBeEmptyDOMElement();
+    render(<PayIntentDialog />);
+    fireEvent.click(screen.getByRole('button', { name: "Don't ask again" }));
+    expect(screen.queryByText('Cinderpaw stays free')).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(shouldAskPayIntent()).toBe(false);
   });

@@ -6,9 +6,9 @@ import { readLocal, writeLocal } from '@/lib/utils';
  * not a store: Cinderpaw stays free, and the card says so before anything else.
  *
  * Asked once, to someone who has used Cinderpaw for real: 5 finished replies
- * that used a tool, or 7 days after this install first opened a new chat,
+ * that used a tool, or 7 days after this install first opened the app,
  * whichever comes first. Never while the usage question is still open, so
- * nobody gets two questions at once (PayIntentCard checks that).
+ * nobody gets two questions at once (PayIntentDialog checks that).
  *
  * Only an answer leaves: the extra picked, the price that was shown, and yes,
  * maybe or no. No id, no chat, no time of day. Closing the card sends nothing.
@@ -22,12 +22,16 @@ export type PayAnswer = 'yes' | 'maybe' | 'no';
 // month, $25 the second, $17 from the third while you stay. The card asks
 // which extra would make someone take it. Each answer carries the `price` tag
 // it was asked with, so a later price never mixes old answers with new ones.
-const PRO = '$35 the first month, $25 the second, then $17 a month while you stay';
-export const EXTRAS: { id: ExtraId; label: string; price: string; ask: string }[] = [
-  { id: 'apps', label: 'Premium apps inside Cinderpaw', price: '352517', ask: PRO },
-  { id: 'packs', label: 'Gets better at your job every week', price: '352517', ask: PRO },
-  { id: 'always_on', label: 'Works while your PC is off', price: '352517', ask: PRO },
-  { id: 'ai_included', label: 'No API key needed, AI included', price: '352517', ask: `${PRO}, with a monthly AI limit` },
+export const PRO_STEPS = [
+  { when: 'Month 1', price: '$35' },
+  { when: 'Month 2', price: '$25' },
+  { when: 'Then, every month', price: '$17' },
+] as const;
+export const EXTRAS: { id: ExtraId; label: string; body: string; price: string; note?: string }[] = [
+  { id: 'apps', label: 'Premium apps inside Cinderpaw', body: 'Extra tools that live in the app, like photo and PDF editors.', price: '352517' },
+  { id: 'packs', label: 'Gets better at your job every week', body: 'New lessons for your kind of work, tested before you get them.', price: '352517' },
+  { id: 'always_on', label: 'Works while your PC is off', body: 'Your agent keeps answering and working while you sleep.', price: '352517' },
+  { id: 'ai_included', label: 'No API key needed, AI included', body: 'Start right away, with no keys to set up.', price: '352517', note: 'AI use is included up to a monthly limit.' },
 ];
 
 const KEY_DONE = 'cinderpaw.payIntent.done';

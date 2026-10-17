@@ -62,7 +62,7 @@ shows that file. Days before you said yes are never sent. Turn it off and
 sending stops immediately and the code is deleted. The totals are public on the
 Leaderboard tab in Models and at cinderpaw.dev/leaderboard.
 
-The third thing is one question, asked once on the new-chat screen after you
+The third thing is one question, asked once in a card when the app opens, after you
 have used Cinderpaw for a while (5 finished tasks that used a tool, or 7 days):
 which ONE paid extra you would want, if any, and whether you would pay the
 price it shows. It starts by saying Cinderpaw stays free. Only an answer is

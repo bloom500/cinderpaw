@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { Info, X } from 'lucide-react';
 import { readLocal, writeLocal } from '@/lib/utils';
 import { ShareUsageCard } from '@/components/usage/ShareUsageCard';
-import { PayIntentCard } from '@/components/usage/PayIntentCard';
 
 const BYOK_DISCLAIMER_KEY = 'cinderpaw.agentByokDismissed';
 
@@ -64,9 +63,6 @@ export function NewChatEmptyState({ isEmpty }: NewChatEmptyStateProps) {
       <AgentByokNote />
       {/* Hides itself unless the usage question was never answered. */}
       <ShareUsageCard />
-      {/* Hides itself until the usage question is answered and the person has
-          used Cinderpaw for real; asked once. */}
-      <PayIntentCard />
     </div>
   );
 }
