@@ -5,6 +5,7 @@ import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
 import type { PdfEdit } from '@/lib/pdfEdits';
 import type { PdfFieldRow } from '@/components/artifacts/PdfEditor';
+import { OUT_MS, chunkRun, editRuns, liveUntil, type Run } from '@/lib/emberLetters';
 
 /**
  * The workspace: everything the agent made that outlived its conversation.
@@ -49,6 +50,35 @@ export interface OpenArtifact {
   /** The version being shown, which is not always the newest one. */
   showing: number;
   versions: ArtifactVersionRow[];
+  /** Letters still arriving or leaving (live writing, see emberLetters.ts). */
+  live?: LiveArtifact;
+}
+
+/**
+ * A document while Cinderpaw writes or edits it. A draft is an `open` whose row
+ * has version 0 and the draft's key as its id, so the viewer shows it like any
+ * other document and the saved one can take its place without a jump.
+ */
+export interface LiveArtifact {
+  /** Which offsets arrived when: they animate in. */
+  runs: Run[];
+  /** An edit's old text, shown with its removed words going out until `until`. */
+  out?: { content: string; ranges: Array<[number, number]>; until: number };
+  /** Set while the model is still writing this draft. */
+  writing?: { turn: string; sessionId: string };
+  /** Why a draft was never saved, in a sentence for the person. */
+  stopped?: string;
+}
+
+/** One `artifact_draft` event, plus whether its chat is the one on screen. */
+export interface DraftEvent {
+  id: string;
+  sessionId: string;
+  draft: string;
+  kind?: string;
+  title?: string;
+  append: string;
+  onScreen: boolean;
 }
 
 type Pending =
@@ -184,6 +214,13 @@ interface ArtifactsStore {
     versions?: ArtifactVersionRow[]; path?: string; note?: string; error?: string;
     conflict?: number; encoding?: 'base64'; fields?: PdfFieldRow[];
   }) => void;
+  /** A piece of a document Cinderpaw is writing (`artifact_draft`). */
+  onDraft: (e: DraftEvent) => void;
+  /**
+   * The turn `turn` saved its document (`artifactId`), or ended without
+   * saving it (`reason`, a sentence for the person).
+   */
+  endDraft: (turn: string, outcome: { artifactId?: string; reason?: string }) => void;
 }
 
 const pending = new Map<string, Pending>();
@@ -194,6 +231,8 @@ let wanted: string | null = null;
 /** A `versions` reply that landed before its `get` (a PDF's `get` waits for
  *  field parsing; `versions` does not). Kept until the document opens. */
 let earlyVersions: { id: string; versions: ArtifactVersionRow[] } | null = null;
+/** A draft the person went back from: its later pieces must not reopen it. */
+let dismissed: string | null = null;
 let seq = 0;
 /** Which Send to Google is current; Cancel moves it on, so a late answer is dropped. */
 let googleRun = 0;
@@ -542,6 +581,8 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   },
 
   close: () => {
+    const open = get().open;
+    if (open?.live?.writing) dismissed = open.row.id;
     wanted = null;
     earlyVersions = null;
     set({ open: null, lastExport: null, error: null, editing: null, conflict: null, review: null, google: null });
@@ -612,6 +653,12 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
         return;
       }
       set({ busy: false, loaded: true, error: e.error ?? 'Something went wrong.' });
+      // A draft waiting for its saved version would otherwise say "Saving"
+      // for good.
+      const open = get().open;
+      if (p.kind === 'open' && open?.row.version === 0 && open.live) {
+        set({ open: { ...open, live: { ...open.live, stopped: e.error ?? 'The saved document could not be opened.' } } });
+      }
       return;
     }
 
@@ -646,6 +693,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
         const prev = get().open;
         const early = earlyVersions?.id === row.id ? earlyVersions.versions : null;
         earlyVersions = null;
+        const live = p.version === undefined && prev ? liveAfter(prev, row, e.content, e.encoding, !!get().editing) : undefined;
         set({
           busy: false,
           error: null,
@@ -659,6 +707,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
             // second. Keeping what we already have, or what arrived early,
             // means neither order loses.
             versions: prev && prev.row.id === row.id ? prev.versions : (early ?? []),
+            ...(live ? { live } : {}),
           },
         });
         return;
@@ -726,7 +775,89 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
       }
     }
   },
+
+  onDraft: (e) => {
+    const key = `${e.id}/${e.draft}`;
+    // Only the chat on screen, never over the person's own typing, and never
+    // back after they went back to the list from it.
+    if (!e.onScreen || get().editing || dismissed === key) return;
+    const now = Date.now();
+    const open = get().open;
+    if (open?.row.id === key && open.live) {
+      const runs = open.live.runs.filter((r) => liveUntil([r]) + 100 > now);
+      if (e.append) runs.push(chunkRun(open.content.length, e.append, now));
+      set({
+        open: {
+          ...open,
+          row: { ...open.row, kind: e.kind ?? open.row.kind, title: e.title ?? open.row.title },
+          content: open.content + e.append,
+          live: { ...open.live, runs },
+        },
+      });
+      return;
+    }
+    // A new document: whatever the panel was waiting to open is no longer wanted.
+    wanted = null;
+    earlyVersions = null;
+    set({
+      panelOpen: true,
+      panelTab: 'artifacts',
+      busy: false,
+      error: null,
+      lastExport: null,
+      review: null,
+      focus: null,
+      open: {
+        row: { id: key, kind: e.kind ?? 'markdown', title: e.title ?? '', version: 0, bytes: 0, updatedAt: now, modifiedBy: 'agent' },
+        content: e.append,
+        showing: 0,
+        versions: [],
+        live: { runs: e.append ? [chunkRun(0, e.append, now)] : [], writing: { turn: e.id, sessionId: e.sessionId } },
+      },
+    });
+  },
+
+  endDraft: (turn, outcome) => {
+    const open = get().open;
+    if (!open?.live?.writing || open.live.writing.turn !== turn) return;
+    // Writing is over either way. Saved: the draft stays on screen until the
+    // saved version arrives to take its place, so there is never a blank.
+    set({
+      open: {
+        ...open,
+        live: { ...open.live, writing: undefined, ...(outcome.artifactId ? {} : { stopped: outcome.reason }) },
+      },
+    });
+    if (outcome.artifactId) void get().openArtifact(outcome.artifactId);
+  },
 }));
+
+/** Kinds shown as text, where letters can come and go. The rest are frames or editors. */
+const TEXT_SHOWN = new Set(['markdown', 'code', 'json', 'table', 'file']);
+
+/**
+ * What still moves once a document arrives in place of the one on screen.
+ * From a draft: the letters still arriving keep going (the same text, the same
+ * runs), and a draft that showed nothing gets the whole text at once. From an
+ * edit Cinderpaw made to the newest version on screen: its removed words go
+ * out, then the new ones come in at the same spot.
+ */
+function liveAfter(prev: OpenArtifact, row: ArtifactRow, content: string, encoding: 'base64' | undefined, editing: boolean): LiveArtifact | undefined {
+  if (encoding === 'base64' || prev.encoding === 'base64') return undefined;
+  if (prev.row.version === 0 && prev.live && !prev.live.stopped) {
+    if (prev.content === content) return { runs: prev.live.runs };
+    return prev.content === '' && content ? { runs: [chunkRun(0, content, Date.now())] } : undefined;
+  }
+  const isEdit = prev.row.id === row.id && row.version > prev.row.version && prev.showing === prev.row.version;
+  if (!isEdit || editing || !TEXT_SHOWN.has(shownKind(row.kind, content))) return undefined;
+  const diff = editRuns(prev.content, content, 0);
+  if (!diff) return undefined;
+  const start = Date.now() + (diff.out.length ? OUT_MS : 0);
+  return {
+    runs: diff.runs.map((r) => ({ ...r, at: start })),
+    ...(diff.out.length ? { out: { content: prev.content, ranges: diff.out, until: start } } : {}),
+  };
+}
 
 /**
  * The kind to show an artifact as. A 'document' is HTML, but models write
@@ -884,4 +1015,5 @@ export function resetArtifactRequests(): void {
   peeked.clear();
   wanted = null;
   earlyVersions = null;
+  dismissed = null;
 }

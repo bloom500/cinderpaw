@@ -1,6 +1,6 @@
 import { createElement, type ReactNode } from 'react';
 import { SKIP, visit } from 'unist-util-visit';
-import type { Element, ElementContent, Root, Text } from 'hast';
+import type { Element, ElementContent, Properties, Root, Text } from 'hast';
 import { diffLines } from '@/lib/versionDiff';
 
 /**
@@ -96,7 +96,7 @@ function pieces(value: string, offsetAt: (i: number) => number, e: Ember): Piece
   return out;
 }
 
-function letterProps(m: Mark): Record<string, unknown> {
+function letterProps(m: Mark): Properties {
   if (m === 'out') return { className: ['ember-out'] };
   if (m === null) return {};
   return { className: ['ember-in'], style: `animation-delay:${m}ms` };

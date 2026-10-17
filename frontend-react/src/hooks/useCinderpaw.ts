@@ -701,6 +701,22 @@ export function useCinderpawGlobal() {
           });
         } else if (parsed.type === 'artifact_result') {
           useArtifacts.getState().onResult(parsed);
+        } else if (parsed.type === 'artifact_draft') {
+          // Live writing: the panel shows the document while Cinderpaw writes it.
+          useArtifacts.getState().onDraft({ ...parsed, onScreen: parsed.sessionId === useChat.getState().sessionId });
+        } else if (parsed.type === 'tool_done' && parsed.tool === 'artifact_create') {
+          const r = parsed.result as { ok?: boolean; data?: { id?: unknown }; content?: unknown; error?: unknown } | null;
+          const why = typeof r?.content === 'string' ? r.content : typeof r?.error === 'string' ? r.error : '';
+          useArtifacts.getState().endDraft(
+            parsed.id,
+            r?.ok && typeof r.data?.id === 'string'
+              ? { artifactId: r.data.id }
+              : { reason: `Not saved.${why ? ` ${why.slice(0, 200)}` : ''}` },
+          );
+        } else if ((parsed.type === 'done' || parsed.type === 'error') && parsed.id) {
+          // Every way a turn ends, including a stop or a broken stream: a draft
+          // still being written then was never saved, and says so.
+          useArtifacts.getState().endDraft(parsed.id, { reason: 'Cinderpaw stopped before saving this.' });
         } else if (parsed.type === 'cron_fired') {
           // X3: scheduled-job results were previously dropped on the floor.
           // Capped. Both strings are model output — a cron job's answer and the

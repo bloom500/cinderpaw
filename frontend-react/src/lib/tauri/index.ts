@@ -776,6 +776,9 @@ export type CinderpawAgentEvent =
       sessionId: string;
       action: 'created' | 'updated' | 'deleted';
     }
+  // A document Cinderpaw is writing, piece by piece, while it writes it.
+  // `id` is the turn; its tool_done / done / error close the draft.
+  | { type: 'artifact_draft'; id: string; sessionId: string; draft: string; kind?: string; title?: string; append: string }
   | {
       type: 'artifact_result';
       id: string;
