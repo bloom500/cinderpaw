@@ -13,6 +13,11 @@ jobs:
   # outside contribution lands: changing it would need every past contributor to
   # agree one by one. That is not a thing you can fix later, which is why a
   # check for one text line blocks a merge.
+  #
+  # Dependabot's own commits are skipped: they only move version numbers in
+  # manifests and lockfiles, which carries no contribution to grant, and the bot
+  # cannot sign. Only on a pull request Dependabot opened, and only for commits
+  # it authored; a person's commit pushed onto that branch is still checked.
   dco:
     name: sign-off
     runs-on: ubuntu-latest
@@ -29,6 +34,7 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           set -euo pipefail
           missing=0
@@ -36,6 +42,9 @@ jobs:
           # a trailer, so grepping the whole log at once would let one signed
           # commit cover an unsigned neighbour.
           for sha in $(git rev-list "$BASE..$HEAD"); do
+            if [ "$PR_AUTHOR" = "dependabot[bot]" ] && git log -1 --format=%ae "$sha" | grep -qF "dependabot[bot]@users.noreply.github.com"; then
+              continue
+            fi
             if ! git log -1 --format=%B "$sha" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
               echo "::error::missing Signed-off-by: $(git log -1 --format='%h %s' "$sha")"
               missing=1
