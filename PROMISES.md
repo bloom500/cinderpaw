@@ -62,6 +62,14 @@ shows that file. Days before you said yes are never sent. Turn it off and
 sending stops immediately and the code is deleted. The totals are public on the
 Leaderboard tab in Models and at cinderpaw.dev/leaderboard.
 
+The third thing is one question, asked once on the new-chat screen after you
+have used Cinderpaw for a while (5 finished tasks that used a tool, or 7 days):
+which ONE paid extra you would want, if any, and whether you would pay the
+price it shows. It starts by saying Cinderpaw stays free. Only an answer is
+sent: the extra you picked (or "no thanks"), the price you were shown, and your
+yes, maybe or no. No code, no id, no name, nothing from your chats. Close it
+and nothing is sent, and it is never asked again.
+
 Bug reports are sent only when you write one
 and press the button, and they show you the log lines first. Local logs and
 memory stay local. Public-journal publication requires explicit configuration

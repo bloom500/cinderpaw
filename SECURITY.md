@@ -107,9 +107,11 @@ Every tool call passes a security layer before execution:
   `~/.cinderpaw/.install-counted`.
 - An opt-in daily usage summary (per-model task, time and cost counts, never
   text, file names or ids), off unless the person says yes, logged to
-  `~/.cinderpaw/telemetry-sent.jsonl` before it leaves (PROMISES.md 4). No
-  other automatic analytics; crash and bug reports are sent only when a person
-  writes and submits one.
+  `~/.cinderpaw/telemetry-sent.jsonl` before it leaves (PROMISES.md 4).
+- One question, asked once, about which paid extra a person would want: sent
+  only if answered, as three fixed words (the extra, the price tag shown,
+  yes/maybe/no), no id. No other automatic analytics; crash and bug reports
+  are sent only when a person writes and submits one.
 
 ### Known limits
 

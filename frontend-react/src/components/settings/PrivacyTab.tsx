@@ -63,10 +63,11 @@ export function PrivacyTab() {
       <div>
         <p className="text-sm font-medium text-text-primary">Data collection</p>
         <p className="text-xs text-text-muted mt-0.5">
-          Two things can leave this computer about Cinderpaw itself, and only if you allow them:
+          Three things can leave this computer about Cinderpaw itself, and only if you allow them:
           the one-time install count from setup (recorded in <code>~/.cinderpaw/.install-counted</code>),
-          and the daily usage summary below. Bug reports are sent only when you write one. Online
-          features still send what they need.
+          the daily usage summary below, and your answer to the one-time question about a paid extra
+          (only if you answer it: the extra, the price shown, yes, maybe or no). Bug reports are sent
+          only when you write one. Online features still send what they need.
         </p>
       </div>
 
