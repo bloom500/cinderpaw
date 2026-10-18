@@ -47,6 +47,8 @@ pub enum Action {
     Write(String),
     /// Save an AI provider key in Cinderpaw's key store (see `keys.rs`).
     Key { provider: String, secret: String, base_url: Option<String> },
+    /// Add a chat connection, switched off (see `connections.rs`).
+    Connector { id: String, secrets: std::collections::BTreeMap<String, String>, allowlist: Vec<String> },
 }
 
 impl std::fmt::Debug for Action {
@@ -55,6 +57,7 @@ impl std::fmt::Debug for Action {
             Action::Copy => f.write_str("Copy"),
             Action::Write(t) => write!(f, "Write({} bytes)", t.len()),
             Action::Key { provider, .. } => write!(f, "Key({provider}, secret hidden)"),
+            Action::Connector { id, allowlist, .. } => write!(f, "Connector({id}, {} allowed, secrets hidden)", allowlist.len()),
         }
     }
 }
@@ -155,6 +158,11 @@ pub fn apply(plan: &Plan) -> Result<Vec<String>> {
                 default_model: None,
             };
             crate::byok::save_provider(provider, config).with_context(|| format!("saving the {provider} key"))?;
+            done.push(item.what.clone());
+            continue;
+        }
+        if let Action::Connector { id, secrets, allowlist } = &item.action {
+            super::connections::save(id, secrets, allowlist).with_context(|| format!("adding the {id} connection"))?;
             done.push(item.what.clone());
             continue;
         }

@@ -9,6 +9,7 @@
 //! the browser app all call `plan` and `apply`, so they cannot disagree about
 //! what an import does.
 
+pub mod connections;
 pub mod detect;
 pub mod keys;
 pub mod ledger;
@@ -40,6 +41,16 @@ pub fn plan_into(found: &Found, cinderpaw_dir: &Path, overwrite: bool) -> Plan {
         overwrite,
         &|id| crate::byok::byok_get(id).is_some(),
         &|id| catalog.iter().any(|c| c == id),
+        &mut plan,
+    );
+    connections::plan_connections_into(
+        found,
+        overwrite,
+        &|id| {
+            crate::connectors::resolved_connector_configs()
+                .iter()
+                .any(|c| c.id == id && (c.enabled || c.secrets.values().any(|v| !v.trim().is_empty())))
+        },
         &mut plan,
     );
     plan.not_imported.extend(leftovers(found));
@@ -75,6 +86,7 @@ pub fn summary(plan: &Plan) -> String {
     let skills = count("skill: ");
     let memory = count("memory: ") + count("about you: ");
     let keys = count("key: ");
+    let chats = count("chat: ");
     let persona = plan.will_import.iter().filter(|i| !i.what.contains(": ")).count();
     let mut parts: Vec<String> = Vec::new();
     if persona > 0 {
@@ -85,6 +97,9 @@ pub fn summary(plan: &Plan) -> String {
     }
     if skills > 0 {
         parts.push(format!("{skills} skill{}", if skills == 1 { "" } else { "s" }));
+    }
+    if chats > 0 {
+        parts.push(format!("{chats} chat app{}", if chats == 1 { "" } else { "s" }));
     }
     if keys > 0 {
         parts.push(format!("{keys} AI key{}", if keys == 1 { "" } else { "s" }));
@@ -126,6 +141,10 @@ pub fn leftovers(found: &Found) -> Vec<String> {
     // is not user data waiting to be migrated. Exactly that key, not the whole
     // `meta` subtree: over-consuming is how a real setting goes missing.
     ledger.consume("meta.lastTouchedVersion");
+    // Chat channels are connections.rs's.
+    for id in connections::handled() {
+        ledger.consume_prefix(&format!("channels.{id}"));
+    }
     // Inline keys are keys.rs's: imported, not left behind.
     for (var, _) in keys::ENV_KEYS {
         ledger.consume(&format!("env.{var}"));
@@ -172,5 +191,6 @@ mod tests {
             "its personality, its memory and 2 skills"
         );
         assert_eq!(summary(&plan_of(&["skill: a", "key: openrouter (from .env OPENROUTER_API_KEY)"])), "1 skill and 1 AI key");
+        assert_eq!(summary(&plan_of(&["chat: Discord", "chat: Telegram"])), "2 chat apps");
     }
 }
