@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use super::{Found, Plan, PlanItem, Source};
+use super::{Action, Found, Plan, PlanItem, Source};
 
 /// One line of an import file. `kind` is "note" or "card".
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -256,7 +256,7 @@ pub fn plan_memory_into(found: &Found, cinderpaw_dir: &Path, overwrite: bool, pl
             target: target.display().to_string(),
             note: None,
             source,
-            content: Some(jsonl(&notes)),
+            action: Action::Write(jsonl(&notes)),
         });
     };
 

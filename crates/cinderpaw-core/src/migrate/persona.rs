@@ -32,10 +32,31 @@ pub struct PlanItem {
     /// pairs, so it cannot drift from the plan that was shown.
     #[serde(skip)]
     pub source: PathBuf,
-    /// Written to `target` instead of copying `source`, when the import is a
-    /// translation rather than a copy (memory notes, see `memory.rs`).
+    /// What apply does for this item. Never serialised: a key's secret must
+    /// not reach the plan the UI shows.
     #[serde(skip)]
-    pub content: Option<String>,
+    pub action: Action,
+}
+
+/// How an item lands.
+#[derive(Clone)]
+pub enum Action {
+    /// Copy `source` (file or folder) to `target`.
+    Copy,
+    /// Write this text to `target` (memory notes, see `memory.rs`).
+    Write(String),
+    /// Save an AI provider key in Cinderpaw's key store (see `keys.rs`).
+    Key { provider: String, secret: String, base_url: Option<String> },
+}
+
+impl std::fmt::Debug for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Action::Copy => f.write_str("Copy"),
+            Action::Write(t) => write!(f, "Write({} bytes)", t.len()),
+            Action::Key { provider, .. } => write!(f, "Key({provider}, secret hidden)"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -110,7 +131,7 @@ pub fn plan_persona_into(found: &Found, cinderpaw_dir: &Path, overwrite: bool) -
             target: dst.display().to_string(),
             note: dst.exists().then(|| "overwrites existing".to_string()),
             source: src,
-            content: None,
+            action: Action::Copy,
         });
     }
 
@@ -126,6 +147,17 @@ pub fn plan_persona_into(found: &Found, cinderpaw_dir: &Path, overwrite: bool) -
 pub fn apply(plan: &Plan) -> Result<Vec<String>> {
     let mut done = Vec::new();
     for item in &plan.will_import {
+        if let Action::Key { provider, secret, base_url } = &item.action {
+            let config = crate::byok::ProviderConfig {
+                enabled: true,
+                api_key: secret.clone(),
+                base_url: base_url.clone(),
+                default_model: None,
+            };
+            crate::byok::save_provider(provider, config).with_context(|| format!("saving the {provider} key"))?;
+            done.push(item.what.clone());
+            continue;
+        }
         let dst = Path::new(&item.target);
         if dst.exists() {
             std::fs::create_dir_all(&plan.backup_dir)
@@ -139,9 +171,9 @@ pub fn apply(plan: &Plan) -> Result<Vec<String>> {
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        match &item.content {
-            Some(text) => std::fs::write(dst, text).with_context(|| format!("writing {}", dst.display()))?,
-            None => copy_all(&item.source, dst)
+        match &item.action {
+            Action::Write(text) => std::fs::write(dst, text).with_context(|| format!("writing {}", dst.display()))?,
+            _ => copy_all(&item.source, dst)
                 .with_context(|| format!("copying {} to {}", item.source.display(), dst.display()))?,
         }
         done.push(item.what.clone());

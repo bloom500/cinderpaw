@@ -195,7 +195,7 @@ mod tests {
                 target: "/home/u/.cinderpaw/SOUL.md".into(),
                 note: None,
                 source: PathBuf::from("/home/u/.openclaw/workspace/SOUL.md"),
-                content: None,
+                action: cinderpaw_core::migrate::Action::Copy,
             }],
             not_imported: vec!["channels.signal — no Cinderpaw connector for Signal yet".into()],
             conflicts: vec![],
