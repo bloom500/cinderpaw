@@ -49,6 +49,8 @@ pub enum Action {
     Key { provider: String, secret: String, base_url: Option<String> },
     /// Add a chat connection, switched off (see `connections.rs`).
     Connector { id: String, secrets: std::collections::BTreeMap<String, String>, allowlist: Vec<String> },
+    /// Write the source's old conversations into `dir` (see `conversations.rs`).
+    Conversations { root: PathBuf, source: Source, dir: PathBuf },
 }
 
 impl std::fmt::Debug for Action {
@@ -58,6 +60,7 @@ impl std::fmt::Debug for Action {
             Action::Write(t) => write!(f, "Write({} bytes)", t.len()),
             Action::Key { provider, .. } => write!(f, "Key({provider}, secret hidden)"),
             Action::Connector { id, allowlist, .. } => write!(f, "Connector({id}, {} allowed, secrets hidden)", allowlist.len()),
+            Action::Conversations { dir, .. } => write!(f, "Conversations(into {})", dir.display()),
         }
     }
 }
@@ -158,6 +161,12 @@ pub fn apply(plan: &Plan) -> Result<Vec<String>> {
                 default_model: None,
             };
             crate::byok::save_provider(provider, config).with_context(|| format!("saving the {provider} key"))?;
+            done.push(item.what.clone());
+            continue;
+        }
+        if let Action::Conversations { root, source, dir } = &item.action {
+            let chats = super::conversations::find_chats(*source, root);
+            super::conversations::write_chats(&chats, dir, false).context("writing the old conversations")?;
             done.push(item.what.clone());
             continue;
         }

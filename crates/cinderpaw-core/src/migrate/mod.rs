@@ -10,6 +10,7 @@
 //! what an import does.
 
 pub mod connections;
+pub mod conversations;
 pub mod detect;
 pub mod keys;
 pub mod ledger;
@@ -37,6 +38,7 @@ pub fn plan_into(found: &Found, cinderpaw_dir: &Path, overwrite: bool) -> Plan {
     skills::plan_skills_into(found, cinderpaw_dir, overwrite, &mut plan);
     memory::plan_memory_into(found, cinderpaw_dir, overwrite, &mut plan);
     schedules::plan_schedules_into(found, cinderpaw_dir, overwrite, &mut plan);
+    conversations::plan_conversations_into(found, cinderpaw_dir, overwrite, &mut plan);
     let catalog: Vec<String> = crate::byok::provider_catalog().into_iter().map(|e| e.id).collect();
     keys::plan_keys_into(
         found,
@@ -90,6 +92,7 @@ pub fn summary(plan: &Plan) -> String {
     let keys = count("key: ");
     let chats = count("chat: ");
     let schedules = count("schedule: ");
+    let chats_old = count("chats: ");
     let persona = plan.will_import.iter().filter(|i| !i.what.contains(": ")).count();
     let mut parts: Vec<String> = Vec::new();
     if persona > 0 {
@@ -109,6 +112,9 @@ pub fn summary(plan: &Plan) -> String {
     }
     if keys > 0 {
         parts.push(format!("{keys} AI key{}", if keys == 1 { "" } else { "s" }));
+    }
+    if chats_old > 0 {
+        parts.push("its old chats".into());
     }
     match parts.len() {
         0 => String::new(),
