@@ -162,7 +162,24 @@ pub fn leftovers(found: &Found) -> Vec<String> {
         ledger.consume(&format!("env.{var}"));
         ledger.consume(&format!("env.vars.{var}"));
     }
-    let mut out = ledger.leftovers();
+    // OpenClaw's own machinery, one plain line each instead of a line per key.
+    let mut out = Vec::new();
+    if found.source == Source::OpenClaw {
+        let present = ledger.leftovers();
+        for (prefix, why) in [
+            ("gateway", "OpenClaw's own server settings; Cinderpaw has its own"),
+            ("skills.entries", "which of OpenClaw's built-in skills were on; Cinderpaw has its own skills"),
+            ("wizard", "OpenClaw's setup history"),
+            ("meta", "OpenClaw's version stamps"),
+        ] {
+            let dotted = format!("{prefix}.");
+            if present.iter().any(|k| k == prefix || k.starts_with(&dotted)) {
+                ledger.consume_prefix(prefix);
+                out.push(format!("{prefix} — {why}"));
+            }
+        }
+    }
+    out.extend(ledger.leftovers());
     if let Some(err) = &data.env_error {
         out.push(format!(".env — could not be read, so its secrets are unknown: {err}"));
     }
@@ -191,6 +208,34 @@ mod tests {
             conflicts: vec![],
             backup_dir: PathBuf::new(),
         }
+    }
+
+    #[test]
+    fn openclaw_machinery_is_one_line_per_kind_not_one_per_key() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join(".openclaw");
+        std::fs::create_dir_all(&root).unwrap();
+        // The shape of Darius's real openclaw.json, 18 Oct 2026 (values replaced).
+        std::fs::write(
+            root.join("openclaw.json"),
+            r#"{ gateway: { mode: "local", auth: { mode: "token", token: "x" } },
+                 meta: { lastTouchedVersion: "2026.6.11", lastTouchedAt: "t" },
+                 skills: { entries: { trello: { enabled: false }, summarize: { enabled: false } } },
+                 wizard: { lastRunAt: "t", lastRunCommand: "doctor" },
+                 custom: { thing: 1 } }"#,
+        )
+        .unwrap();
+        let found = detect::detect_openclaw_at(&root).unwrap();
+        assert_eq!(
+            leftovers(&found),
+            [
+                "gateway — OpenClaw's own server settings; Cinderpaw has its own",
+                "skills.entries — which of OpenClaw's built-in skills were on; Cinderpaw has its own skills",
+                "wizard — OpenClaw's setup history",
+                "meta — OpenClaw's version stamps",
+                "custom.thing",
+            ]
+        );
     }
 
     #[test]
