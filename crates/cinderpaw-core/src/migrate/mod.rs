@@ -11,6 +11,7 @@
 
 pub mod detect;
 pub mod ledger;
+pub mod memory;
 pub mod persona;
 pub mod skills;
 pub mod source;
@@ -31,6 +32,7 @@ pub fn plan(found: &Found, overwrite: bool) -> Plan {
 pub fn plan_into(found: &Found, cinderpaw_dir: &Path, overwrite: bool) -> Plan {
     let mut plan = persona::plan_persona_into(found, cinderpaw_dir, overwrite);
     skills::plan_skills_into(found, cinderpaw_dir, overwrite, &mut plan);
+    memory::plan_memory_into(found, cinderpaw_dir, overwrite, &mut plan);
     plan.not_imported.extend(leftovers(found));
     plan
 }
@@ -43,15 +45,42 @@ pub fn preview() -> serde_json::Value {
         detect(None)
             .iter()
             .map(|f| {
+                let plan = plan(f, false);
                 serde_json::json!({
                     "source": f.source.label(),
                     "root": f.root,
                     "version": f.version,
-                    "plan": plan(f, false),
+                    "summary": summary(&plan),
+                    "plan": plan,
                 })
             })
             .collect(),
     )
+}
+
+/// "its personality, its memory and 12 skills": what `plan` would bring, in the
+/// words every surface shows (desktop card, browser app, `cinderpaw setup`), so
+/// they cannot disagree. Empty when it brings nothing.
+pub fn summary(plan: &Plan) -> String {
+    let count = |prefix: &str| plan.will_import.iter().filter(|i| i.what.starts_with(prefix)).count();
+    let skills = count("skill: ");
+    let memory = count("memory: ") + count("about you: ");
+    let persona = plan.will_import.iter().filter(|i| !i.what.contains(": ")).count();
+    let mut parts: Vec<String> = Vec::new();
+    if persona > 0 {
+        parts.push("its personality".into());
+    }
+    if memory > 0 {
+        parts.push("its memory".into());
+    }
+    if skills > 0 {
+        parts.push(format!("{skills} skill{}", if skills == 1 { "" } else { "s" }));
+    }
+    match parts.len() {
+        0 => String::new(),
+        1 => parts.remove(0),
+        n => format!("{} and {}", parts[..n - 1].join(", "), parts[n - 1]),
+    }
 }
 
 /// Import from the install at `root` what `preview` showed for it. Only a root
@@ -91,4 +120,33 @@ pub fn leftovers(found: &Found) -> Vec<String> {
     // Names only, never values (module contract).
     out.extend(data.env.keys().map(|k| format!(".env {k} — keys are not copied; Cinderpaw's setup asks for its own")));
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn plan_of(whats: &[&str]) -> Plan {
+        Plan {
+            will_import: whats
+                .iter()
+                .map(|w| PlanItem { what: w.to_string(), target: String::new(), note: None, source: PathBuf::new(), content: None })
+                .collect(),
+            not_imported: vec![],
+            conflicts: vec![],
+            backup_dir: PathBuf::new(),
+        }
+    }
+
+    #[test]
+    fn the_summary_names_each_kind_once() {
+        assert_eq!(summary(&plan_of(&[])), "");
+        assert_eq!(summary(&plan_of(&["skill: a"])), "1 skill");
+        assert_eq!(summary(&plan_of(&["SOUL.md", "IDENTITY.md", "skill: a", "skill: b"])), "its personality and 2 skills");
+        assert_eq!(
+            summary(&plan_of(&["SOUL.md", "memory: MEMORY.md (3 notes)", "about you: USER.md", "skill: a", "skill: b"])),
+            "its personality, its memory and 2 skills"
+        );
+    }
 }

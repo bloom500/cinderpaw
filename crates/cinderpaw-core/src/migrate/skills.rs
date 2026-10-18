@@ -97,6 +97,7 @@ pub fn plan_skills_into(found: &Found, cinderpaw_dir: &Path, overwrite: bool, pl
             target: dst.display().to_string(),
             note: dst.exists().then(|| "overwrites existing".to_string()),
             source: src,
+            content: None,
         });
     }
 }

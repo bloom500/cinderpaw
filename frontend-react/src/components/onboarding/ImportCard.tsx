@@ -23,12 +23,6 @@ export function ImportCard() {
 
   if (!found) return null;
   const { willImport, notImported, conflicts } = found.plan;
-  const skills = willImport.filter((i) => i.what.startsWith('skill: ')).length;
-  const persona = willImport.length - skills;
-  const parts = [
-    persona > 0 && 'its personality',
-    skills > 0 && `${skills} skill${skills === 1 ? '' : 's'}`,
-  ].filter(Boolean);
 
   const bring = async () => {
     setState('busy');
@@ -46,7 +40,7 @@ export function ImportCard() {
     <div className="mt-8 rounded-2xl border border-border-default bg-bg-surface p-5">
       <p className="font-medium text-text-primary">Coming from {found.source}?</p>
       <p className="mt-1 text-sm text-text-secondary">
-        I found it on this computer. I can bring over {parts.join(' and ')}, so you do not start from zero.
+        I found it on this computer. I can bring over {found.summary}, so you do not start from zero.
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         {state === 'done' ? (

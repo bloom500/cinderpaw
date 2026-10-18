@@ -4,7 +4,7 @@ import { CinderpawMascot, type MascotState } from "./brand";
 import { COPY } from "./copy";
 import { Reply } from "./Reply";
 import {
-  commonFirst, fetchApi, firstOffers, importOffer, load, manualCandidate, save, tryCandidate, tryKey, whatWillCome,
+  commonFirst, fetchApi, firstOffers, importOffer, load, manualCandidate, save, tryCandidate, tryKey,
   type Candidate, type KeyResult, type MigrateFound, type Provider, type Step,
 } from "./onboarding";
 
@@ -233,7 +233,7 @@ export function OnboardingChat() {
     const found = await importOffer(api);
     if (found) {
       setOffer(found);
-      await say(COPY.importFound(found.source, whatWillCome(found)));
+      await say(COPY.importFound(found.source, found.summary));
       return go("import", n);
     }
     askBrain(n);

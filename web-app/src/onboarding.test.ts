@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { COPY } from "./copy";
 import {
-  commonFirst, failureLine, firstOffers, importOffer, load, manualCandidate, mask, save, tryCandidate, tryKey, whatWillCome,
+  commonFirst, failureLine, firstOffers, importOffer, load, manualCandidate, mask, save, tryCandidate, tryKey,
   type Api, type Candidate, type KeyResult, type Outcome, type Provider,
 } from "./onboarding";
 
@@ -110,12 +110,11 @@ test("an import is offered only when there is something to bring, and says what"
   const openclaw = {
     source: "OpenClaw",
     root: "/home/u/.openclaw",
+    summary: "its personality and 2 skills",
     plan: { willImport: [{ what: "SOUL.md" }, { what: "skill: a" }, { what: "skill: b" }], notImported: [], conflicts: [] },
   };
   const empty = { ...openclaw, plan: { ...openclaw.plan, willImport: [] } };
   expect(await importOffer({ ...api, migratePreview: async () => [empty] })).toBeNull();
   expect(await importOffer({ ...api, migratePreview: async () => [empty, openclaw] })).toBe(openclaw);
   expect(await importOffer({ ...api, migratePreview: async () => { throw new Error("404"); } })).toBeNull();
-  expect(whatWillCome(openclaw)).toBe("its personality and 2 skills");
-  expect(whatWillCome({ ...openclaw, plan: { ...openclaw.plan, willImport: [{ what: "skill: a" }] } })).toBe("1 skill");
 });

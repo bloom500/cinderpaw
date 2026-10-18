@@ -29,6 +29,7 @@ import { SemanticMemory, memoryScope, setChatOwner, speakerScope } from "./memor
 import { RecallEngine } from "./memory/recall.ts";
 import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
 import { ObservationStore, importLegacyNotes } from "./memory/observations.ts";
+import { ingestImports } from "./memory/import-inbox.ts";
 import { buildSnapshot } from "./memory/snapshot.ts";
 import { Reflector, memoryIdleTick } from "./memory/reflector.ts";
 import { Reconciler } from "./memory/reconciler.ts";
@@ -1341,16 +1342,24 @@ export async function boot(transportOverride?: Transport) {
   );
   // What a new owner conversation already knows, frozen into its system prompt
   // on the first turn (memory/snapshot.ts).
-  agent.setMemorySnapshot((sessionId, budgetChars) =>
-    buildSnapshot({
+  agent.setMemorySnapshot((sessionId, budgetChars) => {
+    // Memory brought over from OpenClaw or Hermes waits in import/ until the
+    // next conversation starts (memory/import-inbox.ts).
+    try {
+      const filed = ingestImports(join(CINDERPAW_HOME, "import"), notesStore);
+      if (filed) log(`memory import: filed ${filed} note(s) from another agent`);
+    } catch (err) {
+      log(`memory import failed (will retry next conversation): ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return buildSnapshot({
       now: Date.now(),
       card: notesStore.card("")?.text ?? null,
       facts: semantic.selectForPrompt("", ""),
       notes: notesStore.recent("", { excludeSessionId: sessionId }),
       digests: notesStore.digests(""),
       budgetChars,
-    }),
-  );
+    });
+  });
 
   // Memory Resume: persist what the user is working on so `resume_get` (the
   // WelcomeBack banner, the TUI last-task row) has something to read — before

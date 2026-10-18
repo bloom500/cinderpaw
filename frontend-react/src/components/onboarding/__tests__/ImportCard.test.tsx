@@ -8,9 +8,11 @@ const openclaw: MigrateFound = {
   source: 'OpenClaw',
   root: 'C:\\Users\\u\\.openclaw',
   version: '2026.6.11',
+  summary: 'its personality, its memory and 2 skills',
   plan: {
     willImport: [
       { what: 'SOUL.md', target: 'x', note: null },
+      { what: 'memory: MEMORY.md (3 notes)', target: 'm', note: null },
       { what: 'skill: summarize', target: 'y', note: null },
       { what: 'skill: trello', target: 'z', note: null },
     ],
@@ -32,17 +34,17 @@ describe('ImportCard', () => {
 
   it('says what it brings, imports on click, and lists what it leaves when asked', async () => {
     vi.spyOn(tauri.raw, 'migratePreview').mockResolvedValue([openclaw]);
-    const apply = vi.spyOn(tauri.raw, 'migrateApply').mockResolvedValue(['SOUL.md', 'skill: summarize', 'skill: trello']);
+    const apply = vi.spyOn(tauri.raw, 'migrateApply').mockResolvedValue(['SOUL.md', 'memory: MEMORY.md (3 notes)', 'skill: summarize', 'skill: trello']);
     render(<ImportCard />);
 
     expect(await screen.findByText('Coming from OpenClaw?')).toBeTruthy();
-    expect(screen.getByText(/its personality and 2 skills/)).toBeTruthy();
+    expect(screen.getByText(/its personality, its memory and 2 skills/)).toBeTruthy();
 
     await userEvent.click(screen.getByRole('button', { name: /What exactly/ }));
     expect(screen.getByText(/OpenClaw's working manual/)).toBeTruthy();
 
     await userEvent.click(screen.getByRole('button', { name: /Bring it over/ }));
     expect(apply).toHaveBeenCalledWith(openclaw.root);
-    expect(await screen.findByText(/Brought over 3 items/)).toBeTruthy();
+    expect(await screen.findByText(/Brought over 4 items/)).toBeTruthy();
   });
 });
