@@ -1346,7 +1346,7 @@ export async function boot(transportOverride?: Transport) {
     // Memory brought over from OpenClaw or Hermes waits in import/ until the
     // next conversation starts (memory/import-inbox.ts).
     try {
-      const filed = ingestImports(join(CINDERPAW_HOME, "import"), notesStore);
+      const filed = ingestImports(join(CINDERPAW_HOME, "import"), { notes: notesStore, cron: cronRepo });
       if (filed) log(`memory import: filed ${filed} note(s) from another agent`);
     } catch (err) {
       log(`memory import failed (will retry next conversation): ${err instanceof Error ? err.message : String(err)}`);
@@ -1736,6 +1736,14 @@ export async function boot(transportOverride?: Transport) {
   const cronRepo = new CronJobsRepo(db.raw);
   const taskPrice = withModelPrices(priceResolverFromJson(cfgPath("CINDERPAW_AUTONOMOUS_PRICING_JSON")));
   const watchEgress = new EgressProxy(audit.logger, { trustedLocalOrigins: [] });
+  // What an import left while the agent was not running is filed now, so its
+  // tasks show under Schedules before anyone starts a conversation.
+  try {
+    const filed = ingestImports(join(CINDERPAW_HOME, "import"), { notes: notesStore, cron: cronRepo });
+    if (filed) log(`import: filed ${filed} note(s) and task(s) from another agent`);
+  } catch (err) {
+    log(`import failed (will retry next conversation): ${err instanceof Error ? err.message : String(err)}`);
+  }
   const cronScheduler = new CronScheduler({
     repo: cronRepo,
     limit: taskLimit,

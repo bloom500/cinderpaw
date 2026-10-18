@@ -15,6 +15,7 @@ pub mod keys;
 pub mod ledger;
 pub mod memory;
 pub mod persona;
+pub mod schedules;
 pub mod skills;
 pub mod source;
 
@@ -35,6 +36,7 @@ pub fn plan_into(found: &Found, cinderpaw_dir: &Path, overwrite: bool) -> Plan {
     let mut plan = persona::plan_persona_into(found, cinderpaw_dir, overwrite);
     skills::plan_skills_into(found, cinderpaw_dir, overwrite, &mut plan);
     memory::plan_memory_into(found, cinderpaw_dir, overwrite, &mut plan);
+    schedules::plan_schedules_into(found, cinderpaw_dir, overwrite, &mut plan);
     let catalog: Vec<String> = crate::byok::provider_catalog().into_iter().map(|e| e.id).collect();
     keys::plan_keys_into(
         found,
@@ -87,6 +89,7 @@ pub fn summary(plan: &Plan) -> String {
     let memory = count("memory: ") + count("about you: ");
     let keys = count("key: ");
     let chats = count("chat: ");
+    let schedules = count("schedule: ");
     let persona = plan.will_import.iter().filter(|i| !i.what.contains(": ")).count();
     let mut parts: Vec<String> = Vec::new();
     if persona > 0 {
@@ -100,6 +103,9 @@ pub fn summary(plan: &Plan) -> String {
     }
     if chats > 0 {
         parts.push(format!("{chats} chat app{}", if chats == 1 { "" } else { "s" }));
+    }
+    if schedules > 0 {
+        parts.push(format!("{schedules} scheduled task{}", if schedules == 1 { "" } else { "s" }));
     }
     if keys > 0 {
         parts.push(format!("{keys} AI key{}", if keys == 1 { "" } else { "s" }));
