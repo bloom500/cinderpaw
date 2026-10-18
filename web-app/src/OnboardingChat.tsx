@@ -248,6 +248,8 @@ export function OnboardingChat() {
       try {
         const done = await api.migrateApply(found.root);
         await say(COPY.imported(String(done.length)));
+        // They arrive off: two programs running one bot or one job fight over it.
+        if (done.some((w) => w.startsWith("chat: ") || w.startsWith("schedule: "))) await say(COPY.importedOff);
       } catch {
         await say(COPY.importFailed);
       }

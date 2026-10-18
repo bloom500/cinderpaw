@@ -17,6 +17,7 @@ export const COPY = {
   importNo: "No, start fresh",
   imported: (count: string) => `Done! I brought over ${count} things. Your old setup was not changed.`,
   importFailed: "I could not bring it over. That's okay, we can start fresh.",
+  importedOff: "Your chat apps and planned tasks came over turned off, so they don't clash with your old agent. Turn them on when it is stopped.",
   brain: "To think, I need a key. It's like a password that lets me use an AI brain. The quick way is to sign in with OpenRouter. It's free.",
   signIn: "Sign in with OpenRouter",
   signInGoing: "Opening OpenRouter. Sign in, press Authorize, and you will land back here.",

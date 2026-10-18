@@ -29,7 +29,11 @@ export function ImportCard() {
     try {
       const done = await tauri.raw.migrateApply(found.root);
       setState('done');
-      setMessage(`Brought over ${done.length} item${done.length === 1 ? '' : 's'}. Your ${found.source} setup was only read, never changed.`);
+      // Chat apps and scheduled tasks arrive off: two programs running one bot or one job fight over it.
+      const off = done.some((w) => w.startsWith('chat: ') || w.startsWith('schedule: '))
+        ? ` Chat apps and scheduled tasks came over turned off; turn them on in Connectors and Schedules once ${found.source} is stopped.`
+        : '';
+      setMessage(`Brought over ${done.length} item${done.length === 1 ? '' : 's'}. Your ${found.source} setup was only read, never changed.${off}`);
     } catch (e) {
       setState('failed');
       setMessage(typeof e === 'string' ? e : String(e));
@@ -62,7 +66,7 @@ export function ImportCard() {
       {state === 'failed' && <p className="mt-3 text-sm text-error">Could not bring it over: {message}</p>}
       {open && (
         <div className="mt-4 space-y-3 text-sm">
-          <List title="Brings" items={willImport.map((i) => i.what)} />
+          <List title="Brings" items={willImport.map((i) => (i.note ? `${i.what} (${i.note})` : i.what))} />
           {conflicts.length > 0 && <List title="Keeps yours" items={conflicts} />}
           {notImported.length > 0 && <List title="Leaves behind" items={notImported} />}
         </div>
