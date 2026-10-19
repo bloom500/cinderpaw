@@ -4,6 +4,7 @@ import {
   blendedPricePer1kUsd,
   estimateUsd,
   priceResolverFromJson,
+  UNKNOWN_CLOUD_PRICE,
 } from "../src/rsi/infra/rsi-cost.ts";
 
 describe("rsi-cost", () => {
@@ -12,6 +13,16 @@ describe("rsi-cost", () => {
     expect(resolve({ provider: "anything", model: "anything", baseUrl: "http://127.0.0.1:11435" }))
       .toEqual({ inputPerMillionUsd: 0, outputPerMillionUsd: 0 });
     expect(blendedPricePer1kUsd("anything", true)).toBe(0);
+  });
+
+  it("a cloud route nobody priced is charged the dear end, never refused", () => {
+    // A stranger has no price catalog. Refusing every unknown model meant a
+    // cloud user who allowed dreaming and set a cap never dreamed at all.
+    const resolve = priceResolverFromJson(null);
+    expect(resolve({ provider: "anthropic", model: "claude-haiku-5-5", baseUrl: "https://api.anthropic.com" }))
+      .toEqual(UNKNOWN_CLOUD_PRICE);
+    expect(UNKNOWN_CLOUD_PRICE.inputPerMillionUsd).toBeGreaterThanOrEqual(10);
+    expect(UNKNOWN_CLOUD_PRICE.outputPerMillionUsd).toBeGreaterThanOrEqual(50);
   });
 
   it("matches cloud pricing only on the exact provider/model/baseUrl tuple", () => {
@@ -36,23 +47,23 @@ describe("rsi-cost", () => {
       provider: "proxy",
       model: "gpt-4o-mini",
       baseUrl: "https://api.openai.com/v1",
-    })).toBeNull();
+    })).toEqual(UNKNOWN_CLOUD_PRICE);
     expect(resolve({
       provider: "openai",
       model: "gpt-4o-mini-proxy",
       baseUrl: "https://api.openai.com/v1",
-    })).toBeNull();
+    })).toEqual(UNKNOWN_CLOUD_PRICE);
     expect(resolve({
       provider: "openai",
       model: "gpt-4o-mini",
       baseUrl: "https://proxy.example/v1",
-    })).toBeNull();
+    })).toEqual(UNKNOWN_CLOUD_PRICE);
   });
 
-  it("fails the whole catalog closed when JSON or a rate entry is malformed", () => {
+  it("trusts no row of a malformed catalog: every cloud route falls to the dear end", () => {
     expect(priceResolverFromJson("not-json")({
       provider: "openai", model: "gpt-4o", baseUrl: "https://api.openai.com/v1",
-    })).toBeNull();
+    })).toEqual(UNKNOWN_CLOUD_PRICE);
     expect(priceResolverFromJson(JSON.stringify([{
       provider: "openai",
       model: "gpt-4o",
@@ -61,7 +72,7 @@ describe("rsi-cost", () => {
       outputPerMillionUsd: 1,
     }]))({
       provider: "openai", model: "gpt-4o", baseUrl: "https://api.openai.com/v1",
-    })).toBeNull();
+    })).toEqual(UNKNOWN_CLOUD_PRICE);
   });
 
   it("keeps legacy display estimates separate from authorization", () => {

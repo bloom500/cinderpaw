@@ -167,6 +167,26 @@ describe("InferenceSpendAuthority", () => {
     expect(authority.spentUsd).toBeCloseTo(0.08);
   });
 
+  test("settles at the provider's own bill when it reports one, the price list otherwise", () => {
+    // An unpriced route is reserved at the dear end; when the provider says
+    // what the call cost (OpenRouter's usage.cost), that is the truth and the
+    // rest of the cap stays usable instead of being eaten by the guess.
+    const authority = new InferenceSpendAuthority({
+      maxCostUsd: 1,
+      allowCloud: true,
+      price: () => ({ inputPerMillionUsd: 15, outputPerMillionUsd: 75 }),
+    });
+
+    authority.reserve({ targets: [known], maxPromptTokens: 1_000, maxCompletionTokens: 1_000 })
+      .settle({ target: known, usage: { promptTokens: 1_000, completionTokens: 1_000, costUsd: 0.0004 } });
+    expect(authority.spentUsd).toBeCloseTo(0.0004, 8);
+
+    // 0 or missing is no bill at all: fall back to the price list.
+    authority.reserve({ targets: [known], maxPromptTokens: 1_000, maxCompletionTokens: 1_000 })
+      .settle({ target: known, usage: { promptTokens: 1_000, completionTokens: 1_000, costUsd: 0 } });
+    expect(authority.spentUsd).toBeCloseTo(0.0004 + 0.09, 8);
+  });
+
   test("re-checks cloud opt-in at every reservation so a hot-swapped route cannot inherit local authority", () => {
     const authority = new InferenceSpendAuthority({
       maxCostUsd: 1,

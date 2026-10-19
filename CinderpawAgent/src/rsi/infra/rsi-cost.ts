@@ -1,10 +1,13 @@
 /**
  * Cost primitives for bounded autonomous inference.
  *
- * Cloud authorization never guesses from a model-name substring. Operators
+ * Cloud pricing never guesses from a model-name substring. Operators may
  * provide exact provider/model/baseUrl tuples with split rates through
- * CINDERPAW_AUTONOMOUS_PRICING_JSON; routes not present in that catalog fail
- * closed. Loopback inference is always free.
+ * CINDERPAW_AUTONOMOUS_PRICING_JSON; a route not in that catalog (which is
+ * every route on a stranger's machine) is charged UNKNOWN_CLOUD_PRICE, the dear
+ * end, so the USD cap still holds and the run just stops sooner. A provider
+ * that reports its own bill is settled at that bill (inference-spend-authority).
+ * Loopback inference is always free.
  */
 
 import type {
@@ -14,6 +17,20 @@ import type {
 
 /** Conservative display-only fallback used by legacy, non-authorizing stats. */
 const DEFAULT_CLOUD_PRICE_PER_1K = 0.01;
+
+/**
+ * What an unpriced cloud route is charged: at or above the list price of every
+ * flagship a BYOK user is likely to pick (Claude Fable 5.1 is $10/$50, Opus 4.1
+ * was $15/$75). Refusing instead meant a cloud user who allowed dreaming and
+ * set a cap never dreamed at all.
+ * ponytail: one ceiling for all; a "pro" tier priced above it can overspend by
+ * its ratio — give that route a catalog row, or ship a price table if one
+ * becomes common.
+ */
+export const UNKNOWN_CLOUD_PRICE: Readonly<InferencePrice> = Object.freeze({
+  inputPerMillionUsd: 15,
+  outputPerMillionUsd: 75,
+});
 
 interface PricingEntry extends InferencePrice {
   provider: string;
@@ -25,23 +42,24 @@ export type InferencePriceResolver = (target: SpendTarget) => InferencePrice | n
 
 /**
  * Parse an operator-owned exact-route catalog once at boot. Malformed JSON or
- * malformed entries produce an empty resolver, keeping autonomous cloud work
- * fail-closed rather than partially trusting a damaged price list.
+ * malformed entries trust no row of it: every cloud route then falls to
+ * UNKNOWN_CLOUD_PRICE rather than a partially damaged price list.
  */
 export function priceResolverFromJson(raw: string | null | undefined): InferencePriceResolver {
-  if (!raw?.trim()) return (target) => localPrice(target);
+  const unpriced = (target: SpendTarget) => localPrice(target) ?? { ...UNKNOWN_CLOUD_PRICE };
+  if (!raw?.trim()) return unpriced;
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return (target) => localPrice(target);
+    return unpriced;
   }
-  if (!Array.isArray(parsed)) return (target) => localPrice(target);
+  if (!Array.isArray(parsed)) return unpriced;
 
   const entries: PricingEntry[] = [];
   for (const value of parsed) {
     const entry = parseEntry(value);
-    if (!entry) return (target) => localPrice(target);
+    if (!entry) return unpriced;
     entries.push(entry);
   }
 
@@ -50,7 +68,7 @@ export function priceResolverFromJson(raw: string | null | undefined): Inference
     const local = localPrice(target);
     if (local) return local;
     const entry = byRoute.get(routeKey(target));
-    if (!entry) return null;
+    if (!entry) return { ...UNKNOWN_CLOUD_PRICE };
     return {
       inputPerMillionUsd: entry.inputPerMillionUsd,
       outputPerMillionUsd: entry.outputPerMillionUsd,

@@ -18,6 +18,8 @@ export interface BillableInferenceUsage {
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
   freshPromptTokens?: number;
+  /** The provider's own bill for the call (OpenRouter's usage.cost), when it reports one. */
+  costUsd?: number;
 }
 
 export type AutonomousSpendDeniedReason = "cloud_not_allowed" | "unknown_price" | "budget" | "stopped";
@@ -146,7 +148,11 @@ export class InferenceSpendAuthority {
           this.stop(`autonomous inference settled against unknown price for ${target.model}`);
           return;
         }
-        this.#spentUsd += costOfUsage(usage, actualPrice);
+        // The provider's own bill is the truth; 0 or missing means it sent none.
+        const billed = usage.costUsd;
+        this.#spentUsd += typeof billed === "number" && Number.isFinite(billed) && billed > 0
+          ? billed
+          : costOfUsage(usage, actualPrice);
         if (this.#spentUsd > this.#maxCostUsd) {
           this.stop("autonomous inference cost cap exhausted");
         }
