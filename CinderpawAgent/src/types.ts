@@ -1348,6 +1348,9 @@ export interface InboundMessage {
     // Faza 6 (L6) Meta Evolution — the host queries/drives the MetaGenome
     // engine; the sidecar replies with one `meta_result` paired by `id`.
     | "meta_status" | "meta_evolve" | "meta_rollback" | "meta_history"
+    // The L6 chat card: fetch the waiting proposal, or answer it. The
+    // proposal id rides the plain `id` field.
+    | "meta_proposal" | "meta_approve" | "meta_deny"
     // Slice A5 (L5 Governance) — host drives the policy FSM through the
     // `GovernanceLifecycle` (see `rsi/governance-lifecycle.ts`). Nine ops,
     // all reply with one `governance_result` paired by `id`. The transport
@@ -1955,6 +1958,8 @@ export type OutboundEvent =
   // Faza 6 (L6) Meta Evolution reply — payload shape depends on `op`
   // (status/evolve/rollback/history); `ok:false` carries a `reason`.
   | { type: "meta_result"; id: string; op: string; ok: boolean; [key: string]: unknown }
+  // The L6 change waiting for a person in chat; null when there is none.
+  | { type: "meta_proposal"; proposal: import("./rsi/l6-meta/meta-evolution.ts").MetaProposal | null }
   // /compact reply — `result` is "compacted" or "not needed"; `error` set
   // when the summarizer itself failed (ok=false).
   | { type: "compact_result"; id: string; ok: boolean; result?: string; error?: string }

@@ -295,6 +295,22 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       case "meta_history":
         transport.send({ type: "meta_result", id: msg.id ?? "", op: "history", ok: true, history: metaEvolution.history() });
         break;
+      // The L6 chat card. Approving applies exactly the proposal the person
+      // saw (MetaEvolution.approve refuses one that went out of date); either
+      // answer re-sends the card state so every open chat drops it.
+      case "meta_proposal":
+        transport.send({ type: "meta_proposal", proposal: metaEvolution.pendingProposal() });
+        break;
+      case "meta_approve":
+      case "meta_deny": {
+        const op = msg.type === "meta_approve" ? "approve" : "deny";
+        const result = op === "approve"
+          ? metaEvolution.approve(msg.id ?? "", "you, in chat")
+          : metaEvolution.deny(msg.id ?? "", "you, in chat");
+        transport.send({ type: "meta_result", id: msg.id ?? "", op, ...result });
+        transport.send({ type: "meta_proposal", proposal: metaEvolution.pendingProposal() });
+        break;
+      }
 
       // Slice A5 (L5 Governance) — host drives the `GovernanceLifecycle`
       // FSM through one inbound message per op, paired by `id` with the

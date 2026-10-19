@@ -2400,6 +2400,10 @@ export async function boot(transportOverride?: Transport) {
     onIdle: (stats, spendAuthority) => {
       dreamCycle.onEpisodeEnd(stats);
       void maybeCodeRsiRound(spendAuthority);
+      // L6 asks in chat: with enough dreams behind it, it prepares its next
+      // change as a card. Nothing changes until a person approves that card.
+      const asked = metaEvolution.propose();
+      if (asked?.created) transport.send({ type: "meta_proposal", proposal: asked.proposal });
     },
     // The Crux: a new ratcheted-best config is applied to the LIVE agent
     // (temperature today; the UI Controls override still wins per-session).
