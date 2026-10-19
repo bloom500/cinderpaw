@@ -49,13 +49,16 @@ const climbing = (dir: string, policy = defaultGenesisPolicy) => {
   });
 };
 
+/** The person running `cinderpaw meta evolve` (S0.2). */
+const op = { approvedBy: "operator" };
+
 const tmp = () => mkdtempSync(join(tmpdir(), "meta-rollback-"));
 
 describe("L6 rollback to any generation (S0.1)", () => {
   test("rolls back to generation 1 of 5 and survives a restart", () => {
     const dir = tmp();
     const me = climbing(dir);
-    for (let i = 0; i < 5; i++) expect(me.evolve().ok).toBe(true);
+    for (let i = 0; i < 5; i++) expect(me.evolve(op).ok).toBe(true);
     const gen1 = me.history(1_000).findLast((r) => r.generation === 1)!.genome;
     expect(me.current()).not.toEqual(gen1);
 
@@ -68,7 +71,7 @@ describe("L6 rollback to any generation (S0.1)", () => {
 
   test("an unknown generation or the current one is refused with the reason", () => {
     const me = climbing(tmp());
-    me.evolve();
+    me.evolve(op);
     expect(me.rollback(42)).toMatchObject({ ok: false });
     expect(String(me.rollback(42).reason)).toContain("generation 42 is not in the history");
     expect(String(me.rollback(me.status().generation as number).reason)).toContain("already on generation");
@@ -77,8 +80,8 @@ describe("L6 rollback to any generation (S0.1)", () => {
   test("frozen L6: refused without a name, allowed and recorded with one; evolve stays refused", () => {
     const dir = tmp();
     const me = climbing(dir);
-    me.evolve();
-    me.evolve();
+    me.evolve(op);
+    me.evolve(op);
     let frozen = false;
     const guarded = new MetaEvolution({
       dir,
@@ -87,20 +90,20 @@ describe("L6 rollback to any generation (S0.1)", () => {
     });
     frozen = true;
     expect(String(guarded.rollback(0).reason)).toContain("needs the name of the person authorizing it");
-    expect(guarded.evolve().ok).toBe(false);
+    expect(guarded.evolve(op).ok).toBe(false);
 
     const r = guarded.rollback(0, { authorizedBy: "Darius" });
     expect(r.ok).toBe(true);
     expect(guarded.current()).toEqual(DEFAULT_META_GENOME);
     expect(guarded.history().at(-1)!.reason).toBe("manual rollback to generation 0, authorized by Darius");
-    expect(guarded.evolve().ok).toBe(false);
+    expect(guarded.evolve(op).ok).toBe(false);
   });
 
   test("a failed write leaves memory and disk unchanged", () => {
     const dir = tmp();
     const me = climbing(dir);
-    me.evolve();
-    me.evolve();
+    me.evolve(op);
+    me.evolve(op);
     const before = { genome: me.current(), generation: me.status().generation };
     const rows = me.history(1_000).length;
     const statePath = join(dir, "meta_genome.json");
@@ -118,7 +121,7 @@ describe("L6 rollback to any generation (S0.1)", () => {
   test("a corrupt state file recovers the last settled generation, not neutral defaults", () => {
     const dir = tmp();
     const me = climbing(dir);
-    for (let i = 0; i < 3; i++) me.evolve(); // gen 1, 2 accepted; gen 3 pending
+    for (let i = 0; i < 3; i++) me.evolve(op); // gen 1, 2 accepted; gen 3 pending
     const last = me.history(1_000).findLast((r) => r.event === "accepted")!;
     expect(last.genome).not.toEqual(DEFAULT_META_GENOME);
     writeFileSync(join(dir, "meta_genome.json"), "{not json");
@@ -128,5 +131,29 @@ describe("L6 rollback to any generation (S0.1)", () => {
     expect(recovered.status().generation).toBe(4);
     expect(recovered.status().pendingCandidate).toBe(false);
     expect(recovered.history().at(-1)!.reason).toContain(`recovered generation ${last.generation} from the history`);
+  });
+});
+
+describe("the l6_evolve approval is enforced (S0.2)", () => {
+  test("fresh governance refuses an unasked evolve with a readable reason; a named person runs it", () => {
+    const fresh = defaultGenesisPolicy();
+    expect(fresh.approvals.l6Evolve).toBe(true);
+    let seed = 3;
+    const me = new MetaEvolution({ dir: tmp(), readWindow: () => window(0.5), seedSource: () => seed++, policy: () => fresh });
+
+    const scheduled = me.evolve();
+    expect(scheduled.ok).toBe(false);
+    expect(String(scheduled.reason)).toContain("needs a person to start it");
+    expect(String(scheduled.reason)).toContain("cinderpaw meta evolve");
+    expect(me.status().generation).toBe(0);
+
+    expect(me.evolve({ approvedBy: "operator" }).ok).toBe(true);
+    expect(me.status().generation).toBe(1);
+  });
+
+  test("a policy that does not demand a human still evolves unasked", () => {
+    const open = { ...defaultGenesisPolicy(), approvals: { ...defaultGenesisPolicy().approvals, l6Evolve: false } };
+    const me = new MetaEvolution({ dir: tmp(), readWindow: () => window(0.5), policy: () => open });
+    expect(me.evolve().ok).toBe(true);
   });
 });

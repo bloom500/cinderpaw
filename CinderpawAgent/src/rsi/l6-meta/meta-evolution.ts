@@ -493,11 +493,21 @@ export class MetaEvolution {
    *  its window fitness beats the baseline by the margin, else revert),
    *  then propose + deploy the next mutated candidate. A revert ends the
    *  epoch without proposing (see the reject branch). Refuses without
-   *  MIN_META_CYCLES episodes of journal evidence under the current genome. */
-  evolve(): MetaResultPayload {
+   *  MIN_META_CYCLES episodes of journal evidence under the current genome.
+   *  When the policy demands a human for L6 (`approvals.l6Evolve`, true on a
+   *  fresh install), `approvedBy` must name who asked: a person running
+   *  `cinderpaw meta evolve`. Anything that calls this on a schedule passes
+   *  nothing and is refused (spec S0.2). */
+  evolve(opts: { approvedBy?: string } = {}): MetaResultPayload {
     const pol = this.policy?.();
     if (pol?.frozen.l6) {
       return { ok: false, reason: "frozen by governance (frozen.l6) — see cinderpaw governance status" };
+    }
+    if (pol?.approvals.l6Evolve && !opts.approvedBy?.trim()) {
+      return {
+        ok: false,
+        reason: `L6 evolution needs a person to start it (approvals.l6Evolve in policy ${pol.policyId}); run \`cinderpaw meta evolve\` yourself`,
+      };
     }
     const { entries, excludedRows } = this.readWindowEx(this.state.deployedAt);
     // §9 row 4: with ≥ half the window unverified there is not enough

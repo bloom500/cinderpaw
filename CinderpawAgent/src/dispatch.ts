@@ -287,7 +287,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         transport.send({ type: "meta_result", id: msg.id ?? "", op: "status", ...metaEvolution.status() });
         break;
       case "meta_evolve":
-        transport.send({ type: "meta_result", id: msg.id ?? "", op: "evolve", ...metaEvolution.evolve() });
+        transport.send({ type: "meta_result", id: msg.id ?? "", op: "evolve", ...metaEvolution.evolve({ approvedBy: "operator" }) });
         break;
       case "meta_rollback":
         transport.send({ type: "meta_result", id: msg.id ?? "", op: "rollback", ...metaEvolution.rollback() });
