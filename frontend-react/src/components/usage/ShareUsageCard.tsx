@@ -26,7 +26,7 @@ export function ShareUsageCard() {
     void tauri.system.setUsageSharing(on).then(() => fetchSettings()).catch(() => {});
   };
   return (
-    <div className="mt-4 max-w-md rounded-xl border border-border-subtle bg-bg-surface px-4 py-3 text-xs text-text-muted pointer-events-auto">
+    <div className="mt-4 max-w-md rounded-xl border border-border-subtle bg-(--surface-typing) px-4 py-3 text-xs text-text-muted pointer-events-auto">
       <p className="flex items-center gap-2 text-sm font-medium text-text-primary"><BarChart3 size={14} /> Help other people pick a model?</p>
       <p className="mt-1 leading-relaxed">Once a day, share how many tasks each model did, how long they took and what they cost. Never your messages or files.</p>
       <div className="mt-2 flex flex-wrap gap-2">
