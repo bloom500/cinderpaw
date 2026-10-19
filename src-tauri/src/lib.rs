@@ -711,6 +711,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             cinderpaw_get_model_config,
             get_local_api_token,
             cinderpaw_ask_user_response,
+            cinderpaw_heads_up_answer,
             cinderpaw_ask_user_cancel,
             get_onboarding_record,
             set_onboarding_record,

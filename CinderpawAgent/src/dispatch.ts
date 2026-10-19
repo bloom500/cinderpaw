@@ -64,6 +64,7 @@ import { setTaskFeedback } from "./telemetry/task-metrics.ts";
 import { rollup } from "./telemetry/usage-rollup.ts";
 import { appVersion, buildPayload, osLabel, readSentLog, sharingSetting } from "./telemetry/usage-sender.ts";
 import type { Database } from "bun:sqlite";
+import { headsUpLedger } from "./tools/builtin/heads-up.ts";
 
 /**
  * Diagnostics go to stderr; stdout is reserved for the transport protocol.
@@ -1637,6 +1638,15 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         break;
       }
 
+      case "heads_up_answer": {
+        // The card does not block the agent; the answer only tunes what it
+        // flags next in this chat ("I already knew this").
+        const choice = msg.headsUpChoice;
+        if (msg.headsUpId && (choice === "more" || choice === "knew" || choice === "dismiss")) {
+          headsUpLedger.answer(msg.sessionId ?? "", msg.headsUpId, choice);
+        }
+        break;
+      }
       case "ask_user_response": {
         // Forward the user's selection back to the matching pending request.
         // Both `requestId` and `answers` are required — the transport's

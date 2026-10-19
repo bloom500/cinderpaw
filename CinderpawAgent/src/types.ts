@@ -1272,6 +1272,8 @@ export interface InboundMessage {
   // type of its own rather than a flag on that one.
   type: "message" | "record_turn" | "ping" | "shutdown" | "set_model" | "stop"
     | "ask_user_response" | "ask_user_cancel"
+    // The person's answer to a heads_up card (tools/builtin/heads-up.ts).
+    | "heads_up_answer"
     // The host returning the result of a tool IT owns, paired to the
     // `tool_request` event by `requestId`. Carries `content` on success or
     // `error` on failure; see core/host-tool-bridge.ts.
@@ -1553,6 +1555,9 @@ export interface InboundMessage {
    *  Rust API lazily re-load the multi-GB model the unload just released.
    *  Absent = unknown; the sidecar keeps its boot-time behaviour. */
   localFallbackAvailable?: boolean;
+  /** heads_up_answer: the card answered (its `data.headsUp.id`) and how. */
+  headsUpId?: string;
+  headsUpChoice?: "more" | "knew" | "dismiss";
   // ask_user_response fields (all present when type === "ask_user_response")
   /** Matches the id of the original "ask_user" outbound event. */
   requestId?: string;

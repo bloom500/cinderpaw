@@ -21,6 +21,7 @@ import { useBrowser } from '@/stores/browser';
 import { BrowserPanel } from '@/components/browser/BrowserPanel';
 import { NewChatEmptyState } from '@/components/chat/EmptyStates';
 import { AgentOfflineBanner } from '@/components/chat/AgentOfflineBanner';
+import { HeadsUpCard } from '@/components/chat/HeadsUpCard';
 import { StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
 import { WorkersCard } from '@/components/chat/WorkersCard';
 import { ComposerTip, TEACH_PROMPT } from '@/components/chat/ComposerTip';
@@ -360,6 +361,8 @@ export function ChatPage() {
           <WorkersCard />
           {/* #10: humanized inference errors with a fix-it action */}
           <StreamErrorNotice />
+          {/* "Something you should know", found while the agent works. */}
+          <HeadsUpCard />
           <ComposerTip
             isEmpty={isEmpty}
             // A new chat with the request typed in and the caret after it.

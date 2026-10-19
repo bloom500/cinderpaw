@@ -21,7 +21,7 @@ export const SIDECAR_PROTOCOL = 1;
 // compile-checked, so the canonical one fell behind in silence.
 export const INBOUND_TYPES = [
   "message", "record_turn", "ping", "shutdown", "set_model", "stop",
-  "ask_user_response", "ask_user_cancel",
+  "ask_user_response", "ask_user_cancel", "heads_up_answer",
   // Host-owned tools (core/host-tool-bridge.ts): the sidecar emits
   // `tool_request`, the host runs it and answers with `tool_response`.
   "tool_response",

@@ -178,6 +178,7 @@ import { AskUserBridgeImpl } from "./core/ask-user-bridge.ts";
 import { HostToolBridge, loadHostTools } from "./core/host-tool-bridge.ts";
 import { setHostToolNames } from "./tools/tiers.ts";
 import { createAskUserTool } from "./tools/builtin/ask-user.ts";
+import { createHeadsUpTool } from "./tools/builtin/heads-up.ts";
 import { DesktopControlBridgeImpl } from "./core/desktop-control-bridge.ts";
 import { RequestBridge } from "./core/request-bridge.ts";
 import { createComputerUseTool } from "./tools/builtin/computer-use.ts";
@@ -980,6 +981,7 @@ export async function boot(transportOverride?: Transport) {
   // ask_user — interactive questions (Claude.ai-style). No permissions;
   // pure event emission through the AskUserBridge in the tool context.
   registry.register(createAskUserTool());
+  registry.register(createHeadsUpTool());
 
   // computer_use — OS-level desktop control via the accessibility tree. This
   // is powerful (it can click/type into any non-denylisted app), so it is

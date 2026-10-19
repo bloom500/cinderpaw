@@ -815,6 +815,45 @@ pub(crate) async fn cinderpaw_ask_user_response(
     Ok(())
 }
 
+/// The person's answer to a `heads_up` card ("Learn more", "I already knew
+/// this", "Dismiss"). Fire-and-forget: the agent never waits on it, the sidecar
+/// only uses "knew" to flag less of the obvious in that chat.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cinderpaw_heads_up_answer(
+    state: State<'_, AppState>,
+    session_id: String,
+    heads_up_id: String,
+    choice: String,
+) -> Result<(), String> {
+    let line = heads_up_answer_line(&session_id, &heads_up_id, &choice)?;
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(line).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn heads_up_answer_line(session_id: &str, heads_up_id: &str, choice: &str) -> Result<String, String> {
+    if !matches!(choice, "more" | "knew" | "dismiss") {
+        return Err(format!("invalid heads-up choice '{choice}'"));
+    }
+    if heads_up_id.trim().is_empty() {
+        return Err("a heads-up answer needs the card's id".to_string());
+    }
+    Ok(serde_json::json!({
+        "type": "heads_up_answer",
+        "sessionId": session_id,
+        "headsUpId": heads_up_id,
+        "headsUpChoice": choice,
+    })
+    .to_string())
+}
+
 /// Cancel a pending `ask_user` request (user clicked Skip, or the UI is
 /// tearing down). The sidecar calls `AskUserBridge.cancel(id, reason)`
 /// which rejects the tool's `await ctx.askUser.ask(...)` with the
@@ -850,6 +889,17 @@ mod meta_tests {
         assert_eq!(v["id"], "gen-3-42");
         assert!(meta_message("deny", None).is_err());
         assert!(meta_message("deny", Some("  ")).is_err());
+    }
+
+    #[test]
+    fn heads_up_answers_name_the_card_and_a_known_choice() {
+        let v: serde_json::Value =
+            serde_json::from_str(&super::heads_up_answer_line("s1", "card-1", "knew").unwrap()).unwrap();
+        assert_eq!(v["type"], "heads_up_answer");
+        assert_eq!(v["headsUpId"], "card-1");
+        assert_eq!(v["headsUpChoice"], "knew");
+        assert!(super::heads_up_answer_line("s1", "card-1", "maybe").is_err());
+        assert!(super::heads_up_answer_line("s1", " ", "dismiss").is_err());
     }
 
     #[test]
