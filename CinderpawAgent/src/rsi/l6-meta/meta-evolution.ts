@@ -34,11 +34,16 @@
  *   - History is an append-only JSONL (one MetaGeneration row per deploy
  *     / accept / rollback, with parent, diff, seed, evaluator) — full
  *     replay, same discipline as the Evolution Journal.
- *   - Rollback is narrow: `rollback()` returns only to the pending
- *     candidate's baseline, refuses while governance has frozen L6, and
- *     refuses when nothing is pending. The history records every prior
- *     generation but nothing replays it; a corrupt state file recovers to
- *     neutral defaults and its baseline is lost.
+ *   - Rollback reaches any generation in the history: `rollback()` returns
+ *     to the pending candidate's baseline, `rollback(n)` to generation n.
+ *     The new state is written to disk BEFORE memory changes, so a failed
+ *     write leaves both as they were. While governance has frozen L6 a
+ *     rollback needs `authorizedBy` (a recovery, recorded in the history and
+ *     the governance audit); evolve stays refused.
+ *   - A missing or corrupt state file recovers the last SETTLED genome in
+ *     the history (bootstrap / accepted / rollback rows; never an unjudged
+ *     candidate), clamped, as a new generation. Neutral defaults only when
+ *     the history has nothing.
  *   - A state write that fails cancels the epoch: memory is put back to
  *     what the disk still says, and the caller gets the reason.
  *
@@ -595,36 +600,53 @@ export class MetaEvolution {
     };
   }
 
-  /** Manual rollback: drop the pending candidate and return to its
-   *  baseline champion. Errors when there is nothing pending. */
-  rollback(): MetaResultPayload {
-    if (this.policy?.().frozen.l6) {
-      return { ok: false, reason: "frozen by governance (frozen.l6) — see cinderpaw governance status" };
+  /** Manual rollback. No target: drop the pending candidate and return to
+   *  its baseline. With `target`: return to that generation's genome as
+   *  recorded in the history. While L6 is frozen it runs only with
+   *  `authorizedBy`, the human who asked for the recovery. */
+  rollback(target?: number, opts: { authorizedBy?: string } = {}): MetaResultPayload {
+    const by = opts.authorizedBy?.trim();
+    if (this.policy?.().frozen.l6 && !by) {
+      return {
+        ok: false,
+        reason: "frozen by governance (frozen.l6): a rollback while frozen needs the name of the person authorizing it",
+      };
     }
-    if (!this.state.baseline) {
-      return { ok: false, reason: "no pending candidate — nothing to roll back" };
+    let genome: MetaGenome;
+    let generation: number;
+    let score: number | null;
+    if (target === undefined) {
+      if (!this.state.baseline) return { ok: false, reason: "no pending candidate — nothing to roll back" };
+      ({ genome, generation, score } = this.state.baseline);
+    } else {
+      if (target === this.state.generation) return { ok: false, reason: `already on generation ${target}` };
+      const row = this.history(Number.MAX_SAFE_INTEGER).findLast((r) => r.generation === target);
+      if (!row) return { ok: false, reason: `generation ${target} is not in the history (${this.historyPath})` };
+      genome = clampMetaGenome(row.genome);
+      generation = target;
+      score = row.score;
     }
-    const before = this.state;
-    const { genome, generation, score } = this.state.baseline;
-    this.state = {
-      version: 1,
-      generation: this.state.generation + 1,
-      genome,
-      deployedAt: this.now(),
-      baseline: null,
-    };
-    this.append("rollback", score, `manual rollback to generation ${generation}`, null, genome);
-    const unsaved = this.saveOrRestore(before);
-    if (unsaved) return unsaved;
+    const next: MetaState = { version: 1, generation: this.state.generation + 1, genome, deployedAt: this.now(), baseline: null };
+    // Disk first: a rollback that is not on disk would vanish on restart.
+    const error = this.persist(next);
+    if (error !== null) {
+      return {
+        ok: false,
+        reason: `could not save the meta-genome to ${this.statePath} (${error}); nothing changed, still on generation ${this.state.generation}`,
+      };
+    }
+    this.state = next;
+    const summary = `manual rollback to generation ${generation}${by ? `, authorized by ${by}` : ""}`;
+    this.append("rollback", score, summary, null, genome);
     // G-INV-5: one chained governance-audit row per rollback.
     appendGovernanceAudit(this.governanceDir, {
       timestamp: this.now(),
       source: "l6",
       event: "rollback",
       refId: `gen-${this.state.generation}`,
-      summary: `manual rollback to generation ${generation}`,
+      summary,
     });
-    this.log(`meta-evolution: manual rollback to generation ${generation}`);
+    this.log(`meta-evolution: ${summary}`);
     return { ok: true, generation: this.state.generation, genome };
   }
 
@@ -671,18 +693,20 @@ export class MetaEvolution {
         baseline,
       };
     } catch {
-      // Missing OR corrupt state → neutral defaults, but the generation
-      // counter resumes from the history's max + 1: a corrupt file must
-      // never silently reset provenance to duplicate generation numbers.
+      // Missing OR corrupt state → the last settled genome in the history
+      // (S0.1), else neutral defaults. The generation counter resumes past
+      // the history's max: a lost file must never reset provenance to
+      // duplicate generation numbers.
       const corrupt = existsSync(this.statePath);
       const prior = this.history(Number.MAX_SAFE_INTEGER);
+      const settled = prior.findLast((r) => r.event === "bootstrap" || r.event === "accepted" || r.event === "rollback");
       const generation = prior.length
-        ? Math.max(...prior.map((r) => r.generation)) + (corrupt ? 1 : 0)
+        ? Math.max(...prior.map((r) => r.generation)) + (corrupt || settled ? 1 : 0)
         : 0;
       const state: MetaState = {
         version: 1,
         generation,
-        genome: { ...DEFAULT_META_GENOME },
+        genome: settled ? clampMetaGenome(settled.genome) : { ...DEFAULT_META_GENOME },
         deployedAt: this.now(),
         baseline: null,
       };
@@ -692,9 +716,11 @@ export class MetaEvolution {
       this.append(
         "bootstrap",
         null,
-        corrupt
-          ? `state file unreadable — recovered to neutral defaults at generation ${generation}`
-          : "generation 0 — neutral defaults",
+        settled
+          ? `state file ${corrupt ? "unreadable" : "missing"} — recovered generation ${settled.generation} from the history as generation ${generation}`
+          : corrupt
+            ? `state file unreadable — recovered to neutral defaults at generation ${generation}`
+            : "generation 0 — neutral defaults",
         null,
         state.genome,
       );
