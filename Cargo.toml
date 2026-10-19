@@ -23,7 +23,7 @@ resolver = "2"
 wry = { path = "third_party/wry" }
 
 [workspace.package]
-version = "2026.10.16"
+version = "2026.10.19"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Cinderpaw Contributors"]

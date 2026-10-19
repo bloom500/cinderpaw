@@ -5,6 +5,29 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
+## 2026.10.19
+
+> A small update with fixes. If you have 2026.10.16, it updates by itself.
+
+### Fixed
+
+- **Claude keys work again.** An Anthropic key now works with every current
+  Claude model. Before, Cinderpaw sent a setting these models refuse, so the
+  agent never answered. Keys that belong to more than one workspace work too.
+- **Long chats no longer lag.** Typing, scrolling and new replies stay smooth in
+  a chat with hundreds of messages. Cubby is now drawn as a picture, so its
+  animation no longer slows down the whole page.
+- **The notes in a new chat are easy to read.** They sit under the suggestion
+  cards on a solid background, instead of sliding under them.
+- **What's new stays open until you close it.** A click next to the card no
+  longer closes it by accident.
+
+### Changed
+
+- **Approval cards show more before you say yes.** A new tool shows its code and
+  the sites it may reach. Running a tool says where it may reach. Before you
+  publish on a social site, the card shows the text Cinderpaw typed on that page.
+
 ## 2026.10.16
 
 > The last release was **v2026.08.11**, when the app was still called Feral.
