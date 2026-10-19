@@ -13,7 +13,7 @@
  *
  * Field mapping today: temperature + systemPromptId (resolved through
  * the SHARED prompt-style pool — see `prompt-pool.ts` — so what eval
- * judged is exactly what the live agent runs). Still unmapped:
+ * judged is exactly what the live agent runs) + reasoningEffort. Still unmapped:
  * promptTemplateId / retrievalStrategy / decompositionDepth /
  * toolPreferenceWeights / contextWindowUsage — abstract indices into
  * pools the live agent does not yet share (the live recall tool has no
@@ -45,7 +45,7 @@ import { atomicWriteFileSync } from "../../atomic-write.ts";
 import { dirname, join } from "node:path";
 import { cinderpawHome } from "../../config.ts";
 import { sha256Canonical } from "../infra/hash-chain.ts";
-import { appliedDimensions, droppedDimensions, type GenomeConfig } from "./genome.ts";
+import { EFFORT_LEVELS, appliedDimensions, droppedDimensions, type EffortLevel, type GenomeConfig } from "./genome.ts";
 export { LIVE_REACH, droppedDimensions } from "./genome.ts";
 import type { GenomeSpec } from "./population-manager.ts";
 import type { EvalOutcome } from "../infra/eval-worker.ts";
@@ -58,6 +58,8 @@ export interface AgentChampionParams {
   /** Style text appended to the live system prompt (per new session).
    *  Resolved from the shared pool; empty/absent = neutral. */
   systemPromptAddendum?: string;
+  /** How hard the model thinks; absent = the provider's default. */
+  reasoningEffort?: EffortLevel;
 }
 
 /** Project a genome config onto the live-agent params. Only fields that
@@ -71,6 +73,11 @@ export function mapGenomeToAgentConfig(config: GenomeConfig): AgentChampionParam
   }
   const style = promptStyleFor(config.systemPromptId);
   if (style) params.systemPromptAddendum = style;
+  // Absent stays absent, so a champion from before this gene hashes and
+  // behaves exactly as it did.
+  if (EFFORT_LEVELS.includes(config.reasoningEffort as EffortLevel)) {
+    params.reasoningEffort = config.reasoningEffort;
+  }
   return params;
 }
 

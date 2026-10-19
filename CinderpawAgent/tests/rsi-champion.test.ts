@@ -50,6 +50,12 @@ describe("mapGenomeToAgentConfig", () => {
     expect(styled.systemPromptAddendum).toBe(PROMPT_STYLE_POOL[1]);
   });
 
+  test("maps reasoning effort; absent stays absent, so an old champion's hash does not move", () => {
+    expect(mapGenomeToAgentConfig({ ...CFG, reasoningEffort: "low" }).reasoningEffort).toBe("low");
+    expect("reasoningEffort" in mapGenomeToAgentConfig(CFG)).toBe(false);
+    expect(mapGenomeToAgentConfig({ ...CFG, reasoningEffort: "extreme" as never }).reasoningEffort).toBeUndefined();
+  });
+
   test("out-of-range systemPromptId falls back to neutral (never poisons)", () => {
     expect(mapGenomeToAgentConfig({ ...CFG, systemPromptId: 99 }).systemPromptAddendum).toBeUndefined();
     expect(mapGenomeToAgentConfig({ ...CFG, systemPromptId: -3 }).systemPromptAddendum).toBeUndefined();

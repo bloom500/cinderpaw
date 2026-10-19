@@ -92,6 +92,15 @@ describe("makeInvokeAgent — single-call mapping", () => {
     expect(router.calls[0]!.temperature).toBe(0.13);
   });
 
+  test("passes the genome's reasoning effort through; the default sends none", async () => {
+    const router = new FakeRouter();
+    const invoke = makeInvokeAgent({ router, getSystemPrompt: (i) => SYSTEM_POOL[i] ?? "default" });
+    await invoke("Capital of France?", makeGenome({ reasoningEffort: "high" }));
+    await invoke("Capital of France?", makeGenome({}));
+    expect(router.calls[0]!.reasoningEffort).toBe("high");
+    expect("reasoningEffort" in router.calls[1]!).toBe(false);
+  });
+
   test("loads systemPromptId from the versioned pool", async () => {
     const router = new FakeRouter();
     const invoke = makeInvokeAgent({

@@ -293,6 +293,9 @@ async function runOnce(args: {
     sessionId: args.sessionId,
     maxTokens,
     temperature: args.config.temperature,
+    ...(LIVE_REACH.reasoningEffort === "applied" && args.config.reasoningEffort
+      ? { reasoningEffort: args.config.reasoningEffort }
+      : {}),
     cachePrompt: false, // one-shot evals have no stable prefix worth caching
     skipBudgetCheck: false,
     ...(args.spendAuthority ? { spendAuthority: args.spendAuthority } : {}),

@@ -249,7 +249,7 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
   },
   genomes: {
     purpose:
-      "The unit of BRSI evolution — a `GenomeConfig` is a vector of categorical indices (promptTemplateId, systemPromptId, retrievalStrategy) plus bounded reals (temperature, contextWindowUsage) and a simplex point of tool-preference weights.",
+      "The unit of BRSI evolution — a `GenomeConfig` is a vector of categorical indices (promptTemplateId, systemPromptId, retrievalStrategy, reasoningEffort) plus bounded reals (temperature, contextWindowUsage) and a simplex point of tool-preference weights. Only three reach the live agent and are evolved: temperature (not on current Claude models, which refuse it), systemPromptId (a style line added to the system prompt) and reasoningEffort (how hard the model thinks, where the API takes it). The rest wait for an evaluator that runs long, multi-step tasks.",
     inputs: [
       "Seeding (initial seeds from championSeed or strategy seeds).",
       "Mutation (per-generation crossover / mutation operators).",
