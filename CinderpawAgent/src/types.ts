@@ -717,6 +717,13 @@ export interface InferenceRequest {
    */
   signal?: AbortSignal;
   /**
+   * Hard pre-request USD authority for autonomous/background inference.
+   * Foreground chat leaves this absent. The router reserves against every
+   * possible target before fetch, settles provider-reported usage afterward,
+   * and combines the authority's AbortSignal with the request signal.
+   */
+  spendAuthority?: import("./egress/inference-spend-authority.ts").InferenceSpendAuthority;
+  /**
    * When provided, the router streams tokens from the provider and calls this
    * callback for each partial token as it arrives. The full assembled content
    * is still returned in InferenceResponse at the end.
@@ -1412,6 +1419,8 @@ export interface InboundMessage {
   rsiGoal?: string;
   rsiMaxIterations?: number;
   rsiMaxTotalTokens?: number;
+  /** Explicit USD cap for the RSI run; independent from the token cap. */
+  rsiMaxTotalCostUsd?: number;
   rsiConcurrency?: number;
   /** RSI set_concurrency payload (type === "rsi_set_concurrency"). */
   rsiNewConcurrency?: number;

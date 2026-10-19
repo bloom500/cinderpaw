@@ -22,6 +22,7 @@ import { RealProcessSandbox } from "./egress/process-sandbox.ts";
 import { pathWithin } from "./egress/tool-permissions.ts";
 import { InferenceRouter } from "./egress/inference-router.ts";
 import { startUsageSender } from "./telemetry/usage-sender.ts";
+import { InferenceSpendAuthority } from "./egress/inference-spend-authority.ts";
 import { EpisodicMemory } from "./memory/episodic.ts";
 import { isRestrictedSession } from "./core/session-visibility.ts";
 import { SemanticMemory, memoryScope, setChatOwner, speakerScope } from "./memory/semantic.ts";
@@ -160,7 +161,8 @@ import { shouldAutostartPassive, isPlaceholderModel } from "./rsi/l1-config/pass
 import { createDreamCycle } from "./rsi/l1-config/dream-cycle.ts";
 import { defaultJournalPath } from "./rsi/infra/journal.ts";
 import { ActivityMonitor } from "./rsi/l1-config/activity-monitor.ts";
-import { resolveDreamConfig, dreamCloudGate } from "./rsi/l1-config/dream-config.ts";
+import { resolveDreamConfig, autonomousInferenceGate } from "./rsi/l1-config/dream-config.ts";
+import { priceResolverFromJson } from "./rsi/infra/rsi-cost.ts";
 import { episodeStartOptions, episodeBudgetCaps } from "./rsi/l1-config/episode-options.ts";
 import { MetaEvolution } from "./rsi/l6-meta/meta-evolution.ts";
 import { effectiveGates, layerFrozen, loadPolicy } from "./rsi/l5-gov/governance.ts";
@@ -1990,6 +1992,20 @@ export async function boot(transportOverride?: Transport) {
   }).catch((e) => {
     log(`migration: unexpected error: ${String(e)}`);
   });
+  const autonomousPrice = priceResolverFromJson(cfgPath("CINDERPAW_AUTONOMOUS_PRICING_JSON"));
+  const liveAutonomousTargets = () => {
+    const targets = [router.currentModel, router.currentFallback].filter(
+      (target): target is NonNullable<typeof target> => target !== null,
+    );
+    return targets.map((target) => {
+      const price = autonomousPrice(target);
+      return {
+        ...target,
+        priceKnown: price !== null,
+      };
+    });
+  };
+
   // RAPTOR tree build, in the background now that embed() can reach Rust.
   // `rebuildIfStale` is a no-op when init() already loaded a fresh tree from
   // disk, so we don't re-pay the (cloud) summary cost on every boot — it only
@@ -2112,7 +2128,14 @@ export async function boot(transportOverride?: Transport) {
     hasModel: async () => {
       try {
         const r = await rsiBridge.request<{ ready?: boolean }>("rsi_model_ready", {});
-        return r?.ready === true;
+        if (r?.ready !== true) return false;
+        const gate = autonomousInferenceGate(process.env, {
+          allowCloudEnv: "CINDERPAW_RSI_ALLOW_CLOUD",
+          maxCostUsd: episodeOpts.maxTotalCostUsd,
+          targets: liveAutonomousTargets(),
+        });
+        if (!gate.enabled) log(`rsi dream: wake refused (${gate.reason})`);
+        return gate.enabled;
       } catch (err) {
         log(`dream: model-ready probe failed (${String(err)}) — treating as no model`);
         return false;
@@ -2127,9 +2150,13 @@ export async function boot(transportOverride?: Transport) {
   // CINDERPAW_CODE_RSI_REPO (the source monorepo) and a LOCAL primary model
   // (spec §2.5: no network during proposal). At most one round in flight.
   let codeRsiBusy = false;
-  const maybeCodeRsiRound = async (): Promise<void> => {
+  const maybeCodeRsiRound = async (spendAuthority?: InferenceSpendAuthority): Promise<void> => {
     const repoRoot = cfgPath("CINDERPAW_CODE_RSI_REPO");
     if (!repoRoot || codeRsiBusy) return;
+    if (!spendAuthority || spendAuthority.signal.aborted) {
+      log("code-rsi: skipped — no remaining episode spend authority");
+      return;
+    }
     if (!router.isPrimaryLocal) {
       // A cloud proposer sends the agent's own source to a provider, so it is
       // opt-in, and a paid round needs a ceiling a human wrote (recursive
@@ -2216,6 +2243,8 @@ export async function boot(transportOverride?: Transport) {
             // and emitted nothing diff-shaped, which read as "nothing to
             // propose". Low effort, and say so when it still runs out.
             reasoningEffort: "low",
+            spendAuthority,
+            signal: spendAuthority.signal,
           });
           proposerTokens += res.totalTokens ?? 0;
           proposerText = res.content;
@@ -2368,9 +2397,9 @@ export async function boot(transportOverride?: Transport) {
     // L4 §5: the incumbent a retrieval module is paired against IS the live
     // ranking. `planner` needs none here — the sidecar binds its own builtin.
     seamBuiltins: { retrieval_strategy: retrievalBuiltin },
-    onIdle: (...args: Parameters<typeof dreamCycle.onEpisodeEnd>) => {
-      dreamCycle.onEpisodeEnd(...args);
-      void maybeCodeRsiRound();
+    onIdle: (stats, spendAuthority) => {
+      dreamCycle.onEpisodeEnd(stats);
+      void maybeCodeRsiRound(spendAuthority);
     },
     // The Crux: a new ratcheted-best config is applied to the LIVE agent
     // (temperature today; the UI Controls override still wins per-session).
@@ -2885,10 +2914,11 @@ export async function boot(transportOverride?: Transport) {
     // in (CINDERPAW_DREAMS_ENABLED=true, the master switch from Settings)
     // AND a real model is configured. Off when CINDERPAW_RSI_PASSIVE=false or
     // only a placeholder model is present (avoids spinning on empty
-    // responses). On a cloud (non-loopback) endpoint, dreaming is
-    // additionally refused unless CINDERPAW_RSI_ALLOW_CLOUD is explicitly set
-    // (anti-burn). `start()` only arms the trigger poll — it does NOT
-    // launch an episode immediately.
+    // responses). `start()` only arms the trigger poll — it does NOT launch
+    // an episode immediately; `hasModel` re-evaluates the live
+    // primary/fallback, cloud opt-in, known pricing and USD cap on every
+    // wake, so a local-to-cloud switch after boot cannot dream on stale
+    // boot-time locality.
     //
     // The master switch is new and DEFAULTS OFF: dreaming used to arm on
     // every machine with a model configured, which is a background engine
@@ -2901,22 +2931,8 @@ export async function boot(transportOverride?: Transport) {
     if (!decision.enabled) {
       log(`rsi dream: not arming scheduler (${decision.reason})`);
     } else {
-      const baseUrl = cfgPath("CINDERPAW_BASE_URL") ?? "";
-      let isLoopback = baseUrl === "";
-      try {
-        const h = new URL(baseUrl).hostname;
-        isLoopback = h === "127.0.0.1" || h === "localhost" || h === "::1" || h === "[::1]";
-      } catch {
-        // Unparseable/empty baseUrl → keep the `baseUrl === ""` default
-        // (empty means the in-process loopback default).
-      }
-      const gate = dreamCloudGate(process.env, { isLoopback });
-      if (!gate.enabled) {
-        log(`rsi dream: not arming scheduler (${gate.reason})`);
-      } else {
-        log(`rsi dream: arming event-driven scheduler (${decision.reason}; ${gate.reason})`);
-        dream?.start();
-      }
+      log(`rsi dream: arming event-driven scheduler (${decision.reason}; live spend gate runs on every wake)`);
+      dream?.start();
     }
     }
   });
