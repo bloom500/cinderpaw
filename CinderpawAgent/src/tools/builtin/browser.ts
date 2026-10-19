@@ -96,6 +96,11 @@ function hostOf(url?: string): string | null {
 
 export function createBrowserTool(): Tool {
   const lastPage = new Map<string, { url?: string; elements: PageElement[] }>();
+  // What the agent put on the social site it is on, per session, so the
+  // Publish card shows the words being approved, not only the button: the
+  // `text` of a compose link it opened, and what it typed, one value per field
+  // (typing into a field replaces what was there).
+  const typedOn = new Map<string, { host: string; byField: Map<string, string> }>();
   const manifest: ToolManifest = {
     name: "browser",
     description:
@@ -172,19 +177,27 @@ export function createBrowserTool(): Tool {
       }
       if (action === "scroll" && typeof args.dy === "number") params.dy = args.dy;
 
-      const page = lastPage.get(ctx.sessionId ?? "");
+      const sid = ctx.sessionId ?? "";
+      const page = lastPage.get(sid);
       const host = hostOf(page?.url);
-      if ((action === "click" || action === "type") && host && SOCIAL_HOST.test(host)) {
+      const social = Boolean(host && SOCIAL_HOST.test(host));
+      let publishing = false;
+      if ((action === "click" || action === "type") && host && social) {
         const control = page!.elements.find((e) => e.ref === params.ref);
-        const publishing = action === "click" ? !control || PUBLISH_WORD.test(control.name) : params.submit === true;
+        publishing = action === "click" ? !control || PUBLISH_WORD.test(control.name) : params.submit === true;
         if (publishing) {
           const what = action === "type" ? "submit the form" : `press "${control?.name ?? "a control it has not read"}"`;
           if (!canAskAHuman(Boolean(ctx.askUser))) {
             return fail(`browser: refused. This would ${what} on ${host}, which may publish for everyone to see, and nobody is here to approve it. Leave it for the user.`, "publish_needs_approval");
           }
+          const prior = typedOn.get(sid);
+          const fields = new Map(prior?.host === host ? prior.byField : []);
+          if (action === "type") fields.set(String(params.ref), String(params.text));
+          const shown = [...new Set([...fields.values()].filter((t) => t.trim()))].join("\n\n");
           const [answer] = await ctx.askUser!.ask([{
             question: `Cinderpaw wants to ${what} on ${host}. This may publish in your name, for everyone to see. Allow it?`,
             header: "Publish",
+            ...(shown ? { preview: `Text Cinderpaw put on this page:\n\n${shown.length > 4000 ? `${shown.slice(0, 4000)}\n…` : shown}` } : {}),
             multiSelect: false,
             // In the person's name and public: never auto-answered.
             forceEscalate: true,
@@ -207,6 +220,21 @@ export function createBrowserTool(): Tool {
       }
       const result = (data ?? {}) as Snapshot & { loading?: boolean };
       if (result.ok === false) return fail(`browser: ${result.error ?? "the page refused that action"}`);
+      if (action === "open") {
+        // A compose link carries the post in `text` (x.com/intent/post?text=…):
+        // nothing is typed, so remember it from the link itself.
+        const to = hostOf(result.url ?? String(params.url));
+        let linkText: string | null = null;
+        try { linkText = new URL(String(params.url)).searchParams.get("text"); } catch { /* not a URL */ }
+        if (to && SOCIAL_HOST.test(to) && linkText) typedOn.set(sid, { host: to, byField: new Map([["link", linkText]]) });
+        else if (to !== host) typedOn.delete(sid);
+      } else if (publishing || (result.url && hostOf(result.url) !== host)) typedOn.delete(sid);
+      else if (action === "type" && social && host) {
+        const prior = typedOn.get(sid);
+        const byField = new Map(prior?.host === host ? prior.byField : []);
+        byField.set(String(params.ref), String(params.text));
+        typedOn.set(sid, { host, byField });
+      }
       // What the agent last saw is what its next ref means. A new address
       // forgets the controls, so a blind click there counts as unknown.
       if (action === "snapshot") lastPage.set(ctx.sessionId ?? "", { url: result.url, elements: result.elements ?? [] });

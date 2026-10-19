@@ -41,6 +41,7 @@ import {
   QUARANTINE_CALLS,
   resolveToolRuntime,
   saveCustomTool,
+  toolPreview,
   transpileToolCode,
   validateCustomTool,
   type CustomToolRecord,
@@ -156,8 +157,9 @@ async function confirmForge(
     question:
       `Cinderpaw ${verb} "${record.name}" (${record.description}) and wants to run it. ` +
       `Agent-written tools run as you — your files, your network, your credentials. ` +
-      `Allow ${record.code.split("\n").length} lines of generated code to run?`,
+      `Allow ${record.code.split("\n").length} lines of generated code to run? The code is below.`,
     header: "New tool",
+    preview: toolPreview(record),
     options: [
       { label: "Allow", description: `Run and keep "${record.name}". You can remove it later.` },
       { label: "Deny", description: "Nothing is written and nothing runs." },
