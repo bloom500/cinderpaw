@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, Moon, X } from 'lucide-react';
+import { Check, Moon, TrendingDown, TrendingUp, X } from 'lucide-react';
 import { tauri } from '@/lib/tauri';
 import { events, type MetaProposal, type MetaResultLine } from '@/lib/tauri/events';
 import { cn } from '@/lib/utils';
@@ -97,27 +97,26 @@ export function MetaProposalCard() {
           </span>
           {p && (
             <>
-              {p.settled === 'accepted' && p.baselineScore !== null && (
-                <p className="mt-1.5 text-sm text-text-secondary">
-                  Good news: the last change you said yes to helped. Its practice score went from {outOf100(p.baselineScore)} to {outOf100(p.score)} out of 100.
+              {p.baselineScore !== null && (p.settled === 'accepted' || undo) && (
+                <p className={cn('mt-1.5 flex items-center gap-1.5 text-xs', undo ? 'text-warning' : 'text-success')}>
+                  {undo ? <TrendingDown size={14} /> : <TrendingUp size={14} />}
+                  <span>
+                    {undo ? 'Your last yes did not help' : 'Your last yes helped'}: practice score{' '}
+                    <span className="tabular-nums">{outOf100(p.baselineScore)} → {outOf100(p.score)}</span> out of 100
+                  </span>
                 </p>
               )}
-              {undo ? (
-                <p className="mt-1.5 text-sm text-text-primary">
-                  Last time you said yes to this: {changeWords(p.field, p.to, p.from)} It did not help. Its practice score went from{' '}
-                  {outOf100(p.baselineScore ?? 0)} to {outOf100(p.score)} out of 100. Undo it and go back to how it was?
-                </p>
-              ) : (
-                <p className="mt-1.5 text-sm text-text-primary">It wants to {lowerFirst(changeWords(p.field, p.from, p.to))}</p>
-              )}
-              <p className="mt-1.5 text-2xs text-text-muted">
+              <p className="mt-2 text-sm leading-relaxed text-text-primary">
+                {undo
+                  ? `It wants to go back to how it was: ${lowerFirst(changeWords(p.field, p.from, p.to))}`
+                  : `It wants to ${lowerFirst(changeWords(p.field, p.from, p.to))}`}
+              </p>
+              <p className="mt-1.5 text-2xs leading-relaxed text-text-muted">
                 {undo
                   ? 'Nothing changes unless you say yes.'
                   : 'Nothing changes unless you say yes. If you do, it tries this for at least 5 dreams, then tells you here whether it helped. You can undo it anytime in Settings, Learning.'}
-                {' '}
-                <span className="tabular-nums">({p.field.replace(/_/g, ' ')}: {p.from} → {p.to}, from its last {p.cycles} dreams)</span>
               </p>
-              <div className="mt-3 flex items-center gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 {sending ? (
                   <span className="text-xs text-text-muted">Sending…</span>
                 ) : (
@@ -132,6 +131,10 @@ export function MetaProposalCard() {
                     </button>
                   </>
                 )}
+                {/* The exact knob, for whoever wants it; the sentence above is the answer. */}
+                <span className="ml-auto text-micro tabular-nums text-text-disabled">
+                  {p.field.replace(/_/g, ' ')} {p.from} → {p.to} · last {p.cycles} dreams
+                </span>
               </div>
             </>
           )}

@@ -70,9 +70,10 @@ describe('MetaProposalCard: L6 asks in chat before it changes how Cinderpaw prac
     await waitFor(() => expect(events.onMetaProposal.listen).toHaveBeenCalled());
     w.send({ ...CHANGE, kind: 'undo', settled: 'rejected', from: 48, to: 40, score: 0.31, baselineScore: 0.62 });
     expect(screen.getByText(/wants to undo a change/i)).toBeInTheDocument();
-    expect(screen.getByText(/It did not help\. Its practice score went from 62 to 31 out of 100/)).toBeInTheDocument();
-    // The change it undoes is told the way it was first asked: 40 → 48.
-    expect(screen.getByText(/try 48 ideas in each dream instead of 40/i)).toBeInTheDocument();
+    expect(screen.getByText(/Your last yes did not help/)).toBeInTheDocument();
+    expect(screen.getByText('62 → 31')).toBeInTheDocument();
+    // What undoing does, in the same words as any change: back from 48 to 40.
+    expect(screen.getByText(/go back to how it was: try 40 ideas in each dream instead of 48/i)).toBeInTheDocument();
   });
 
   it('every L6 knob has words both ways', () => {
