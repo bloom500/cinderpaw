@@ -4,9 +4,10 @@
  * is one (Settings / Models), and "Show details" for the technical text.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, ChevronDown } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Hourglass } from 'lucide-react';
+import { events } from '@/lib/tauri';
 import { useChat } from '@/stores/chat';
 import { humanizeError } from '@/lib/humanizeError';
 import { useResendTurn } from '@/hooks/useResendTurn';
@@ -82,6 +83,49 @@ export function StreamErrorNotice() {
             {err.detail}
           </pre>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * While the agent waits to ask the model again ("too many requests", or the
+ * pace gate), say so and count down. Before, a 429 meant 89 s of "Thinking..."
+ * with nothing on screen until the error card (UX lab, report item 1).
+ */
+export function ProviderWaitNotice() {
+  const sessionId = useChat((s) => s.sessionId);
+  const status = useChat((s) => s.streamStatus);
+  const [until, setUntil] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    setUntil(null);
+    let cancelled = false;
+    let off: (() => void) | null = null;
+    void events.onRateLimited.listen((e) => {
+      if (e.sessionId === sessionId && e.waitMs >= 1000) setUntil(Date.now() + e.waitMs);
+    }).then((fn) => { if (cancelled) fn(); else off = fn; });
+    return () => { cancelled = true; off?.(); };
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (until === null) return;
+    setNow(Date.now());
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [until]);
+
+  const left = until === null ? 0 : Math.ceil((until - now) / 1000);
+  if (status !== 'streaming' || left <= 0) return null;
+  return (
+    <div role="status" className="mx-auto w-full max-w-2xl px-4 pb-2">
+      <div className="flex items-center gap-3 rounded-2xl border border-border-default bg-bg-elevated px-4 py-3">
+        <Hourglass size={16} className="shrink-0 text-warning" />
+        <p className="text-sm text-text-primary">
+          The provider is busy right now. Trying again in {left} s.
+          <span className="text-text-muted"> Your message is safe.</span>
+        </p>
       </div>
     </div>
   );

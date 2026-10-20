@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { StreamErrorNotice } from '../StreamErrorNotice';
+import { ProviderWaitNotice, StreamErrorNotice } from '../StreamErrorNotice';
+import { events, type RateLimitedEvent } from '@/lib/tauri';
 import { useChat } from '@/stores/chat';
 import { humanizeError } from '@/lib/humanizeError';
 
@@ -46,6 +47,8 @@ describe('StreamErrorNotice', () => {
   it('every error has a heading, the unknown one too', () => {
     expect(humanizeError('something odd').title).toBe('Something went wrong');
     expect(humanizeError('ECONNREFUSED').title).toBe('Could not reach the model');
+    // An address that cannot be reached is not an overloaded provider, even with a 502 on it.
+    expect(humanizeError('HTTP 502: Unable to connect. Is the computer able to access the url?').title).toBe('Could not reach the model');
   });
 
   it('says a missing model is a missing model, not an overloaded provider', () => {
@@ -66,5 +69,25 @@ describe('StreamErrorNotice', () => {
     });
     show();
     expect(screen.getByText('The provider had a problem')).toBeTruthy();
+  });
+});
+
+describe('ProviderWaitNotice', () => {
+  it('says the provider is busy and counts down to the next try', async () => {
+    vi.useFakeTimers();
+    let emit: (e: RateLimitedEvent) => void = () => {};
+    const spy = vi.spyOn(events.onRateLimited, 'listen').mockImplementation((cb) => { emit = cb; return Promise.resolve(() => {}); });
+    useChat.setState({ sessionId: 's1', streamStatus: 'streaming', streamError: null });
+    render(<ProviderWaitNotice />);
+    act(() => emit({ sessionId: 'other', waitMs: 30_000 }));
+    expect(screen.queryByRole('status')).toBeNull();
+    act(() => emit({ sessionId: 's1', waitMs: 30_000 }));
+    expect(screen.getByText(/Trying again in 30 s/)).toBeTruthy();
+    act(() => { vi.advanceTimersByTime(10_000); });
+    expect(screen.getByText(/Trying again in 20 s/)).toBeTruthy();
+    act(() => { vi.advanceTimersByTime(21_000); });
+    expect(screen.queryByRole('status')).toBeNull();
+    spy.mockRestore();
+    vi.useRealTimers();
   });
 });

@@ -21,7 +21,7 @@ import { useBrowser } from '@/stores/browser';
 import { BrowserPanel } from '@/components/browser/BrowserPanel';
 import { NewChatEmptyState } from '@/components/chat/EmptyStates';
 import { AgentOfflineBanner } from '@/components/chat/AgentOfflineBanner';
-import { StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
+import { ProviderWaitNotice, StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
 import { WorkersCard } from '@/components/chat/WorkersCard';
 import { ComposerTip, TEACH_PROMPT } from '@/components/chat/ComposerTip';
 import { AgentsOnboarding } from '@/components/agents/onboarding/AgentsOnboarding';
@@ -360,6 +360,7 @@ export function ChatPage() {
           <WorkersCard />
           {/* #10: humanized inference errors with a fix-it action */}
           <StreamErrorNotice />
+          <ProviderWaitNotice />
           <ComposerTip
             isEmpty={isEmpty}
             // A new chat with the request typed in and the caret after it.

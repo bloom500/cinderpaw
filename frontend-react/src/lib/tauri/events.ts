@@ -79,6 +79,16 @@ export interface StreamProgressEvent {
 }
 
 /**
+ * The agent is waiting before it asks the model again: the provider said
+ * "too many requests" (429) or the local pace gate is full. The sidecar's
+ * `rate_limited` line (agent-loop.ts), one per wait.
+ */
+export interface RateLimitedEvent {
+  sessionId: string;
+  waitMs: number;
+}
+
+/**
  * One raw line from the Cinderpaw Agent sidecar, forwarded by Rust over
  * `cinderpaw://agent-output`. The `data` field is the sidecar's JSON
  * line verbatim — the React side parses it and dispatches by `type`.
@@ -728,6 +738,20 @@ export const events = {
   liveKitEvent: {
     listen: (cb: (e: LiveKitAgentEvent) => void): Promise<UnlistenFn> =>
       listen<LiveKitAgentEvent>('cinderpaw://livekit-event', (raw) => cb(raw.payload)),
+  },
+
+  onRateLimited: {
+    listen: (cb: (e: RateLimitedEvent) => void): Promise<UnlistenFn> =>
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
+        try {
+          const parsed = JSON.parse(raw.payload.data) as Record<string, unknown> | null;
+          if (parsed?.type === 'rate_limited' && typeof parsed.waitMs === 'number' && typeof parsed.sessionId === 'string') {
+            cb({ sessionId: parsed.sessionId, waitMs: parsed.waitMs });
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
   },
 
   onStreamProgress: {

@@ -18,7 +18,7 @@ import { events as agentEvents } from './events';
 // ── Types (mirrors Rust structs exactly — snake_case, no rename_all) ──────────
 export type { DownloadProgressEvent, DownloadCompleteEvent, DownloadErrorEvent };
 export type { ModelLoadProgressEvent };
-export type { StreamProgressEvent, RsiEngineEventLine, FractalActivityLine, DreamCycleLine, MemoryNotesLine } from './events';
+export type { StreamProgressEvent, RateLimitedEvent, RsiEngineEventLine, FractalActivityLine, DreamCycleLine, MemoryNotesLine } from './events';
 
 /**
  * One row of the voice-engine picker — mirrors `cinderpaw_core::tts::TtsEngine`.
