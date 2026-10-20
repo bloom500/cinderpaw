@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { AlphaNotice, ALPHA_NOTICE_KEY, alphaNoticeWanted } from '../AlphaNotice';
+import { AlphaNotice, ALPHA_NOTICE_KEY, ALPHA_SNOOZE_MS, alphaNoticeWanted } from '../AlphaNotice';
 import { useOnboarding } from '@/stores/onboarding';
 
 vi.mock('@/stores/onboarding', () => ({ useOnboarding: vi.fn() }));
@@ -22,11 +22,12 @@ describe('the alpha notice', () => {
     expect(screen.getByRole('link', { name: 'Discord' })).toHaveAttribute('href', expect.stringContaining('discord'));
   });
 
-  it('the X closes it for this launch only', () => {
+  it('the X hides it for a week, then it comes back', () => {
     mount();
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss notice' }));
     expect(screen.queryByText('Cinderpaw is in alpha')).toBeNull();
-    expect(alphaNoticeWanted()).toBe(true);
+    expect(alphaNoticeWanted()).toBe(false);
+    expect(alphaNoticeWanted(Date.now() + ALPHA_SNOOZE_MS + 1000)).toBe(true);
   });
 
   it('the never-again button is remembered', () => {

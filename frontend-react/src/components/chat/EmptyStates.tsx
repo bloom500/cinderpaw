@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Info, X } from 'lucide-react';
 import { readLocal, writeLocal } from '@/lib/utils';
 import { ShareUsageCard } from '@/components/usage/ShareUsageCard';
+import { useSettings } from '@/stores/settings';
+import { useModel } from '@/stores/model';
 
 const BYOK_DISCLAIMER_KEY = 'cinderpaw.agentByokDismissed';
 
@@ -12,7 +14,13 @@ function AgentByokNote() {
   const [dismissed, setDismissed] = useState(
     () => readLocal(BYOK_DISCLAIMER_KEY) === 'true',
   );
-  if (dismissed) return null;
+  // Advice to add a cloud key is wrong once there is one: it stayed on Home
+  // beside a working key (UX lab, 19 Oct, item 9). The keys are read here
+  // because nothing else loads them before the Models page is opened.
+  const hasCloudKey = useSettings((s) => s.byok.some((p) => p.enabled && p.has_api_key));
+  const cloudModel = useModel((s) => s.cloudModel);
+  useEffect(() => { void useSettings.getState().fetchByok(); }, []);
+  if (dismissed || hasCloudKey || cloudModel) return null;
 
   const dismiss = () => {
     writeLocal(BYOK_DISCLAIMER_KEY, 'true');

@@ -4,13 +4,20 @@ import { ArrowUpRight, Bug, FlaskConical, GitPullRequest, X } from 'lucide-react
 import { useOnboarding } from '@/stores/onboarding';
 import { cn, readLocal, writeLocal } from '@/lib/utils';
 
-/** Where the choice to stop seeing this lives. `never` is the only value. */
+/** Where the choice to stop seeing this lives: `never`, or `until:<ms>` after the X. */
 export const ALPHA_NOTICE_KEY = 'cinderpaw.alphaNotice';
+
+/** How long the X hides it. Every launch, it sat over the greeting and the
+ *  Models page's mascot line until "Don't show this again" (UX lab, item 11). */
+export const ALPHA_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Whether the notice should appear this launch. Storage that cannot be read
  *  counts as "not opted out": showing it once too often is the cheap mistake. */
-export function alphaNoticeWanted(): boolean {
-  return readLocal(ALPHA_NOTICE_KEY) !== 'never';
+export function alphaNoticeWanted(now = Date.now()): boolean {
+  const v = readLocal(ALPHA_NOTICE_KEY);
+  if (v === 'never') return false;
+  const until = v?.startsWith('until:') ? Number(v.slice(6)) : NaN;
+  return !(until > now);
 }
 
 /**
@@ -22,8 +29,8 @@ export function alphaNoticeWanted(): boolean {
  * the two things they can do about it, report and contribute, should be one
  * click from the sentence that warned them.
  *
- * Two ways out, both instant: the X closes it for this session and it is back
- * next launch; "Don't show this again" is remembered. Hidden while the setup
+ * Two ways out, both instant: the X hides it for a week; "Don't show this
+ * again" is remembered. Hidden while the setup
  * wizard is up, which already has their attention.
  */
 export function AlphaNotice() {
@@ -54,7 +61,7 @@ export function AlphaNotice() {
         <p className="min-w-0 flex-1 text-sm font-semibold text-text-primary">Cinderpaw is in alpha</p>
         <button
           type="button"
-          onClick={() => setShown(false)}
+          onClick={() => { writeLocal(ALPHA_NOTICE_KEY, `until:${Date.now() + ALPHA_SNOOZE_MS}`); setShown(false); }}
           aria-label="Dismiss notice"
           className="-mr-1 grid size-7 shrink-0 place-items-center rounded-full text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary"
         >
