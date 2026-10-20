@@ -22,6 +22,23 @@ import { memoryScope, memoryTokens, type SemanticMemory } from "./semantic.ts";
 import type { MemoryGraph, MemoryGraphData } from "./graph.ts";
 import type { EpisodicEvent } from "../types.ts";
 
+/**
+ * Whether a recalled line is a tool result, not something said. Tool rows are
+ * kept in episodic memory on purpose (evidence that work happened), but shown
+ * to the person as "memories used" they read as junk:
+ * `artifact_create: Created markdown "Week plan" — id 72fff044-…` (UX lab,
+ * 19 Oct, item 20). The model still gets them; the person's list does not.
+ *
+ * ponytail: a hit with no role (a RAPTOR-only leaf) is judged by the
+ * `tool_name: ` prefix tool rows are written with (agent-loop.ts), which
+ * misses one-word tool names (`recall`, `git`). Carry the role on leaves if
+ * those show up.
+ */
+export function isToolRow(role: string, text: string): boolean {
+  if (role === "tool") return true;
+  return role === "" && /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+: /.test(text);
+}
+
 export interface RecallConfig {
   /** Max episodic events to surface per recall. */
   maxEpisodic: number;
@@ -271,7 +288,9 @@ export class RecallEngine {
 
     const lines = hits.map((e) => formatEpisodic(e, this.#config.snippetMaxChars));
     return {
-      used: hits.map((e) => ({ kind: "past", text: clip(e.content, this.#config.snippetMaxChars), ts: e.timestamp })),
+      used: hits
+        .filter((e) => !isToolRow(e.role, e.content))
+        .map((e) => ({ kind: "past", text: clip(e.content, this.#config.snippetMaxChars), ts: e.timestamp })),
       // Dated lines need today's date to be read against; see fractal-recall.
       text: `Relevant past exchanges (today is ${new Date(this.#config.now()).toISOString().slice(0, 10)}):\n${lines.join("\n")}`,
       count: hits.length,

@@ -37,7 +37,7 @@ import type { EmbedInvoker } from "./embed.ts";
 import type { Leaf, TreeNode } from "./types.ts";
 import type { EpisodicEvent } from "../../types.ts";
 import { readEnv } from "../../config.ts";
-import type { MemoryUsed } from "../recall.ts";
+import { isToolRow, type MemoryUsed } from "../recall.ts";
 
 /** Top-K semantic candidates from the tree before re-rank. */
 const DEFAULT_QUERY_TOPK = 20;
@@ -393,7 +393,9 @@ export class FractalRecallEngine {
 
     return {
       context,
-      used: ranked.map((h) => ({ kind: "past" as const, text: snippet(h.text), ...(h.ts > 0 ? { ts: h.ts } : {}) })),
+      used: ranked
+        .filter((h) => !isToolRow(h.role, h.text))
+        .map((h) => ({ kind: "past" as const, text: snippet(h.text), ...(h.ts > 0 ? { ts: h.ts } : {}) })),
       episodicHits,
       semanticFacts,
       leafIds: ranked.map((h) => h.id),
