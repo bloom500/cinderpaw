@@ -1694,6 +1694,9 @@ export type OutboundEvent =
       kind?: string;
       title?: string;
       append: string;
+      /** An `artifact_edit` writing `append` in place of `find` in this artifact. */
+      editOf?: string;
+      find?: string;
       traceId?: string;
     }
   | { type: "proactive"; content: string; traceId?: string }

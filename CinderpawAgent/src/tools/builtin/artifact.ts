@@ -175,6 +175,23 @@ export interface ArtifactToolDeps {
   workspaceRoots: string[];
 }
 
+/**
+ * Long writing in two passes, the way Claude fills a document (compared 20 Oct):
+ * the whole shape first, then each part in its place, with one plain line in
+ * the chat between parts. The desktop draws a [[...]] line as a grey "still to
+ * come" line and writes each part over it letter by letter, so a 30-second
+ * document is visible progress instead of a silent wait.
+ */
+export const DRAFT_IN_PARTS =
+  "Long writing (three or more parts: a plan, a report, a guide) is written the way a person drafts: " +
+  "first call this with the title, one opening line and every part's heading, each heading followed by " +
+  "a placeholder line on its own that says what the part will hold, written as [[...]] (for example " +
+  "[[Day 1: three places to see and one tip]]). The user sees the whole shape at once. Then fill the parts " +
+  "in order with artifact_edit, find = that placeholder line exactly, replace = the finished part. Before " +
+  "each edit say one short plain line in the chat about what you are writing now (\"The outline is ready; " +
+  "now day 1.\"), and after the last one say in one line that it is ready and can be edited in the panel " +
+  "or changed by asking. Short writing (one or two parts, under about 300 words) is a single call.";
+
 export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
   const manifest: ToolManifest = {
     name: "artifact_create",
@@ -202,7 +219,7 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       "app = " + APP_AUTHORING_BRIEF + " Charts are apps: there is no separate " +
       "chart kind, because a chart is an app with no controls.\n\n" +
       "Prefer a board for anything the user will look at rather than read: a plan, a dashboard, a diagram, " +
-      "an itinerary, a campaign. " + BOARD_BRIEF,
+      "an itinerary, a campaign. " + BOARD_BRIEF + "\n\n" + DRAFT_IN_PARTS,
     permissions: ["fs:write", "fs:read"],
     networkAccess: false,
     allowedPaths: [deps.store.root],
@@ -435,7 +452,9 @@ export function createArtifactEditTool(deps: ArtifactToolDeps): Tool {
       "keeps the user's own edits to the rest of the document. A Word file takes " +
       "find/replace only, and keeps its layout. A PDF takes `fields` (fill its form) " +
       "and `place` (write text at a position from artifact_read layout). Never place " +
-      "a signature: signing is the user's, in the Artifacts panel.",
+      "a signature: signing is the user's, in the Artifacts panel. A [[...]] placeholder " +
+      "line from a draft in parts is filled the same way: `find` is that line exactly, " +
+      "written before `replace`.",
     permissions: ["fs:write", "fs:read"],
     networkAccess: false,
     allowedPaths: [deps.store.root],

@@ -137,7 +137,8 @@ export function readPartialJson(text: string): unknown {
 const ESCAPES: Record<string, string> = { n: "\n", t: "\t", r: "\r", b: "\b", f: "\f", "/": "/", "\\": "\\", '"': '"' };
 const LITERALS: Array<[string, unknown]> = [["true", true], ["false", false], ["null", null]];
 
-export type DraftUpdate = { draft: string; kind?: string; title?: string; append: string };
+/** `editOf` + `find`: an `artifact_edit` writing `append` in place of `find`. */
+export type DraftUpdate = { draft: string; kind?: string; title?: string; append: string; editOf?: string; find?: string };
 
 /** A tool call written as text, in a shape whose arguments read as JSON. */
 const TEXT_CALL = /\{\s*"name"\s*:\s*"artifact_create"/g;
@@ -183,9 +184,27 @@ export function createArtifactDraftTracker(
     });
   };
 
+  // An edit's new text, sent as it is written so the part appears in place,
+  // letter by letter, like a document being filled in (Claude Docs, 20 Oct).
+  const edits = new Map<string, string>();
+  const edit = (call: string, raw: string): void => {
+    // Placed only once the text it replaces is whole: keys arrive in order, so
+    // `find` has finished when `replace` has begun after it (and `id` before it).
+    const at = { id: raw.indexOf('"id"'), find: raw.indexOf('"find"'), replace: raw.indexOf('"replace"') };
+    if (at.id < 0 || at.find < at.id || at.replace < at.find) return;
+    const a = readPartialJson(raw) as Record<string, unknown> | undefined;
+    if (!a || typeof a.id !== "string" || typeof a.find !== "string" || !a.find || typeof a.replace !== "string") return;
+    const sent = edits.get(call);
+    // Text that does not continue what was shown is left to the saved version.
+    if (sent !== undefined && (!a.replace.startsWith(sent) || a.replace.length === sent.length)) return;
+    edits.set(call, a.replace);
+    emit({ draft: call, editOf: a.id, find: a.find, append: a.replace.slice(sent?.length ?? 0) });
+  };
+
   return {
     fromArgs(call, name, args) {
       if (name === "artifact_create") update(`${prefix}:${call}`, readPartialJson(args));
+      else if (name === "artifact_edit") edit(`${prefix}:${call}`, args);
     },
     fromText(streamed) {
       let k = 0;

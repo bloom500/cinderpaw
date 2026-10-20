@@ -66,6 +66,24 @@ describe("createArtifactDraftTracker", () => {
     expect(updates).toHaveLength(1);
   });
 
+  it("streams an edit's new text once the text it replaces is known", () => {
+    const { updates, tracker } = collect();
+    // Nothing while the placeholder being replaced may still be growing.
+    tracker.fromArgs(2, "artifact_edit", '{"id":"a1","find":"[[Idea 1');
+    expect(updates).toEqual([]);
+    tracker.fromArgs(2, "artifact_edit", '{"id":"a1","find":"[[Idea 1]]","replace":"## Pasta\\nBoil');
+    tracker.fromArgs(2, "artifact_edit", '{"id":"a1","find":"[[Idea 1]]","replace":"## Pasta\\nBoil water."}');
+    expect(updates[0]).toEqual({ draft: "0:2", editOf: "a1", find: "[[Idea 1]]", append: "## Pasta\nBoil" });
+    expect(updates[1]).toEqual({ draft: "0:2", editOf: "a1", find: "[[Idea 1]]", append: " water." });
+  });
+
+  it("does not stream an edit whose text to replace comes after the new text", () => {
+    const { updates, tracker } = collect();
+    tracker.fromArgs(0, "artifact_edit", '{"id":"a1","replace":"New","find":"Ol');
+    tracker.fromArgs(0, "artifact_edit", '{"id":"a1","content":"Whole new text"}');
+    expect(updates).toEqual([]);
+  });
+
   it("ignores every other tool", () => {
     const { updates, tracker } = collect();
     tracker.fromArgs(0, "web_search", '{"query":"x"}');
