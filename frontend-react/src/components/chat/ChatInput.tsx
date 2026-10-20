@@ -16,6 +16,7 @@ import { ComposerPlaceholder } from './ComposerPlaceholder';
 import { motion } from 'framer-motion';
 import { ModelPill } from './ModelPill';
 import { ContextRing } from './ContextRing';
+import { PermissionPill } from './PermissionPill';
 import { MascotPerch } from './mascot/MascotPerch';
 import { useMascotState } from './mascot/useMascotState';
 import { useEmberRun } from './ember/useEmberRun';
@@ -794,6 +795,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
             <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
               <div className="flex min-w-0 items-center gap-1">
                 <ModelPill />
+                <PermissionPill />
                 <span
                   className={cn(
                     'hidden truncate text-2xs text-text-muted transition-opacity duration-150 sm:inline',
