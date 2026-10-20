@@ -660,18 +660,47 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
   }, [open?.live, open?.content, tick]);
   // Follow the writing down the page, unless the person scrolled up to read.
   const stick = useRef(true);
+  /** When the person last moved the page themselves: wheel, touch, a key, the scrollbar. */
+  const touched = useRef(0);
   const scroller = () => viewer.current?.querySelector<HTMLElement>('[data-radix-scroll-area-viewport]') ?? null;
   useEffect(() => {
+    stick.current = true;
     const el = scroller();
-    if (!el) return;
-    const onScroll = () => { stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; };
+    const area = viewer.current;
+    if (!el || !area) return;
+    const mine = () => { touched.current = Date.now(); };
+    const gestures = ['wheel', 'touchmove', 'pointerdown', 'keydown'] as const;
+    for (const g of gestures) area.addEventListener(g, mine, { passive: true });
+    const onScroll = () => {
+      // Only a scroll the person made decides. The page also scrolls by itself
+      // when a placeholder goes and the text below moves; read as "scrolled
+      // away", that stopped the following for good after the first part (20 Oct).
+      if (Date.now() - touched.current > 1000) return;
+      const caret = viewer.current?.querySelector<HTMLElement>('.ember-caret');
+      if (caret) {
+        const edge = caret.getBoundingClientRect();
+        const bounds = el.getBoundingClientRect();
+        stick.current = edge.bottom >= bounds.top && edge.top <= bounds.bottom;
+      } else {
+        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      }
+    };
     el.addEventListener('scroll', onScroll);
-    return () => el.removeEventListener('scroll', onScroll);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      for (const g of gestures) area.removeEventListener(g, mine);
+    };
   }, [open?.row.id, full]);
   useEffect(() => {
     const el = scroller();
-    if (open?.live?.writing && stick.current && el) el.scrollTop = el.scrollHeight;
-  }, [open?.content]);
+    if (!open?.live?.writing || !stick.current || !el) return;
+    // Parts replace placeholders above later chapters: follow the writing
+    // edge, not the end of the outline. The clock also runs this after the
+    // placeholder fades out and the cursor first becomes visible.
+    const caret = viewer.current?.querySelector<HTMLElement>('.ember-caret');
+    if (caret) caret.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    else if (!open.live.edit) el.scrollTop = el.scrollHeight;
+  }, [open?.content, open?.row.id, full, tick]);
   if (!open) return null;
   const { row, content, showing, versions, live } = open;
   const draft = row.version === 0;
@@ -680,7 +709,10 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
   const leaving = live?.out && now < live.out.until ? live.out : null;
   // While Cinderpaw writes, a cursor with its name sits at the writing edge:
   // the end of a new document, or the end of the part written so far.
-  const caretAt = live?.writing && !leaving ? (live.edit ? live.edit.at + live.edit.replace.length : content.length) : undefined;
+  const writingEnd = live?.edit ? live.edit.at + live.edit.replace.length : content.length;
+  // Markdown drops trailing whitespace from its text nodes. Keep the cursor
+  // on the last visible letter so a newline cannot hide it or stop following.
+  const caretAt = live?.writing && !leaving ? content.slice(0, writingEnd).trimEnd().length : undefined;
   const ember: Ember | undefined = live
     ? { runs: leaving ? [] : live.runs, out: leaving?.ranges, now, ...(caretAt !== undefined ? { caret: { at: caretAt, name: agentName } } : {}) }
     : undefined;
