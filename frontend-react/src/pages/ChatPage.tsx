@@ -87,10 +87,24 @@ export function ChatPage() {
     return () => { cancelled = true; unlisten?.(); };
   }, []);
   const [dropping, setDropping] = useState(false);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
+  useLayoutEffect(() => {
+    const el = workspaceRef.current;
+    if (!el) return;
+    const measure = () => {
+      if (el.clientWidth > 0) setCompact(el.clientWidth < 820);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const panelOpen       = useArtifacts((s) => s.panelOpen);
   const togglePanel     = useArtifacts((s) => s.togglePanel);
   const browserOpen     = useBrowser((s) => s.panelOpen);
-  const browserWide     = useBrowser((s) => s.wide);
+  const preferredBrowserWide = useBrowser((s) => s.wide);
+  const browserWide = preferredBrowserWide || compact;
   const browserChatOpen = useBrowser((s) => s.chatOpen);
   // True from the moment the browser is closed until its slide-out has
   // finished. In wide mode the panel is `flex-1`, and putting the chat column
@@ -284,7 +298,7 @@ export function ChatPage() {
   // panels or, in the browser's wide mode, inside the panel's own drawer,
   // without two copies of it in the tree.
   const chatColumn = (
-    <div className="flex flex-col h-full min-w-[28rem] flex-1">
+    <div className={cn('flex flex-col h-full flex-1', compact ? 'min-w-0' : 'min-w-[28rem]')}>
       {showAgentOnboarding && !wizardActive && (
         <AgentsOnboarding
           onDone={() => setShowAgentOnboarding(false)}
@@ -397,6 +411,7 @@ export function ChatPage() {
     // the composer: the page is the target people actually aim at. The
     // composer's own handler stops propagation by handling the drop first.
     <div
+      ref={workspaceRef}
       className="relative flex h-full"
       onDragOver={(e) => {
         if (!Array.from(e.dataTransfer.types).includes('Files')) return;
@@ -428,7 +443,7 @@ export function ChatPage() {
             working in it, an artifact it saves must not cover the page. The
             artifact is still one click away in the sidebar. */}
         {browserOpen && (
-          <BrowserPanel key="browser-panel" chat={chatColumn} onCompose={(text) => chatInputRef.current?.setText(text)} />
+          <BrowserPanel key="browser-panel" compact={compact} chat={chatColumn} onCompose={(text) => chatInputRef.current?.setText(text)} />
         )}
         {panelOpen && !browserOpen && (
           <ArtifactsPanel

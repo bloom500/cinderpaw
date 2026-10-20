@@ -77,15 +77,17 @@ function place(r: DOMRect | null) {
  * native view, and a native view is always on top of anything React draws, so
  * a chat floating over it would be hidden behind it.
  */
-export function BrowserPanel({ chat, onCompose }: {
+export function BrowserPanel({ chat, onCompose, compact = false }: {
+  compact?: boolean;
   chat?: React.ReactNode;
   /** Summarize this page: words for the composer, sent by the person (spec 7.5). */
   onCompose?: (text: string) => void;
 }) {
   const {
     url: rawUrl, loading, error, notice, open, go, setPanel, tabs, active, newTab, switchTab, closeTab, reopenTab,
-    wide, setWide, chatOpen, setChatOpen, engine, setEngine, agent, inCall, covered, orderTabs,
+    wide: preferredWide, setWide, chatOpen, setChatOpen, engine, setEngine, agent, inCall, covered, orderTabs,
   } = useBrowser();
+  const wide = preferredWide || compact;
   // Reader view is a page of our own; the chrome keeps showing the article's
   // original address (bookmarks, history and the star all take that one).
   // Wide with the nav folded away: the page takes the canvas edge to edge. The
@@ -348,7 +350,7 @@ export function BrowserPanel({ chat, onCompose }: {
     // A call frames the page itself; this re-runs and places it back here when the call ends.
     if (!el || !settled || inCall) return;
     // A modal is open: the page is parked until it closes, then placed again.
-    if (covered > 0) { place(null); return; }
+    if (covered > 0 || (compact && chatOpen)) { place(null); return; }
     let frame = 0;
     const report = () => {
       cancelAnimationFrame(frame);
@@ -371,7 +373,7 @@ export function BrowserPanel({ chat, onCompose }: {
       ro.disconnect();
       window.removeEventListener('resize', report);
     };
-  }, [settled, inCall, covered]);
+  }, [settled, inCall, covered, compact, chatOpen]);
 
   // Leaving by any route (route change, unmount) parks the page.
   useEffect(() => () => place(null), []);
@@ -420,7 +422,8 @@ export function BrowserPanel({ chat, onCompose }: {
         }
       }}
       className={cn(
-        'relative flex min-w-[360px] shrink flex-col overflow-hidden border-l border-border-default bg-bg-surface',
+        'relative flex shrink flex-col overflow-hidden border-l border-border-default bg-bg-surface',
+        compact ? 'min-w-0' : 'min-w-[360px]',
         wide && 'w-full flex-1',
         // Out of main's gutters (pl-60px for the nav toggle, pr-4).
         edge && '-ml-[60px] -mr-4 border-l-0',
@@ -645,11 +648,11 @@ export function BrowserPanel({ chat, onCompose }: {
           </button>
         )}
         <ChromeButton label="Browser settings" icon={Settings2} onClick={() => setSettingsOpen((v) => !v)} />
-        <ChromeButton
+        {!compact && <ChromeButton
           label={wide ? 'Back to split view' : 'Fill the window'}
           icon={wide ? Minimize2 : Maximize2}
           onClick={() => setWide(!wide)}
-        />
+        />}
         {wide && (
           // The bubble: the conversation, one press away while the page fills
           // the window. Brand-coloured so it reads as Cinderpaw, not as chrome.
@@ -767,7 +770,7 @@ export function BrowserPanel({ chat, onCompose }: {
           where no page is (20 Sep). The body starts after the handle's 6 px,
           so the page's rectangle, reported from this element, never covers it. */}
       <div className={cn('flex min-h-0 flex-1', !wide && 'pl-1.5')}>
-      <div ref={bodyRef} className="relative min-w-0 flex-1 bg-white">
+      <div ref={bodyRef} hidden={compact && chatOpen} className="relative min-w-0 flex-1 bg-white">
         {!url && (
           // The new-tab page, until the first address: a search and the usual
           // first stops. After that the native page covers this area.
@@ -875,7 +878,7 @@ export function BrowserPanel({ chat, onCompose }: {
         // layout while shut.
         <div
           hidden={!chatOpen}
-          className="flex w-[28rem] shrink-0 flex-col border-l border-border-default bg-bg-surface"
+          className={cn('flex shrink-0 flex-col border-l border-border-default bg-bg-surface', compact ? 'w-full min-w-0' : 'w-[28rem]')}
         >
           {chat}
         </div>
