@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AlphaNotice, ALPHA_NOTICE_KEY, ALPHA_SNOOZE_MS, alphaNoticeWanted } from '../AlphaNotice';
 import { useOnboarding } from '@/stores/onboarding';
+import { useAttention } from '@/lib/attention';
 
 vi.mock('@/stores/onboarding', () => ({ useOnboarding: vi.fn() }));
 
@@ -11,28 +12,29 @@ const mount = () => render(<MemoryRouter><AlphaNotice /></MemoryRouter>);
 describe('the alpha notice', () => {
   beforeEach(() => {
     localStorage.clear();
+    useAttention.setState({ waiting: [], holder: null });
     vi.mocked(useOnboarding).mockImplementation((sel: any) => sel({ active: false }));
   });
 
-  it('is on screen for a fresh install, with the two ways to help', () => {
+  it('is on screen for a fresh install, with the two ways to help', async () => {
     mount();
-    expect(screen.getByText('Cinderpaw is in alpha')).toBeInTheDocument();
+    expect(await screen.findByText('Cinderpaw is in alpha')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Report a bug' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Contribute' })).toHaveAttribute('href', expect.stringContaining('github.com'));
     expect(screen.getByRole('link', { name: 'Discord' })).toHaveAttribute('href', expect.stringContaining('discord'));
   });
 
-  it('the X hides it for a week, then it comes back', () => {
+  it('the X hides it for a week, then it comes back', async () => {
     mount();
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss notice' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Dismiss notice' }));
     expect(screen.queryByText('Cinderpaw is in alpha')).toBeNull();
     expect(alphaNoticeWanted()).toBe(false);
     expect(alphaNoticeWanted(Date.now() + ALPHA_SNOOZE_MS + 1000)).toBe(true);
   });
 
-  it('the never-again button is remembered', () => {
+  it('the never-again button is remembered', async () => {
     mount();
-    fireEvent.click(screen.getByRole('button', { name: "Don't show this again" }));
+    fireEvent.click(await screen.findByRole('button', { name: "Don't show this again" }));
     expect(localStorage.getItem(ALPHA_NOTICE_KEY)).toBe('never');
     expect(alphaNoticeWanted()).toBe(false);
     const again = mount();

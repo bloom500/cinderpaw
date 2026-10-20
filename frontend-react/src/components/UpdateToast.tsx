@@ -3,6 +3,7 @@ import { Sparkles, Download, X } from 'lucide-react';
 import { useUpdater } from '@/stores/updater';
 import { cn } from '@/lib/utils';
 import { releaseHighlights } from '@/lib/releaseHighlights';
+import { useAttentionTurn } from '@/lib/attention';
 
 /**
  * Bottom-right toast that appears when an update is available (or downloading).
@@ -21,10 +22,12 @@ export function UpdateToast() {
   // markdown and all, and three raw lines of it said nothing (24 Sep).
   const highlights = releaseHighlights(info?.notes ?? null);
   const downloading = status === 'downloading';
+  // Waits its turn behind What's new and the Alpha card (lib/attention).
+  const turn = useAttentionTurn('update', open && !!info);
 
   return (
     <AnimatePresence>
-      {open && info && (
+      {turn && info && (
         <motion.div
           // Positioned by AppShell's NotificationLayer (top-right, under the
           // window controls) — it slides in from the right like the toasts it

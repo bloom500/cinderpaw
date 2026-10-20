@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowUpRight, Bug, FlaskConical, GitPullRequest, X } from 'lucide-react';
 import { useOnboarding } from '@/stores/onboarding';
 import { cn, readLocal, writeLocal } from '@/lib/utils';
+import { useAttentionTurn } from '@/lib/attention';
 
 /** Where the choice to stop seeing this lives: `never`, or `until:<ms>` after the X. */
 export const ALPHA_NOTICE_KEY = 'cinderpaw.alphaNotice';
@@ -31,13 +32,15 @@ export function alphaNoticeWanted(now = Date.now()): boolean {
  *
  * Two ways out, both instant: the X hides it for a week; "Don't show this
  * again" is remembered. Hidden while the setup
- * wizard is up, which already has their attention.
+ * wizard is up, which already has their attention, and second in the notice
+ * queue: after What's new is closed, before anything else (lib/attention).
  */
 export function AlphaNotice() {
   const onboarding = useOnboarding((s) => s.active);
   const [shown, setShown] = useState(alphaNoticeWanted);
   const navigate = useNavigate();
-  if (!shown || onboarding) return null;
+  const turn = useAttentionTurn('alpha', shown && !onboarding);
+  if (!turn) return null;
 
   const never = () => {
     writeLocal(ALPHA_NOTICE_KEY, 'never');
