@@ -177,6 +177,9 @@ pub struct ProviderConfig {
 }
 
 
+/// The id the Custom Endpoint card saves under (frontend `ByokTab.tsx`).
+pub const CUSTOM_PROVIDER_ID: &str = "custom";
+
 /// BYOK settings — stored in settings.json
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ByokSettings {
@@ -187,7 +190,7 @@ impl ByokSettings {
     /// Get a list of all supported providers with their current config
     pub fn get_all_providers(&self) -> Vec<ProviderInfo> {
         let defaults = Self::default_provider_configs();
-        defaults.into_iter().map(|(id, name, provider)| {
+        let mut all: Vec<ProviderInfo> = defaults.into_iter().map(|(id, name, provider)| {
             let config = self.providers.get(&id).cloned().unwrap_or_default();
             ProviderInfo {
                 id: id.clone(),
@@ -198,7 +201,24 @@ impl ByokSettings {
                 base_url: config.base_url.or(Some(default_base_url_for(&id))),
                 default_model: config.default_model,
             }
-        }).collect()
+        }).collect();
+        // The Custom Endpoint card saves under "custom", which the catalogue
+        // does not list, so a saved endpoint (LM Studio, vLLM, a rented box)
+        // never reached Roles, the model pill or routing (UX lab, 19 Oct, item
+        // 4). Only "custom": voice engines keep records in this file too, and
+        // they are not chat providers.
+        if let Some(config) = self.providers.get(CUSTOM_PROVIDER_ID) {
+            all.push(ProviderInfo {
+                id: CUSTOM_PROVIDER_ID.into(),
+                name: "Custom Endpoint".into(),
+                provider: Provider::Custom,
+                enabled: config.enabled,
+                has_api_key: !config.api_key.is_empty(),
+                base_url: config.base_url.clone(),
+                default_model: config.default_model.clone(),
+            });
+        }
+        all
     }
 
     /// Get default configurations for all known providers.
@@ -1328,6 +1348,28 @@ mod tests {
         assert!(!may_remove_legacy_file(true, &["openai".to_string()]));
         // And a pass where nothing moved and something failed keeps it too.
         assert!(!may_remove_legacy_file(false, &["openai".to_string()]));
+    }
+
+    /// A saved Custom Endpoint is a provider like the others; a voice engine's
+    /// record in the same file is not.
+    #[test]
+    fn a_saved_custom_endpoint_is_listed_and_a_voice_record_is_not() {
+        let mut settings = ByokSettings::default();
+        assert!(!settings.get_all_providers().iter().any(|p| p.id == "custom"));
+        settings.update_provider(
+            "custom",
+            ProviderConfig { enabled: true, api_key: "lm-studio".into(), base_url: Some("http://127.0.0.1:1234/v1".into()), default_model: Some("qwen3".into()) },
+        );
+        settings.update_provider(
+            "kokoro",
+            ProviderConfig { enabled: true, api_key: String::new(), base_url: None, default_model: None },
+        );
+        let all = settings.get_all_providers();
+        let custom = all.iter().find(|p| p.id == "custom").expect("custom is listed");
+        assert_eq!(custom.base_url.as_deref(), Some("http://127.0.0.1:1234/v1"));
+        assert_eq!(custom.default_model.as_deref(), Some("qwen3"));
+        assert!(custom.enabled && custom.has_api_key);
+        assert!(!all.iter().any(|p| p.id == "kokoro"));
     }
 
     /// A key saved from the wizard with no model must still be a provider
