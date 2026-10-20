@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MessageChain, doneSentence, elapsedLabel, sideChips, stepDetail, stepTitle } from '../MessageChain';
+import { MessageChain, doneSentence, elapsedLabel, sideChips, stepDetail, stepTitle, thoughtHeadline } from '../MessageChain';
 import type { RlmWorker } from '@/stores/rlmWorkers';
 import { finishActivity, startActivity } from '@/hooks/useLiveToolActivity';
 
@@ -36,10 +36,18 @@ describe('MessageChain (the Activity Strip)', () => {
     expect(screen.getAllByText('Searched the web')).toHaveLength(2);
   });
 
-  it('shows the reasoning live while the model thinks', () => {
-    render(<MessageChain thinking="Caut" thinkingComplete={false} durationSec={undefined} steps={[]} streaming />);
-    expect(screen.getAllByText('Thinking').length).toBe(2);
-    expect(screen.getByText('Caut')).toBeInTheDocument();
+  it('shows the reasoning live while the model thinks, headed by what it is thinking about', () => {
+    render(<MessageChain thinking={'**Looking up fireflies**\n\nCaut ce mananca'} thinkingComplete={false} durationSec={undefined} steps={[]} streaming />);
+    // In the header, and in the reasoning itself below it.
+    expect(screen.getAllByText('Looking up fireflies')).toHaveLength(2);
+    expect(screen.getByText('Thinking')).toBeInTheDocument();
+    expect(screen.getByText('Caut ce mananca')).toBeInTheDocument();
+  });
+
+  it('heads a thought by its newest bold title, else its newest first sentence', () => {
+    expect(thoughtHeadline('**Plan**\nx\n**Comparing prices:**\ny')).toBe('Comparing prices');
+    expect(thoughtHeadline('Old idea.\n\nThe user wants three dinners. Then I will write.')).toBe('The user wants three dinners');
+    expect(thoughtHeadline('')).toBeNull();
   });
 
   it('a reopened chat starts folded and does not fold or open by itself', () => {

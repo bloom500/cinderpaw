@@ -71,8 +71,8 @@ export function stepTitle(a: Pick<ToolActivity, 'tool' | 'kind' | 'status' | 'ar
 }
 
 /**
- * Why a step failed, in plain words. The raw text ("Tool \"read_file\"
- * short-circuited: circuit_open: too many failures") is still in the step's
+ * Why a step failed, in plain words. The raw text ('Tool "read_file"
+ * short-circuited: circuit_open: too many failures') is still in the step's
  * widget for whoever opens it; the row is for everyone.
  */
 export function failureWords(error: string | null | undefined): string {
@@ -110,6 +110,23 @@ export function doneSentence(steps: ToolActivity[]): string {
   const failed = steps.filter((a) => a.status === 'failed').length;
   return shown.join(', ') + (more > 0 ? `, and ${more} more` : '')
     + (failed > 0 ? ` (${failed === 1 ? 'one' : failed} did not work)` : '');
+}
+
+/**
+ * What the model is thinking about right now, as a short line for the header:
+ * the newest bold heading in its reasoning ("**Comparing prices**", which
+ * OpenAI and Gemini summaries and many open models write), else the first
+ * sentence of its newest paragraph. Claude's status line does this ("Estimating
+ * sunset time by interpolating nearby dates"); "Thinking" said nothing.
+ */
+export function thoughtHeadline(text: string | null): string | null {
+  if (!text) return null;
+  const bold = [...text.matchAll(/\*\*([^*\n]{3,80})\*\*/g)].at(-1)?.[1]?.trim();
+  if (bold) return bold.replace(/[:.]$/, '');
+  const para = text.trim().split(/\n\s*\n/).at(-1)?.trim() ?? '';
+  const first = para.split(/(?<=[.!?])\s/)[0]?.replace(/\s+/g, ' ').trim() ?? '';
+  if (first.length < 3) return null;
+  return first.length > 70 ? `${first.slice(0, 69).trimEnd()}…` : first.replace(/[.]$/, '');
 }
 
 function ThinkingText({ text, live }: { text: string; live: boolean }) {
@@ -276,7 +293,9 @@ export function MessageChain({
   let title: string;
   let detail: string;
   if (streaming) {
-    title = thinkingLive || (!current && thinking !== null) ? 'Thinking' : current ? stepTitle(current) : 'Helpers';
+    title = thinkingLive || (!current && thinking !== null)
+      ? (thoughtHeadline(thinking) ?? 'Thinking')
+      : current ? stepTitle(current) : 'Helpers';
     const since = steps.length > 0 ? Math.min(...steps.map((a) => a.startedAt)) : null;
     detail = [count, since !== null ? elapsedLabel(now - since) : ''].filter(Boolean).join(' · ');
   } else {
