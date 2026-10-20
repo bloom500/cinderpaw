@@ -5,7 +5,7 @@ import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
 import type { PdfEdit } from '@/lib/pdfEdits';
 import type { PdfFieldRow } from '@/components/artifacts/PdfEditor';
-import { OUT_MS, chunkRun, editRuns, liveUntil, type Run } from '@/lib/emberLetters';
+import { OUT_MS, chunkRun, editRuns, liveUntil, streamRun, type Run } from '@/lib/emberLetters';
 
 /**
  * The workspace: everything the agent made that outlived its conversation.
@@ -66,6 +66,8 @@ export interface LiveArtifact {
   out?: { content: string; ranges: Array<[number, number]>; until: number };
   /** Set while the model is still writing this draft. */
   writing?: { turn: string; sessionId: string };
+  /** When the last piece of the writing arrived: the next one is paced over the gap. */
+  came?: number;
   /** Why a draft was never saved, in a sentence for the person. */
   stopped?: string;
   /** A part Cinderpaw is writing over `base` in place of its placeholder:
@@ -714,8 +716,16 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
         earlyVersions = null;
         // The save of the version a part is still being written over (the part
         // before it): the part keeps going on top of it, nothing is replaced.
-        if (p.version === undefined && prev?.row.id === row.id && prev.live?.writing && prev.live.edit?.base === e.content) {
-          set({ busy: false, error: null, open: { ...prev, row, showing: row.version } });
+        // Placed again by its placeholder: when the saved text is not letter for
+        // letter what was shown, keeping the old base threw the part away and
+        // started it over from the newest piece (20 Oct).
+        const writing = p.version === undefined && prev?.row.id === row.id && prev.live?.writing ? prev.live.edit : undefined;
+        const at = writing ? e.content.indexOf(writing.base.slice(writing.at, writing.at + writing.findLen)) : -1;
+        if (writing && prev?.live && at >= 0) {
+          const edit = { ...writing, base: e.content, at };
+          const shift = at - writing.at;
+          const runs = prev.live.runs.map((r) => (r.from >= writing.at ? { ...r, from: r.from + shift, to: r.to + shift } : r));
+          set({ busy: false, error: null, open: { ...prev, row, showing: row.version, content: spliceEdit(edit), live: { ...prev.live, runs, edit } } });
           return;
         }
         const live = p.version === undefined && prev ? liveAfter(prev, row, e.content, e.encoding, !!get().editing) : undefined;
@@ -829,6 +839,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
               runs: e.append ? [chunkRun(at, e.append, until)] : [],
               out: { content: open.content, ranges: [[at, at + edit.findLen]], until },
               writing: { turn: e.id, sessionId: e.sessionId },
+              came: now,
               edit,
             },
           },
@@ -837,20 +848,22 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
       }
       const live = open.live!;
       const runs = live.runs.filter((r) => liveUntil([r]) + 100 > now);
-      if (e.append) runs.push(chunkRun(cur.at + cur.replace.length, e.append, Math.max(now, live.out?.until ?? 0)));
+      const last = live.runs[live.runs.length - 1];
+      if (e.append) runs.push(streamRun(last, cur.at + cur.replace.length, e.append, Math.max(now, live.out?.until ?? 0), now - (live.came ?? 0)));
       const edit = { ...cur, replace: cur.replace + e.append };
-      set({ open: { ...open, content: spliceEdit(edit), live: { ...live, runs, edit } } });
+      set({ open: { ...open, content: spliceEdit(edit), live: { ...live, runs, edit, came: now } } });
       return;
     }
     if (open?.row.id === key && open.live) {
       const runs = open.live.runs.filter((r) => liveUntil([r]) + 100 > now);
-      if (e.append) runs.push(chunkRun(open.content.length, e.append, now));
+      const last = open.live.runs[open.live.runs.length - 1];
+      if (e.append) runs.push(streamRun(last, open.content.length, e.append, now, now - (open.live.came ?? 0)));
       set({
         open: {
           ...open,
           row: { ...open.row, kind: e.kind ?? open.row.kind, title: e.title ?? open.row.title },
           content: open.content + e.append,
-          live: { ...open.live, runs },
+          live: { ...open.live, runs, came: now },
         },
       });
       return;
@@ -871,7 +884,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
         content: e.append,
         showing: 0,
         versions: [],
-        live: { runs: e.append ? [chunkRun(0, e.append, now)] : [], writing: { turn: e.id, sessionId: e.sessionId } },
+        live: { runs: e.append ? [chunkRun(0, e.append, now)] : [], writing: { turn: e.id, sessionId: e.sessionId }, came: now },
       },
     });
   },

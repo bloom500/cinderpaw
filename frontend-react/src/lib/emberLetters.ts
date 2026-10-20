@@ -42,6 +42,18 @@ export function chunkRun(from: number, text: string, at: number): Run {
   return { from, to: from + text.length, at, per: Math.min(STAGGER_MS, MAX_CHUNK_MS / Math.max(1, text.length)) };
 }
 
+/**
+ * The next piece of a stream, `gap` ms after the piece before (`prev`, its
+ * run): it starts where that piece's letters stop and spreads over the gap, so
+ * letters come in one after another at the pace the model writes. At a fixed
+ * 9 ms a letter (111 a second), a model writing 300-600 a second lit three to
+ * five pieces at once, out of order, with the cursor a line ahead (20 Oct).
+ */
+export function streamRun(prev: Run | undefined, from: number, text: string, now: number, gap: number): Run {
+  const at = prev ? Math.max(now, prev.at + Math.round((prev.to - prev.from) * prev.per)) : now;
+  return { from, to: from + text.length, at, per: Math.min(STAGGER_MS, Math.min(gap, MAX_CHUNK_MS) / Math.max(1, text.length)) };
+}
+
 /** The letter's animation delay while it is still animating, else null. */
 export function letterDelay(runs: Run[], offset: number, now: number): number | null {
   for (const r of runs) {

@@ -185,6 +185,22 @@ describe('a part written in place over its placeholder (drafted in parts)', () =
     expect(useArtifacts.getState().open!.content).toContain('Garlic');
   });
 
+  it('keeps the part on top of a save whose text above it differs from what was shown', async () => {
+    useArtifacts.setState({ open: v1 });
+    part('Garlic');
+    part(', oil');
+    useArtifacts.getState().onEvent({ id: 'art-1', action: 'updated', version: 2, onScreen: true });
+    await Promise.resolve();
+    // The part before it was saved a few letters longer than it was shown.
+    const saved2 = outline.replace('# Dinners', '# Dinners for two');
+    useArtifacts.getState().onResult({ id: idOf('get'), ok: true, items: [{ ...saved, version: 2 }], content: saved2 });
+    const open = useArtifacts.getState().open!;
+    expect(open.content).toBe(saved2.replace('[[Pasta: 3 ingredients]]', 'Garlic, oil'));
+    expect(open.row.version).toBe(2);
+    part(', chili.');
+    expect(useArtifacts.getState().open!.content).toBe(saved2.replace('[[Pasta: 3 ingredients]]', 'Garlic, oil, chili.'));
+  });
+
   it('goes back to the saved document when the part was never saved', () => {
     useArtifacts.setState({ open: v1 });
     part('Garlic');

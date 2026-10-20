@@ -1,5 +1,30 @@
 import { describe, expect, it } from 'vitest';
-import { IN_MS, chunkRun, editRuns, letterDelay, liveUntil, type Run } from '@/lib/emberLetters';
+import { IN_MS, chunkRun, editRuns, letterDelay, liveUntil, streamRun, type Run } from '@/lib/emberLetters';
+
+describe('streamRun', () => {
+  it('starts a piece where the letters of the piece before stop', () => {
+    const first = chunkRun(0, 'abcd', 0); // letters start at 0, 9, 18, 27
+    expect(streamRun(first, 4, 'efgh', 10, 10).at).toBe(36);
+    expect(streamRun(first, 4, 'efgh', 50, 50).at).toBe(50);
+  });
+
+  it('spreads a piece over the time since the one before, so fast writing never piles up', () => {
+    // 24 letters every 40 ms is 600 a second; at 9 ms a letter they would fall
+    // further behind with every piece.
+    let run = chunkRun(0, 'x'.repeat(24), 0);
+    const behind: number[] = [];
+    for (let k = 1; k <= 50; k++) {
+      run = streamRun(run, 24 * k, 'x'.repeat(24), 40 * k, 40);
+      behind.push(run.at - 40 * k);
+    }
+    expect(behind[49]).toBe(behind[1]);
+    expect(run.per).toBeCloseTo(40 / 24);
+  });
+
+  it('keeps the 9 ms pace when the model writes slowly', () => {
+    expect(streamRun(undefined, 0, 'abc', 0, 500).per).toBe(9);
+  });
+});
 
 describe('chunkRun', () => {
   it('staggers the letters of one chunk 9 ms apart', () => {

@@ -180,6 +180,7 @@ export function Markdown({ children, animateWords, ember }: { children: string; 
   const blocks = splitBlocks(children);
   // Blocks are the document cut at newlines, so each starts one past the last.
   let base = 0;
+  const seen = new Map<string, number>();
   return (
     <div className="prose dark:prose-invert max-w-none wrap-break-word wrap-anywhere text-text-primary prose-headings:text-text-primary prose-strong:text-text-primary prose-pre:p-0 prose-pre:bg-transparent prose-pre:border-none prose-a:text-brand prose-li:text-text-primary prose-p:text-text-primary">
       {blocks.map((b, i) => {
@@ -190,7 +191,16 @@ export function Markdown({ children, animateWords, ember }: { children: string; 
         const live = ember && (hasCaret || emberActive(ember, start, start + b.length))
           ? { ...ember, base: start, caret: hasCaret ? ember.caret : undefined }
           : undefined;
-        return <MarkdownBlock key={i} text={b} fade={Boolean(animateWords)} ember={live} />;
+        // A part written over a placeholder in the middle pushes every block
+        // below it one place down with each new paragraph; keyed by place, the
+        // whole rest of the document was parsed again each time (150 ms a
+        // paragraph, 20 Oct). Settled blocks are keyed by their text and stay
+        // put. A block still moving keeps its place, so its letters keep
+        // animating. A reply in the chat only grows at its end: by place.
+        const n = seen.get(b) ?? 0;
+        seen.set(b, n + 1);
+        const key = ember && !live ? `t${n}:${b}` : i;
+        return <MarkdownBlock key={key} text={b} fade={Boolean(animateWords)} ember={live} />;
       })}
     </div>
   );

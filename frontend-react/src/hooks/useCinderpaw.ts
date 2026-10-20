@@ -14,7 +14,7 @@ import { useAgent } from '@/stores/agent';
 import { useModel } from '@/stores/model';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { useNotifications } from '@/stores/notifications';
-import { useArtifacts } from '@/stores/artifacts';
+import { useArtifacts, type DraftEvent } from '@/stores/artifacts';
 import { t } from '@/lib/i18n';
 import { autoTitle } from '@/lib/autoTitle';
 import { titleConversation } from '@/lib/chatTitle';
@@ -591,10 +591,37 @@ export function useCinderpawGlobal() {
   const fetchConfig   = useCinderpawStore((s) => s.fetchModelConfig);
 
   useEffect(() => {
-    let unlistenReady:  (() => void) | null = null;
-    let unlistenExit:   (() => void) | null = null;
-    let unlistenOutput: (() => void) | null = null;
-    let unlistenRevert: (() => void) | null = null;
+    let disposed = false;
+    const unlisteners: Array<() => void> = [];
+    // listen() resolves asynchronously: StrictMode, navigation or hot reload
+    // can clean up before it returns. Retire late registrations too, otherwise
+    // each leaked callback appends the same artifact letters again.
+    const subscribe = async <T,>(event: Parameters<typeof listen<T>>[0], callback: Parameters<typeof listen<T>>[1]) => {
+      if (disposed) return;
+      const unlisten = await listen<T>(event, (e) => { if (!disposed) callback(e); });
+      if (disposed) unlisten();
+      else unlisteners.push(unlisten);
+    };
+    // A document being written arrives one piece per model token, hundreds a
+    // part. Drawn one at a time, each piece cost the panel a whole render: it
+    // fell seconds behind the model, and the saved version then landed on a
+    // part still being shown as written (20 Oct). Pieces wait for the next
+    // frame and go in together, one longer piece per document.
+    let drafts: DraftEvent[] = [];
+    let draftFrame: number | null = null;
+    const flushDrafts = () => {
+      if (draftFrame !== null) cancelAnimationFrame(draftFrame);
+      draftFrame = null;
+      const batch: DraftEvent[] = [];
+      for (const d of drafts) {
+        const last = batch[batch.length - 1];
+        const same = last && last.id === d.id && last.draft === d.draft && last.editOf === d.editOf && last.find === d.find;
+        if (same) batch[batch.length - 1] = { ...d, append: last.append + d.append };
+        else batch.push(d);
+      }
+      drafts = [];
+      for (const d of batch) useArtifacts.getState().onDraft(d);
+    };
 
     const setup = async () => {
       // The stream listener is where ask_user questions are received, and it
@@ -602,10 +629,11 @@ export function useCinderpawGlobal() {
       // after launch was a voice call never had one: the agent asked, nothing
       // heard it, and the call waited out the question's timeout (18 Sep).
       void ensureCinderpawListener().catch(() => {});
-      unlistenReady = await listen('cinderpaw://agent-ready', () => {
+      await subscribe('cinderpaw://agent-ready', () => {
         setReady(true);
         void fetchConfig();
       });
+      if (disposed) return;
 
       // The event fires once, and only reaches whoever is already listening.
       // The sidecar announces itself about eleven seconds in; a cold webview
@@ -617,7 +645,9 @@ export function useCinderpawGlobal() {
       // that lands between the two is caught by the listener rather than
       // falling into the gap the other order would open.
       try {
-        if (await tauri.raw.agentIsReady()) {
+        const ready = await tauri.raw.agentIsReady();
+        if (disposed) return;
+        if (ready) {
           setReady(true);
           void fetchConfig();
         }
@@ -628,7 +658,7 @@ export function useCinderpawGlobal() {
       // #11: the Rust supervisor emits this when the sidecar dies. While
       // `restarting` is true it will respawn with backoff and agent-ready
       // will clear the banner; when false, the supervisor gave up.
-      unlistenExit = await listen<{
+      await subscribe<{
         code: number | null;
         restarting: boolean;
         error?: string | null;
@@ -656,7 +686,7 @@ export function useCinderpawGlobal() {
 
       // Faza 3 watchdog: the Rust supervisor auto-reverted a live-applied
       // code patch that was crashing the agent.
-      unlistenRevert = await listen<{ patchId: string }>(
+      await subscribe<{ patchId: string }>(
         'cinderpaw://rsi-patch-reverted',
         (event) => {
           useNotifications.getState().push(
@@ -667,13 +697,23 @@ export function useCinderpawGlobal() {
         },
       );
 
-      unlistenOutput = await listen<{ data: string }>('cinderpaw://agent-output', (event) => {
+      await subscribe<{ data: string }>('cinderpaw://agent-output', (event) => {
         let parsed: CinderpawAgentEvent;
         try {
           parsed = JSON.parse(event.payload.data) as CinderpawAgentEvent;
         } catch {
           return;
         }
+
+        if (parsed.type === 'artifact_draft') {
+          // Live writing: the panel shows the document while Cinderpaw writes it.
+          drafts.push({ ...parsed, onScreen: parsed.sessionId === useChat.getState().sessionId });
+          if (document.hidden) flushDrafts();
+          else draftFrame ??= requestAnimationFrame(flushDrafts);
+          return;
+        }
+        // Nothing may overtake a piece of writing that arrived before it.
+        if (drafts.length) flushDrafts();
 
         if (parsed.type === 'model_set') {
           void fetchConfig();
@@ -701,9 +741,6 @@ export function useCinderpawGlobal() {
           });
         } else if (parsed.type === 'artifact_result') {
           useArtifacts.getState().onResult(parsed);
-        } else if (parsed.type === 'artifact_draft') {
-          // Live writing: the panel shows the document while Cinderpaw writes it.
-          useArtifacts.getState().onDraft({ ...parsed, onScreen: parsed.sessionId === useChat.getState().sessionId });
         } else if (parsed.type === 'tool_done' && parsed.tool === 'artifact_edit') {
           // A part written in place: saved, its new version follows; refused
           // (the placeholder was not found), the document goes back as it was.
@@ -742,16 +779,15 @@ export function useCinderpawGlobal() {
         }
       });
 
-      void fetchConfig();
+      if (!disposed) void fetchConfig();
     };
 
     void setup();
 
     return () => {
-      unlistenReady?.();
-      unlistenExit?.();
-      unlistenOutput?.();
-      unlistenRevert?.();
+      disposed = true;
+      if (draftFrame !== null) cancelAnimationFrame(draftFrame);
+      for (const unlisten of unlisteners) unlisten();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
