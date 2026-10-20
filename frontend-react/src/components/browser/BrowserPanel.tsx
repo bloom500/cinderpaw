@@ -471,7 +471,7 @@ export function BrowserPanel({ chat, onCompose }: {
             role="tab"
             aria-selected={t.id === active}
             tabIndex={0}
-            title={t.url === 'about:blank' ? 'New tab' : `${t.title || t.url}\n${t.url}`}
+            title={`${t.agent ? 'Cinderpaw opened this tab for its work\n' : ''}${t.url === 'about:blank' ? 'New tab' : `${t.title || t.url}\n${t.url}`}`}
             onClick={() => void switchTab(t.id)}
             // The wheel button closes a tab, as everywhere.
             onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); void closeTab(t.id); } }}
@@ -484,6 +484,8 @@ export function BrowserPanel({ chat, onCompose }: {
                 : 'border-transparent text-text-muted hover:bg-bg-hover hover:text-text-secondary',
             )}
           >
+            {/* Cinderpaw's own tabs carry its mark: the person's are never reused. */}
+            {t.agent && <img src={logoUrl} alt="" className="size-3 shrink-0" draggable={false} />}
             {t.loading
               ? <Loader2 size={12} className="shrink-0 animate-spin" />
               : t.url.startsWith('http') && <Favicon url={t.url} label={t.title || t.url} px={12} />}

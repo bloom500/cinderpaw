@@ -19,6 +19,8 @@ export interface BrowserTab {
   canForward: boolean;
   /** Requests the ad blocker answered on the page this tab shows now. */
   blocked: number;
+  /** Cinderpaw opened it for its own work; the person's tabs are never reused. */
+  agent?: boolean;
 }
 
 /** The start page: the host parks the tab's page and the panel shows its own. */

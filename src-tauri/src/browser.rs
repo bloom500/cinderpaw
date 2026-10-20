@@ -54,6 +54,10 @@ struct Tab {
     dormant: bool,
     /// When this tab was last the active one, for discarding.
     last_active: std::time::Instant,
+    /// Opened by the agent for its own work. Its pages go here, never into a
+    /// tab the person is using: he wants to watch a video "fara sa traiesc cu
+    /// frica ca agentul ma intrerupe deschizand alt site peste YouTube" (20 Oct).
+    agent: bool,
 }
 
 #[derive(Default)]
@@ -143,6 +147,7 @@ fn tabs_json() -> Value {
             "canBack": tab.cursor > 0,
             "canForward": tab.cursor + 1 < tab.history.len(),
             "blocked": crate::adblock::blocked_on(&tab.label),
+            "agent": tab.agent,
         })).collect::<Vec<_>>(),
     })
 }
@@ -629,10 +634,27 @@ fn watch_active_url(app: &AppHandle) {
     });
 }
 
+tokio::task_local! {
+    /// The tab an agent action works on: its own, or the person's when it asked
+    /// for `tab: "user"` (None). Not set for the panel's own calls.
+    static AGENT_TARGET: Option<u32>;
+}
+
+/// The agent's current tab, while it still exists.
+static AGENT_TAB: std::sync::Mutex<Option<u32>> = std::sync::Mutex::new(None);
+
+/// The tab an action works on: inside an agent action its target, otherwise
+/// (or when that tab is gone) the one in front.
+fn target_id(t: &Tabs) -> Option<u32> {
+    AGENT_TARGET.try_with(|x| *x).ok().flatten()
+        .filter(|id| t.list.iter().any(|tab| tab.id == *id))
+        .or(t.active)
+}
+
 fn page(app: &AppHandle) -> Option<Webview> {
     let label = {
         let t = tabs().lock();
-        let id = t.active?;
+        let id = target_id(&t)?;
         t.list.iter().find(|tab| tab.id == id)?.label.clone()
     };
     app.get_webview(&label)
@@ -872,6 +894,11 @@ fn hook_fullscreen(wv: &Webview, app: AppHandle, label: String) {
 
 /// A new tab, in front, loading `url`.
 fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
+    new_tab_with(app, url, true)
+}
+
+/// A new tab loading `url`, in front or behind the one the person is on.
+fn new_tab_with(app: &AppHandle, url: Url, front: bool) -> Result<Webview, String> {
     let window = app
         .get_window("main")
         .ok_or_else(|| "browser: the main window is not open".to_string())?;
@@ -880,8 +907,8 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
         t.next_id += 1;
         let id = t.next_id;
         let label = format!("browser-tab-{id}");
-        t.list.push(Tab { id, label: label.clone(), title: String::new(), history: Vec::new(), cursor: 0, expecting: None, loading: true, placed: None, dormant: false, last_active: std::time::Instant::now() });
-        t.active = Some(id);
+        t.list.push(Tab { id, label: label.clone(), title: String::new(), history: Vec::new(), cursor: 0, expecting: None, loading: true, placed: None, dormant: false, last_active: std::time::Instant::now(), agent: false });
+        if front { t.active = Some(id); }
         (id, label)
     };
     LOADING.store(true, Ordering::SeqCst);
@@ -1016,6 +1043,11 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
     hook_fullscreen(&wv, app.clone(), label.clone());
     place_all(app)?;
     watch_active_url(app);
+    if !front {
+        // The new page took the keyboard as it was created; behind the person's
+        // page it must not: Space would stop pausing their video.
+        if let Some(wv) = page(app) { let _ = wv.set_focus(); }
+    }
     if at_home {
         // A new tab is for typing into. The child takes the keyboard focus the
         // moment it is created, parked or not, and the panel's search box kept
@@ -1033,7 +1065,8 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
 fn go_to(app: &AppHandle, url: &str) -> Result<(), String> {
     {
         let mut t = tabs().lock();
-        if let Some(tab) = t.active.and_then(|id| t.list.iter_mut().find(|x| x.id == id)) {
+        let id = target_id(&t);
+        if let Some(tab) = id.and_then(|id| t.list.iter_mut().find(|x| x.id == id)) {
             tab.expecting = Some(url.to_string());
             tab.loading = url != HOME;
         }
@@ -1377,16 +1410,61 @@ pub async fn handle_from_agent(app: AppHandle, op: &str, params: &Value) -> Resu
         let _ = app.emit("browser://agent", json!({ "op": "paused", "busy": false, "ok": false }));
         return Err(format!("browser: {}", crate::call_pill::OUT_OF_SIGHT));
     }
-    if acts && person_took_over(&app).await {
-        *AGENT_LAST_MS.lock() = now_ms();
-        let _ = app.emit("browser://agent", json!({ "op": "paused", "busy": false, "ok": false }));
-        return Err("browser: the user took over this page since your last action (they clicked or typed in it). Do not continue on your own: take a snapshot to see where they are, and ask them before acting again.".into());
+    // The agent works in tabs of its own (20 Oct): `open` makes a new one, and
+    // every other action works there, or on the person's page when the agent
+    // asked for it (`tab: "user"`, "summarize this page"). Never on a page the
+    // person opened, unasked.
+    let opening = matches!(op, "open" | "navigate");
+    let target = if params.get("tab").and_then(|v| v.as_str()) == Some("user") { None } else { live_agent_tab() };
+    AGENT_TARGET.scope(target, async move {
+        // Opening touches no page of theirs, so a take-over cannot block it.
+        if acts && !opening && person_took_over(&app).await {
+            *AGENT_LAST_MS.lock() = now_ms();
+            let _ = app.emit("browser://agent", json!({ "op": "paused", "busy": false, "ok": false }));
+            return Err("browser: the user took over this page since your last action (they clicked or typed in it). Do not continue on your own: take a snapshot to see where they are, and ask them before acting again.".into());
+        }
+        let _ = app.emit("browser://agent", json!({ "op": op, "url": params.get("url"), "ref": params.get("ref"), "busy": true }));
+        let out = if opening { agent_open(&app, params).await } else { handle(app.clone(), op, params).await };
+        if acts { *AGENT_LAST_MS.lock() = now_ms(); }
+        let _ = app.emit("browser://agent", json!({ "op": op, "busy": false, "ok": out.is_ok() }));
+        out
+    }).await
+}
+
+/// The agent's current tab, while it still exists.
+fn live_agent_tab() -> Option<u32> {
+    let id = AGENT_TAB.lock().ok().and_then(|g| *g)?;
+    tabs().lock().list.iter().any(|t| t.id == id).then_some(id)
+}
+
+/// The agent opens a page: always in a new tab of its own. In front, unless
+/// the person is on a page of their own in the open panel; then behind it, and
+/// their page keeps the screen and the keyboard. The agent's previous tab is
+/// done and closes, unless the person has it in front.
+async fn agent_open(app: &AppHandle, params: &Value) -> Result<Value, String> {
+    restore_once(app);
+    let url = parse_address(param_str(params, "url")?)?;
+    let behind = {
+        let b = *bounds().lock();
+        let t = tabs().lock();
+        b.visible && t.active.and_then(|id| t.list.iter().find(|x| x.id == id))
+            .is_some_and(|tab| !tab.agent && tab.history.get(tab.cursor).is_some_and(|u| u != HOME))
+    };
+    if !behind {
+        // Ask the panel to show itself: the person should see what the agent opens.
+        let _ = app.emit("browser://open", json!({ "url": url.as_str() }));
     }
-    let _ = app.emit("browser://agent", json!({ "op": op, "url": params.get("url"), "ref": params.get("ref"), "busy": true }));
-    let out = handle(app.clone(), op, params).await;
-    if acts { *AGENT_LAST_MS.lock() = now_ms(); }
-    let _ = app.emit("browser://agent", json!({ "op": op, "busy": false, "ok": out.is_ok() }));
-    out
+    let previous = live_agent_tab();
+    let wv = new_tab_with(app, url, !behind)?;
+    let id = tabs().lock().list.iter_mut().find(|x| x.label == wv.label()).map(|tab| { tab.agent = true; tab.id });
+    if let Ok(mut g) = AGENT_TAB.lock() { *g = id; }
+    if let Some(old) = previous.filter(|old| tabs().lock().active != Some(*old)) {
+        let _ = handle(app.clone(), "close_tab", &json!({ "id": old })).await;
+    }
+    emit_state(app);
+    settle(Duration::from_secs(20)).await;
+    let now = wv.url().map_err(|e| e.to_string())?;
+    Ok(json!({ "ok": true, "url": now.as_str(), "loading": LOADING.load(Ordering::SeqCst), "background": behind }))
 }
 
 /// One entry point for the agent (`browser.<op>` over desktop control) and the
@@ -1437,7 +1515,8 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
         "back" | "forward" => {
             let target = {
                 let mut t = tabs().lock();
-                let tab = t.active.and_then(|id| t.list.iter_mut().find(|x| x.id == id))
+                let id = target_id(&t);
+                let tab = id.and_then(|id| t.list.iter_mut().find(|x| x.id == id))
                     .ok_or_else(|| "browser: no tab is open".to_string())?;
                 if op == "back" {
                     if tab.cursor == 0 { return Ok(json!({ "ok": true, "note": "already at the first page" })); }
