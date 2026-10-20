@@ -27,6 +27,16 @@ export function elapsedLabel(ms: number): string {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
+/** Tools with no kind of their own that still have a plain phrase (running, done). */
+const PHRASES: Record<string, [string, string]> = {
+  // The question card is on screen; "Ask user" read like the app asking itself.
+  ask_user: ['Waiting for your answer', 'Asked you'],
+  context_compaction: ['Making room in this chat', 'Made room in this chat'],
+  todo_write: ['Updating the plan', 'Updated the plan'],
+  cowork_send: ['Messaging a teammate', 'Messaged a teammate'],
+  rlm: ['Starting helpers', 'Started helpers'],
+};
+
 /**
  * What a step did, in words: present tense while it runs, past once it is done
  * ("Searching the web", "Searched the web"). From the tool's kind and name,
@@ -52,15 +62,35 @@ export function stepTitle(a: Pick<ToolActivity, 'tool' | 'kind' | 'status' | 'ar
       return title ? pick(`Working on ${title}`, `Made ${title}`) : pick('Making an artifact', 'Made an artifact');
     }
     default: {
+      const phrase = PHRASES[a.tool];
+      if (phrase) return pick(phrase[0], phrase[1]);
       const name = a.tool.replace(/_/g, ' ');
       return name.charAt(0).toUpperCase() + name.slice(1);
     }
   }
 }
 
+/**
+ * Why a step failed, in plain words. The raw text ("Tool \"read_file\"
+ * short-circuited: circuit_open: too many failures") is still in the step's
+ * widget for whoever opens it; the row is for everyone.
+ */
+export function failureWords(error: string | null | undefined): string {
+  const e = (error ?? '').toLowerCase();
+  if (!e) return 'Did not work';
+  if (e === 'stopped') return 'Stopped';
+  if (e === 'no result') return 'No answer came back';
+  if (/circuit_open|short-circuit/.test(e)) return 'Paused after failing a few times';
+  if (/timed? ?out|timeout|deadline/.test(e)) return 'Took too long';
+  if (/enoent|not found|no such file|404/.test(e)) return 'Not found';
+  if (/eacces|eperm|permission|denied|forbidden|403/.test(e)) return 'Not allowed';
+  if (/econnrefused|enotfound|network|unable to connect|fetch failed/.test(e)) return 'Could not connect';
+  return 'Did not work';
+}
+
 /** The short count on the right of a step ("14 sources"), or what it was about. */
 export function stepDetail(a: ToolActivity): string {
-  if (a.status === 'failed') return a.error ?? 'Failed';
+  if (a.status === 'failed') return failureWords(a.error);
   if (a.hits.length > 0) return plural(a.hits.length, 'source');
   if (a.files.length > 0) return plural(a.files.length, 'file');
   if (a.facts.length > 0) return plural(a.facts.length, 'memory', 'memories');
@@ -68,14 +98,18 @@ export function stepDetail(a: ToolActivity): string {
 }
 
 /**
- * How long the steps took, first start to last end, in whole seconds (at least
- * one). Null when a step never recorded its end, so nothing made up is shown.
+ * What the steps did, as one past-tense sentence: "Searched the web, read a
+ * page". It replaced "Worked for N seconds" with a green check, which timed the
+ * tools only and read as "the answer is done" while the model was still
+ * thinking or writing after them (UX lab, report item 5).
  */
-export function workedSeconds(steps: ToolActivity[]): number | null {
-  if (steps.length === 0 || steps.some((a) => a.endedAt === null)) return null;
-  const start = Math.min(...steps.map((a) => a.startedAt));
-  const end = Math.max(...steps.map((a) => a.endedAt!));
-  return Math.max(1, Math.round((end - start) / 1000));
+export function doneSentence(steps: ToolActivity[]): string {
+  const said = [...new Set(steps.map((a) => stepTitle({ ...a, status: 'done' })))];
+  const shown = said.slice(0, 3).map((s, i) => (i === 0 ? s : s.charAt(0).toLowerCase() + s.slice(1)));
+  const more = said.length - shown.length;
+  const failed = steps.filter((a) => a.status === 'failed').length;
+  return shown.join(', ') + (more > 0 ? `, and ${more} more` : '')
+    + (failed > 0 ? ` (${failed === 1 ? 'one' : failed} did not work)` : '');
 }
 
 function ThinkingText({ text, live }: { text: string; live: boolean }) {
@@ -246,12 +280,12 @@ export function MessageChain({
     const since = steps.length > 0 ? Math.min(...steps.map((a) => a.startedAt)) : null;
     detail = [count, since !== null ? elapsedLabel(now - since) : ''].filter(Boolean).join(' · ');
   } else {
-    const worked = workedSeconds(steps);
     title = steps.length === 0
       ? (thinking !== null ? thinkingLabel(false, durationSec) : 'Helpers')
-      : worked !== null ? `Worked for ${plural(worked, 'second')}` : 'Worked';
+      : doneSentence(steps);
     detail = count;
   }
+  const failed = !streaming && steps.some((a) => a.status === 'failed');
 
   return (
     <Collapsible
@@ -260,14 +294,10 @@ export function MessageChain({
       className="overflow-hidden rounded-2xl border border-border-default bg-bg-surface"
     >
       <CollapsibleTrigger className="flex w-full items-center gap-3 px-3.5 py-2.5 text-left">
-        {streaming ? (
-          <WorkingFigure />
-        ) : (
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-success/15 text-success">
-            <Check size={12} />
-          </span>
-        )}
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{title}</span>
+        {streaming ? <WorkingFigure /> : failed && <AlertTriangle size={16} className="shrink-0 text-warning" />}
+        {/* Done, it is a quiet line of what happened, not a green "finished":
+            the answer may still be arriving below it. */}
+        <span className={cn('min-w-0 flex-1 truncate text-sm', streaming ? 'font-semibold text-text-primary' : 'text-text-muted')}>{title}</span>
         {chips.map((c) => (
           <span key={c} className="shrink-0 rounded-full bg-bg-active px-2 py-0.5 text-2xs font-medium text-brand">{c}</span>
         ))}

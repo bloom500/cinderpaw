@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MessageChain, elapsedLabel, sideChips, stepDetail, stepTitle, workedSeconds } from '../MessageChain';
+import { MessageChain, doneSentence, elapsedLabel, sideChips, stepDetail, stepTitle } from '../MessageChain';
 import type { RlmWorker } from '@/stores/rlmWorkers';
 import { finishActivity, startActivity } from '@/hooks/useLiveToolActivity';
 
@@ -25,14 +25,15 @@ describe('MessageChain (the Activity Strip)', () => {
     const done = finishActivity(search, { ok: true, content: '' });
     rerender(<MessageChain {...props} durationSec={5} steps={[done]} streaming={false} />);
     // Still open while the finished answer lands: folding at once is the old bug.
-    expect(screen.getByText('Searched the web')).toBeInTheDocument();
-    expect(screen.getByText('Worked for 12 seconds')).toBeInTheDocument();
+    // The header and the row both say it: one quiet sentence, no "Worked for".
+    expect(screen.getAllByText('Searched the web')).toHaveLength(2);
+    expect(screen.queryByText(/Worked for/)).not.toBeInTheDocument();
 
     act(() => { vi.advanceTimersByTime(1000); });
-    expect(screen.queryByText('Searched the web')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Searched the web')).toHaveLength(1);
 
-    fireEvent.click(screen.getByText('Worked for 12 seconds'));
-    expect(screen.getByText('Searched the web')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Searched the web'));
+    expect(screen.getAllByText('Searched the web')).toHaveLength(2);
   });
 
   it('shows the reasoning live while the model thinks', () => {
@@ -73,14 +74,18 @@ describe('step words', () => {
     expect(stepDetail({ ...a, hits: [{}, {}, {}] as never })).toBe('3 sources');
     expect(stepDetail({ ...a, hits: [{}] as never })).toBe('1 source');
     expect(stepDetail(a)).toBe('e-bikes');
-    expect(stepDetail({ ...a, status: 'failed', error: 'timed out' })).toBe('timed out');
+    expect(stepDetail({ ...a, status: 'failed', error: 'timed out' })).toBe('Took too long');
+    expect(stepDetail({ ...a, status: 'failed', error: 'Tool "read_file" short-circuited: circuit_open: too many failures' }))
+      .toBe('Paused after failing a few times');
+    expect(stepDetail({ ...a, status: 'failed', error: 'weird thing' })).toBe('Did not work');
   });
 
-  it('times the steps first start to last end, and says nothing it did not measure', () => {
-    const a = { ...startActivity('x', {}), startedAt: 1_000, endedAt: 4_000 };
-    const b = { ...startActivity('y', {}), startedAt: 2_000, endedAt: 43_000 };
-    expect(workedSeconds([a, b])).toBe(42);
-    expect(workedSeconds([a, { ...b, endedAt: null }])).toBeNull();
+  it('sums up finished steps in one past-tense sentence, and says when one failed', () => {
+    const ok = (tool: string) => finishActivity(startActivity(tool, {}), { ok: true });
+    expect(doneSentence([ok('web_search'), ok('read_webpage'), ok('web_search')])).toBe('Searched the web, read a page');
+    expect(doneSentence([ok('web_search'), { ...ok('read_file'), status: 'failed' }])).toBe('Searched the web, read files (one did not work)');
+    expect(doneSentence(['web_search', 'read_file', 'shell_exec', 'recall'].map(ok))).toBe('Searched the web, read files, ran a command, and 1 more');
+    expect(stepTitle(startActivity('ask_user', {}))).toBe('Waiting for your answer');
     expect(elapsedLabel(72_000)).toBe('1m 12s');
   });
 });
@@ -107,7 +112,7 @@ describe('side activities and helpers', () => {
         helpers={[helper({}), helper({ childId: 'w2', name: 'api-reviewer', status: 'completed', endedAt: 40_000 })]} />,
     );
     expect(screen.getByText('1 helper')).toBeInTheDocument();
-    fireEvent.click(screen.getByText(/^Worked for/));
+    fireEvent.click(screen.getByText('Started helpers'));
     const rows = screen.getAllByTestId('strip-helper').map((r) => r.textContent);
     expect(rows).toEqual(['compare prices' + 'working · 1m 12s', 'api reviewer' + 'done · 40s']);
   });
