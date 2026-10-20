@@ -5,6 +5,7 @@ import { StepIntro, OnboardingWizard } from '../OnboardingWizard';
 import { cubbyVoiceUrl } from '@/voice/cubbyVoice';
 import { tauri } from '@/lib/tauri';
 import { useOnboarding } from '@/stores/onboarding';
+import { useModel } from '@/stores/model';
 
 vi.mock('@/voice/cubbyVoice', () => ({ cubbyVoiceUrl: vi.fn(() => '/a.mp3') }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
@@ -37,6 +38,8 @@ describe.each([
 ] as const)('step %i', (step, line) => {
   it(`asks for ${line}`, () => {
     useOnboarding.setState({ active: true, step, userName: 'Ana', agentName: 'Cinderpaw' });
+    // The done line says "we're all set": it plays only when a model will answer.
+    useModel.setState({ cloudModel: { providerId: 'openai', providerName: 'OpenAI', modelId: 'gpt-x' } });
     render(<MemoryRouter><OnboardingWizard /></MemoryRouter>);
     expect(cubbyVoiceUrl).toHaveBeenCalledWith(line);
   });
