@@ -14,12 +14,19 @@ import { cn } from '@/lib/utils';
 
 export function StreamErrorNotice() {
   const status = useChat((s) => s.streamStatus);
-  const raw = useChat((s) => s.streamError);
+  const live = useChat((s) => s.streamError);
+  // The failure saved with the last reply: a chat reopened after an error, or
+  // one you left while it failed, still says what happened.
+  const saved = useChat((s) => {
+    const end = s.messages.at(-1)?.ended;
+    return end?.kind === 'error' ? end.raw : null;
+  });
   const navigate = useNavigate();
   const resend = useResendTurn();
   const [showDetail, setShowDetail] = useState(false);
 
-  if (status !== 'error' || !raw) return null;
+  const raw = status === 'error' && live ? live : status !== 'streaming' ? saved : null;
+  if (!raw) return null;
   const err = humanizeError(raw);
   const hasDetail = !!err.detail && err.detail !== err.message;
 

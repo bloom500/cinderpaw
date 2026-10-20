@@ -8,7 +8,7 @@
 import { useEffect, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import { useChat, type ChatMessage, type MemoryUsedItem, TOOL_CALL_LINGER_MS } from '@/stores/chat';
+import { useChat, type ChatMessage, type MemoryUsedItem, type TurnEnd, TOOL_CALL_LINGER_MS } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
 import { useAgent } from '@/stores/agent';
 import { useModel } from '@/stores/model';
@@ -262,12 +262,19 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         // Built here, next to the mascot's bubbles, because this is the one
         // place that knows which reply a tool event belongs to.
         tools: [] as ToolActivity[],
+        // Set when the person stops the turn or it fails; saved with the reply.
+        ended: undefined as TurnEnd | undefined,
       };
       /**
        * A turn that ends with a tool still open never gets that tool's result.
        * Its widget would spin forever; saying why it stopped is the honest
        * display, the same conclusion the mascot strip draws as `cancelled`.
        */
+      /** How the turn ended, on the reply on screen and in what persistFinal saves. */
+      const markEnded = (end: TurnEnd) => {
+        state.ended = end;
+        if (isActive()) useChat.getState().updateLastAssistantMessage({ ended: end });
+      };
       const settleTools = (why: string) => {
         if (!state.tools.some((a) => a.status === 'running')) return;
         state.tools = state.tools.map((a) =>
@@ -307,6 +314,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
             ? (state.tools.length > 0 ? state.tools : undefined)
             : (m.toolActivity && m.toolActivity.length > 0 ? m.toolActivity : undefined),
           created_at: m.createdAt,
+          ended: m.id === asstId ? state.ended : m.ended,
           }; });
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted, agentId);
@@ -493,6 +501,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           flushTokens();
           settleTools(stopped ? 'stopped' : 'no result');
           endLiveSession(sessionId);
+          if (stopped) markEnded({ kind: 'stopped' });
           if (joinSegments(state.committed, state.answer).trim().length === 0 && finalContent?.trim()) {
             const cleaned = splitThinking(finalContent).answer.trim();
             if (cleaned) {
@@ -515,7 +524,8 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
             // 5s post-done window before clearing the bubble strip.
             setTimeout(() => useChat.getState().clearToolCallStream(), 5000);
           }
-          if (joinSegments(state.committed, state.answer).trim().length > 0) await persistFinal();
+          // A stop before the first word still saves, so the line saying so survives a reload.
+          if (stopped || joinSegments(state.committed, state.answer).trim().length > 0) await persistFinal();
           if (state.toolCallCount > 3 && mascotSink) {
             mascotSink.setMascotState('cool');
           }
@@ -525,6 +535,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           flushTokens();
           settleTools('failed');
           endLiveSession(sessionId);
+          markEnded({ kind: 'error', raw: String(err) });
           if (isActive()) useChat.getState().setStreamStatus('error', err);
           if (mascotSink) mascotSink.setMascotState('error');
           void persistFinal().finally(() => {
@@ -535,6 +546,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           flushTokens();
           settleTools('stopped');
           endLiveSession(sessionId);
+          markEnded({ kind: 'stopped' });
           if (isActive()) useChat.getState().setStreamStatus('stopped');
           void persistFinal().finally(() => {
             useConversations.getState().unmarkStreaming(sessionId);

@@ -55,4 +55,16 @@ describe('StreamErrorNotice', () => {
     expect(e.action).toBe('models');
     expect(humanizeError('HTTP 503 service unavailable').title).toBe('The provider had a problem');
   });
+  it('is still there when the chat is opened again: the error is saved with the reply', () => {
+    // Report item 17: switching chats and back left only a green check.
+    useChat.setState({
+      streamStatus: 'idle', streamError: null,
+      messages: [
+        { id: 'u', role: 'user', content: 'hi', createdAt: 0 },
+        { id: 'a', role: 'assistant', content: '', createdAt: 1, ended: { kind: 'error', raw: 'HTTP 503 service unavailable' } },
+      ],
+    });
+    show();
+    expect(screen.getByText('The provider had a problem')).toBeTruthy();
+  });
 });

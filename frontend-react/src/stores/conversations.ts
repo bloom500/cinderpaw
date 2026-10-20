@@ -3,7 +3,7 @@ import { tauri, type PersistedMessage, type ConversationSummary } from '@/lib/ta
 import { rehydrateLiveSession } from '@/lib/cinderpawLiveSession';
 import { voiceToPersisted, voiceFromPersisted } from '@/lib/messageMapping';
 import { toolsFromPersisted } from '@/hooks/useLiveToolActivity';
-import { useChat, type ChatMessage } from './chat';
+import { turnEndFrom, useChat, type ChatMessage } from './chat';
 import { reportFailure } from './notifications';
 
 export type { ConversationSummary };
@@ -60,6 +60,7 @@ function toChatMessage(p: PersistedMessage, idx: number): ChatMessage {
     // is nullable — a literal null would render as a present-but-empty stat.
     scratch: p.scratch ?? undefined,
     toolActivity: toolsFromPersisted(p.tools),
+    ended: turnEndFrom(p.ended),
     // The real time, when the file has it. The fallback is the old fabricated
     // ladder, kept only for conversations saved before the field existed —
     // those genuinely have no timestamp to restore.
@@ -80,6 +81,7 @@ function toPersisted(m: ChatMessage): PersistedMessage {
     scratch: m.scratch,
     tools: m.toolActivity && m.toolActivity.length > 0 ? m.toolActivity : undefined,
     created_at: m.createdAt,
+    ended: m.ended,
   };
 }
 

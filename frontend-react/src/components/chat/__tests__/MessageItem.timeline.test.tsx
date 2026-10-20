@@ -52,3 +52,14 @@ describe('the artifacts a reply draws as cards', () => {
     expect(screen.queryByRole('button', { name: 'Open An older document' })).toBeNull();
   });
 });
+
+describe('a reply the person stopped', () => {
+  it('says so and offers to try again, even with no text yet', async () => {
+    const onRetry = vi.fn();
+    const message = { id: 's1', role: 'assistant', content: '', createdAt: 0, ended: { kind: 'stopped' } } as unknown as ChatMessage;
+    render(<MemoryRouter><MessageItem message={message} onRetry={onRetry} /></MemoryRouter>);
+    expect(screen.getByText('You stopped this reply.')).toBeTruthy();
+    screen.getAllByRole('button', { name: 'Try again' }).at(-1)!.click();
+    expect(onRetry).toHaveBeenCalled();
+  });
+});

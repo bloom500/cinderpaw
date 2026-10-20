@@ -5,6 +5,15 @@ import type { ToolActivity } from '@/hooks/useLiveToolActivity';
 export type StreamStatus = 'idle' | 'streaming' | 'done' | 'error' | 'stopped';
 export type AgentPhase = 'thinking' | 'calling' | 'processing'
   | 'reading' | 'searching' | 'building' | 'writing' | null;
+export type TurnEnd = { kind: 'stopped' } | { kind: 'error'; raw: string };
+
+/** A saved `ended`, or undefined for anything that is not one (older files, hand edits). */
+export function turnEndFrom(v: unknown): TurnEnd | undefined {
+  const o = v as { kind?: unknown; raw?: unknown } | null | undefined;
+  if (o?.kind === 'stopped') return { kind: 'stopped' };
+  if (o?.kind === 'error' && typeof o.raw === 'string') return { kind: 'error', raw: o.raw };
+  return undefined;
+}
 
 /**
  * One memory the agent was given for a turn (the sidecar's `memory_used`): a
@@ -52,6 +61,13 @@ export interface ChatMessage {
   truncated?: boolean;
   /** Why the response was truncated (e.g. "length"). */
   truncatedReason?: string;
+  /**
+   * How the turn ended when it did not end by itself: the person stopped it,
+   * or it failed (the raw error, worded on screen by humanizeError). Saved
+   * with the chat, so the line and the error card are still there after you
+   * switch chats and come back.
+   */
+  ended?: TurnEnd;
   /**
    * What the agent wrote in its OWN scratchpad (`~/.cinderpaw/workspace`) during
    * this turn. Absent when it wrote nothing there — the common case, and an
