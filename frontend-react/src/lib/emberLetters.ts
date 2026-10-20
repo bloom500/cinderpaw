@@ -17,9 +17,18 @@ import { diffLines } from '@/lib/versionDiff';
  * are plain text again, so a long document does not keep a span per letter.
  */
 
-export const IN_MS = 700;
+/**
+ * How long a letter takes to arrive: as long as about TRAIL_LETTERS take to
+ * come, between MIN_IN_MS and IN_MS. Claude's recording (20 Oct, frame by
+ * frame) settles only the newest word; at a fixed 700 ms a fast model lit
+ * hundreds of letters at once behind our cursor.
+ */
+export const IN_MS = 350;
+const MIN_IN_MS = 160;
+const TRAIL_LETTERS = 40;
 export const OUT_MS = 240;
-const STAGGER_MS = 9;
+/** The pace of a slow model's letters, about 140 a second. */
+const STAGGER_MS = 7;
 /** A chunk's whole stagger, at most: a document that arrives in one piece
  *  (Ollama, Gemini) would otherwise take 9 ms x 10,000 letters to appear. */
 const MAX_CHUNK_MS = 600;
@@ -27,8 +36,11 @@ const MAX_CHUNK_MS = 600;
  *  is never taken away while the last frame is still painting. */
 const SLACK_MS = 50;
 
-/** Source offsets `[from, to)` that arrived at `at`; letter k starts k x `per` ms later. */
-export type Run = { from: number; to: number; at: number; per: number };
+/** Source offsets `[from, to)` that arrived at `at`; letter k starts k x `per` ms later
+ *  and takes `dur` ms (IN_MS when not given). */
+export type Run = { from: number; to: number; at: number; per: number; dur?: number };
+
+const runDur = (per: number) => Math.max(MIN_IN_MS, Math.min(IN_MS, Math.round(per * TRAIL_LETTERS)));
 /** What to animate, as of `now`. `out` are offsets leaving (an edit's old words).
  *  `caret`: where Cinderpaw is writing, drawn as a cursor carrying its name. */
 export type Ember = { runs: Run[]; out?: Array<[number, number]>; now: number; caret?: { at: number; name: string } };
@@ -39,7 +51,8 @@ function caretNode(name: string): ElementContent {
 }
 
 export function chunkRun(from: number, text: string, at: number): Run {
-  return { from, to: from + text.length, at, per: Math.min(STAGGER_MS, MAX_CHUNK_MS / Math.max(1, text.length)) };
+  const per = Math.min(STAGGER_MS, MAX_CHUNK_MS / Math.max(1, text.length));
+  return { from, to: from + text.length, at, per, dur: runDur(per) };
 }
 
 /**
@@ -51,23 +64,30 @@ export function chunkRun(from: number, text: string, at: number): Run {
  */
 export function streamRun(prev: Run | undefined, from: number, text: string, now: number, gap: number): Run {
   const at = prev ? Math.max(now, prev.at + Math.round((prev.to - prev.from) * prev.per)) : now;
-  return { from, to: from + text.length, at, per: Math.min(STAGGER_MS, Math.min(gap, MAX_CHUNK_MS) / Math.max(1, text.length)) };
+  const per = Math.min(STAGGER_MS, Math.min(gap, MAX_CHUNK_MS) / Math.max(1, text.length));
+  return { from, to: from + text.length, at, per, dur: runDur(per) };
+}
+
+/** The letter's animation (delay, length) while it is still animating, else null. */
+function letterAt(runs: Run[], offset: number, now: number): { delay: number; dur: number } | null {
+  for (const r of runs) {
+    if (offset < r.from || offset >= r.to) continue;
+    const delay = Math.round((offset - r.from) * r.per);
+    const dur = r.dur ?? IN_MS;
+    return now - r.at > delay + dur + SLACK_MS ? null : { delay, dur };
+  }
+  return null;
 }
 
 /** The letter's animation delay while it is still animating, else null. */
 export function letterDelay(runs: Run[], offset: number, now: number): number | null {
-  for (const r of runs) {
-    if (offset < r.from || offset >= r.to) continue;
-    const delay = Math.round((offset - r.from) * r.per);
-    return now - r.at > delay + IN_MS + SLACK_MS ? null : delay;
-  }
-  return null;
+  return letterAt(runs, offset, now)?.delay ?? null;
 }
 
 /** When the last letter of these runs has finished (0 for none). */
 export function liveUntil(runs: Run[]): number {
   let end = 0;
-  for (const r of runs) end = Math.max(end, r.at + Math.round(Math.max(0, r.to - r.from - 1) * r.per) + IN_MS);
+  for (const r of runs) end = Math.max(end, r.at + Math.round(Math.max(0, r.to - r.from - 1) * r.per) + (r.dur ?? IN_MS));
   return end;
 }
 
@@ -77,12 +97,12 @@ export function emberActive(e: Ember, from: number, to: number): boolean {
   return e.runs.some((r) => r.from < to && r.to > from && liveUntil([r]) + SLACK_MS > e.now);
 }
 
-type Mark = 'out' | number | null;
+type Mark = 'out' | { delay: number; dur: number } | null;
 type Piece = string | { word: string; letters: Array<[string, Mark]> | null };
 
 function markAt(e: Ember, offset: number): Mark {
   if (e.out?.some(([a, b]) => offset >= a && offset < b)) return 'out';
-  return letterDelay(e.runs, offset, e.now);
+  return letterAt(e.runs, offset, e.now);
 }
 
 /**
@@ -117,7 +137,7 @@ function pieces(value: string, offsetAt: (i: number) => number, e: Ember): Piece
 function letterProps(m: Mark): Properties {
   if (m === 'out') return { className: ['ember-out'] };
   if (m === null) return {};
-  return { className: ['ember-in'], style: `animation-delay:${m}ms` };
+  return { className: ['ember-in'], style: `animation-delay:${m.delay}ms;animation-duration:${m.dur}ms` };
 }
 
 /**
@@ -184,7 +204,7 @@ export function emberText(text: string, e: Ember): ReactNode {
                 createElement('span', {
                   key: n,
                   className: m === 'out' ? 'ember-out' : m === null ? undefined : 'ember-in',
-                  style: typeof m === 'number' ? { animationDelay: `${m}ms` } : undefined,
+                  style: m && m !== 'out' ? { animationDelay: `${m.delay}ms`, animationDuration: `${m.dur}ms` } : undefined,
                 }, ch),
               )
             : p.word,

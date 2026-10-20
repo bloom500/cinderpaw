@@ -3,8 +3,8 @@ import { IN_MS, chunkRun, editRuns, letterDelay, liveUntil, streamRun, type Run 
 
 describe('streamRun', () => {
   it('starts a piece where the letters of the piece before stop', () => {
-    const first = chunkRun(0, 'abcd', 0); // letters start at 0, 9, 18, 27
-    expect(streamRun(first, 4, 'efgh', 10, 10).at).toBe(36);
+    const first = chunkRun(0, 'abcd', 0); // letters start at 0, 7, 14, 21
+    expect(streamRun(first, 4, 'efgh', 10, 10).at).toBe(28);
     expect(streamRun(first, 4, 'efgh', 50, 50).at).toBe(50);
   });
 
@@ -21,14 +21,20 @@ describe('streamRun', () => {
     expect(run.per).toBeCloseTo(40 / 24);
   });
 
-  it('keeps the 9 ms pace when the model writes slowly', () => {
-    expect(streamRun(undefined, 0, 'abc', 0, 500).per).toBe(9);
+  it('keeps a steady 7 ms pace when the model writes slowly', () => {
+    expect(streamRun(undefined, 0, 'abc', 0, 500).per).toBe(7);
+  });
+
+  it('a letter settles while about 40 more arrive: a short trail, never hundreds', () => {
+    expect(streamRun(undefined, 0, 'abc', 0, 500).dur).toBe(280);
+    // 600 letters a second: as short as it goes.
+    expect(streamRun(undefined, 0, 'x'.repeat(24), 0, 40).dur).toBe(160);
   });
 });
 
 describe('chunkRun', () => {
-  it('staggers the letters of one chunk 9 ms apart', () => {
-    expect(chunkRun(0, 'abc', 0)).toEqual({ from: 0, to: 3, at: 0, per: 9 });
+  it('staggers the letters of one chunk 7 ms apart', () => {
+    expect(chunkRun(0, 'abc', 0)).toEqual({ from: 0, to: 3, at: 0, per: 7, dur: 280 });
   });
 
   it('caps a whole document arriving at once, so it settles in about a second', () => {
@@ -48,12 +54,12 @@ describe('letterDelay', () => {
 
   it('new letters animate, each starting a little after the one before', () => {
     expect(letterDelay(runs, 5, 900)).toBe(0);
-    expect(letterDelay(runs, 6, 900)).toBe(9);
+    expect(letterDelay(runs, 6, 900)).toBe(7);
   });
 
   it('keeps a letter delay the same for as long as it animates', () => {
-    const at = [610, 700, 1000, 1300].map((now) => letterDelay(runs, 7, now));
-    expect(new Set(at)).toEqual(new Set([18]));
+    const at = [610, 700, 900].map((now) => letterDelay(runs, 7, now));
+    expect(new Set(at)).toEqual(new Set([14]));
   });
 
   it('knows nothing about text written before the runs', () => {
@@ -63,7 +69,8 @@ describe('letterDelay', () => {
 
 describe('liveUntil', () => {
   it('is when the last letter has finished', () => {
-    expect(liveUntil([chunkRun(0, 'abc', 0)])).toBe(18 + IN_MS);
+    expect(liveUntil([chunkRun(0, 'abc', 0)])).toBe(14 + 280);
+    expect(liveUntil([{ from: 0, to: 1, at: 0, per: 7 }])).toBe(IN_MS);
     expect(liveUntil([])).toBe(0);
   });
 });
