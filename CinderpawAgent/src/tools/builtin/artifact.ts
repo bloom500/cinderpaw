@@ -239,9 +239,9 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       "paragraphs, - lists; it becomes a real A4 PDF the user can sign and fill in the panel).\n\n" +
       "app = " + APP_AUTHORING_BRIEF + " Charts are apps: there is no separate " +
       "chart kind, because a chart is an app with no controls. So are designs (a poster, flyer, " +
-      "invitation, social post or page mockup: laid out with HTML and CSS, keeping its proportions " +
-      "and scaling down to fit the window's width, since the panel can be narrow; system fonts " +
-      "only, since web fonts do not load) and animations (an animated title, logo, explainer " +
+      "invitation, social post or page mockup: load the design_guide tool and read it first, every " +
+      "time; it has the artboard sizes, the skeleton that scales to fit the panel, type, colour and " +
+      "a checklist) and animations (an animated title, logo, explainer " +
       "or loop: it plays by itself and loops, with CSS @keyframes or requestAnimationFrame, never a " +
       "video file). Never answer that you cannot design or animate: make the app.\n\n" +
       "Prefer a board for anything the user will look at rather than read: a plan, a dashboard, a diagram, " +

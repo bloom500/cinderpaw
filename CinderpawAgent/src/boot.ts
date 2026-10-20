@@ -115,6 +115,7 @@ import { createDeleteSkillTool } from "./tools/builtin/delete-skill.ts";
 import { createCapabilityTools } from "./tools/builtin/capability.ts";
 import { createCinderpawAdminTools } from "./tools/builtin/cinderpaw-admin.ts";
 import { createProductInfoTool } from "./tools/builtin/product-info.ts";
+import { createDesignGuideTool } from "./tools/builtin/design-guide.ts";
 import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
@@ -917,6 +918,8 @@ export async function boot(transportOverride?: Transport) {
   // product_info: bundled PRODUCT.md — the agent's factual reference about
   // Cinderpaw itself (setup, connectors, commands). Zero permissions.
   registry.register(createProductInfoTool());
+  // design_guide: bundled DESIGN.md, the brief a poster or post is made from.
+  registry.register(createDesignGuideTool());
 
   // F7 — code-quality tools. Auto-detect project type and run the
   // appropriate command (npm test, cargo test, pytest, go test, make test,
