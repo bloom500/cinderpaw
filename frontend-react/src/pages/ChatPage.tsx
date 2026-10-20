@@ -26,7 +26,6 @@ import { WorkersCard } from '@/components/chat/WorkersCard';
 import { ComposerTip, TEACH_PROMPT } from '@/components/chat/ComposerTip';
 import { AgentsOnboarding } from '@/components/agents/onboarding/AgentsOnboarding';
 import { useOnboarding } from '@/stores/onboarding';
-import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
 import { CoworkTranscriptPanel } from '@/components/chat/CoworkTranscriptPanel';
 import { CoworkerStrip } from '@/components/chat/CoworkerStrip';
 import { useCinderpawSendMessage } from '@/hooks/useCinderpaw';
@@ -294,7 +293,6 @@ export function ChatPage() {
       )}
       {!showAgentOnboarding && <ChatHeader />}
 
-      <CinderpawGlobalMount />
       <AgentOfflineBanner />
       {!showAgentOnboarding && <CoworkerStrip />}
 

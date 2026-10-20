@@ -10,6 +10,7 @@ import { useDreamCycle } from '@/hooks/useDreamCycle';
 import { DownloadStatus } from './DownloadStatus';
 import { SideNav, NAV_W, NAV_COLLAPSED_W } from './SideNav';
 import { SearchOverlay } from '@/components/chat/SearchOverlay';
+import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
 import { UpdateToast } from '@/components/UpdateToast';
 import { WhatsNew } from '@/components/WhatsNew';
 import { AlphaNotice } from '@/components/AlphaNotice';
@@ -83,6 +84,10 @@ export function AppShell() {
   return (
     <div className="app-pane h-screen w-screen relative bg-bg-primary text-text-primary overflow-hidden">
       <SideNav />
+      {/* The engine's own events (ready, stopped, artifacts, scheduled tasks)
+          on every page. It lived in the chat page: on the Artifacts page the
+          list never came back and the gallery loaded for good (20 Oct). */}
+      <CinderpawGlobalMount />
       <WhatsNew />
       {/* pt-14 on main clears the floating nav. The nav is translucent and sits
           over the page by design, but "over" must not mean "on top of the chat
