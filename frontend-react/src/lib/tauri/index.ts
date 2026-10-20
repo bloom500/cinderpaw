@@ -1213,7 +1213,7 @@ const raw = {
   // ships against builds compiled with different features, so it cannot know
   // from its own source whether the local path exists.
   sttLocalAvailable:    () => invoke<boolean>('stt_local_available'),
-  // Fractal Memory Search: fetch the bge-small embedding model (~130 MB) into
+  // Fractal Memory Search: fetch the bge-m3 embedding model (~630 MB) into
   // the models dir. Idempotent — a no-op if already present — so it is safe to
   // fire on startup. Progress streams over `cinderpaw://embedding-download-*`.
   downloadEmbeddingModel:   () =>

@@ -25,8 +25,11 @@ function EmbeddingDownloadBanner({ state }: { state: ReturnType<typeof useEmbedd
       aria-live="polite"
     >
       <Download size={14} className="shrink-0 text-brand animate-pulse" />
+      {/* What, why and how big: "Downloading embedding model 6%" told a stranger
+          none of it while 634 MB came down unasked (UX lab, item 7). The size is
+          bge-m3 Q8_0 (paths::EMBED_FILENAME); change it with the file. */}
       <span>
-        Downloading embedding model… {pct}%
+        Setting up memory, a one-time download (about 630 MB) · {pct}%
       </span>
       {/* `bg-bg-muted` was not a token in tailwind.config.ts — the bg scale has
           `elevated`, `hover` and `active`, and no `muted` — so the class
