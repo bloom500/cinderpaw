@@ -42,7 +42,7 @@ describe("What's new closes only on purpose", () => {
   it('a click outside the card does not close it; Got it does', async () => {
     render(<WhatsNew />);
     useWhatsNew.getState().show();
-    expect(await screen.findByText('Feral has a new name')).toBeTruthy();
+    expect(await screen.findByText('Calmer, and it asks first')).toBeTruthy();
     await tick();
     fireEvent.pointerDown(document.body);
     fireEvent.mouseDown(document.body);
@@ -55,7 +55,7 @@ describe("What's new closes only on purpose", () => {
   it("for someone who updated: What's new holds the notice turn until it is closed", async () => {
     useWhatsNew.setState({ due: null });
     render(<MemoryRouter><WhatsNew /></MemoryRouter>);
-    expect(await screen.findByText('Feral has a new name')).toBeTruthy();
+    expect(await screen.findByText('Calmer, and it asks first')).toBeTruthy();
     expect(useAttention.getState().holder).toBe('whatsNew');
     fireEvent.click(screen.getByRole('button', { name: 'Got it' }));
     await new Promise((r) => setTimeout(r, 0));

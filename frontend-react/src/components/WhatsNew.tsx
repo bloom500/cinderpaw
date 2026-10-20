@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
-import { Brain, FileText, Globe, LogIn, Moon, Phone, type LucideIcon } from 'lucide-react';
+import { Download, Layers, Lightbulb, ShieldCheck, Sparkles, Zap, type LucideIcon } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { useOnboarding } from '@/stores/onboarding';
 import { readLocal, writeLocal } from '@/lib/utils';
@@ -29,20 +29,22 @@ const SEEN_KEY = 'cinderpaw.whatsNew.seen';
 export const WHATS_NEW_DECIDE_MS = 3_000;
 
 const RELEASE: { id: string; hero: string; picture: string; title: string; subtitle: string; items: { icon: LucideIcon; title: string; body: string }[] } = {
-  id: '2026-09-cinderpaw',
+  id: '2026-10-mycena',
   hero: 'Cinderpaw',
-  // The release's picture, the same one the site's hero and share card use
-  // (cinderpaw.dev lib/releases.ts). Bundled, so it shows offline.
-  picture: '/releases/2026-09-moth.webp',
-  title: 'Feral has a new name',
-  subtitle: 'And it can do a lot more. Here is what changed.',
+  // Each big release gets its own science picture (Darius, 20 Oct): glowing
+  // Mycena mushrooms over the mycelium that links them, picked from Google
+  // Flow. Bundled, so it shows offline. The site's release page should carry
+  // the same picture (cinderpaw.dev lib/releases.ts).
+  picture: '/releases/2026-10-mycena.webp',
+  title: 'Calmer, and it asks first',
+  subtitle: 'This update is about trust: you see what it may do, and it tells you what it found.',
   items: [
-    { icon: Globe, title: 'A browser inside the app', body: 'Cinderpaw can open websites next to your chat and use them for you. You can watch it work, and one click pauses it.' },
-    { icon: FileText, title: 'Documents it makes, kept for you', body: 'Reports, PDFs, Word and Excel files it writes stay in Artifacts, even after the chat ends.' },
-    { icon: Phone, title: 'Talk to it out loud', body: 'Press the phone button and have a real conversation, even while you use other apps.' },
-    { icon: Brain, title: 'It remembers what matters', body: 'It uses what you told it before to answer better. You can make it forget anything.' },
-    { icon: LogIn, title: 'Easier to start', body: 'Sign in with OpenRouter in one click. No keys to copy and paste.' },
-    { icon: Moon, title: 'It practices while you are away', body: 'It tries small improvements on its own and keeps only what works. You choose how much it may spend.' },
+    { icon: ShieldCheck, title: 'You choose what it may do', body: 'Under the message box: look only, edit files, or full access. Each one says in plain words what it means.' },
+    { icon: Lightbulb, title: 'It tells you what matters', body: 'While it works, Cinderpaw can point out something you should know. Say you knew it, and it flags less.' },
+    { icon: Sparkles, title: 'It asks before it changes itself', body: 'After it practices, it shows the change it wants as before and after. You say yes or no, and you can undo it.' },
+    { icon: Layers, title: 'One thing at a time', body: 'Notices no longer pile up on the screen. They come one by one, the most important first.' },
+    { icon: Download, title: 'A quieter first start', body: 'The big memory download now waits until after your first answer, instead of starting the moment you open the app.' },
+    { icon: Zap, title: 'Steadier everywhere', body: 'Messages you queue, chats you switch and waits for the provider no longer get lost or mixed up.' },
   ],
 };
 
