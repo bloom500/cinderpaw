@@ -717,6 +717,13 @@ export interface InferenceRequest {
    */
   signal?: AbortSignal;
   /**
+   * Hard pre-request USD authority for autonomous/background inference.
+   * Foreground chat leaves this absent. The router reserves against every
+   * possible target before fetch, settles provider-reported usage afterward,
+   * and combines the authority's AbortSignal with the request signal.
+   */
+  spendAuthority?: import("./egress/inference-spend-authority.ts").InferenceSpendAuthority;
+  /**
    * When provided, the router streams tokens from the provider and calls this
    * callback for each partial token as it arrives. The full assembled content
    * is still returned in InferenceResponse at the end.
@@ -1273,6 +1280,8 @@ export interface InboundMessage {
   // type of its own rather than a flag on that one.
   type: "message" | "record_turn" | "ping" | "shutdown" | "set_model" | "stop"
     | "ask_user_response" | "ask_user_cancel"
+    // The person's answer to a heads_up card (tools/builtin/heads-up.ts).
+    | "heads_up_answer"
     // The host returning the result of a tool IT owns, paired to the
     // `tool_request` event by `requestId`. Carries `content` on success or
     // `error` on failure; see core/host-tool-bridge.ts.
@@ -1349,6 +1358,9 @@ export interface InboundMessage {
     // Faza 6 (L6) Meta Evolution — the host queries/drives the MetaGenome
     // engine; the sidecar replies with one `meta_result` paired by `id`.
     | "meta_status" | "meta_evolve" | "meta_rollback" | "meta_history"
+    // The L6 chat card: fetch the waiting proposal, or answer it. The
+    // proposal id rides the plain `id` field.
+    | "meta_proposal" | "meta_approve" | "meta_deny"
     // Slice A5 (L5 Governance) — host drives the policy FSM through the
     // `GovernanceLifecycle` (see `rsi/governance-lifecycle.ts`). Nine ops,
     // all reply with one `governance_result` paired by `id`. The transport
@@ -1420,6 +1432,8 @@ export interface InboundMessage {
   rsiGoal?: string;
   rsiMaxIterations?: number;
   rsiMaxTotalTokens?: number;
+  /** Explicit USD cap for the RSI run; independent from the token cap. */
+  rsiMaxTotalCostUsd?: number;
   rsiConcurrency?: number;
   /** RSI set_concurrency payload (type === "rsi_set_concurrency"). */
   rsiNewConcurrency?: number;
@@ -1549,6 +1563,9 @@ export interface InboundMessage {
    *  Rust API lazily re-load the multi-GB model the unload just released.
    *  Absent = unknown; the sidecar keeps its boot-time behaviour. */
   localFallbackAvailable?: boolean;
+  /** heads_up_answer: the card answered (its `data.headsUp.id`) and how. */
+  headsUpId?: string;
+  headsUpChoice?: "more" | "knew" | "dismiss";
   // ask_user_response fields (all present when type === "ask_user_response")
   /** Matches the id of the original "ask_user" outbound event. */
   requestId?: string;
@@ -1975,6 +1992,8 @@ export type OutboundEvent =
   // Faza 6 (L6) Meta Evolution reply — payload shape depends on `op`
   // (status/evolve/rollback/history); `ok:false` carries a `reason`.
   | { type: "meta_result"; id: string; op: string; ok: boolean; [key: string]: unknown }
+  // The L6 change waiting for a person in chat; null when there is none.
+  | { type: "meta_proposal"; proposal: import("./rsi/l6-meta/meta-evolution.ts").MetaProposal | null }
   // /compact reply — `result` is "compacted" or "not needed"; `error` set
   // when the summarizer itself failed (ok=false).
   | { type: "compact_result"; id: string; ok: boolean; result?: string; error?: string }

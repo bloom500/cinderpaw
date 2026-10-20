@@ -298,9 +298,11 @@ export interface CodePatchResolvedLine {
 export interface MetaResultLine {
   type: 'meta_result';
   id: string;
-  op: 'status' | 'evolve' | 'rollback' | 'history';
+  op: 'status' | 'evolve' | 'rollback' | 'history' | 'approve' | 'deny';
   ok: boolean;
   reason?: string;
+  /** approve/deny: the card was out of date, so nothing changed. */
+  stale?: boolean;
   generation?: number;
   genome?: Record<string, number>;
   pendingCandidate?: boolean;
@@ -314,6 +316,30 @@ export interface MetaResultLine {
     reason: string;
     timestamp: number;
   }>;
+}
+
+/** One L6 change waiting for a person in chat. Mirrors `MetaProposal` in
+ *  `CinderpawAgent/src/rsi/l6-meta/meta-evolution.ts`. */
+export interface MetaProposal {
+  id: string;
+  kind: 'change' | 'undo';
+  field: 'mutation_rate' | 'exploration' | 'confidence_gate' | 'dream_batch' | 'selection_pressure';
+  from: number;
+  to: number;
+  settled: 'accepted' | 'rejected' | 'bootstrap';
+  score: number;
+  baselineScore: number | null;
+  cycles: number;
+  generation: number;
+  seed: number;
+  createdAt: number;
+}
+
+/** The L6 chat card's state: sent after a dream that made one, on request,
+ *  and after every answer. `proposal: null` means no card. */
+export interface MetaProposalLine {
+  type: 'meta_proposal';
+  proposal: MetaProposal | null;
 }
 
 /** Slice A6 (L5 Governance) reply. `op` says which request it answers;
@@ -669,6 +695,25 @@ export const events = {
             (parsed as Record<string, unknown>)['type'] === 'meta_result'
           ) {
             cb(parsed as MetaResultLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
+  /** The L6 chat card (`meta_proposal`): request it with `tauri.rsi.meta('proposal')`. */
+  onMetaProposal: {
+    listen: (cb: (e: MetaProposalLine) => void): Promise<UnlistenFn> =>
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'meta_proposal'
+          ) {
+            cb(parsed as MetaProposalLine);
           }
         } catch {
           // non-JSON sidecar lines — ignore

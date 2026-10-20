@@ -713,6 +713,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             get_local_api_token,
             get_local_api_port,
             cinderpaw_ask_user_response,
+            cinderpaw_heads_up_answer,
             cinderpaw_ask_user_cancel,
             get_onboarding_record,
             set_onboarding_record,

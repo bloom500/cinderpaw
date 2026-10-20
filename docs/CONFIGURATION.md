@@ -198,6 +198,7 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_BUDGET_CONVERSATION` | int | `5_000_000` |  | Per-conversation completion-token ceiling. |
 | `CINDERPAW_BUDGET_DAY` | int | `50_000_000` |  | Per-day total-token ceiling (prompt plus completion). |
 | `CINDERPAW_RSI_MAX_COST_USD` | string | `null` |  | RSI background USD cap (float). Unset = local-only. |
+| `CINDERPAW_AUTONOMOUS_PRICING_JSON` | string | `null` |  | JSON array of exact provider/model/baseUrl price records for autonomous cloud inference, with inputPerMillionUsd/outputPerMillionUsd and optional cacheReadPerMillionUsd/cacheWritePerMillionUsd. Unknown or malformed routes fail closed. |
 | `CINDERPAW_CLOUD_TRANSCRIPT_BUDGET` | int | `200_000` |  | Cloud-specific transcript-size budget (AgentLoop.CLOUD_TRANSCRIPT_BUDGET fallback). |
 | `CINDERPAW_TTFT_DEADLINE_MS` | int | `null` |  | Time-to-first-token cap (perf-policy.ts, positive int only). |
 | `CINDERPAW_TOTAL_DEADLINE_MS` | int | `null` |  | Whole-completion cap. |
@@ -370,6 +371,7 @@ CINDERPAW_API_TOKEN
 CINDERPAW_API_URL
 CINDERPAW_ATTACHMENT_MAX_CHARS
 CINDERPAW_AUTONOMOUS
+CINDERPAW_AUTONOMOUS_PRICING_JSON
 CINDERPAW_BASE_URL
 CINDERPAW_BENCHMARK_ALLOW_HOSTS
 CINDERPAW_BENCHMARK_RUN_ID

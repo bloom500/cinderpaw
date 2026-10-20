@@ -181,6 +181,9 @@ export interface ConnectorField { key: string; label: string; secret: boolean }
 
 /** A pairing in flight. Public values only — what to type and where. The
  *  device code is a credential and never crosses this boundary. */
+/** Ops of `cinderpaw_meta` (L6): the panel's four, plus the chat card's three. */
+export type MetaOp = 'status' | 'evolve' | 'rollback' | 'history' | 'proposal' | 'approve' | 'deny';
+
 export type ConnectorAuthState = {
   kind: 'waiting_for_user';
   user_code: string;
@@ -1039,8 +1042,10 @@ const raw = {
   rsiDreamNow:        () => invoke<void>('cinderpaw_dream_now'),
   // Faza 6 (L6) Meta Evolution — fire-and-forget; the sidecar replies async
   // via a `meta_result` event (handled by `events.onMetaResult`).
-  cinderpawMeta:          (op: 'status' | 'evolve' | 'rollback' | 'history') =>
-    invoke<void>('cinderpaw_meta', { op }),
+  // `proposal` / `approve` / `deny` are the L6 chat card; approve and deny
+  // name the card they answer, so an out-of-date card changes nothing.
+  cinderpawMeta:          (op: MetaOp, proposalId?: string) =>
+    invoke<void>('cinderpaw_meta', { op, proposalId: proposalId ?? null }),
   // Slice A6 (L5 Governance) — fire-and-forget; the sidecar replies async
   // via a `governance_result` event (handled by `events.onGovernanceResult`).
   cinderpawGovernance:    (op: 'status' | 'verify' | 'approve' | 'reject', policyId?: string, reason?: string) =>
@@ -1407,8 +1412,8 @@ export const tauri = {
     dreamNow:        async () => raw.rsiDreamNow(),
     /** Faza 6 (L6) Meta Evolution — status / evolve / rollback / history.
      *  Reply arrives async via `events.onMetaResult`. */
-    meta:            async (op: 'status' | 'evolve' | 'rollback' | 'history') =>
-      raw.cinderpawMeta(op),
+    meta:            async (op: MetaOp, proposalId?: string) =>
+      raw.cinderpawMeta(op, proposalId),
     /** Slice A6 (L5 Governance) — safety-rules card + approval inbox.
      *  Reply arrives async via `events.onGovernanceResult`. */
     governance:      async (op: 'status' | 'verify' | 'approve' | 'reject', args?: { policyId?: string; reason?: string }) =>

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { AnthropicProvider, anthropicSampling } from "../src/egress/inference-providers";
+import { AnthropicProvider, anthropicEffort, anthropicSampling, openAIReasoning } from "../src/egress/inference-providers";
 import type { InferenceRequest, ModelTarget } from "../src/types";
 
 const realFetch = globalThis.fetch;
@@ -23,6 +23,40 @@ describe("anthropicSampling", () => {
       "claude-opus-4-7", "claude-opus-4-8", "claude-fable-5-1", "claude-something-next", "claude-5-5", "claude-4"]) {
       expect(anthropicSampling(target(m), req)).toEqual({});
     }
+  });
+});
+
+describe("reasoning effort reaches only an API that takes it", () => {
+  const withEffort = { ...req, reasoningEffort: "low" } as InferenceRequest;
+
+  test("Claude models with an effort setting get output_config.effort", () => {
+    for (const m of ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5",
+      "claude-fable-5-1", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6", "claude-opus-4-5"]) {
+      expect(anthropicEffort(target(m), withEffort)).toEqual({ output_config: { effort: "low" } });
+    }
+  });
+
+  test("older and unknown Claude models get none, since effort is a 400 there", () => {
+    for (const m of ["claude-haiku-4-5", "claude-sonnet-4-5-20250929", "claude-opus-4-1-20250805",
+      "claude-3-5-haiku-20241022", "claude-something-next"]) {
+      expect(anthropicEffort(target(m), withEffort)).toEqual({});
+    }
+  });
+
+  test("no effort asked, nothing sent", () => {
+    expect(anthropicEffort(target("claude-haiku-5-5"), req)).toEqual({});
+  });
+
+  test("the OpenAI-shaped reasoning field goes to OpenRouter and local servers only", () => {
+    const t = (baseUrl: string): ModelTarget => ({ provider: "openai", model: "m", baseUrl, apiKey: "k" });
+    expect(openAIReasoning(t("https://openrouter.ai/api/v1"), withEffort)).toEqual({ reasoning: { effort: "low" } });
+    expect(openAIReasoning(t("http://127.0.0.1:11435/v1"), withEffort)).toEqual({ reasoning: { effort: "low" } });
+    // OpenAI itself refuses an unknown `reasoning` argument with a 400, and a
+    // champion carrying an effort would have broken every chat on it.
+    expect(openAIReasoning(t("https://api.openai.com/v1"), withEffort)).toEqual({});
+    expect(openAIReasoning(t("https://api.groq.com/openai/v1"), withEffort)).toEqual({});
+    const capped = { ...req, reasoningMaxTokens: 512 } as InferenceRequest;
+    expect(openAIReasoning(t("https://openrouter.ai/api/v1"), capped)).toEqual({ reasoning: { max_tokens: 512 } });
   });
 });
 

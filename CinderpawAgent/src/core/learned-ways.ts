@@ -49,7 +49,7 @@ export function defaultLearnedWaysPath(): string {
 }
 
 /** Bookkeeping, not work: a way made of these teaches nothing. */
-const NOT_A_STEP = new Set(["todo_write", "suggest_skill", "list_skills", "read_skill", "recall", "ask_user"]);
+const NOT_A_STEP = new Set(["todo_write", "suggest_skill", "list_skills", "read_skill", "recall", "ask_user", "heads_up"]);
 const MAX_STEPS = 12;
 // ponytail: plain Jaccard over words of 3+ letters. Embeddings when a fresh
 // install is guaranteed one; until then this is the matcher that always runs.

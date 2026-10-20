@@ -125,11 +125,11 @@ describe("assertCanSpend — partial estimate", () => {
     expect(d.allow).toBe(true); // tokens at 99k < 100k cap; wallClock within cap
   });
 
-  test("empty object estimate (all undefined) → allow with no breaches", () => {
+  test("an already-breached ledger is denied even when the next estimate has no fields", () => {
     const spent: BudgetSpend = { ...zeroSpend(), tokens: 999_999 };
     const d = assertCanSpend(DEFAULT_BUDGET_CAPS, spent, "evaluate", {});
-    expect(d.allow).toBe(true);
-    expect(d.breaches).toHaveLength(0);
+    expect(d.allow).toBe(false);
+    expect(d.breaches.map((breach) => breach.resource)).toContain("tokens");
   });
 });
 

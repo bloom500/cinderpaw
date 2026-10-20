@@ -143,7 +143,9 @@ mod command_count_test {
     // 195 -> 196 = + get_local_api_port (the UI follows the local API to the
     // port it really bound, 20 Oct 2026).
     // 196 -> 197 = + set_permission_mode (the mode under the composer, 20 Oct 2026).
-    const EXPECTED_COMMAND_COUNT: usize = 197;
+    // 197 -> 198 = + cinderpaw_heads_up_answer (heads_up cards, 19 Oct 2026,
+    // merged from fix/brsi-real-rsi on 20 Oct).
+    const EXPECTED_COMMAND_COUNT: usize = 198;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

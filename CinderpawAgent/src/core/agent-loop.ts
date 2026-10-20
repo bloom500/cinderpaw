@@ -487,7 +487,12 @@ export class AgentLoop {
    * gets a better-tuned agent over time without touching any config.
    * Set by `applyChampionParams` (on RSI ratchet + at boot).
    */
-  #championParams: { temperature?: number; maxTokens?: number; systemPromptAddendum?: string } = {};
+  #championParams: {
+    temperature?: number;
+    maxTokens?: number;
+    systemPromptAddendum?: string;
+    reasoningEffort?: "low" | "medium" | "high";
+  } = {};
   /**
    * Cached GBNF tool-call grammar, built once from the registry's tool names.
    * Null when grammar is disabled or there are no tools. See `tool-grammar.ts`.
@@ -867,6 +872,7 @@ export class AgentLoop {
     temperature?: number;
     maxTokens?: number;
     systemPromptAddendum?: string;
+    reasoningEffort?: "low" | "medium" | "high";
   }): void {
     this.#championParams = { ...params };
   }
@@ -2536,6 +2542,11 @@ export class AgentLoop {
         nativeTools,
         // A3 regression fix: native tool definitions for OpenAI-compatible providers.
         openAITools,
+        // The RSI champion's effort; the provider sends it only where the API
+        // takes it (inference-providers.ts anthropicEffort / openAIReasoning).
+        ...(this.#championParams.reasoningEffort
+          ? { reasoningEffort: this.#championParams.reasoningEffort }
+          : {}),
         ...grammarFields,
       };
       if (routeTargets) {

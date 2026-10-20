@@ -201,13 +201,16 @@ pub(crate) async fn cinderpaw_run_fractal_benchmark(state: State<'_, AppState>) 
 /// Faza 6 (L6) Meta Evolution: drive the sidecar's MetaGenome engine.
 /// Fire-and-forget like the other RSI commands — the sidecar replies with one
 /// `meta_result` line forwarded over `cinderpaw://agent-output`.
+/// `proposal` / `approve` / `deny` are the chat card; approve and deny name
+/// the card they answer in `proposal_id`, so an out-of-date card changes nothing.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cinderpaw_meta(state: State<'_, AppState>, op: String) -> Result<(), String> {
-    if !matches!(op.as_str(), "status" | "evolve" | "rollback" | "history") {
-        return Err(format!("invalid meta op '{op}'"));
-    }
-    let msg = serde_json::json!({ "type": format!("meta_{op}") }).to_string();
+pub(crate) async fn cinderpaw_meta(
+    state: State<'_, AppState>,
+    op: String,
+    proposal_id: Option<String>,
+) -> Result<(), String> {
+    let msg = meta_message(&op, proposal_id.as_deref())?;
     let tx = {
         let guard = state.cinderpaw_agent_tx.lock();
         guard
@@ -217,6 +220,22 @@ pub(crate) async fn cinderpaw_meta(state: State<'_, AppState>, op: String) -> Re
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// The sidecar line for one meta op, or why it is refused.
+fn meta_message(op: &str, proposal_id: Option<&str>) -> Result<String, String> {
+    match op {
+        "status" | "evolve" | "rollback" | "history" | "proposal" => {
+            Ok(serde_json::json!({ "type": format!("meta_{op}") }).to_string())
+        }
+        "approve" | "deny" => {
+            let id = proposal_id
+                .filter(|id| !id.trim().is_empty())
+                .ok_or_else(|| format!("meta {op} needs the id of the card it answers"))?;
+            Ok(serde_json::json!({ "type": format!("meta_{op}"), "id": id }).to_string())
+        }
+        _ => Err(format!("invalid meta op '{op}'")),
+    }
 }
 
 /// Slice A6 (L5 Governance) — drive the sidecar's GovernanceLifecycle from
@@ -796,6 +815,45 @@ pub(crate) async fn cinderpaw_ask_user_response(
     Ok(())
 }
 
+/// The person's answer to a `heads_up` card ("Learn more", "I already knew
+/// this", "Dismiss"). Fire-and-forget: the agent never waits on it, the sidecar
+/// only uses "knew" to flag less of the obvious in that chat.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cinderpaw_heads_up_answer(
+    state: State<'_, AppState>,
+    session_id: String,
+    heads_up_id: String,
+    choice: String,
+) -> Result<(), String> {
+    let line = heads_up_answer_line(&session_id, &heads_up_id, &choice)?;
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(line).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn heads_up_answer_line(session_id: &str, heads_up_id: &str, choice: &str) -> Result<String, String> {
+    if !matches!(choice, "more" | "knew" | "dismiss") {
+        return Err(format!("invalid heads-up choice '{choice}'"));
+    }
+    if heads_up_id.trim().is_empty() {
+        return Err("a heads-up answer needs the card's id".to_string());
+    }
+    Ok(serde_json::json!({
+        "type": "heads_up_answer",
+        "sessionId": session_id,
+        "headsUpId": heads_up_id,
+        "headsUpChoice": choice,
+    })
+    .to_string())
+}
+
 /// Cancel a pending `ask_user` request (user clicked Skip, or the UI is
 /// tearing down). The sidecar calls `AskUserBridge.cancel(id, reason)`
 /// which rejects the tool's `await ctx.askUser.ask(...)` with the
@@ -818,4 +876,37 @@ pub(crate) async fn cinderpaw_ask_user_cancel(
     };
     tx.send(line).await.map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod meta_tests {
+    use super::meta_message;
+
+    #[test]
+    fn card_answers_carry_the_card_id_and_need_one() {
+        let v: serde_json::Value = serde_json::from_str(&meta_message("approve", Some("gen-3-42")).unwrap()).unwrap();
+        assert_eq!(v["type"], "meta_approve");
+        assert_eq!(v["id"], "gen-3-42");
+        assert!(meta_message("deny", None).is_err());
+        assert!(meta_message("deny", Some("  ")).is_err());
+    }
+
+    #[test]
+    fn heads_up_answers_name_the_card_and_a_known_choice() {
+        let v: serde_json::Value =
+            serde_json::from_str(&super::heads_up_answer_line("s1", "card-1", "knew").unwrap()).unwrap();
+        assert_eq!(v["type"], "heads_up_answer");
+        assert_eq!(v["headsUpId"], "card-1");
+        assert_eq!(v["headsUpChoice"], "knew");
+        assert!(super::heads_up_answer_line("s1", "card-1", "maybe").is_err());
+        assert!(super::heads_up_answer_line("s1", " ", "dismiss").is_err());
+    }
+
+    #[test]
+    fn plain_ops_pass_and_unknown_ops_are_refused() {
+        let v: serde_json::Value = serde_json::from_str(&meta_message("proposal", None).unwrap()).unwrap();
+        assert_eq!(v["type"], "meta_proposal");
+        assert!(meta_message("status", None).is_ok());
+        assert!(meta_message("wipe", None).is_err());
+    }
 }

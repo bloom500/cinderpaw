@@ -75,6 +75,8 @@ export const ALWAYS_TOOLS: readonly string[] = [
   // The chat's widgets (facts, checklist, table, ...): an answer of any intent
   // can want one, and a drawer round trip would make the model skip it.
   "show_widget",
+  // "Something you should know": found mid-task, in any kind of task.
+  "heads_up",
 ];
 
 /**
