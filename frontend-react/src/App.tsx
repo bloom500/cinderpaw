@@ -2,11 +2,12 @@ import { useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
 import { Download } from 'lucide-react';
 import { router } from './router';
-import { tauri, events } from './lib/tauri';
+import { events } from './lib/tauri';
 import { useEmbeddingDownloadStatus } from '@/hooks/useEmbeddingDownloadStatus';
 import { useNotifications } from '@/stores/notifications';
 import { useModel } from '@/stores/model';
 import { useConversations } from '@/stores/conversations';
+import { useDeferredMemoryModel } from '@/hooks/useDeferredMemoryModel';
 import { useUiSounds } from '@/hooks/useUiSounds';
 
 /**
@@ -71,11 +72,7 @@ export default function App() {
     );
   }, [embedding.kind]);
 
-  // Tell the host process we're here; surfaces download progress / errors
-  // in the right place. (Idempotent — no-op when the model is already on disk.)
-  useEffect(() => {
-    void tauri.raw.downloadEmbeddingModel().catch(() => {});
-  }, []);
+  useDeferredMemoryModel();
 
   // Auto-reload: when the Rust startup task finishes loading the last model,
   // it emits model-load-progress at 100% while isLoading=false. Sync the store.
