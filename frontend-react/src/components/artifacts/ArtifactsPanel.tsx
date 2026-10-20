@@ -97,8 +97,11 @@ export function ArtifactsPanel({
   onAsk,
   onCompose,
   onAttach,
+  compact = false,
 }: {
   onClose: () => void;
+  /** The row is too narrow for chat + panel: the panel takes all of it. */
+  compact?: boolean;
   /** Put a question about this artifact into the chat input. */
   onAsk?: (row: ArtifactRow) => void;
   /** Context tab: fill the composer (Links and Memory "Add"). */
@@ -161,7 +164,7 @@ export function ArtifactsPanel({
       initial={{ x: 32, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: 32, opacity: 0 }}
-      style={{ width }}
+      style={compact ? undefined : { width }}
       transition={{ duration: 0.16, ease: 'easeOut' }}
       onAnimationComplete={() => {
         if (!entered.current) {
@@ -174,13 +177,14 @@ export function ArtifactsPanel({
         // panel gives way down to its minimum rather than pushing the chat off.
         // The boards draw the panel as a card of its own, lifted off the window's
         // edges; mt-10 keeps it under the window's close/maximize/minimize.
-        'relative mb-3 mr-3 mt-10 flex min-w-[320px] shrink flex-col overflow-hidden rounded-3xl border border-border-default bg-bg-surface shadow-xl',
+        'relative mb-3 mr-3 mt-10 flex shrink flex-col overflow-hidden rounded-3xl border border-border-default bg-bg-surface shadow-xl',
+        compact ? 'ml-3 min-w-0 flex-1' : 'min-w-[320px]',
         // The frame is another document: without this, crossing it mid-drag
         // hands the pointer to the page inside and the drag stops.
         dragging && '[&_iframe]:pointer-events-none select-none',
       )}
     >
-      <div
+      {!compact && <div
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize artifacts panel"
@@ -209,7 +213,7 @@ export function ArtifactsPanel({
           writeLocal(WIDTH_KEY, String(next));
         }}
         className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize hover:bg-brand/40 focus-visible:bg-brand/40 focus-visible:outline-hidden"
-      />
+      />}
       {/* pt-6: the window's own close/maximize/minimize sit fixed at the top-right
           of the whole app (32px tall), and this panel is the rightmost thing on
           screen. Without it the panel's close button sat almost on the window's. */}

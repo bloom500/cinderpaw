@@ -231,6 +231,16 @@ describe('resizing and the live frame', () => {
     for (let i = 0; i < 100; i++) fireEvent.keyDown(edge, { key: 'ArrowRight' });
     expect(Number(edge.getAttribute('aria-valuenow'))).toBe(320);
   });
+
+  it('a narrow row: the panel takes all of it, with no edge and no fixed width', () => {
+    // 900 px window, sidebar open: ~604 px left, chat 448 + panel 320 cannot sit side by side.
+    const { container } = render(<ArtifactsPanel compact onClose={() => {}} />);
+    expect(screen.queryByRole('separator', { name: 'Resize artifacts panel' })).toBeNull();
+    const aside = container.querySelector('aside')!;
+    expect(aside.style.width).toBe('');
+    expect(aside.className).toContain('flex-1');
+    expect(aside.className).not.toContain('min-w-[320px]');
+  });
 });
 
 describe('live edits', () => {

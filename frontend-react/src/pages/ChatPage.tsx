@@ -18,6 +18,7 @@ import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput';
 import { ArtifactsPanel } from '@/components/artifacts/ArtifactsPanel';
 import { useArtifacts } from '@/stores/artifacts';
 import { useBrowser } from '@/stores/browser';
+import { cn } from '@/lib/utils';
 import { BrowserPanel } from '@/components/browser/BrowserPanel';
 import { NewChatEmptyState } from '@/components/chat/EmptyStates';
 import { AgentOfflineBanner } from '@/components/chat/AgentOfflineBanner';
@@ -103,6 +104,10 @@ export function ChatPage() {
   const panelOpen       = useArtifacts((s) => s.panelOpen);
   const togglePanel     = useArtifacts((s) => s.togglePanel);
   const browserOpen     = useBrowser((s) => s.panelOpen);
+  const artifactsOnly   = compact && panelOpen && !browserOpen;
+  // Words or files put into the composer from the panel: narrow, the composer
+  // is hidden behind the panel, so the panel steps aside to show them.
+  const backToChat = () => { if (artifactsOnly) togglePanel(); };
   const preferredBrowserWide = useBrowser((s) => s.wide);
   const browserWide = preferredBrowserWide || compact;
   const browserChatOpen = useBrowser((s) => s.chatOpen);
@@ -298,7 +303,9 @@ export function ChatPage() {
   // panels or, in the browser's wide mode, inside the panel's own drawer,
   // without two copies of it in the tree.
   const chatColumn = (
-    <div className={cn('flex flex-col h-full flex-1', compact ? 'min-w-0' : 'min-w-[28rem]')}>
+    // Narrow, the artifacts panel takes the whole row; the chat stays mounted
+    // (hidden) so its draft, queue and composer ref survive the switch.
+    <div className={cn('flex flex-col h-full flex-1', compact ? 'min-w-0' : 'min-w-[28rem]', artifactsOnly && 'hidden')}>
       {showAgentOnboarding && !wizardActive && (
         <AgentsOnboarding
           onDone={() => setShowAgentOnboarding(false)}
@@ -448,20 +455,24 @@ export function ChatPage() {
         {panelOpen && !browserOpen && (
           <ArtifactsPanel
             key="artifacts-panel"
+            compact={compact}
             onClose={togglePanel}
             // Not "send this to the agent": it fills the composer and leaves the
             // person holding the sentence, so they can say what they actually
             // want before spending a turn.
             onAsk={(row) => {
+              backToChat();
               chatInputRef.current?.setText(`About the artifact "${row.title}" (${row.id}): `);
-              chatInputRef.current?.focus();
+              setTimeout(() => chatInputRef.current?.focus());
             }}
             // Context's "Add": the same two gestures, words or files into the
             // composer, and they go with the next message.
-            onCompose={(text) => chatInputRef.current?.setText(text)}
+            onCompose={(text) => { backToChat(); chatInputRef.current?.setText(text); }}
             onAttach={() => {
               void openFileDialog({ multiple: true }).then((picked) => {
-                if (picked) chatInputRef.current?.attachPaths(Array.isArray(picked) ? picked : [picked]);
+                if (!picked) return;
+                backToChat();
+                chatInputRef.current?.attachPaths(Array.isArray(picked) ? picked : [picked]);
               });
             }}
           />
