@@ -245,6 +245,23 @@ interface ArtifactsStore {
 }
 
 const pending = new Map<string, Pending>();
+const requestTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const REQUEST_TIMEOUT_MS = 30_000;
+
+function clearRequestTimer(id: string): void {
+  clearTimeout(requestTimers.get(id));
+  requestTimers.delete(id);
+}
+
+/** A disconnected engine cannot answer any of its outstanding requests. */
+export function failArtifactRequests(reason: string): void {
+  for (const id of [...pending.keys()]) {
+    useArtifacts.getState().onResult({
+      id, ok: false,
+      error: `${reason} If you made a change, reopen the document to check it before trying again.`,
+    });
+  }
+}
 /** The artifact the viewer wants open, or null after `close()`. A reply for
  *  anything else is stale: `close()` used to leave an in-flight `get` free to
  *  reopen the document a moment later (Astra, 19 Sep 2026, P2). */
@@ -266,12 +283,19 @@ async function send(
 ): Promise<void> {
   const id = nextId();
   pending.set(id, p);
+  requestTimers.set(id, setTimeout(() => {
+    useArtifacts.getState().onResult({
+      id, ok: false,
+      error: 'The engine did not answer. If you made a change, reopen the document to confirm it before trying again.',
+    });
+  }, REQUEST_TIMEOUT_MS));
   try {
     await tauri.artifacts.op(id, action, opts);
   } catch (e) {
     // The command itself failed, so no reply is ever coming and the entry
     // would sit in the map forever holding the panel busy.
     pending.delete(id);
+    clearRequestTimer(id);
     throw e;
   }
 }
@@ -606,7 +630,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     if (open?.live?.writing) dismissed = open.row.id;
     wanted = null;
     earlyVersions = null;
-    set({ open: null, lastExport: null, error: null, editing: null, conflict: null, review: null, google: null });
+    set({ open: null, busy: false, lastExport: null, error: null, editing: null, conflict: null, review: null, google: null });
   },
 
   onEvent: (e) => {
@@ -658,6 +682,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     // the current panel is showing.
     if (!p) return;
     pending.delete(e.id);
+    clearRequestTimer(e.id);
 
     if (p.kind === 'peek') {
       const row = e.items?.[0];
@@ -665,6 +690,10 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
       else p.reject(e.error ?? 'That artifact came back empty.');
       return;
     }
+
+    // A stale success or failure must not stop another document's spinner.
+    if ((p.kind === 'open' || p.kind === 'versions') && wanted !== p.id) return;
+    if (p.kind === 'list' && p.archived !== get().showingArchived) return;
 
     if (!e.ok) {
       // A refused save is a question for the person, not an error: the panel
@@ -1099,6 +1128,7 @@ export async function peekArtifact(id: string, version: number): Promise<{ row: 
 
 /** Test seam: forget every in-flight request between cases. */
 export function resetArtifactRequests(): void {
+  for (const id of requestTimers.keys()) clearRequestTimer(id);
   pending.clear();
   peeked.clear();
   wanted = null;

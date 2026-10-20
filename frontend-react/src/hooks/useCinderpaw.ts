@@ -14,7 +14,7 @@ import { useAgent } from '@/stores/agent';
 import { useModel } from '@/stores/model';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { useNotifications } from '@/stores/notifications';
-import { useArtifacts, type DraftEvent } from '@/stores/artifacts';
+import { failArtifactRequests, useArtifacts, type DraftEvent } from '@/stores/artifacts';
 import { t } from '@/lib/i18n';
 import { autoTitle } from '@/lib/autoTitle';
 import { titleConversation } from '@/lib/chatTitle';
@@ -673,6 +673,7 @@ export function useCinderpawGlobal() {
         (event) => {
           const reason = event.payload.error?.trim() || null;
           setOffline(true, event.payload.restarting, reason);
+          failArtifactRequests('The engine stopped.');
           useConversations.setState({ providerWaits: {} });
           if (!event.payload.restarting) {
             // The reason comes from Rust, which is the only side that knows
