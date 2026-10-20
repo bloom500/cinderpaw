@@ -31,6 +31,7 @@ function Loading() {
     </div>
   );
 }
+import { useShallow } from 'zustand/react/shallow';
 import { useArtifacts, shownKind, type ArtifactRow, type GoogleDest } from '@/stores/artifacts';
 import { GoogleMenu, googleCanTake } from './GoogleMenu';
 import { ContextTab } from './ContextTab';
@@ -110,12 +111,15 @@ export function ArtifactsPanel({
   onAttach?: () => void;
 }) {
   const {
-    rows, loaded, open, busy, error, lastExport, refresh, close,
+    rows, loaded, openRow, openShowing, busy, error, lastExport, refresh, close,
     editing, startEdit, cancelEdit, save, importPdf, showingArchived, showArchived,
     google, cancelGoogle, panelTab: tab,
-  } = useArtifacts();
+  } = useArtifacts(useShallow((s) => ({ rows: s.rows, loaded: s.loaded, openRow: s.open?.row, openShowing: s.open?.showing, busy: s.busy, error: s.error, lastExport: s.lastExport, refresh: s.refresh, close: s.close, editing: s.editing, startEdit: s.startEdit, cancelEdit: s.cancelEdit, save: s.save, importPdf: s.importPdf, showingArchived: s.showingArchived, showArchived: s.showArchived, google: s.google, cancelGoogle: s.cancelGoogle, panelTab: s.panelTab })));
   const pickRef = useRef<HTMLInputElement>(null);
   // Only the newest version is editable; an older one is restored instead.
+  // The chrome needs which artifact and which version, never its text: a
+  // streamed chunk changes `open.content` and must not redraw the header (R8).
+  const open = useMemo(() => (openRow ? { row: openRow, showing: openShowing } : null), [openRow, openShowing]);
   const canEdit = !!open && EDITABLE_KINDS.has(open.row.kind) && open.showing === open.row.version && open.row.version > 0;
   // A document still being written (or never saved) is not in the store yet:
   // there is nothing to ask about, delete or switch from.
@@ -615,7 +619,7 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
   const {
     open, lastExport, showVersion, editing, setDraft, conflict, save, cancelEdit, busy,
     review, showChanges, hideChanges, restore, applyPdf, focus, clearFocus,
-  } = useArtifacts();
+  } = useArtifacts(useShallow((s) => ({ open: s.open, lastExport: s.lastExport, showVersion: s.showVersion, editing: s.editing, setDraft: s.setDraft, conflict: s.conflict, save: s.save, cancelEdit: s.cancelEdit, busy: s.busy, review: s.review, showChanges: s.showChanges, hideChanges: s.hideChanges, restore: s.restore, applyPdf: s.applyPdf, focus: s.focus, clearFocus: s.clearFocus })));
   // The overview (Darius's Artifact board, 30 Sep) first; Open shows the whole thing.
   // A PDF is usually a form to fill or sign: it opens straight into its editor.
   // A deep dive from a chat card (a section chip) skips the overview too.
@@ -951,7 +955,7 @@ function Preview({ kind, title, content, id = '', ember }: { kind: string; title
 function Overview({ googleRegistered, onOpen }: { googleRegistered: boolean; onOpen: () => void }) {
   const {
     open, busy, exportArtifact, sendToGoogle, signOutGoogle, google, showVersion, showChanges, restore, lastExport,
-  } = useArtifacts();
+  } = useArtifacts(useShallow((s) => ({ open: s.open, busy: s.busy, exportArtifact: s.exportArtifact, sendToGoogle: s.sendToGoogle, signOutGoogle: s.signOutGoogle, google: s.google, showVersion: s.showVersion, showChanges: s.showChanges, restore: s.restore, lastExport: s.lastExport })));
   const summary = useMemo(() => (open ? summaryOf(shownKind(open.row.kind, open.content), open.content) : ''), [open?.row.kind, open?.content]);
   if (!open) return null;
   const { row, content, showing, versions } = open;

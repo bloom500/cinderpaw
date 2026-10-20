@@ -33,6 +33,16 @@ describe('a document being written', () => {
     expect(s.open?.live?.writing).toBeTruthy();
   });
 
+  it('keeps the same row while only the text grows, so the panel header is not redrawn', () => {
+    draft('# Pl', { title: 'Plan' });
+    const row = useArtifacts.getState().open!.row;
+    draft('an');
+    expect(useArtifacts.getState().open!.row).toBe(row);
+    draft('', { title: 'Plan B' });
+    expect(useArtifacts.getState().open!.row).not.toBe(row);
+    expect(useArtifacts.getState().open!.row.title).toBe('Plan B');
+  });
+
   it('adds each piece where the last one ended, as its own run', () => {
     draft('# Pl', { title: 'Plan' });
     draft('an\nDay one.');

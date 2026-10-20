@@ -890,7 +890,11 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
       set({
         open: {
           ...open,
-          row: { ...open.row, kind: e.kind ?? open.row.kind, title: e.title ?? open.row.title },
+          // Same row object unless it changed: the panel's chrome watches the
+          // row, and a new one per chunk redrew it for every few words (R8).
+          row: (e.kind ?? open.row.kind) === open.row.kind && (e.title ?? open.row.title) === open.row.title
+            ? open.row
+            : { ...open.row, kind: e.kind ?? open.row.kind, title: e.title ?? open.row.title },
           content: open.content + e.append,
           live: { ...open.live, runs, came: now },
         },
