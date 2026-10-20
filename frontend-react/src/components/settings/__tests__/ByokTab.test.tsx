@@ -28,7 +28,7 @@ describe('ByokTab', () => {
     expect(text('OpenAI')).toBeInTheDocument();
     expect(text('Anthropic')).toBeInTheDocument();
     expect(text('Google Gemini')).toBeInTheDocument();
-    expect(text('Kimi')).toBeInTheDocument();
+    expect(text('Kimi Code')).toBeInTheDocument();
     expect(text('GLM (Z.ai)')).toBeInTheDocument();
     expect(text('MiniMax')).toBeInTheDocument();
     expect(text('DeepSeek')).toBeInTheDocument();
@@ -140,10 +140,10 @@ describe('ByokTab', () => {
 
   it('Kimi shows key-detected hint when key starts with sk-kimi-', async () => {
     render(<ByokTab />);
-    await userEvent.click(text('Kimi'));
+    await userEvent.click(text('Kimi Code'));
     const keyInput = await screen.findByPlaceholderText('sk-...');
     await userEvent.type(keyInput, 'sk-kimi-abc123');
-    expect(screen.getByText('✓ Kimi key detected')).toBeInTheDocument();
+    expect(screen.getByText('✓ Kimi Code key detected')).toBeInTheDocument();
   });
 
   it('MiniMax shows key-detected hint when key starts with sk-cp-', async () => {

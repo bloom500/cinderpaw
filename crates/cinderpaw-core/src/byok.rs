@@ -425,12 +425,15 @@ pub fn provider_catalog() -> Vec<ProviderCatalogEntry> {
             auth_style: Bearer,
         },
         ProviderCatalogEntry {
+            // Two rows for one company: a Kimi Code subscription key works only
+            // at api.kimi.com/coding, a Moonshot platform key only at
+            // api.moonshot.ai. The names say which key goes where (20 Oct).
             id: "kimi".into(),
-            name: "Kimi (Moonshot AI)".into(),
+            name: "Kimi Code (subscription)".into(),
             provider: Provider::Kimi,
             default_base_url: Provider::Kimi.default_base_url().to_string(),
-            default_model: "moonshot-v1-8k".into(),
-            console_url: Some("https://platform.moonshot.ai/console/api-keys".into()),
+            default_model: "kimi-for-coding".into(),
+            console_url: Some("https://www.kimi.com/code/console".into()),
             key_format: None,
             key_format_hint: None,
             free_tier_note: None,
@@ -698,11 +701,11 @@ pub fn provider_catalog() -> Vec<ProviderCatalogEntry> {
         },
         ProviderCatalogEntry {
             id: "moonshot".into(),
-            name: "Moonshot AI".into(),
+            name: "Kimi API (Moonshot, pay per use)".into(),
             provider: Provider::Custom,
             default_base_url: "https://api.moonshot.ai/v1".into(),
             default_model: "kimi-k3".into(),
-            console_url: None,
+            console_url: Some("https://platform.moonshot.ai/console/api-keys".into()),
             key_format: None,
             key_format_hint: None,
             free_tier_note: None,
