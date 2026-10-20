@@ -140,7 +140,9 @@ mod command_count_test {
     // 198 -> 199 = + cinderpaw_usage_summary (Leaderboard tab, 8 Oct 2026).
     // 199 -> 195 = - chat_stream, stop_generation, chat_cloud_stream,
     // chat_complete_local (Chat mode removed, agent-only, 15 Oct 2026).
-    const EXPECTED_COMMAND_COUNT: usize = 195;
+    // 195 -> 196 = + get_local_api_port (the UI follows the local API to the
+    // port it really bound, 20 Oct 2026).
+    const EXPECTED_COMMAND_COUNT: usize = 196;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts
