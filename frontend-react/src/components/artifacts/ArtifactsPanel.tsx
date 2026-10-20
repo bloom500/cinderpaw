@@ -156,6 +156,9 @@ export function ArtifactsPanel({
   }, []);
   const drag = useRef<{ x: number; w: number } | null>(null);
   const resizeTo = (w: number) => setWidth(clampWidth(w, rowWidth()));
+  // A mouse reports moves faster than the screen draws: keep the newest and
+  // resize once per frame, not once per event (R8).
+  const moved = useRef<{ w: number; raf: number } | null>(null);
 
   return (
     // The panel takes its width at once and slides in on transform + opacity.
@@ -201,12 +204,25 @@ export function ArtifactsPanel({
           setDragging(true);
         }}
         onPointerMove={(e) => {
-          if (drag.current) resizeTo(drag.current.w + drag.current.x - e.clientX);
+          if (!drag.current) return;
+          const w = drag.current.w + drag.current.x - e.clientX;
+          if (moved.current) { moved.current.w = w; return; }
+          moved.current = { w, raf: requestAnimationFrame(() => {
+            if (moved.current) resizeTo(moved.current.w);
+            moved.current = null;
+          }) };
         }}
         onPointerUp={() => {
           drag.current = null;
           setDragging(false);
-          writeLocal(WIDTH_KEY, String(width));
+          let final = width;
+          if (moved.current) {
+            cancelAnimationFrame(moved.current.raf);
+            final = clampWidth(moved.current.w, rowWidth());
+            moved.current = null;
+            setWidth(final);
+          }
+          writeLocal(WIDTH_KEY, String(final));
         }}
         onKeyDown={(e) => {
           const step = e.key === 'ArrowLeft' ? 24 : e.key === 'ArrowRight' ? -24 : 0;

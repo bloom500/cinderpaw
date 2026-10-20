@@ -232,6 +232,19 @@ describe('resizing and the live frame', () => {
     expect(Number(edge.getAttribute('aria-valuenow'))).toBe(320);
   });
 
+  it('a drag ends at the last place the pointer was, even between frames', () => {
+    const { container } = render(<div><ArtifactsPanel onClose={() => {}} /></div>);
+    Object.defineProperty(container.firstElementChild!, 'clientWidth', { value: 1200, configurable: true });
+    const edge = screen.getByRole('separator', { name: 'Resize artifacts panel' });
+    edge.setPointerCapture = () => {};
+    const start = Number(edge.getAttribute('aria-valuenow'));
+    fireEvent.pointerDown(edge, { clientX: 500, pointerId: 1 });
+    for (const x of [490, 480, 470, 460]) fireEvent.pointerMove(edge, { clientX: x, pointerId: 1 });
+    fireEvent.pointerUp(edge, { pointerId: 1 });
+    expect(Number(edge.getAttribute('aria-valuenow'))).toBe(start + 40);
+    expect(localStorage.getItem('cinderpaw.artifactsPanelWidth')).toBe(String(start + 40));
+  });
+
   it('a narrow row: the panel takes all of it, with no edge and no fixed width', () => {
     // 900 px window, sidebar open: ~604 px left, chat 448 + panel 320 cannot sit side by side.
     const { container } = render(<ArtifactsPanel compact onClose={() => {}} />);
