@@ -156,7 +156,7 @@ export function ConnectStep() {
               onInstalled={() => { refresh(); setOpen(null); }} />
           )}
           {open?.kind === 'chat' && (
-            <ConnectorCard entry={open.entry} state={savedById.get(open.entry.id) ?? null} onChanged={refresh} />
+            <ConnectorCard entry={open.entry} state={savedById.get(open.entry.id) ?? null} onChanged={refresh} startOpen />
           )}
         </DialogContent>
       </Dialog>
