@@ -86,6 +86,19 @@ describe('a document being written', () => {
 });
 
 describe('when the call ends', () => {
+  it('writes in the date and name the engine put under the title', async () => {
+    draft('# Plan\n\nDay one.', { title: 'Plan' });
+    useArtifacts.getState().endDraft('turn-1', { artifactId: 'art-1' });
+    await Promise.resolve();
+    const dated = '# Plan\n\n_20 octombrie 2026 la 16:20 · Darius_\n\nDay one.';
+    useArtifacts.getState().onResult({ id: idOf('get'), ok: true, items: [{ ...saved }], content: dated });
+    const open = useArtifacts.getState().open!;
+    expect(open.content).toBe(dated);
+    const line = dated.indexOf('_20');
+    expect(open.live!.runs).toEqual([expect.objectContaining({ from: line, to: expect.any(Number) })]);
+    expect(dated.slice(open.live!.runs[0]!.from, open.live!.runs[0]!.to)).toContain('Darius');
+  });
+
   it('becomes the saved artifact and keeps the letters still arriving', async () => {
     draft('Hello', { title: 'Plan' });
     const runs = useArtifacts.getState().open!.live!.runs;

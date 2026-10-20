@@ -63,6 +63,7 @@ import {
   getActiveWorkspaceId,
   getWorkspace,
 } from "../../memory/workspaces.ts";
+import { loadUserConfig } from "../../core/user-loader.ts";
 
 /**
  * The workspace an artifact belongs to, on a machine that has never been set up.
@@ -192,6 +193,22 @@ export const DRAFT_IN_PARTS =
   "now day 1.\"), and after the last one say in one line that it is ready and can be edited in the panel " +
   "or changed by asking. Short writing (one or two parts, under about 300 words) is a single call.";
 
+/**
+ * A written document says when it was written and for whom, under its title,
+ * like a dated letter or a Claude doc's date and author (Darius, 20 Oct: "sa
+ * arate ca un document oficial"). In the computer's own language: "20 octombrie
+ * 2026 la 16:20" here, "October 20, 2026 at 4:20 PM" on an English Windows. No
+ * name before onboarding, then the date alone. Written into the text, so the
+ * panel, the chat card, a PDF, a Word file and Google Docs all carry it.
+ */
+export function withDateline(markdown: string, name: string, at = new Date()): string {
+  const when = new Intl.DateTimeFormat(undefined, { dateStyle: "long", timeStyle: "short" }).format(at);
+  const line = `_${name.trim() ? `${when} · ${name.trim()}` : when}_`;
+  const title = /^\s*# [^\n]*\n?/.exec(markdown);
+  if (!title) return `${line}\n\n${markdown}`;
+  return `${title[0].trimEnd()}\n\n${line}\n\n${markdown.slice(title[0].length).replace(/^\n+/, "")}`;
+}
+
 export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
   const manifest: ToolManifest = {
     name: "artifact_create",
@@ -291,11 +308,12 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
 
       const checked = kind === "board" ? boardContent(content, title) : null;
       if (checked?.error) return { ok: false, error: "bad_args", content: checked.error };
+      const prose = kind === "markdown" || kind === "pdf" ? withDateline(content, loadUserConfig().userName) : content;
 
       const a = deps.store.create({
         kind,
         title,
-        content: kind === "pdf" ? await pdfFromMarkdown(content, title) : checked?.text ?? content,
+        content: kind === "pdf" ? await pdfFromMarkdown(prose, title) : checked?.text ?? prose,
         workspaceId: activeWorkspaceId(deps.db),
         sessionId: ctx.sessionId,
         // Provenance, so a later "the report I made on WhatsApp" has something

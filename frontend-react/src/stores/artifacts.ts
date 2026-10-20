@@ -928,7 +928,11 @@ function liveAfter(prev: OpenArtifact, row: ArtifactRow, content: string, encodi
   if (encoding === 'base64' || prev.encoding === 'base64') return undefined;
   if (prev.row.version === 0 && prev.live && !prev.live.stopped) {
     if (prev.content === content) return { runs: prev.live.runs };
-    return prev.content === '' && content ? { runs: [chunkRun(0, content, Date.now())] } : undefined;
+    if (prev.content === '') return content ? { runs: [chunkRun(0, content, Date.now())] } : undefined;
+    // Saved with a little more than was written: the date and name the engine
+    // puts under the title come in like the rest of the writing.
+    const diff = editRuns(prev.content, content, Date.now());
+    return diff && diff.out.length === 0 ? { runs: diff.runs } : undefined;
   }
   // A part already written in place: the saved version is what is on screen.
   if (prev.live?.edit && prev.row.id === row.id && prev.content === content) return { runs: prev.live.runs };
