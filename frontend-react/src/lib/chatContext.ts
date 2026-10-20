@@ -71,3 +71,47 @@ export function chatContext(messages: readonly ChatMessage[]): ChatContext {
   }
   return { files, sources, memories, artifactIds, tools };
 }
+
+function mergeContext(earlier: ChatContext, later: ChatContext): ChatContext {
+  const unique = <T,>(items: T[], key: (item: T) => string): T[] => {
+    const seen = new Set<string>();
+    return items.filter((item) => {
+      const id = key(item);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  };
+  return {
+    files: unique([...earlier.files, ...later.files], (f) => `${f.kind}:${f.name}`),
+    sources: unique([...earlier.sources, ...later.sources], (s) => normalizeUrl(s.url) ?? s.url),
+    memories: unique([...earlier.memories, ...later.memories], (m) => m.text),
+    artifactIds: unique([...later.artifactIds, ...earlier.artifactIds], (id) => id),
+    tools: unique([...earlier.tools, ...later.tools], (tool) => tool),
+  };
+}
+
+/**
+ * Chat messages are immutable. Keep the settled prefix's context and parse
+ * only the changing tail. Editing history or switching chats rebuilds it.
+ * Checking object identities is cheap; parsing every old body on each token
+ * was not. This retains one prefix, not a snapshot for every message.
+ */
+export function createChatContextReader(): (messages: readonly ChatMessage[]) => ChatContext {
+  let previous: readonly ChatMessage[] = [];
+  let count = 0;
+  let prefix = chatContext([]);
+  return (messages) => {
+    const nextCount = Math.max(0, messages.length - 1);
+    let same = count <= nextCount;
+    for (let i = 0; same && i < count; i++) same = previous[i] === messages[i];
+    if (!same) {
+      count = 0;
+      prefix = chatContext([]);
+    }
+    if (nextCount > count) prefix = mergeContext(prefix, chatContext(messages.slice(count, nextCount)));
+    count = nextCount;
+    previous = messages;
+    return mergeContext(prefix, chatContext(messages.slice(count)));
+  };
+}
