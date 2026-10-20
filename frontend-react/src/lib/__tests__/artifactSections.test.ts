@@ -88,6 +88,11 @@ describe('digest', () => {
     expect(plainText('![x](https://a) _b_')).toBe('b');
   });
 
+  it('a part still to be written inside a title or a line shows without brackets', () => {
+    expect(sectionsOf('markdown', '## 1. [[title of idea 1]]\n\nIngredients: [[for idea 1]]')[0]).toMatchObject({ title: '1. title of idea 1' });
+    expect(digest('Ingredients: [[for idea 1]]').lead).toBe('Ingredients: for idea 1');
+  });
+
   it('a part still to be written is not shown as its text', () => {
     expect(digest('[[Capitolul 4: cum alegi plantele]]').lead).toBe('');
     expect(digest('[[Capitolul 4: cum alegi plantele]]\n\nAlegi după soare.').lead).toBe('Alegi după soare.');

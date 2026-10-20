@@ -75,6 +75,21 @@ describe('Markdown in a document drafted in parts', () => {
     expect(container.querySelectorAll('.md-placeholder')).toHaveLength(1);
   });
 
+  it('draws one inside a heading or a line in grey too, never with its brackets', () => {
+    const { container } = render(<Markdown>{'## 1. [[title of idea 1]]\n\nIngredients: [[for idea 1]] and salt.'}</Markdown>);
+    const inline = Array.from(container.querySelectorAll('.md-placeholder-inline')).map((s) => s.textContent);
+    expect(inline).toEqual(['title of idea 1', 'for idea 1']);
+    expect(container.textContent).not.toContain('[[');
+    expect(container.querySelector('p')?.textContent).toBe('Ingredients: for idea 1 and salt.');
+  });
+
+  it('a letter inside one still arrives at its place while written', () => {
+    const text = 'Ingredients: [[for idea 1]]';
+    const { container } = render(<Markdown ember={{ runs: [chunkRun(15, 'for', Date.now())], now: Date.now() }}>{text}</Markdown>);
+    const moving = Array.from(container.querySelectorAll('.md-placeholder-inline .ember-in')).map((s) => s.textContent).join('');
+    expect(moving).toBe('for');
+  });
+
   it('puts a cursor with the writer name at the writing edge', () => {
     const text = '# Plan\n\nDay one is';
     const { container } = render(

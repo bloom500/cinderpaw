@@ -13,7 +13,8 @@ import { SourceAwareLink } from '@/components/chat/Sources';
 import { rehypeWordFade } from '@/lib/rehypeWordFade';
 import { splitBlocks } from '@/lib/markdownBlocks';
 import { emberActive, rehypeEmber, type Ember } from '@/lib/emberLetters';
-import type { Element as HastElement, Root as HastRoot, Text as HastText } from 'hast';
+import { SKIP, visit } from 'unist-util-visit';
+import type { Element as HastElement, ElementContent, Root as HastRoot, Text as HastText } from 'hast';
 
 function ExpandableTable({ children, ...props }: React.HTMLAttributes<HTMLTableElement>) {
   const [expanded, setExpanded] = useState(false);
@@ -138,6 +139,27 @@ function rehypePlaceholder() {
       text.value = m[1]!;
       if (start !== undefined && text.position) text.position = { ...text.position, start: { ...text.position.start, offset: start + 2 } };
     }
+    // Models also put them inside a heading or a line ("1. [[title of idea
+    // 1]]", "Ingredients: [[for idea 1]]", 20 Oct), where they showed with
+    // their brackets: the same grey, in place. Each piece keeps its offset.
+    visit(tree, 'text', (node, index, parent) => {
+      const text = node as HastText;
+      if (!parent || index === undefined || !text.value.includes('[[')) return;
+      if (parent.type === 'element' && (parent.tagName === 'code' || parent.tagName === 'pre')) return;
+      const start = text.position?.start.offset;
+      const at = (i: number) => (start !== undefined && text.position ? { ...text.position, start: { ...text.position.start, offset: start + i } } : undefined);
+      const pieces: ElementContent[] = [];
+      let last = 0;
+      for (const m of text.value.matchAll(/\[\[([^\]\n]+)\]\]/g)) {
+        if (m.index > last) pieces.push({ type: 'text', value: text.value.slice(last, m.index), position: at(last) });
+        pieces.push({ type: 'element', tagName: 'span', properties: { className: ['md-placeholder-inline'] }, children: [{ type: 'text', value: m[1]!, position: at(m.index + 2) }] });
+        last = m.index + m[0].length;
+      }
+      if (pieces.length === 0) return;
+      if (last < text.value.length) pieces.push({ type: 'text', value: text.value.slice(last), position: at(last) });
+      parent.children.splice(index, 1, ...pieces);
+      return [SKIP, index + pieces.length];
+    });
   };
 }
 

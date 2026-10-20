@@ -36,7 +36,7 @@ function markdownSections(md: string): DocSection[] {
     if (/^\s*(```|~~~)/.test(line)) fence = !fence;
     const h2 = !fence && /^##\s+(.+?)\s*#*\s*$/.exec(line);
     if (h2) {
-      current = { title: h2[1].replace(/[*_`]/g, ''), lines: [] };
+      current = { title: plainText(h2[1]), lines: [] };
       sections.push(current);
     } else if (current) current.lines.push(line);
     else intro.push(line);
@@ -88,9 +88,11 @@ export function summaryOf(kind: string, content: string): string {
   return text.length > 220 ? `${text.slice(0, 220).replace(/\s\S*$/, '')}…` : text;
 }
 
-/** Markdown to the words a reader sees: no emphasis marks, links as their text. */
+/** Markdown to the words a reader sees: no emphasis marks, links as their text,
+ *  a part still to be written ([[...]]) as its words. */
 export function plainText(md: string): string {
   return md
+    .replace(/\[\[([^\]\n]*)\]\]/g, '$1')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/[*_`~]+/g, '')

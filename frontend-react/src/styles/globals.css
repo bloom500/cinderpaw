@@ -1570,6 +1570,8 @@ span.ember-caret {
   animation: md-placeholder-sweep 1.8s linear infinite;
 }
 @keyframes md-placeholder-sweep { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+/* The same, inside a heading or a line ("Ingredients: [[for idea 1]]"). */
+.prose .md-placeholder-inline { color: var(--text-muted); font-style: italic; font-weight: normal; }
 @media (prefers-reduced-motion: reduce) {
   .ember-caret, .prose .md-placeholder { animation: none; }
 }

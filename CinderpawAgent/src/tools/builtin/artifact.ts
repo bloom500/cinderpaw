@@ -187,7 +187,9 @@ export const DRAFT_IN_PARTS =
   "Long writing (three or more parts: a plan, a report, a guide) is written the way a person drafts: " +
   "first call this with the title, one opening line and every part's heading, each heading followed by " +
   "a placeholder line on its own that says what the part will hold, written as [[...]] (for example " +
-  "[[Day 1: three places to see and one tip]]). The user sees the whole shape at once. Then fill the parts " +
+  "[[Day 1: three places to see and one tip]]). Headings are real words, never a placeholder, and a " +
+  "placeholder is never inside a heading, a list or a sentence: one per part, on a line by itself. " +
+  "The user sees the whole shape at once. Then fill the parts " +
   "in order with artifact_edit, find = that placeholder line exactly, replace = the finished part. Before " +
   "each edit say one short plain line in the chat about what you are writing now (\"The outline is ready; " +
   "now day 1.\"), and after the last one say in one line that it is ready and can be edited in the panel " +
