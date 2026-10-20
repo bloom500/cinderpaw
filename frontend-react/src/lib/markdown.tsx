@@ -13,6 +13,7 @@ import { SourceAwareLink } from '@/components/chat/Sources';
 import { rehypeWordFade } from '@/lib/rehypeWordFade';
 import { splitBlocks } from '@/lib/markdownBlocks';
 import { emberActive, rehypeEmber, type Ember } from '@/lib/emberLetters';
+import type { Element as HastElement, Root as HastRoot, Text as HastText } from 'hast';
 
 function ExpandableTable({ children, ...props }: React.HTMLAttributes<HTMLTableElement>) {
   const [expanded, setExpanded] = useState(false);
@@ -117,9 +118,32 @@ const COMPONENTS: Components = {
 // model writes when it means mathematics.
 const REMARK = [remarkGfm, [remarkMath, { singleDollarTextMath: false }]] as NonNullable<React.ComponentProps<typeof ReactMarkdown>['remarkPlugins']>;
 // Word-fade runs after highlight so it can skip code/pre nodes it produced.
+/**
+ * A paragraph that is only `[[what goes here]]` is a part still to be written
+ * (a document drafted in parts, artifact.ts DRAFT_IN_PARTS): drawn as a grey
+ * line without its brackets, the way Claude Docs shows a pending block. The
+ * text keeps its source offset, so live writing can take it out letter by letter.
+ */
+function rehypePlaceholder() {
+  return (tree: HastRoot) => {
+    for (const node of tree.children) {
+      if (node.type !== 'element' || node.tagName !== 'p' || node.children.length !== 1) continue;
+      const only = node.children[0];
+      if (only?.type !== 'text') continue;
+      const m = /^\[\[([^\]\n]+)\]\]$/.exec(only.value);
+      if (!m) continue;
+      (node as HastElement).properties = { ...node.properties, className: ['md-placeholder'] };
+      const text = only as HastText;
+      const start = text.position?.start.offset;
+      text.value = m[1]!;
+      if (start !== undefined && text.position) text.position = { ...text.position, start: { ...text.position.start, offset: start + 2 } };
+    }
+  };
+}
+
 // KaTeX before highlight, so a formula is a formula and not a code span.
-const REHYPE = [rehypeKatex, rehypeHighlight];
-const REHYPE_FADE = [rehypeKatex, rehypeHighlight, rehypeWordFade];
+const REHYPE = [rehypePlaceholder, rehypeKatex, rehypeHighlight];
+const REHYPE_FADE = [rehypePlaceholder, rehypeKatex, rehypeHighlight, rehypeWordFade];
 
 /**
  * One top-level block, parsed again only when its own text changes. The fade
@@ -161,7 +185,11 @@ export function Markdown({ children, animateWords, ember }: { children: string; 
       {blocks.map((b, i) => {
         const start = base;
         base += b.length + 1;
-        const live = ember && emberActive(ember, start, start + b.length) ? { ...ember, base: start } : undefined;
+        // The block the cursor is in is drawn with it even when nothing in it moves.
+        const hasCaret = !!ember?.caret && ember.caret.at >= start && ember.caret.at <= start + b.length;
+        const live = ember && (hasCaret || emberActive(ember, start, start + b.length))
+          ? { ...ember, base: start, caret: hasCaret ? ember.caret : undefined }
+          : undefined;
         return <MarkdownBlock key={i} text={b} fade={Boolean(animateWords)} ember={live} />;
       })}
     </div>

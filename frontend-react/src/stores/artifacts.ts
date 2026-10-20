@@ -68,6 +68,22 @@ export interface LiveArtifact {
   writing?: { turn: string; sessionId: string };
   /** Why a draft was never saved, in a sentence for the person. */
   stopped?: string;
+  /** A part Cinderpaw is writing over `base` in place of its placeholder:
+   *  `content` is `base` with `findLen` letters at `at` swapped for `replace`. */
+  edit?: LiveEdit;
+}
+
+export interface LiveEdit {
+  key: string;
+  base: string;
+  at: number;
+  findLen: number;
+  replace: string;
+}
+
+/** The document with the part written so far in place of what it replaces. */
+function spliceEdit(e: LiveEdit): string {
+  return e.base.slice(0, e.at) + e.replace + e.base.slice(e.at + e.findLen);
 }
 
 /** One `artifact_draft` event, plus whether its chat is the one on screen. */
@@ -78,6 +94,9 @@ export interface DraftEvent {
   kind?: string;
   title?: string;
   append: string;
+  /** An edit of this artifact, writing `append` in place of `find`. */
+  editOf?: string;
+  find?: string;
   onScreen: boolean;
 }
 
@@ -693,6 +712,12 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
         const prev = get().open;
         const early = earlyVersions?.id === row.id ? earlyVersions.versions : null;
         earlyVersions = null;
+        // The save of the version a part is still being written over (the part
+        // before it): the part keeps going on top of it, nothing is replaced.
+        if (p.version === undefined && prev?.row.id === row.id && prev.live?.writing && prev.live.edit?.base === e.content) {
+          set({ busy: false, error: null, open: { ...prev, row, showing: row.version } });
+          return;
+        }
         const live = p.version === undefined && prev ? liveAfter(prev, row, e.content, e.encoding, !!get().editing) : undefined;
         set({
           busy: false,
@@ -783,6 +808,40 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     if (!e.onScreen || get().editing || dismissed === key) return;
     const now = Date.now();
     const open = get().open;
+    if (e.editOf !== undefined) {
+      // A part written over its placeholder, in place, letter by letter (the
+      // Claude Docs way). Only on the newest saved version of that document,
+      // on screen; otherwise its words come in when the saved version arrives.
+      if (!open || open.row.id !== e.editOf || open.showing !== open.row.version) return;
+      if (open.live?.writing && !open.live.edit) return;
+      const cur = open.live?.edit?.key === key ? open.live.edit : null;
+      if (!cur) {
+        const at = e.find ? open.content.indexOf(e.find) : -1;
+        if (at < 0) return;
+        // The placeholder goes out first, then the part comes in where it was.
+        const until = now + OUT_MS;
+        const edit: LiveEdit = { key, base: open.content, at, findLen: e.find!.length, replace: e.append };
+        set({
+          open: {
+            ...open,
+            content: spliceEdit(edit),
+            live: {
+              runs: e.append ? [chunkRun(at, e.append, until)] : [],
+              out: { content: open.content, ranges: [[at, at + edit.findLen]], until },
+              writing: { turn: e.id, sessionId: e.sessionId },
+              edit,
+            },
+          },
+        });
+        return;
+      }
+      const live = open.live!;
+      const runs = live.runs.filter((r) => liveUntil([r]) + 100 > now);
+      if (e.append) runs.push(chunkRun(cur.at + cur.replace.length, e.append, Math.max(now, live.out?.until ?? 0)));
+      const edit = { ...cur, replace: cur.replace + e.append };
+      set({ open: { ...open, content: spliceEdit(edit), live: { ...live, runs, edit } } });
+      return;
+    }
     if (open?.row.id === key && open.live) {
       const runs = open.live.runs.filter((r) => liveUntil([r]) + 100 > now);
       if (e.append) runs.push(chunkRun(open.content.length, e.append, now));
@@ -820,6 +879,16 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   endDraft: (turn, outcome) => {
     const open = get().open;
     if (!open?.live?.writing || open.live.writing.turn !== turn) return;
+    if (open.live.edit) {
+      // A part that was saved stays (its saved version follows); one that was
+      // not goes back to the saved document, placeholder and all.
+      set({
+        open: outcome.artifactId
+          ? { ...open, live: { ...open.live, writing: undefined } }
+          : { ...open, content: open.live.edit.base, live: undefined },
+      });
+      return;
+    }
     // Writing is over either way. Saved: the draft stays on screen until the
     // saved version arrives to take its place, so there is never a blank.
     set({
@@ -848,6 +917,8 @@ function liveAfter(prev: OpenArtifact, row: ArtifactRow, content: string, encodi
     if (prev.content === content) return { runs: prev.live.runs };
     return prev.content === '' && content ? { runs: [chunkRun(0, content, Date.now())] } : undefined;
   }
+  // A part already written in place: the saved version is what is on screen.
+  if (prev.live?.edit && prev.row.id === row.id && prev.content === content) return { runs: prev.live.runs };
   const isEdit = prev.row.id === row.id && row.version > prev.row.version && prev.showing === prev.row.version;
   if (!isEdit || editing || !TEXT_SHOWN.has(shownKind(row.kind, content))) return undefined;
   const diff = editRuns(prev.content, content, 0);

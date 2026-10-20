@@ -66,3 +66,23 @@ describe('Markdown ember (live writing)', () => {
     expect(container.textContent).toBe('Seven days');
   });
 });
+
+describe('Markdown in a document drafted in parts', () => {
+  it('draws a [[...]] paragraph as a grey line without its brackets', () => {
+    const { container } = render(<Markdown>{'## Pasta\n\n[[Pasta: 3 ingredients]]\n\nA real line [[not this]].'}</Markdown>);
+    const pending = container.querySelector('.md-placeholder');
+    expect(pending?.textContent).toBe('Pasta: 3 ingredients');
+    expect(container.querySelectorAll('.md-placeholder')).toHaveLength(1);
+  });
+
+  it('puts a cursor with the writer name at the writing edge', () => {
+    const text = '# Plan\n\nDay one is';
+    const { container } = render(
+      <Markdown ember={{ runs: [chunkRun(13, ' is', Date.now())], now: Date.now(), caret: { at: text.length, name: 'Cinderpaw' } }}>{text}</Markdown>,
+    );
+    const caret = container.querySelectorAll('.ember-caret');
+    expect(caret).toHaveLength(1);
+    expect(caret[0]!.getAttribute('data-name')).toBe('Cinderpaw');
+    expect(caret[0]!.previousSibling?.textContent).toContain('is');
+  });
+});

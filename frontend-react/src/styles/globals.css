@@ -1522,6 +1522,53 @@ body { overflow: hidden; }
   .ember-in, .ember-out { animation: none; }
 }
 
+/* Where Cinderpaw is writing: a thin ember bar with its name above it, like a
+   collaborator's cursor in a shared document (Claude Docs, compared 20 Oct). */
+.ember-caret {
+  position: relative;
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  background: var(--brand);
+  animation: ember-caret-blink 1s steps(1) infinite;
+}
+.ember-caret::after {
+  content: attr(data-name);
+  position: absolute;
+  left: -1px;
+  bottom: 100%;
+  margin-bottom: 2px;
+  padding: 0 5px;
+  border-radius: 4px 4px 4px 0;
+  background: var(--brand);
+  color: var(--brand-foreground, #ffffff);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+@keyframes ember-caret-blink { 50% { opacity: 0.4; } }
+
+/* A part still to be written, in a document drafted in parts: grey, with a
+   slow warm sweep so it reads as "coming", not as text (markdown.tsx). */
+.prose .md-placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin-left: -6px;
+  background: linear-gradient(90deg, transparent 0%, color-mix(in oklab, var(--brand) 12%, transparent) 50%, transparent 100%) 0 0 / 200% 100%;
+  animation: md-placeholder-sweep 1.8s linear infinite;
+}
+@keyframes md-placeholder-sweep { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .ember-caret, .prose .md-placeholder { animation: none; }
+}
+
 /* The logo head under a reply that is still being written (MessageItem's
    ReplyHead): a small bob and tilt, as one keyframed transform so the
    compositor runs it. Still with reduced motion. */

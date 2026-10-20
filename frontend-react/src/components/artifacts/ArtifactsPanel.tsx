@@ -44,6 +44,7 @@ import { ExternalLink } from '@/components/chat/ExternalLink';
 import { cn, readLocal, writeLocal } from '@/lib/utils';
 import { tauri } from '@/lib/tauri';
 import { useNotifications } from '@/stores/notifications';
+import { useOnboarding } from '@/stores/onboarding';
 
 const WIDTH_KEY = 'cinderpaw.artifactsPanelWidth';
 const DEFAULT_WIDTH = 416;
@@ -631,6 +632,7 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
   // A deep dive into the artifact already on screen, its overview included.
   useEffect(() => { if (open && focus?.id === open.row.id) setFull(true); }, [focus, open?.row.id]);
   const viewer = useRef<HTMLDivElement>(null);
+  const agentName = useOnboarding((s) => s.agentName.trim()) || 'Cinderpaw';
   // Scroll to the asked-for heading once THAT document is on screen, then forget it.
   useEffect(() => {
     if (!full || !focus || !open || focus.id !== open.row.id) return;
@@ -676,7 +678,12 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
   const now = Date.now();
   // An edit first shows the old text with its removed words going out.
   const leaving = live?.out && now < live.out.until ? live.out : null;
-  const ember: Ember | undefined = live ? { runs: leaving ? [] : live.runs, out: leaving?.ranges, now } : undefined;
+  // While Cinderpaw writes, a cursor with its name sits at the writing edge:
+  // the end of a new document, or the end of the part written so far.
+  const caretAt = live?.writing && !leaving ? (live.edit ? live.edit.at + live.edit.replace.length : content.length) : undefined;
+  const ember: Ember | undefined = live
+    ? { runs: leaving ? [] : live.runs, out: leaving?.ranges, now, ...(caretAt !== undefined ? { caret: { at: caretAt, name: agentName } } : {}) }
+    : undefined;
   const text = leaving ? leaving.content : content;
   // While it is written, anything that is not prose shows as its source: a page
   // or a board half written cannot be drawn, and a frame reloaded on every

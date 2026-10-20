@@ -59,6 +59,8 @@ export function stepTitle(a: Pick<ToolActivity, 'tool' | 'kind' | 'status' | 'ar
     case 'desktop':  return pick('Using an app', 'Used an app');
     case 'artifact': {
       const title = a.artifact?.title;
+      // An edit is a change, often one part of a document drafted in parts.
+      if (a.tool === 'artifact_edit') return title ? pick(`Changing ${title}`, `Changed ${title}`) : pick('Changing a document', 'Changed a document');
       return title ? pick(`Working on ${title}`, `Made ${title}`) : pick('Making an artifact', 'Made an artifact');
     }
     default: {

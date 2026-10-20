@@ -29,8 +29,14 @@ const SLACK_MS = 50;
 
 /** Source offsets `[from, to)` that arrived at `at`; letter k starts k x `per` ms later. */
 export type Run = { from: number; to: number; at: number; per: number };
-/** What to animate, as of `now`. `out` are offsets leaving (an edit's old words). */
-export type Ember = { runs: Run[]; out?: Array<[number, number]>; now: number };
+/** What to animate, as of `now`. `out` are offsets leaving (an edit's old words).
+ *  `caret`: where Cinderpaw is writing, drawn as a cursor carrying its name. */
+export type Ember = { runs: Run[]; out?: Array<[number, number]>; now: number; caret?: { at: number; name: string } };
+
+/** A collaborator's cursor, as in a shared document (Claude Docs, 20 Oct). */
+function caretNode(name: string): ElementContent {
+  return { type: 'element', tagName: 'span', properties: { className: ['ember-caret'], dataName: name, ariaHidden: 'true' }, children: [] };
+}
 
 export function chunkRun(from: number, text: string, at: number): Run {
   return { from, to: from + text.length, at, per: Math.min(STAGGER_MS, MAX_CHUNK_MS / Math.max(1, text.length)) };
@@ -109,6 +115,7 @@ function letterProps(m: Mark): Properties {
  */
 export function rehypeEmber(opts: Ember & { base: number; source: string }) {
   return (tree: Root) => {
+    let caretPlaced = false;
     visit(tree, (node, index, parent) => {
       if (node.type === 'element') {
         const el = node as Element;
@@ -124,6 +131,10 @@ export function rehypeEmber(opts: Ember & { base: number; source: string }) {
       // whole node goes by where it starts, which is close enough to look right.
       const exact = opts.source.slice(start, start + text.value.length) === text.value;
       const at = (i: number) => opts.base + (exact ? start + i : start);
+      // ponytail: the cursor goes at the end of the text it is in. A part is
+      // written over a placeholder paragraph of its own, so the writing edge is
+      // a node's end; mid-node it would sit a few letters late.
+      const withCaret = !caretPlaced && opts.caret !== undefined && opts.caret.at >= at(0) && opts.caret.at <= at(text.value.length);
       const replacement: ElementContent[] = pieces(text.value, at, opts).map((p) =>
         typeof p === 'string'
           ? { type: 'text', value: p }
@@ -136,6 +147,10 @@ export function rehypeEmber(opts: Ember & { base: number; source: string }) {
                 : [{ type: 'text', value: p.word }],
             },
       );
+      if (withCaret) {
+        caretPlaced = true;
+        replacement.push(caretNode(opts.caret!.name));
+      }
       (parent as Element).children.splice(index, 1, ...replacement);
       return [SKIP, index + replacement.length];
     });
@@ -144,8 +159,9 @@ export function rehypeEmber(opts: Ember & { base: number; source: string }) {
 
 /** The same for plain text in a `<pre>`: the plain string once nothing moves. */
 export function emberText(text: string, e: Ember): ReactNode {
-  if (!emberActive(e, 0, text.length)) return text;
-  return pieces(text, (i) => i, e).map((p, k) =>
+  const caret = e.caret ? createElement('span', { key: 'caret', className: 'ember-caret', 'data-name': e.caret.name, 'aria-hidden': true }) : null;
+  if (!emberActive(e, 0, text.length)) return caret ? [text, caret] : text;
+  const shown = pieces(text, (i) => i, e).map((p, k) =>
     typeof p === 'string'
       ? p
       : createElement(
@@ -162,6 +178,7 @@ export function emberText(text: string, e: Ember): ReactNode {
             : p.word,
         ),
   );
+  return caret ? [...shown, caret] : shown;
 }
 
 const tokens = (s: string) => s.split(/(\s+)/).filter(Boolean);

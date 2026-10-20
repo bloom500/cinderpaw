@@ -157,3 +157,52 @@ describe('an edit by Cinderpaw to the document on screen', () => {
     expect(useArtifacts.getState().open?.live).toBeUndefined();
   });
 });
+
+describe('a part written in place over its placeholder (drafted in parts)', () => {
+  const outline = '# Dinners\n\n## Pasta\n\n[[Pasta: 3 ingredients]]\n\n## Soup\n\n[[Soup: 2 steps]]';
+  const v1 = { row: { ...saved }, content: outline, showing: 1, versions: [] };
+  const part = (append: string, draft = '1:0') =>
+    useArtifacts.getState().onDraft({ id: 'turn-2', sessionId: 's1', draft, append, editOf: 'art-1', find: '[[Pasta: 3 ingredients]]', onScreen: true });
+
+  it('takes the placeholder out, then writes the part where it was, letter by letter', () => {
+    useArtifacts.setState({ open: v1 });
+    part('Garlic, oil');
+    part(', chili.');
+    const open = useArtifacts.getState().open!;
+    const at = outline.indexOf('[[Pasta');
+    expect(open.content).toBe(outline.replace('[[Pasta: 3 ingredients]]', 'Garlic, oil, chili.'));
+    expect(open.live!.out).toMatchObject({ content: outline, ranges: [[at, at + 24]] });
+    expect(open.live!.runs.at(-1)).toMatchObject({ from: at + 11, to: at + 19 });
+    expect(open.live!.writing).toBeTruthy();
+  });
+
+  it('keeps the part when the save of the part before it arrives meanwhile', async () => {
+    useArtifacts.setState({ open: v1 });
+    part('Garlic');
+    useArtifacts.getState().onEvent({ id: 'art-1', action: 'updated', version: 1, onScreen: true });
+    await Promise.resolve();
+    useArtifacts.getState().onResult({ id: idOf('get'), ok: true, items: [{ ...saved }], content: outline });
+    expect(useArtifacts.getState().open!.content).toContain('Garlic');
+  });
+
+  it('goes back to the saved document when the part was never saved', () => {
+    useArtifacts.setState({ open: v1 });
+    part('Garlic');
+    useArtifacts.getState().endDraft('turn-2', { reason: 'Not saved.' });
+    expect(useArtifacts.getState().open!.content).toBe(outline);
+    expect(useArtifacts.getState().open!.live).toBeUndefined();
+  });
+
+  it('becomes the saved version without a jump', async () => {
+    useArtifacts.setState({ open: v1 });
+    part('Garlic, oil, chili.');
+    useArtifacts.getState().endDraft('turn-2', { artifactId: 'art-1' });
+    useArtifacts.getState().onEvent({ id: 'art-1', action: 'updated', version: 2, onScreen: true });
+    await Promise.resolve();
+    const final = outline.replace('[[Pasta: 3 ingredients]]', 'Garlic, oil, chili.');
+    useArtifacts.getState().onResult({ id: idOf('get'), ok: true, items: [{ ...saved, version: 2 }], content: final });
+    const open = useArtifacts.getState().open!;
+    expect(open.content).toBe(final);
+    expect(open.live?.out).toBeUndefined();
+  });
+});

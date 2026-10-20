@@ -704,6 +704,11 @@ export function useCinderpawGlobal() {
         } else if (parsed.type === 'artifact_draft') {
           // Live writing: the panel shows the document while Cinderpaw writes it.
           useArtifacts.getState().onDraft({ ...parsed, onScreen: parsed.sessionId === useChat.getState().sessionId });
+        } else if (parsed.type === 'tool_done' && parsed.tool === 'artifact_edit') {
+          // A part written in place: saved, its new version follows; refused
+          // (the placeholder was not found), the document goes back as it was.
+          const r = parsed.result as { ok?: boolean; data?: { id?: unknown } } | null;
+          useArtifacts.getState().endDraft(parsed.id, r?.ok && typeof r.data?.id === 'string' ? { artifactId: r.data.id } : { reason: 'Not saved.' });
         } else if (parsed.type === 'tool_done' && parsed.tool === 'artifact_create') {
           const r = parsed.result as { ok?: boolean; data?: { id?: unknown }; content?: unknown; error?: unknown } | null;
           const why = typeof r?.content === 'string' ? r.content : typeof r?.error === 'string' ? r.error : '';
