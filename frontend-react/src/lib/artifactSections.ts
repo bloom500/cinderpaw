@@ -134,7 +134,9 @@ export function statusOf(version: number, updatedAt: number | undefined, now = D
 /** A section at a glance: its first paragraph and up to three of its points. */
 export function digest(body: string): { lead: string; points: string[] } {
   const blocks = body.split(/\n\s*\n/);
-  const para = blocks.find((b) => b.trim() && !/^\s*([-*+]\s|\d+\.\s|\||#|```|>)/.test(b));
+  // `[[...]]` alone is a part still to be written (markdown.tsx draws it as a
+  // grey line): on the card it read as the text itself, brackets and all.
+  const para = blocks.find((b) => b.trim() && !/^\s*([-*+]\s|\d+\.\s|\||#|```|>)/.test(b) && !/^\s*\[\[[^\]\n]+\]\]\s*$/.test(b));
   const points = [...body.matchAll(/^\s*(?:[-*+]|\d+\.)\s+(.+)$/gm)].slice(0, 3).map((m) => plainText(m[1]));
   return { lead: para ? plainText(para) : '', points };
 }

@@ -87,4 +87,9 @@ describe('digest', () => {
     expect(digest('- a\n- b').lead).toBe('');
     expect(plainText('![x](https://a) _b_')).toBe('b');
   });
+
+  it('a part still to be written is not shown as its text', () => {
+    expect(digest('[[Capitolul 4: cum alegi plantele]]').lead).toBe('');
+    expect(digest('[[Capitolul 4: cum alegi plantele]]\n\nAlegi după soare.').lead).toBe('Alegi după soare.');
+  });
 });
