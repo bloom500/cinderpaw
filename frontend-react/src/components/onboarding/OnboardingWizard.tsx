@@ -1039,6 +1039,13 @@ function DoneStep() {
           </li>
         ))}
       </ul>
+      {/* Alpha, said once, here: it used to be a card that came back every
+          week over whatever the person was doing (Darius, 20 Oct). One quiet
+          line, not another box: this screen already has enough of them. */}
+      <p className="mt-4 text-xs leading-relaxed text-text-muted">
+        Cinderpaw is still in alpha, so some things may change or break between updates.
+        If something goes wrong, Settings, About, Report a bug helps us fix it.
+      </p>
       <div className="mt-5 grid gap-2 sm:grid-cols-2">
         <DiskEncryptionNotice />
         <InstallCountNotice />

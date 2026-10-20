@@ -41,6 +41,8 @@ describe('the last board', () => {
     expect(await screen.findByText('Pick a model in Models')).toBeInTheDocument();
     expect(screen.getByText('Connect apps in Settings')).toBeInTheDocument();
     expect(screen.getByText('Workspace ready')).toBeInTheDocument();
+    // Alpha is said once, here, with where to report a problem.
+    expect(screen.getByText(/still in alpha/)).toHaveTextContent('Report a bug');
     // Not "ready" with nothing to answer, and one click back to the model board.
     expect(screen.queryByText(/ready to explore/)).not.toBeInTheDocument();
     expect(screen.getByText('Pick a model so I can answer you.')).toBeInTheDocument();
