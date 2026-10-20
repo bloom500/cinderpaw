@@ -2,13 +2,15 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const persisted = vi.hoisted(() => ({ load: async () => true as boolean }));
 vi.mock('@/stores/onboarding', () => ({
   useOnboarding: Object.assign((sel: (s: { active: boolean }) => unknown) => sel({ active: false }), {
-    getState: () => ({ loadPersisted: async () => true }),
+    getState: () => ({ loadPersisted: () => persisted.load() }),
   }),
 }));
 
-import { WhatsNew, useWhatsNew } from '../WhatsNew';
+import { act } from '@testing-library/react';
+import { WhatsNew, useWhatsNew, WHATS_NEW_DECIDE_MS } from '../WhatsNew';
 import { AlphaNotice } from '../AlphaNotice';
 import { useAttention } from '@/lib/attention';
 
@@ -20,6 +22,22 @@ describe("What's new closes only on purpose", () => {
     localStorage.clear();
     useWhatsNew.setState({ open: false, due: false });
     useAttention.setState({ waiting: [], holder: null });
+    persisted.load = async () => true;
+  });
+
+  it('a read that never answers stops holding the queue, without marking the release seen', async () => {
+    vi.useFakeTimers();
+    try {
+      persisted.load = () => new Promise<boolean>(() => {});
+      useWhatsNew.setState({ due: null });
+      render(<WhatsNew />);
+      expect(useWhatsNew.getState().due).toBeNull();
+      act(() => { vi.advanceTimersByTime(WHATS_NEW_DECIDE_MS); });
+      expect(useWhatsNew.getState().due).toBe(false);
+      expect(localStorage.getItem('cinderpaw.whatsNew.seen')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a click outside the card does not close it; Got it does', async () => {

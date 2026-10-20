@@ -23,6 +23,11 @@ import { useAttentionTurn } from '@/lib/attention';
 
 const SEEN_KEY = 'cinderpaw.whatsNew.seen';
 
+/** Longest it may hold the notice queue while it finds out who this is. A
+ *  read that never answers must not keep every other notice away; it gives up
+ *  for this launch without marking the release seen, so the next one shows it. */
+export const WHATS_NEW_DECIDE_MS = 3_000;
+
 const RELEASE: { id: string; hero: string; picture: string; title: string; subtitle: string; items: { icon: LucideIcon; title: string; body: string }[] } = {
   id: '2026-09-cinderpaw',
   hero: 'Cinderpaw',
@@ -69,12 +74,14 @@ export function WhatsNew() {
   useEffect(() => {
     if (due !== null) return;
     let alive = true;
+    const giveUp = setTimeout(() => { alive = false; useWhatsNew.setState({ due: false }); }, WHATS_NEW_DECIDE_MS);
     void useOnboarding.getState().loadPersisted().then((onboarded) => {
       if (!alive) return;
+      clearTimeout(giveUp);
       if (!onboarded) writeLocal(SEEN_KEY, RELEASE.id);
       useWhatsNew.setState({ due: onboarded });
-    }).catch(() => useWhatsNew.setState({ due: false }));
-    return () => { alive = false; };
+    }).catch(() => { if (alive) { clearTimeout(giveUp); useWhatsNew.setState({ due: false }); } });
+    return () => { alive = false; clearTimeout(giveUp); };
   }, [due]);
 
   useEffect(() => {
