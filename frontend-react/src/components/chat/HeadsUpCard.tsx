@@ -78,11 +78,11 @@ export function HeadsUpCard() {
       <div className="relative rounded-2xl border border-border-default bg-(--surface-typing) liquid-glass liquid-glass-rim px-3 py-2.5">
         <button type="button" aria-label="Close" onClick={() => choose('dismiss')}
           className="absolute right-2 top-2 rounded-full p-1 text-text-muted hover:bg-text-primary/5 hover:text-text-primary">
-          <X size={15} />
+          <X size={16} />
         </button>
         <div className="flex gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand text-brand-foreground">
-            <Lightbulb size={19} aria-hidden />
+            <Lightbulb size={20} aria-hidden />
           </span>
           <span aria-hidden className="w-px shrink-0 self-stretch bg-border-default" />
           <div className="min-w-0 flex-1 pr-6">

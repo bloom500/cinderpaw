@@ -140,14 +140,14 @@ export function MetaProposalCard() {
               <div className="relative flex-1 overflow-hidden rounded-xl bg-bg-elevated px-4 py-3 text-center">
                 <p className="text-2xl font-semibold tabular-nums text-text-primary">{before.big}</p>
                 <p className="text-xs text-text-secondary">{before.small}</p>
-                <Cloud size={22} className="absolute bottom-1.5 left-2 text-text-disabled/60" />
+                <Cloud size={20} className="absolute bottom-1.5 left-2 text-text-disabled/60" />
               </div>
               <ArrowRight size={20} className="shrink-0 self-center text-text-muted" />
               <div className="relative flex-1 overflow-hidden rounded-xl border border-success/25 bg-success/10 px-4 py-3 text-center">
                 <p className="text-2xl font-semibold tabular-nums text-text-primary">{after.big}</p>
                 <p className="text-xs text-text-secondary">{after.small}</p>
                 <Sparkles size={14} className="absolute right-2.5 top-2 text-success/70" />
-                <Cloud size={22} className="absolute bottom-1.5 right-2 text-success/40" />
+                <Cloud size={20} className="absolute bottom-1.5 right-2 text-success/40" />
               </div>
             </div>
           )}

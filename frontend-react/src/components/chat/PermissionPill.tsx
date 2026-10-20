@@ -51,7 +51,7 @@ export function PermissionPill() {
           mode === 'full_access' ? 'text-warning' : 'text-text-muted',
         )}
       >
-        <current.icon size={13} aria-hidden />
+        <current.icon size={12} aria-hidden />
         <span className="hidden sm:inline">{current.label}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-72">
