@@ -4,7 +4,7 @@ import { rehydrateLiveSession } from '@/lib/cinderpawLiveSession';
 import { voiceToPersisted, voiceFromPersisted } from '@/lib/messageMapping';
 import { toolsFromPersisted } from '@/hooks/useLiveToolActivity';
 import { memoryUsedFrom, turnEndFrom, useChat, type ChatMessage } from './chat';
-import { reportFailure } from './notifications';
+import { useNotifications } from './notifications';
 
 export type { ConversationSummary };
 
@@ -92,6 +92,10 @@ function toPersisted(m: ChatMessage): PersistedMessage {
   };
 }
 
+// A completed read may update the screen only while it is still the person's
+// latest choice. New chat and deleting that choice invalidate pending reads.
+let openRequest: { id: string } | null = null;
+
 export const useConversations = create<ConversationsStore>((set, get) => ({
   list: [],
   loaded: false,
@@ -115,6 +119,8 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   },
 
   open: async (id) => {
+    const request = { id };
+    openRequest = request;
     if (get().unreadIds[id]) {
       const unread = { ...get().unreadIds };
       delete unread[id];
@@ -127,7 +133,7 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
     const alreadyLive =
       useChat.getState().sessionId === id && Boolean(get().streamingIds[id]);
     if (alreadyLive) {
-      set({ currentId: id });
+      set({ currentId: id, loadingConversation: false });
       return;
     }
 
@@ -137,10 +143,8 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
       // in Chats, in Projects. A load that throws was an unhandled rejection
       // there: the click did nothing at all, with no clue whether the chat was
       // gone, corrupt, or the backend simply not up yet.
-      const conv = await reportFailure('Could not open the chat', () =>
-        tauri.conversations.load(id),
-      );
-      if (!conv) return;
+      const conv = await tauri.conversations.load(id);
+      if (openRequest !== request) return;
       const msgs = conv.messages.map(toChatMessage);
       // Preserve the streaming animation if the user re-enters the chat
       // that's currently mid-generation. Without this, `loadSession` would
@@ -159,17 +163,24 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
       // so the task doesn't look like it reset.
       if (isStreaming) rehydrateLiveSession(id);
       set({ currentId: id });
+    } catch (err) {
+      if (openRequest === request) {
+        useNotifications.getState().push('error', 'Could not open the chat', err instanceof Error ? err.message : String(err));
+      }
     } finally {
-      set({ loadingConversation: false });
+      if (openRequest === request) set({ loadingConversation: false });
     }
   },
 
   saveCurrent: async (title, agentId) => {
+    const request = openRequest;
     const chat = useChat.getState();
     const persisted = chat.messages.map(toPersisted);
     try {
       await tauri.conversations.save(chat.sessionId, title, persisted, agentId);
-      set({ currentId: chat.sessionId });
+      if (request === openRequest && useChat.getState().sessionId === chat.sessionId) {
+        set({ currentId: chat.sessionId });
+      }
     } catch (err) {
       console.error('[conversations] save failed:', err);
       throw err;
@@ -198,6 +209,10 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
     // prints the reason next to the button. Swallowing it here would close the
     // dialog on a delete that did not happen.
     await tauri.conversations.delete(id);
+    if (openRequest?.id === id) {
+      openRequest = null;
+      set({ loadingConversation: false });
+    }
     if (get().currentId === id) {
       useChat.getState().newSession();
       set({ currentId: null });
@@ -212,8 +227,9 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   },
 
   newChat: () => {
+    openRequest = null;
     useChat.getState().newSession();
-    set({ currentId: null });
+    set({ currentId: null, loadingConversation: false });
   },
 
   markStreaming: (id) => {
