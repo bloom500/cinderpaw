@@ -306,6 +306,8 @@ export interface SkillPreview {
   content: string;
 }
 
+export type PermissionMode = 'read_only' | 'workspace_write' | 'full_access';
+
 export interface Settings {
   models_dir: string;
   default_gpu_layers: number;
@@ -330,6 +332,9 @@ export interface Settings {
   /** Opt-in daily usage summary. null = never asked (the home card asks once),
    *  false = asked and said no. Optional: older hosts do not send it. */
   usage_sharing?: boolean | null;
+  /** What the agent may do without asking (sidecar permission-mode.ts).
+   *  Absent/null = `workspace_write`, the sidecar's default. */
+  permission_mode?: PermissionMode | null;
   /** The chosen inference route: `"<provider>:<model>"` (cloud) or
    *  `"local:<file>"`. null = the bundled local default. */
   active_route: string | null;
@@ -868,6 +873,7 @@ const raw = {
     invoke<void>('submit_bug_report', { description, includeLog }),
   countInstall:          (send: boolean, heard: string | null) => invoke<void>('count_install', { send, heard }),
   setUsageSharing:       (on: boolean) => invoke<void>('set_usage_sharing', { on }),
+  setPermissionMode:     (mode: PermissionMode) => invoke<void>('set_permission_mode', { mode }),
   saveAgent:             (cfg: AgentConfig) => invoke<AgentConfig>('save_agent', { cfg }),
   getAgents:             ()    => invoke<AgentConfig[]>('get_agents'),
   deleteAgent:           (id: string) => invoke<void>('delete_agent', { id }),
@@ -1262,6 +1268,7 @@ export const tauri = {
     setDesktopControlYolo: async (enabled: boolean) => raw.setDesktopControlYolo(enabled),
     setTokenBudget: async (budget: number | null) => raw.setTokenBudgetConversation(budget),
     setRsiBudget: async (budget: number | null) => raw.setRsiBudget(budget),
+    setPermissionMode: async (mode: PermissionMode) => raw.setPermissionMode(mode),
     setRsiAllowCloudDreams: async (enabled: boolean) => raw.setRsiAllowCloudDreams(enabled),
     setDreamsEnabled: async (enabled: boolean) => raw.setDreamsEnabled(enabled),
   },
