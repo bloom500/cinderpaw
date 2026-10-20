@@ -112,6 +112,33 @@ describe('a send that fails', () => {
   });
 });
 
+describe('a message written while a reply is arriving', () => {
+  it('waits, says so, and goes out when the reply is done', async () => {
+    const sendFn = vi.fn(async () => {});
+    useChat.setState({ streamStatus: 'streaming' });
+    render(<ChatInput sendFn={sendFn} />);
+    const box = await type('and one more thing');
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(screen.getByText(/Sends when this reply is done/)).toBeTruthy();
+    expect(box.value).toBe('');
+    expect(sendFn).not.toHaveBeenCalled();
+    act(() => useChat.setState({ streamStatus: 'done' }));
+    await waitFor(() => expect(sendFn).toHaveBeenCalledWith('and one more thing'));
+    expect(screen.queryByText(/Sends when this reply is done/)).toBeNull();
+  });
+
+  it('comes back to the box when the reply is stopped instead', async () => {
+    const sendFn = vi.fn(async () => {});
+    useChat.setState({ streamStatus: 'streaming' });
+    render(<ChatInput sendFn={sendFn} />);
+    const box = await type('wait');
+    fireEvent.keyDown(box, { key: 'Enter' });
+    act(() => useChat.setState({ streamStatus: 'stopped' }));
+    await waitFor(() => expect(box.value).toBe('wait'));
+    expect(sendFn).not.toHaveBeenCalled();
+  });
+});
+
 // Files dropped from the OS arrive as HTML5 drop events: with `dragDropEnabled`
 // off in tauri.conf.json Tauri emits nothing, and the browser app never had
 // Tauri events. Without an HTML5 handler a drop did nothing at all (20 Sep).

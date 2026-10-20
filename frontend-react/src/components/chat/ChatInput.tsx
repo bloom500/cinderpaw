@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { ArrowUp, Square, Mic, Phone } from 'lucide-react';
+import { ArrowUp, Square, Mic, Phone, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -432,6 +432,24 @@ function ChatInput({ isEmpty, sendFn }, ref) {
   };
 
   const isStreaming = status === 'streaming';
+  // A message written while a reply is still arriving. It waits here and goes
+  // out when the reply is done, like Claude's "type to queue for later"; before,
+  // Enter did nothing at all during a reply and nothing said why.
+  const [queued, setQueued] = useState<string | null>(null);
+  const sessionId = useChat((s) => s.sessionId);
+  const lastStatus = useRef(status);
+  useEffect(() => {
+    const was = lastStatus.current;
+    lastStatus.current = status;
+    if (was !== 'streaming' || status === 'streaming' || queued === null) return;
+    setQueued(null);
+    // Done: it goes. Stopped or failed: it comes back to the box, so the person
+    // decides, instead of a new turn starting on top of a problem.
+    if (status === 'done') void sendFn(queued).catch(() => setText((cur) => cur || queued));
+    else setText((cur) => (cur ? `${queued}\n${cur}` : queued));
+  }, [status, queued, sendFn]);
+  // A queued message belongs to its chat: switching chats puts it back in the box.
+  useEffect(() => () => setQueued((q) => { if (q !== null) setText((cur) => cur || q); return null; }), [sessionId]);
   const agentPhase = useChat((s) => s.agentPhase);
   const mascotState = useMascotState({
     streamStatus: status,
@@ -487,6 +505,12 @@ function ChatInput({ isEmpty, sendFn }, ref) {
         else if (code === 'stt-cloud-failed') useNotifications.getState().push('error', t('voice.cloudFailed'));
         else useNotifications.getState().push('error', t('voice.emptyTranscript'));
       }
+      return;
+    }
+    if (isStreaming && text.trim() && attachedFiles.length === 0 && links.length === 0) {
+      const next = text;
+      setQueued((q) => (q ? `${q}\n${next}` : next));
+      setText('');
       return;
     }
     if ((!text.trim() && attachedFiles.length === 0 && links.length === 0) || isStreaming || disabled) return;
@@ -635,6 +659,21 @@ function ChatInput({ isEmpty, sendFn }, ref) {
               }}
             />
           )}
+          {queued !== null && (
+            <div className="flex items-center gap-2 px-4 pt-2.5 text-xs text-text-muted" role="status">
+              <Clock size={12} className="shrink-0 text-brand" />
+              <span className="min-w-0 flex-1 truncate">
+                Sends when this reply is done: <span className="text-text-secondary">{queued}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => { setText((cur) => (cur ? `${queued}\n${cur}` : queued)); setQueued(null); }}
+                className="shrink-0 rounded-md px-1.5 py-0.5 text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+              >
+                Edit
+              </button>
+            </div>
+          )}
           <div className="flex items-end gap-1 px-2 pt-2 pb-1.5">
             <div className="flex h-11 shrink-0 items-center">
               <FileAttachButton onFilesSelected={addFiles} />
@@ -666,7 +705,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                     // forty blurred letters every 3.2 s behind the transcript
                     // and every streamed reply; there the field says what it is.
                     active={!!isEmpty && !engaged && !disabled}
-                    fallback={t('chat.placeholder.agent')}
+                    fallback={isStreaming ? 'Write your next message. It sends when this reply is done.' : t('chat.placeholder.agent')}
                   />
                 </div>
               )}
