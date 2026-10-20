@@ -4,6 +4,7 @@ import { Brain, FileText, Globe, LogIn, Moon, Phone, type LucideIcon } from 'luc
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { useOnboarding } from '@/stores/onboarding';
 import { readLocal, writeLocal } from '@/lib/utils';
+import { useAttentionTurn } from '@/lib/attention';
 
 /**
  * The big "what's new" card, for big releases only, after the one the Claude
@@ -40,29 +41,45 @@ const RELEASE: { id: string; hero: string; picture: string; title: string; subti
   ],
 };
 
-export const useWhatsNew = create<{ open: boolean; show: () => void; hide: () => void }>((set) => ({
+export const useWhatsNew = create<{
+  open: boolean;
+  /** Opens by itself this launch: null = not decided yet (the onboarding state
+   *  is read async), and while undecided it holds its place in the notice
+   *  queue so the Alpha card cannot jump ahead of it. */
+  due: boolean | null;
+  show: () => void;
+  hide: () => void;
+}>((set) => ({
   open: false,
+  due: readLocal(SEEN_KEY) === RELEASE.id ? false : null,
   show: () => set({ open: true }),
   hide: () => {
     writeLocal(SEEN_KEY, RELEASE.id);
-    set({ open: false });
+    set({ open: false, due: false });
   },
 }));
 
 export function WhatsNew() {
   const open = useWhatsNew((s) => s.open);
   const hide = useWhatsNew((s) => s.hide);
+  const due = useWhatsNew((s) => s.due);
+  // First in the notice queue: the Alpha card and the rest wait until it is closed.
+  const turn = useAttentionTurn('whatsNew', due !== false);
 
   useEffect(() => {
-    if (readLocal(SEEN_KEY) === RELEASE.id) return;
+    if (due !== null) return;
     let alive = true;
     void useOnboarding.getState().loadPersisted().then((onboarded) => {
       if (!alive) return;
-      if (onboarded) useWhatsNew.getState().show();
-      else writeLocal(SEEN_KEY, RELEASE.id);
-    }).catch(() => {});
+      if (!onboarded) writeLocal(SEEN_KEY, RELEASE.id);
+      useWhatsNew.setState({ due: onboarded });
+    }).catch(() => useWhatsNew.setState({ due: false }));
     return () => { alive = false; };
-  }, []);
+  }, [due]);
+
+  useEffect(() => {
+    if (turn && due) useWhatsNew.getState().show();
+  }, [turn, due]);
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) hide(); }}>
