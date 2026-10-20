@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Markdown } from '../markdown';
 import { chunkRun } from '../emberLetters';
 
@@ -99,5 +99,20 @@ describe('Markdown in a document drafted in parts', () => {
     expect(caret).toHaveLength(1);
     expect(caret[0]!.getAttribute('data-name')).toBe('Cinderpaw');
     expect(caret[0]!.previousSibling?.textContent).toContain('is');
+  });
+});
+
+describe('Markdown expanded table', () => {
+  it('is a real dialog: Escape closes it and focus goes back to the button', async () => {
+    render(<Markdown>{'| a | b |\n|---|---|\n| 1 | 2 |'}</Markdown>);
+    const expand = screen.getByRole('button', { name: 'Expand table' });
+    expand.focus();
+    fireEvent.click(expand);
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.getAttribute('aria-labelledby')).toBeTruthy();
+    expect(dialog.querySelector('table')).not.toBeNull();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(expand));
   });
 });

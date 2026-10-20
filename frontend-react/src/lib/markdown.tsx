@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, useState } from 'react';
+import { createContext, memo, useContext } from 'react';
 import type { Components } from 'react-markdown';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -6,7 +6,8 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
 import 'katex/dist/katex.min.css';
-import { Maximize2, X } from 'lucide-react';
+import { Maximize2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { CodeBlock } from '@/components/chat/CodeBlock';
 import { MermaidDiagram } from '@/components/chat/MermaidDiagram';
 import { SourceAwareLink } from '@/components/chat/Sources';
@@ -17,53 +18,34 @@ import { SKIP, visit } from 'unist-util-visit';
 import type { Element as HastElement, ElementContent, Root as HastRoot, Text as HastText } from 'hast';
 
 function ExpandableTable({ children, ...props }: React.HTMLAttributes<HTMLTableElement>) {
-  const [expanded, setExpanded] = useState(false);
+  // The app's dialog, opened by its trigger: Escape closes it, focus stays
+  // inside and returns to the expand button, a screen reader hears a dialog.
   return (
-    <>
+    <Dialog>
       <div className="relative group/table">
-        <button
+        <DialogTrigger asChild><button
           type="button"
-          onClick={() => setExpanded(true)}
           className="absolute top-1 right-1 p-1 rounded bg-bg-elevated border border-border-subtle shadow
-                     opacity-0 group-hover/table:opacity-100 transition-opacity
+                     opacity-0 group-hover/table:opacity-100 focus-visible:opacity-100 transition-opacity
                      text-text-muted hover:text-text-secondary cursor-pointer"
           aria-label="Expand table"
           title="Expand table"
         >
           <Maximize2 size={12} />
-        </button>
+        </button></DialogTrigger>
         {/* No negative margin: -mx-1 cut the first column's text where the
             row clipped at its edge. */}
         <div className="overflow-x-auto">
           <table {...(props as any)}>{children}</table>
         </div>
       </div>
-      {expanded && (
-        <div
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-6"
-          onClick={() => setExpanded(false)}
-        >
-          <div
-            className="relative bg-bg-elevated rounded-xl border border-border-default shadow-xl
-                       max-w-5xl w-full max-h-[80vh] overflow-auto p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={() => setExpanded(false)}
-              className="absolute top-3 right-3 p-1.5 rounded-full bg-bg-surface border border-border-subtle
-                         text-text-muted hover:text-text-primary cursor-pointer"
-              aria-label="Close"
-            >
-              <X size={14} />
-            </button>
-            <div className="prose dark:prose-invert max-w-none">
-              <table {...(props as any)}>{children}</table>
-            </div>
+        <DialogContent className="max-w-5xl w-full max-h-[80vh] overflow-auto p-6">
+          <DialogTitle className="sr-only">Table</DialogTitle>
+          <div className="prose dark:prose-invert max-w-none">
+            <table {...(props as any)}>{children}</table>
           </div>
-        </div>
-      )}
-    </>
+        </DialogContent>
+    </Dialog>
   );
 }
 
