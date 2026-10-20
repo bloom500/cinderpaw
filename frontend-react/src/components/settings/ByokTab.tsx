@@ -112,7 +112,10 @@ function ProviderCard({ def, state, open, onToggle }: { def: ProviderDef; state?
   const removeByokProvider = useSettings((s) => s.removeByokProvider);
   const testByokProvider = useSettings((s) => s.testByokProvider);
 
-  const [enabled, setEnabled]       = useState(state?.enabled ?? false);
+  // A provider with no record starts ON: pasting a key and pressing Save is the
+  // whole job. Off by default, a tested, saved key stayed "Turned off" and
+  // nothing answered (UX lab, 19 Oct, item 3: the default nobody set).
+  const [enabled, setEnabled]       = useState(state?.enabled ?? true);
   const [apiKey, setApiKey]         = useState('');
   const [baseUrl, setBaseUrl]       = useState(state?.base_url ?? '');
   const [defaultModel, setDefModel] = useState(
@@ -132,7 +135,9 @@ function ProviderCard({ def, state, open, onToggle }: { def: ProviderDef; state?
     try {
       const p: ByokProviderUpdate = {
         providerId: def.id,
-        enabled,
+        // The first key for a provider turns it on, even one that was saved off
+        // before; switching it off again stays the person's choice.
+        enabled: enabled || (!state?.has_api_key && apiKey.trim() !== ''),
         apiKey,
         baseUrl: def.hasBaseUrl ? (baseUrl || null) : null,
         defaultModel: defaultModel || null,
@@ -309,7 +314,9 @@ function ProviderCard({ def, state, open, onToggle }: { def: ProviderDef; state?
                       type="text"
                       value={defaultModel}
                       onChange={(e) => setDefModel(e.target.value)}
-                      placeholder="gpt-4o"
+                      // "gpt-4o" here sent NVIDIA NIM users to a model NIM does not
+                      // serve (UX lab, item 16). A real example per provider, else words.
+                      placeholder={def.id === 'nvidia' ? 'meta/llama-3.3-70b-instruct' : 'The model name, as the provider writes it'}
                       className={inputCls}
                     />
                   )}

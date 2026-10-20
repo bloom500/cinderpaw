@@ -68,6 +68,15 @@ describe('ByokTab', () => {
     expect(mockSaveByok).toHaveBeenCalledWith(expect.objectContaining({ providerId: 'anthropic' }));
   });
 
+  it('a first key turns the provider on: saved means it answers', async () => {
+    mockSaveByok.mockResolvedValue(undefined);
+    render(<ByokTab />);
+    await userEvent.click(text('OpenAI'));
+    await userEvent.type(await screen.findByPlaceholderText('sk-...'), 'sk-first');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    expect(mockSaveByok).toHaveBeenCalledWith(expect.objectContaining({ providerId: 'openai', enabled: true }));
+  });
+
   it('Test button calls testByokProvider and shows ✓ Connected on success', async () => {
     // This mocks the STORE method, which normalises Rust's
     // { success, message } into { ok, error } — mock that shape, not the raw
