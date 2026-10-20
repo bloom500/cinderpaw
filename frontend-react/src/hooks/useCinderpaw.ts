@@ -264,6 +264,9 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         tools: [] as ToolActivity[],
         // Set when the person stops the turn or it fails; saved with the reply.
         ended: undefined as TurnEnd | undefined,
+        // The memories this turn was given, kept here so a reply that finishes
+        // while another chat is on screen still saves them.
+        memoryUsed: undefined as MemoryUsedItem[] | undefined,
       };
       /**
        * A turn that ends with a tool still open never gets that tool's result.
@@ -299,6 +302,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         const live = new Map(useChat.getState().messages.map((m) => [m.id, m] as const));
         const persisted: PersistedMessage[] = snapshot.map((s0) => {
           const m = live.get(s0.id) ?? s0;
+          const mem = m.id === asstId ? state.memoryUsed : m.memoryUsed;
           return {
           role: m.role,
           content: m.id === asstId ? joinSegments(state.committed, state.answer) : m.content,
@@ -315,6 +319,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
             : (m.toolActivity && m.toolActivity.length > 0 ? m.toolActivity : undefined),
           created_at: m.createdAt,
           ended: m.id === asstId ? state.ended : m.ended,
+          memory_used: mem?.length ? mem : undefined,
           }; });
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted, agentId);
@@ -486,6 +491,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         // Memory Peek: which memories this reply was given. Only while the
         // chat is on screen; a background turn keeps its answer, not this.
         onMemoryUsed: (items) => {
+          state.memoryUsed = items;
           if (isActive()) useChat.getState().updateLastAssistantMessage({ memoryUsed: items });
         },
         onUsage: (promptTokens, completionTokens) => {

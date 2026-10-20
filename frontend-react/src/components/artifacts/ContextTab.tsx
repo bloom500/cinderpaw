@@ -17,6 +17,10 @@ import { useChat, type MemoryUsedItem } from '@/stores/chat';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
 import { useConversations } from '@/stores/conversations';
 import { useProjects } from '@/stores/projects';
+import { useCinderpawStore } from '@/stores/cinderpaw';
+import { stepTitle } from '@/components/chat/MessageChain';
+import { kindOf } from '@/hooks/useLiveToolActivity';
+import { emojiForTool } from '@/components/chat/mascot/emojiForTool';
 
 function openUrl(url: string) {
   void open(url).catch(() => window.open(url, '_blank', 'noopener,noreferrer'));
@@ -334,7 +338,12 @@ export function ContextTab({ onCompose, onAttach }: {
   const currentId = useConversations((s) => s.currentId);
   const convo = useConversations((s) => s.list.find((c) => c.id === s.currentId));
   const project = useProjects((s) => (currentId ? s.list.find((p) => p.conversation_ids.includes(currentId)) : undefined));
-  const model = useModel((s) => (s.cloudModel ? modelDisplayName(s.cloudModel.modelId) : s.loaded?.name ?? null));
+  // The agent answers with its own pinned model (useCinderpawStore); reading
+  // only the chat-mode store said "None chosen" in the middle of a reply from
+  // that model (UX lab, item 19).
+  const agentModel = useCinderpawStore((s) => s.modelConfig?.model ?? null);
+  const model = useModel((s) => (s.cloudModel ? modelDisplayName(s.cloudModel.modelId) : s.loaded?.name ?? null))
+    ?? (agentModel ? modelDisplayName(agentModel) : null);
   const cloudId = useModel((s) => s.cloudModel?.modelId);
   const browserUrl = useBrowser((s) => s.url);
   const browserTitle = useBrowser((s) => s.tabs.find((t) => t.id === s.active)?.title ?? '');
@@ -348,7 +357,8 @@ export function ContextTab({ onCompose, onAttach }: {
 
   // A chat not yet titled is named by its first ask, cut at a word, not inside one.
   const title = convo?.title || (asked.length > 60 ? `${asked.slice(0, 60).replace(/\s\S*$/, '')}…` : asked) || 'New conversation';
-  const tools = [...new Map(toolCalls.filter((t) => t.kind === 'tool').map((t) => [t.name, t])).values()];
+  const running = new Set(toolCalls.flatMap((t) => (t.kind === 'tool' && t.status === 'running' ? [t.name] : [])));
+  const tools = ctx.tools;
   const nothing = ctx.files.length === 0 && ctx.sources.length === 0 && ctx.memories.length === 0 && approvals.length === 0;
   const state = status === 'streaming'
     ? { label: 'In progress', cls: 'bg-success/10 text-success', dot: 'bg-success' }
@@ -403,8 +413,14 @@ export function ContextTab({ onCompose, onAttach }: {
         <Fold id="ctx-tools" icon={Wrench} title="Tools in use" count={tools.length}>
           {tools.length > 0 && (
             <Rows>
-              {tools.map((t) => t.kind === 'tool' && (
-                <Row key={t.name} tile={<span className="text-base">{t.emoji}</span>} title={t.name} sub={t.status === 'running' ? 'Running now' : t.status === 'error' ? 'Failed' : 'Used in this reply'} />
+              {tools.map((tool) => (
+                <Row
+                  key={tool}
+                  tile={<span className="text-base">{emojiForTool(tool)}</span>}
+                  // Words, not the tool id ("context_compaction", "artifact_create").
+                  title={stepTitle({ tool, kind: kindOf(tool), status: 'done', artifact: null })}
+                  sub={running.has(tool) ? 'Running now' : 'Used in this chat'}
+                />
               ))}
             </Rows>
           )}

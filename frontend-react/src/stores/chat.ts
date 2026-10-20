@@ -7,6 +7,15 @@ export type AgentPhase = 'thinking' | 'calling' | 'processing'
   | 'reading' | 'searching' | 'building' | 'writing' | null;
 export type TurnEnd = { kind: 'stopped' } | { kind: 'error'; raw: string };
 
+/** Saved memories, or undefined for anything that is not a list of them. */
+export function memoryUsedFrom(v: unknown): MemoryUsedItem[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const items = v.filter((m): m is MemoryUsedItem =>
+    !!m && typeof m === 'object' && typeof (m as MemoryUsedItem).text === 'string'
+    && ['fact', 'past', 'learned'].includes((m as MemoryUsedItem).kind));
+  return items.length > 0 ? items : undefined;
+}
+
 /** A saved `ended`, or undefined for anything that is not one (older files, hand edits). */
 export function turnEndFrom(v: unknown): TurnEnd | undefined {
   const o = v as { kind?: unknown; raw?: unknown } | null | undefined;

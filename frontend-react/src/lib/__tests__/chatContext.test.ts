@@ -14,7 +14,7 @@ const msg = (m: Partial<ChatMessage>): ChatMessage => ({ id: crypto.randomUUID()
 
 describe('chatContext', () => {
   it('is empty for a new chat', () => {
-    expect(chatContext([])).toEqual({ files: [], sources: [], memories: [], artifactIds: [] });
+    expect(chatContext([])).toEqual({ files: [], sources: [], memories: [], artifactIds: [], tools: [] });
   });
 
   it('lists each attached file once, by kind and name', () => {
@@ -28,6 +28,8 @@ describe('chatContext', () => {
     const page = done('read_webpage', { url: 'https://c.com/page' }, { subject: 'https://c.com/page' });
     const ctx = chatContext([msg({ content: 'See [one](https://a.com/one/).', toolActivity: [search, page] })]);
     expect(ctx.sources.map((s) => s.url)).toEqual(['https://a.com/one', 'https://c.com/page']);
+    // The tools stay listed after the reply: they are read from the saved steps.
+    expect(ctx.tools).toEqual(['web_search', 'read_webpage']);
   });
 
   it('gathers memories from the injected block and recall lookups, once each', () => {

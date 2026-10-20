@@ -18,6 +18,10 @@ export interface ChatContext {
   memories: MemoryUsedItem[];
   /** Newest first. */
   artifactIds: string[];
+  /** Every tool this chat's replies ran, first use first. Read from the saved
+   *  steps: the live strip it came from before is wiped 5 s after a reply, so
+   *  "Tools in use" emptied the moment a reply ended (UX lab, item 19). */
+  tools: string[];
 }
 
 export function chatContext(messages: readonly ChatMessage[]): ChatContext {
@@ -28,6 +32,7 @@ export function chatContext(messages: readonly ChatMessage[]): ChatContext {
   const memories: MemoryUsedItem[] = [];
   const memoryKeys = new Set<string>();
   const artifactIds: string[] = [];
+  const tools: string[] = [];
 
   const addSource = (hit: ToolHit) => {
     const key = normalizeUrl(hit.url);
@@ -48,6 +53,7 @@ export function chatContext(messages: readonly ChatMessage[]): ChatContext {
     const activity = m.toolActivity ?? [];
     for (const hit of citedSources(m.content, sourcesOf(activity))) addSource(hit);
     for (const a of activity) {
+      if (!tools.includes(a.tool)) tools.push(a.tool);
       if (a.status !== 'done') continue;
       if (PAGE_TOOLS.has(a.tool) && normalizeUrl(a.subject)) {
         const host = (() => { try { return new URL(a.subject).hostname; } catch { return ''; } })();
@@ -63,5 +69,5 @@ export function chatContext(messages: readonly ChatMessage[]): ChatContext {
     }
     for (const u of m.memoryUsed ?? []) addMemory(u);
   }
-  return { files, sources, memories, artifactIds };
+  return { files, sources, memories, artifactIds, tools };
 }

@@ -75,6 +75,11 @@ pub struct PersistedMessage {
     /// Without it, a stopped or failed reply came back as a finished one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended: Option<serde_json::Value>,
+    /// The memories this reply was given (Memory Peek, the Context tab's
+    /// Memory). Opaque like `tools`. Without it a reopened chat showed none,
+    /// though the reply had used them (UX lab, 19 Oct, item 19).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_used: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -445,7 +450,7 @@ mod tests {
                 content: format!("Message {}", i),
                 thinking: None, thinking_ms: None,
                 voice: None,
-                scratch: None, tools: None, created_at: None, ended: None })
+                scratch: None, tools: None, created_at: None, ended: None, memory_used: None })
             .collect()
     }
 
@@ -462,7 +467,7 @@ mod tests {
             }),
             scratch: None,
             tools: None,
-            created_at: None, ended: None,
+            created_at: None, ended: None, memory_used: None,
         }
     }
 
@@ -583,7 +588,7 @@ mod tests {
                 transcript: String::new(),
                 peaks: vec![],
             }),
-            scratch: None, tools: None, created_at: None, ended: None }];
+            scratch: None, tools: None, created_at: None, ended: None, memory_used: None }];
         save_to_dir(&dir, "c1", "t", &messages, None).unwrap();
 
         delete_from_dir(&dir, "c1").unwrap();
@@ -621,7 +626,7 @@ mod tests {
             content: "wrote my notes".into(),
             thinking: None, thinking_ms: None,
             voice: None,
-            scratch: Some(ScratchStats { edits: 1, added: 71, removed: 0 }), tools: None, created_at: None, ended: None }];
+            scratch: Some(ScratchStats { edits: 1, added: 71, removed: 0 }), tools: None, created_at: None, ended: None, memory_used: None }];
         save_to_dir(&dir, "c1", "Title", &msgs, None).unwrap();
 
         // Nothing in memory — read back off disk exactly as a fresh launch does.
@@ -640,7 +645,7 @@ mod tests {
             content: "hi".into(),
             thinking: None, thinking_ms: None,
             voice: None,
-            scratch: None, tools: None, created_at: None, ended: None,
+            scratch: None, tools: None, created_at: None, ended: None, memory_used: None,
         };
         let json = serde_json::to_string(&m).unwrap();
         assert!(!json.contains("scratch"), "absent stats must not be written: {json}");
@@ -738,15 +743,15 @@ mod tests {
         let dir = tmp();
 
         let conv1_msgs = vec![
-            PersistedMessage { role: "user".into(),      content: "Hello world".into(),               thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None, ended: None },
-            PersistedMessage { role: "assistant".into(), content: "Hi there!".into(),                 thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None, ended: None },
-            PersistedMessage { role: "user".into(),      content: "What is Rust?".into(),             thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None, ended: None },
+            PersistedMessage { role: "user".into(),      content: "Hello world".into(),               thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None, ended: None, memory_used: None },
+            PersistedMessage { role: "assistant".into(), content: "Hi there!".into(),                 thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None, ended: None, memory_used: None },
+            PersistedMessage { role: "user".into(),      content: "What is Rust?".into(),             thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None, ended: None, memory_used: None },
         ];
         let conv2_msgs = vec![
-            PersistedMessage { role: "user".into(),      content: "Tell me a joke".into(),            thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None, ended: None },
-            PersistedMessage { role: "assistant".into(), content: "Why did the crab...".into(),       thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None, ended: None },
-            PersistedMessage { role: "user".into(),      content: "Ha! Another one".into(),           thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None, ended: None },
-            PersistedMessage { role: "assistant".into(), content: "Sure! What do you call...".into(), thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None, ended: None },
+            PersistedMessage { role: "user".into(),      content: "Tell me a joke".into(),            thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None, ended: None, memory_used: None },
+            PersistedMessage { role: "assistant".into(), content: "Why did the crab...".into(),       thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None, ended: None, memory_used: None },
+            PersistedMessage { role: "user".into(),      content: "Ha! Another one".into(),           thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None, ended: None, memory_used: None },
+            PersistedMessage { role: "assistant".into(), content: "Sure! What do you call...".into(), thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None, ended: None, memory_used: None },
         ];
 
         save_to_dir(&dir, "session-1", "Hello world", &conv1_msgs, None).unwrap();
