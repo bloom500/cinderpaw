@@ -1496,9 +1496,11 @@ body { overflow: hidden; }
    about 2.4% wider (582 px against 568 px, Geist 15px), and it visibly shrank
    when the boxes went back to plain text (Darius, 17 Oct). Blur, colour and
    glow animate the same on an inline letter. */
-:root {
-  --ember-hot: #ff9a6c;
-  --ember-warm: #f6c9b0;
+@layer base {
+  :root {
+    --ember-hot: #ff9a6c;
+    --ember-warm: #f6c9b0;
+  }
 }
 /* The demo's in-between colours are for a dark page: pale peach on a light one
    all but disappears halfway through. Mixed from the brand and the text
@@ -1523,8 +1525,10 @@ body { overflow: hidden; }
 }
 
 /* Where Cinderpaw is writing: a thin ember bar with its name above it, like a
-   collaborator's cursor in a shared document (Claude Docs, compared 20 Oct). */
-.ember-caret {
+   collaborator's cursor in a shared document (Claude Docs, compared 20 Oct).
+   `span.` because it is placed by emberLetters.ts, never by markup: no utility
+   ever sits on it, so its own position is not taken from one (glass.test). */
+span.ember-caret {
   position: relative;
   display: inline-block;
   width: 2px;
