@@ -252,18 +252,9 @@ async fn compute_state(_runtime: &Arc<RuntimeState>) -> BridgeState {
     // The onboarding record is the persistent cross-session state.
     // The bridge does NOT have access to Tauri IPC, so it re-reads
     // the file the same way `get_onboarding_record` does.
-    let home = std::env::var("USERPROFILE")
-        .ok()
-        .or_else(|| std::env::var("HOME").ok());
-    let home = match home {
-        Some(h) => h,
-        None => {
-            return default_state();
-        }
+    let Some(path) = onboarding_path() else {
+        return default_state();
     };
-    let path = std::path::PathBuf::from(home)
-        .join(cinderpaw_core::brand::APP_HOME_DIR_NAME)
-        .join("onboarding.json");
     let content = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => return default_state(),
@@ -743,14 +734,7 @@ async fn handle_action(app: &tauri::AppHandle, token: &Arc<str>, req: BridgeActi
 // ── Onboarding persistence (mirror of commands/system.rs) ────────────────
 
 fn onboarding_path() -> Option<std::path::PathBuf> {
-    let home = std::env::var("USERPROFILE")
-        .ok()
-        .or_else(|| std::env::var("HOME").ok())?;
-    Some(
-        std::path::PathBuf::from(home)
-            .join(cinderpaw_core::brand::APP_HOME_DIR_NAME)
-            .join("onboarding.json"),
-    )
+    Some(cinderpaw_core::paths::cinderpaw_dir().join("onboarding.json"))
 }
 
 fn read_onboarding_record() -> serde_json::Value {
