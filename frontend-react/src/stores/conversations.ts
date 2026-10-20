@@ -38,6 +38,8 @@ interface ConversationsStore {
    * rail until you open them, so a finished answer is not silent.
    */
   unreadIds: Record<string, true>;
+  providerWaits: Record<string, number>;
+  setProviderWait: (id: string, waitMs: number) => void;
 
   refresh:     () => Promise<void>;
   open:        (id: string) => Promise<void>;
@@ -103,6 +105,17 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   loadingConversation: false,
   streamingIds: {},
   unreadIds: {},
+  providerWaits: {},
+  setProviderWait: (id, waitMs) => {
+    const waits = { ...get().providerWaits };
+    if (waitMs >= 1000 && Number.isFinite(waitMs) && get().streamingIds[id]) {
+      waits[id] = Date.now() + waitMs;
+    } else {
+      if (!(id in waits)) return;
+      delete waits[id];
+    }
+    set({ providerWaits: waits });
+  },
 
   refresh: async () => {
     try {
@@ -238,6 +251,7 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   },
 
   unmarkStreaming: (id) => {
+    get().setProviderWait(id, 0);
     if (!get().streamingIds[id]) return;
     const next = { ...get().streamingIds };
     delete next[id];

@@ -32,6 +32,18 @@ beforeEach(() => {
 });
 
 describe('the latest conversation choice wins', () => {
+  it('keeps provider waits with their session and clears them when a turn ends', () => {
+    useConversations.getState().markStreaming('waiting');
+    useConversations.getState().setProviderWait('waiting', 30_000);
+    const until = useConversations.getState().providerWaits.waiting;
+    useConversations.getState().newChat();
+    expect(useConversations.getState().providerWaits.waiting).toBe(until);
+    useConversations.getState().unmarkStreaming('waiting');
+    expect(useConversations.getState().providerWaits.waiting).toBeUndefined();
+    useConversations.getState().setProviderWait('waiting', 30_000);
+    expect(useConversations.getState().providerWaits.waiting).toBeUndefined();
+  });
+
   it('ignores a previous chat that finishes after the selected chat', async () => {
     const a = pending(), b = pending();
     vi.mocked(tauri.conversations.load).mockReturnValueOnce(a.promise).mockReturnValueOnce(b.promise);
