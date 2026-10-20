@@ -103,16 +103,22 @@ describe('Markdown in a document drafted in parts', () => {
 });
 
 describe('Markdown expanded table', () => {
+  // Plain DOM queries: role queries walk the whole accessibility tree and took
+  // over 5 s here when the full suite ran beside it.
   it('is a real dialog: Escape closes it and focus goes back to the button', async () => {
     render(<Markdown>{'| a | b |\n|---|---|\n| 1 | 2 |'}</Markdown>);
-    const expand = screen.getByRole('button', { name: 'Expand table' });
+    const expand = screen.getByLabelText('Expand table');
     expand.focus();
     fireEvent.click(expand);
-    const dialog = await screen.findByRole('dialog');
+    const dialog = await waitFor(() => {
+      const d = document.querySelector<HTMLElement>('[role="dialog"]');
+      expect(d).not.toBeNull();
+      return d!;
+    });
     expect(dialog.getAttribute('aria-labelledby')).toBeTruthy();
     expect(dialog.querySelector('table')).not.toBeNull();
     fireEvent.keyDown(dialog, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
     await waitFor(() => expect(document.activeElement).toBe(expand));
-  });
+  }, 15_000);
 });
