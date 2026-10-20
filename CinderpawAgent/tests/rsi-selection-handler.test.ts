@@ -54,10 +54,11 @@ describe("RSI selection/mutation handler", () => {
     new SelectionMutationHandler(bus, pop, {
       capacity: 4,
       bounds: BOUNDS,
-      // selection rng (0.0 → first candidate), then mutateConfig over the two
-      // LIVE_REACH fields: idx floor(0.72*2)=1 → systemPromptId, then the
-      // pool resample 0.9 → last prompt in the pool.
-      rng: seqRng([0.0, 0.72, 0.9]),
+      // selection rng (0.0 → first candidate), then mutateConfig over the three
+      // LIVE_REACH fields (temperature, systemPromptId, reasoningEffort):
+      // idx floor(0.5*3)=1 → systemPromptId, then the pool resample 0.9 →
+      // last prompt in the pool.
+      rng: seqRng([0.0, 0.5, 0.9]),
       gaussian: () => 0,
       newId: () => `child-${++n}`,
     });
