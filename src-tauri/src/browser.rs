@@ -10,7 +10,7 @@
 //! only. Everything here reaches INTO the page (eval) and reads the answer back
 //! out of its URL fragment; nothing lets the page reach out.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -721,6 +721,21 @@ fn open_or_navigate(app: &AppHandle, url: Url) -> Result<Webview, String> {
 static FULLSCREEN_TAB: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 /// The window was maximised when the page went fullscreen, to restore after.
 static WAS_MAXIMIZED: AtomicBool = AtomicBool::new(false);
+/// The window's size before the page took the screen: how the way back knows
+/// it has really arrived (tao resizes asynchronously in both directions).
+static PRE_FULLSCREEN: std::sync::Mutex<Option<tauri::PhysicalSize<u32>>> = std::sync::Mutex::new(None);
+/// One number per fullscreen change. A page can leave and come straight back
+/// (X used to); the older change, still waiting, must not act after a newer one.
+static FS_GEN: AtomicU64 = AtomicU64::new(0);
+/// When the panel last reported where the page belongs (`set_bounds`).
+static LAST_BOUNDS: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+/// The window back from a page's fullscreen, as it was before.
+fn restore_window(window: &tauri::Window) {
+    let _ = window.set_always_on_top(false);
+    let _ = window.set_fullscreen(false);
+    if WAS_MAXIMIZED.swap(false, Ordering::SeqCst) { let _ = window.maximize(); }
+}
 
 /// A page asked for fullscreen, or left it. A child webview's fullscreen only
 /// fills the webview, so a YouTube video went "fullscreen" inside the panel
@@ -730,12 +745,20 @@ static WAS_MAXIMIZED: AtomicBool = AtomicBool::new(false);
 /// all arrive here the same way.
 fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
     let app = app.clone();
+    let gen = FS_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    let current = move || FS_GEN.load(Ordering::SeqCst) == gen;
     // Off the WebView2 callback: window calls from inside it can wait on the
     // same thread that is running it.
     tauri::async_runtime::spawn(async move {
         let (Some(window), Some(wv)) = (app.get_window("main"), app.get_webview(&label)) else { return };
         if on {
             if let Ok(mut f) = FULLSCREEN_TAB.lock() { *f = Some(label.clone()); }
+            // Kept from the first entry: back in mid-way through leaving, the
+            // window is between sizes and would be the wrong size to wait for.
+            if let Ok(mut p) = PRE_FULLSCREEN.lock() { if p.is_none() { *p = window.inner_size().ok(); } }
+            // No curtain on the way in, and nothing before `set_fullscreen`:
+            // with the curtain and 40 ms ahead of it, tao reported fullscreen
+            // and the window stayed at its old size (20 Oct, logged twice).
             // A maximised undecorated window keeps its client area clipped to
             // the work area, and fullscreen inherited the clip: the page ended
             // 49 px short, exactly where the taskbar sat over it (23 Sep, his
@@ -743,7 +766,8 @@ fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
             let was_max = window.is_maximized().unwrap_or(false);
             WAS_MAXIMIZED.store(was_max, Ordering::SeqCst);
             if was_max { let _ = window.unmaximize(); }
-            let _ = window.set_fullscreen(true);
+            let asked = window.set_fullscreen(true);
+            tracing::info!(%label, ?asked, was_max, fs = ?window.is_fullscreen(), size = ?window.inner_size().ok(), "browser: asked the window for fullscreen");
             // A transparent window in fullscreen stays under the Windows 11
             // taskbar (tauri#7328); he saw the bar over the video. Topmost for
             // as long as the page is fullscreen puts it above.
@@ -752,29 +776,78 @@ fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
             let _ = window.set_always_on_top(true);
             // The window's size once it has become fullscreen, not the monitor's
             // read at the call: sized that early the page stopped 49 px short of
-            // the bottom (23 Sep). Read until two reads agree.
+            // the bottom (23 Sep). tao goes fullscreen without waiting
+            // (SWP_ASYNCWINDOWPOS): on a busy PC two reads 60 ms apart both saw
+            // the OLD size, agreed, and the video filled only the window as it
+            // was (19 Oct, YouTube and X). Wait for the monitor's size; after
+            // ~2.4 s take whatever size the window has.
+            let target = window.current_monitor().ok().flatten().map(|m| *m.size());
             let mut last = (0.0, 0.0);
-            for _ in 0..10 {
+            for _ in 0..40 {
                 tokio::time::sleep(Duration::from_millis(60)).await;
                 let (Ok(px), Ok(scale)) = (window.inner_size(), window.scale_factor()) else { break };
                 let size = px.to_logical::<f64>(scale);
-                if (size.width, size.height) == last { break; }
                 last = (size.width, size.height);
+                if Some(px) == target { break; }
             }
+            if Some(last) != target.zip(window.scale_factor().ok()).map(|(t, s)| { let l = t.to_logical::<f64>(s); (l.width, l.height) }) {
+                tracing::warn!(%label, ?target, fs = ?window.is_fullscreen(), max = ?window.is_maximized(), "browser: the window never reached the monitor's size");
+            }
+            if !current() { return; }
+            let _ = wv.show();
             let _ = wv.set_bounds(tauri::Rect {
                 position: LogicalPosition::new(0.0, 0.0).into(),
                 size: LogicalSize::new(last.0, last.1).into(),
             });
             tracing::info!(%label, w = last.0, h = last.1, "browser: page fullscreen");
             let _ = wv.set_focus();
+            let _ = app.emit("browser://curtain", json!({ "on": false }));
         } else {
-            if let Ok(mut f) = FULLSCREEN_TAB.lock() { *f = None; }
             tracing::info!(%label, "browser: page left fullscreen");
-            let _ = window.set_always_on_top(false);
-            let _ = window.set_fullscreen(false);
-            if WAS_MAXIMIZED.swap(false, Ordering::SeqCst) { let _ = window.maximize(); }
-            if let Some(tab) = tabs().lock().list.iter_mut().find(|t| t.label == label) { tab.placed = None; }
+            // Out of sight until it can be placed once, at its final size.
+            // Placed while the window was still shrinking, the page went
+            // through 4-6 sizes in 1.3 s and X re-laid its whole site at each
+            // (20 Oct, filmed): first the panel rect measured while the window
+            // was fullscreen, then every report as it came back. The curtain
+            // covers the app re-laying out meanwhile.
+            let _ = app.emit("browser://curtain", json!({ "on": true }));
+            let _ = wv.hide();
+            restore_window(&window);
+            // FULLSCREEN_TAB stays set while waiting, so the panel's reports do
+            // not place the page early (`place_all` skips it). Wait for the size
+            // the window had, then for the panel to stop reporting new rects.
+            // Bounded: a window that never gets there (dragged to another
+            // monitor, snapped) is placed anyway.
+            let want = PRE_FULLSCREEN.lock().ok().and_then(|p| *p);
+            let start = std::time::Instant::now();
+            let mut sized: Option<std::time::Instant> = None;
+            while start.elapsed() < Duration::from_millis(1500) {
+                tokio::time::sleep(Duration::from_millis(30)).await;
+                let Some(at) = sized else {
+                    if want.is_none() || window.inner_size().ok() == want { sized = Some(std::time::Instant::now()); }
+                    continue;
+                };
+                let last = LAST_BOUNDS.lock().ok().and_then(|l| *l).unwrap_or(at).max(at);
+                if last.elapsed() >= Duration::from_millis(120) { break; }
+            }
+            // Back in fullscreen already: that change owns the page now.
+            if !current() { return; }
+            if let Ok(mut p) = PRE_FULLSCREEN.lock() { *p = None; }
+            if let Ok(mut f) = FULLSCREEN_TAB.lock() { *f = None; }
+            // Sized while still hidden, so the page re-lays out out of sight;
+            // then shown, then the curtain lifts.
+            let b = *bounds().lock();
+            let rect = (b.x, b.y, b.w.max(1.0), b.h.max(1.0));
+            let _ = wv.set_bounds(tauri::Rect {
+                position: LogicalPosition::new(rect.0, rect.1).into(),
+                size: LogicalSize::new(rect.2, rect.3).into(),
+            });
+            if let Some(tab) = tabs().lock().list.iter_mut().find(|t| t.label == label) { tab.placed = Some(rect); }
+            tokio::time::sleep(Duration::from_millis(100)).await;
             let _ = place_all(&app);
+            tracing::info!(%label, waited_ms = start.elapsed().as_millis() as u64, "browser: page placed after fullscreen");
+            tokio::time::sleep(Duration::from_millis(60)).await;
+            let _ = app.emit("browser://curtain", json!({ "on": false }));
         }
     });
 }
@@ -1542,6 +1615,18 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
                 }
                 label
             };
+            // Closed while it had the screen (Ctrl+W reaches the host from the
+            // page): its "left fullscreen" never comes, and the window stayed
+            // fullscreen and topmost over an empty app.
+            let was_fullscreen = FULLSCREEN_TAB.lock().map(|mut f| {
+                let hit = f.as_deref() == Some(label.as_str());
+                if hit { *f = None; }
+                hit
+            }).unwrap_or(false);
+            if was_fullscreen {
+                if let Some(window) = app.get_window("main") { restore_window(&window); }
+                let _ = app.emit("browser://curtain", json!({ "on": false }));
+            }
             if let Some(wv) = app.get_webview(&label) {
                 let _ = wv.close();
             }
@@ -1583,6 +1668,7 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
                 b.h = params.get("height").and_then(|v| v.as_f64()).unwrap_or(b.h);
                 b.visible = params.get("visible").and_then(|v| v.as_bool()).unwrap_or(b.visible);
             }
+            if let Ok(mut l) = LAST_BOUNDS.lock() { *l = Some(std::time::Instant::now()); }
             place_all(&app)?;
             Ok(json!({ "ok": true }))
         }

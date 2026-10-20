@@ -1,5 +1,6 @@
 import { onPanelMotionSettled, panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, Reorder } from 'framer-motion';
 import { ArrowLeft, ArrowRight, BookOpen, ChevronDown, ChevronUp, Download, Globe, History, Lock, LockOpen, Star, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, ScrollText, Search, Settings2, ShieldCheck, X } from 'lucide-react';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
@@ -874,7 +875,34 @@ export function BrowserPanel({ chat, onCompose }: {
         </div>
       )}
       </div>
+      <FullscreenCurtain />
     </motion.aside>
+  );
+}
+
+/**
+ * Black over the whole app while a page goes fullscreen or comes back
+ * (`browser://curtain`). The window changes size in steps, and without it the
+ * app showed between them: its layout stretched over the screen, then re-laid
+ * out (20 Oct, filmed). The page is a native view above this, so the video
+ * stays in sight. In a portal: the aside slides with a transform, and a fixed
+ * child of a transformed box covers only that box.
+ */
+function FullscreenCurtain() {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    const un = listen<{ on: boolean }>('browser://curtain', (e) => setOn(e.payload.on));
+    return () => { void un.then((f) => f()); };
+  }, []);
+  return createPortal(
+    <div
+      aria-hidden
+      className={cn(
+        'pointer-events-none fixed inset-0 z-[9999] bg-black transition-opacity ease-out',
+        on ? 'opacity-100 duration-0' : 'opacity-0 duration-150',
+      )}
+    />,
+    document.body,
   );
 }
 
