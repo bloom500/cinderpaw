@@ -363,10 +363,14 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     // A table leaves as a sheet unless asked otherwise: its own .json is a file
     // nobody who asked for a table knows how to open (6 Oct, a CSV came out as a PDF).
     const as = opts?.as ?? (row?.kind === 'table' ? 'xlsx' : undefined);
+    // Writing leaves as a PDF unless the person picks another type: "Save as"
+    // opened on MARKDOWN, with PDF and Word only inside the type list (UX lab,
+    // 19 Oct, item 24). Its own format stays in the list.
+    const prose = !as && !!row && PROSE.has(row.kind);
     let dest: string | undefined;
     try {
       const picked = await saveDialog({
-        defaultPath: row ? downloadName(row.title, row.kind, as) : undefined,
+        defaultPath: row ? downloadName(row.title, row.kind, as ?? (prose ? 'pdf' : undefined)) : undefined,
         // The native format first, then what the sidecar can convert a text
         // artifact into: it picks the conversion from the extension of the
         // path chosen here (export.ts `exportAs`), so a name ending in .docx
@@ -374,8 +378,14 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
         filters: row
           ? as && CONVERTIBLE.has(row.kind)
             ? [{ name: as === 'pdf' ? 'PDF' : 'Excel', extensions: [as] }]
+            : prose
+              ? [
+                  { name: 'PDF', extensions: ['pdf'] },
+                  { name: 'Word', extensions: ['docx'] },
+                  { name: KIND_NAMES[row.kind] ?? row.kind, extensions: [extensionFor(row.kind, row.title).slice(1)] },
+                ]
             : [
-                { name: row.kind.toUpperCase(), extensions: [extensionFor(row.kind, row.title).slice(1)] },
+                { name: KIND_NAMES[row.kind] ?? row.kind, extensions: [extensionFor(row.kind, row.title).slice(1)] },
                 ...(CONVERTIBLE.has(row.kind)
                   ? [
                       { name: 'PDF', extensions: ['pdf'] },
@@ -799,6 +809,13 @@ function gmailCompose(title: string, link: string): string {
 
 /** The text kinds the sidecar can turn into a PDF, a Word or an Excel file. */
 const CONVERTIBLE = new Set(['document', 'markdown', 'app', 'table', 'code', 'json', 'html', 'board']);
+/** Kinds that are writing, which most people send on as a PDF. */
+const PROSE = new Set(['document', 'markdown']);
+/** A kind's name in the save dialog's type list ("MARKDOWN" read as a code word). */
+const KIND_NAMES: Record<string, string> = {
+  document: 'Web page', html: 'Web page', app: 'Web page', markdown: 'Markdown text', code: 'Code',
+  json: 'JSON data', table: 'Data', board: 'Board', file: 'File', image: 'Image',
+};
 
 /** Mirrors `ArtifactStore.extensionOf` in the sidecar's artifacts/store.ts: a
  *  file or code artifact keeps the type in its title (leads.csv), not .bin. */

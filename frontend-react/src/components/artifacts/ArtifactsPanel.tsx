@@ -565,7 +565,9 @@ function RowItem({ row, busy, archived }: { row: ArtifactRow; busy: boolean; arc
             {row.title}
           </p>
           <p className="truncate text-2xs text-text-muted">
-            {row.kind}
+            {/* The same word as the card and the detail view; the raw kind
+                ("markdown") sat beside "Document" (UX lab, item 24). */}
+            {artifactKind(row.kind).word}
             {row.version > 1 ? ` · v${row.version}` : ''} · {when(row.updatedAt)}
           </p>
         </button>
