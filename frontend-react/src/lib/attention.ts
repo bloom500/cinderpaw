@@ -5,14 +5,16 @@ import { create } from 'zustand';
  * One notice on screen at a time. On a first launch What's new, the Alpha
  * card, the update and the usage question each decided on their own to
  * appear, and four boxes fought for the same first look (Darius, 20 Oct;
- * Apple's rule: nothing competes for attention without a reason).
+ * Apple's rule: nothing competes for attention without a reason). The Alpha
+ * card is gone since: the setup wizard's last screen says it once.
  *
  * Each notice asks for a turn. The turn goes to the most important one
- * waiting, in this order (his), and stays with it until it is closed: a card
+ * waiting, in this order (agreed with him: an update may carry the fix for
+ * the problem they have), and stays with it until it is closed: a card
  * someone is reading is never swapped for another. Toasts are not notices:
  * they answer something the person just did, and stay outside this.
  */
-export const ATTENTION_ORDER = ['whatsNew', 'alpha', 'update', 'usage'] as const;
+export const ATTENTION_ORDER = ['whatsNew', 'update', 'usage'] as const;
 export type AttentionSlot = (typeof ATTENTION_ORDER)[number];
 
 interface Attention {

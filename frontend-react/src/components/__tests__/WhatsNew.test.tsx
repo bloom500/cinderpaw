@@ -11,7 +11,6 @@ vi.mock('@/stores/onboarding', () => ({
 
 import { act } from '@testing-library/react';
 import { WhatsNew, useWhatsNew, WHATS_NEW_DECIDE_MS } from '../WhatsNew';
-import { AlphaNotice } from '../AlphaNotice';
 import { useAttention } from '@/lib/attention';
 
 // Radix starts listening for outside clicks one tick after the card opens.
@@ -53,12 +52,13 @@ describe("What's new closes only on purpose", () => {
     expect(useWhatsNew.getState().open).toBe(false);
   });
 
-  it("for someone who updated: What's new first, the Alpha card only after it is closed", async () => {
+  it("for someone who updated: What's new holds the notice turn until it is closed", async () => {
     useWhatsNew.setState({ due: null });
-    render(<MemoryRouter><WhatsNew /><AlphaNotice /></MemoryRouter>);
+    render(<MemoryRouter><WhatsNew /></MemoryRouter>);
     expect(await screen.findByText('Feral has a new name')).toBeTruthy();
-    expect(screen.queryByText('Cinderpaw is in alpha')).toBeNull();
+    expect(useAttention.getState().holder).toBe('whatsNew');
     fireEvent.click(screen.getByRole('button', { name: 'Got it' }));
-    expect(await screen.findByText('Cinderpaw is in alpha')).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(useAttention.getState().holder).toBeNull();
   });
 });

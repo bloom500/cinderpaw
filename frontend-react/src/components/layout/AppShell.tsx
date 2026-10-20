@@ -13,7 +13,6 @@ import { SearchOverlay } from '@/components/chat/SearchOverlay';
 import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
 import { UpdateToast } from '@/components/UpdateToast';
 import { WhatsNew } from '@/components/WhatsNew';
-import { AlphaNotice } from '@/components/AlphaNotice';
 import { Toasts } from '@/components/Toasts';
 import { CoworkApprovalDock } from '@/components/CoworkApprovalDock';
 import { SkillHubDrawer } from '@/components/SkillHubDrawer';
@@ -176,7 +175,6 @@ export function AppShell() {
               a page: it expires in minutes, and a missed one is lost work. */}
           <CoworkApprovalDock />
           {/* Persistent cards wait until the page stops covering; they are not lost. */}
-          {!overPage && <AlphaNotice />}
           {!overPage && <UpdateToast />}
           <Toasts compact={overPage} />
         </div>,
