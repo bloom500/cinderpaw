@@ -6,7 +6,7 @@ pub const SIDECAR_PROTOCOL: u32 = 1;
 
 pub const INBOUND_TYPES: &[&str] = &[
     "message", "record_turn", "ping", "shutdown", "set_model", "stop",
-    "ask_user_response", "ask_user_cancel",
+    "ask_user_response", "ask_user_cancel", "heads_up_answer",
     // Host-owned tools: sidecar emits `tool_request`, host answers
     // `tool_response`. See CinderpawAgent/src/core/host-tool-bridge.ts.
     "tool_response",
@@ -21,6 +21,7 @@ pub const INBOUND_TYPES: &[&str] = &[
     "memory_notes",
     "rsi_lora_train", "rsi_lora_reviews_list", "rsi_lora_review_resolve",
     "meta_status", "meta_evolve", "meta_rollback", "meta_history",
+    "meta_proposal", "meta_approve", "meta_deny",
     "governance_status", "governance_propose", "governance_approve",
     "governance_reject", "governance_rollback", "governance_freeze",
     "governance_unfreeze", "governance_verify", "governance_history",
@@ -51,7 +52,7 @@ pub const OUTBOUND_TYPES: &[&str] = &[
     "ask_user_cancelled", "usage", "budget_warning", "budget_exceeded",
     "heartbeat", "stream_progress", "memory_used", "artifact", "artifact_result", "cron_fired", "cron_error",
     "desktop_control_request", "rsi_engine_event", "rsi_request",
-    "meta_result", "governance_result", "modules_result", "mcp_result",
+    "meta_result", "meta_proposal", "governance_result", "modules_result", "mcp_result",
     "cowork_history_result", "cowork_team_result",
     "resume_get_result", "compact_result", "fractal_bench_progress", "fractal_bench_result",
     "code_patches", "code_patch_resolved", "lora_reviews",
