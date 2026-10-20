@@ -405,6 +405,7 @@ export function BrowserPanel({ chat, onCompose }: {
   return (
     <motion.aside
       ref={asideRef}
+      data-browser-panel=""
       aria-label="Browser"
       initial={{ x: 32, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
@@ -520,7 +521,10 @@ export function BrowserPanel({ chat, onCompose }: {
         </button>
       </div>
       <form
-        className="flex items-center gap-1 border-t border-border-default px-2 py-2"
+        // A container: below 600 px the address takes its own row. Beside the
+        // chat at 1280x800 the eleven buttons left it 44 px wide, "Search or"
+        // and then only the lock (UX lab, 19 Oct, item 22).
+        className="@container flex flex-wrap items-center gap-1 border-t border-border-default px-2 py-2"
         onSubmit={(e) => {
           e.preventDefault();
           setEditing(false);
@@ -537,7 +541,7 @@ export function BrowserPanel({ chat, onCompose }: {
           icon={loading ? X : RotateCw}
           onClick={() => void go(loading ? 'stop' : 'reload')}
         />
-        <div className="relative min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1 @max-[600px]:order-last @max-[600px]:basis-full">
           {!editing && url && /^https?:/.test(url) && (
             <span
               className={cn('pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2', isSecure(url) ? 'text-text-muted' : 'text-(--warning)')}

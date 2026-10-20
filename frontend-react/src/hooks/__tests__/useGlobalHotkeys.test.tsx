@@ -42,6 +42,21 @@ describe('useGlobalHotkeys', () => {
     await waitFor(() => expect(useArtifacts.getState().panelOpen).toBe(false));
   });
 
+  it('leaves the browser open on Esc pressed inside the browser itself', async () => {
+    render(<MemoryRouter><Harness /></MemoryRouter>);
+    const panel = document.createElement('aside');
+    panel.setAttribute('data-browser-panel', '');
+    const button = document.createElement('button');
+    panel.appendChild(button);
+    document.body.appendChild(panel);
+    useBrowser.setState({ panelOpen: true });
+    fireEvent.keyDown(button, { key: 'Escape' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(useBrowser.getState().panelOpen).toBe(true);
+    panel.remove();
+    useBrowser.setState({ panelOpen: false });
+  });
+
   // The palette's commands answer the keys the palette shows (lib/commands.ts).
   function Where() {
     const { pathname, search, state } = useLocation();
