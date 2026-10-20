@@ -778,16 +778,30 @@ fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
             // Kept from the first entry: back in mid-way through leaving, the
             // window is between sizes and would be the wrong size to wait for.
             if let Ok(mut p) = PRE_FULLSCREEN.lock() { if p.is_none() { *p = window.inner_size().ok(); } }
-            // No curtain on the way in, and nothing before `set_fullscreen`:
-            // with the curtain and 40 ms ahead of it, tao reported fullscreen
-            // and the window stayed at its old size (20 Oct, logged twice).
+            // The app hides behind the curtain while the window changes size:
+            // without it the app showed stretched over the screen, then re-laid
+            // out (20 Oct, filmed). The page is a native view above it.
+            let _ = app.emit("browser://curtain", json!({ "on": true }));
             // A maximised undecorated window keeps its client area clipped to
             // the work area, and fullscreen inherited the clip: the page ended
             // 49 px short, exactly where the taskbar sat over it (23 Sep, his
             // window was maximised). Leave maximised first; put it back after.
+            // And WAIT until it has left: unmaximize is asynchronous, and a
+            // fullscreen asked for meanwhile was undone when the restore landed
+            // after it. tao then said fullscreen while the window sat at its
+            // restored size, 1296x809, and the video filled only that (his test,
+            // 20 Oct 01:01-01:15: was_max=true every time, in his host log).
             let was_max = window.is_maximized().unwrap_or(false);
             WAS_MAXIMIZED.store(was_max, Ordering::SeqCst);
-            if was_max { let _ = window.unmaximize(); }
+            if was_max {
+                let maxed = window.inner_size().ok();
+                let _ = window.unmaximize();
+                for _ in 0..25 {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    if !window.is_maximized().unwrap_or(true) && window.inner_size().ok() != maxed { break; }
+                }
+            }
+            if !current() { return; }
             let asked = window.set_fullscreen(true);
             tracing::info!(%label, ?asked, was_max, fs = ?window.is_fullscreen(), size = ?window.inner_size().ok(), "browser: asked the window for fullscreen");
             // A transparent window in fullscreen stays under the Windows 11
@@ -803,14 +817,34 @@ fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
             // the OLD size, agreed, and the video filled only the window as it
             // was (19 Oct, YouTube and X). Wait for the monitor's size; after
             // ~2.4 s take whatever size the window has.
-            let target = window.current_monitor().ok().flatten().map(|m| *m.size());
+            let monitor = window.current_monitor().ok().flatten();
+            let target = monitor.as_ref().map(|m| *m.size());
+            // The page at the screen's size at once, so the growing window
+            // reveals it instead of showing it small in a corner first.
+            if let (Some(m), Ok(scale)) = (&monitor, window.scale_factor()) {
+                let l = m.size().to_logical::<f64>(scale);
+                let _ = wv.set_bounds(tauri::Rect {
+                    position: LogicalPosition::new(0.0, 0.0).into(),
+                    size: LogicalSize::new(l.width, l.height).into(),
+                });
+            }
             let mut last = (0.0, 0.0);
-            for _ in 0..40 {
+            for i in 0..40 {
                 tokio::time::sleep(Duration::from_millis(60)).await;
                 let (Ok(px), Ok(scale)) = (window.inner_size(), window.scale_factor()) else { break };
                 let size = px.to_logical::<f64>(scale);
                 last = (size.width, size.height);
                 if Some(px) == target { break; }
+                // Still not the screen's size after ~0.6 s although tao says
+                // fullscreen: cover the monitor ourselves, once (borderless
+                // fullscreen is exactly that), whatever undid the first ask.
+                if i == 9 {
+                    if let Some(m) = &monitor {
+                        tracing::warn!(%label, size = ?px, "browser: fullscreen did not take; covering the monitor directly");
+                        let _ = window.set_position(tauri::Position::Physical(*m.position()));
+                        let _ = window.set_size(tauri::Size::Physical(*m.size()));
+                    }
+                }
             }
             if Some(last) != target.zip(window.scale_factor().ok()).map(|(t, s)| { let l = t.to_logical::<f64>(s); (l.width, l.height) }) {
                 tracing::warn!(%label, ?target, fs = ?window.is_fullscreen(), max = ?window.is_maximized(), "browser: the window never reached the monitor's size");
