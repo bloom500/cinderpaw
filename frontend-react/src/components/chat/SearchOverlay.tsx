@@ -107,7 +107,11 @@ export function SearchOverlay() {
     () => useProjects.getState().list.find((p) => p.id === useUI.getState().searchScopeId) ?? null,
   );
   const inputRef              = useRef<HTMLInputElement>(null);
-  const cacheRef              = useRef<Map<string, Conversation>>(new Map());
+  const cacheRef              = useRef(new Map<string, { updatedAt: string; full: Conversation }>());
+  const loadingRef            = useRef<Promise<void> | null>(null);
+  const searchGeneration      = useRef(0);
+  const [searching, setSearching] = useState(false);
+  const [limit, setLimit] = useState(50);
   const debounceRef           = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // #21: focus the input on open and RESTORE focus to whatever had it
@@ -128,9 +132,11 @@ export function SearchOverlay() {
     return () => document.removeEventListener('keydown', onKey);
   }, [closeSearch]);
 
-  const runSearch = useCallback(async (q: string) => {
-    if (!q.trim()) { setResults([]); return; }
-    const lower = q.toLowerCase();
+  const runSearch = useCallback(async (q: string, generation: number) => {
+    const current = () => generation === searchGeneration.current;
+    if (!q.trim()) { setResults([]); setSearching(false); return; }
+    const lower = q.trim().toLowerCase();
+    setSearching(true);
 
     // Projects first: a project is the coarser answer, so it belongs above the
     // individual chats inside it.
@@ -148,39 +154,49 @@ export function SearchOverlay() {
       .map((c) => ({ kind: 'conversation' as const, conv: c, snippet: null }));
     setResults([...projectMatches, ...titleMatches]);
 
-    // Load uncached full conversations in background
-    const uncached = allConvs.filter((c) => !cacheRef.current.has(c.id));
-    await Promise.all(
-      uncached.map(async (c) => {
-        try {
-          const full = await tauri.conversations.load(c.id);
-          cacheRef.current.set(c.id, full);
-        } catch { /* skip unloadable convs */ }
-      }),
-    );
-
-    // Re-run with full content
     const titleMatchIds = new Set(titleMatches.map((r) => r.conv.id));
     const final: SearchResult[] = [...projectMatches, ...titleMatches];
 
-    for (const c of allConvs) {
-      if (titleMatchIds.has(c.id)) continue;
-      const full = cacheRef.current.get(c.id);
-      if (!full) continue;
-      for (const msg of full.messages) {
-        const idx = msg.content.toLowerCase().indexOf(lower);
-        if (idx !== -1) {
-          const start = Math.max(0, idx - 40);
-          const end   = Math.min(msg.content.length, idx + q.length + 60);
-          const snip  = (start > 0 ? '…' : '') +
-            msg.content.slice(start, end) +
-            (end < msg.content.length ? '…' : '');
-          final.push({ kind: 'conversation', conv: c, snippet: snip });
-          break;
+    // Finish the preceding query's batch before starting another. Typing
+    // cannot fan out another full set of disk reads.
+    await loadingRef.current;
+    if (!current()) return;
+    const candidates = allConvs.filter((c) => !titleMatchIds.has(c.id));
+    for (let offset = 0; offset < candidates.length && current(); offset += 4) {
+      const batch = candidates.slice(offset, offset + 4);
+      const found: Array<{ conv: ConversationSummary; full: Conversation }> = [];
+      loadingRef.current = Promise.all(batch.map(async (conv) => {
+        try {
+          const cached = cacheRef.current.get(conv.id);
+          const full = cached?.updatedAt === conv.updated_at ? cached.full : await tauri.conversations.load(conv.id);
+          cacheRef.current.delete(conv.id);
+          cacheRef.current.set(conv.id, { updatedAt: conv.updated_at, full });
+          if (cacheRef.current.size > 128) cacheRef.current.delete(cacheRef.current.keys().next().value!);
+          found.push({ conv, full });
+        } catch { /* A missing conversation must not stop the other results. */ }
+      })).then(() => {});
+      await loadingRef.current;
+      if (!current()) return;
+      const before = final.length;
+      // Preserve summary order even when reads complete out of order.
+      for (const c of batch) {
+        const full = found.find((f) => f.conv.id === c.id)?.full;
+        for (const msg of full?.messages ?? []) {
+          const idx = msg.content.toLowerCase().indexOf(lower);
+          if (idx !== -1) {
+            const start = Math.max(0, idx - 40);
+            const end = Math.min(msg.content.length, idx + lower.length + 60);
+            const snippet = (start > 0 ? '…' : '') + msg.content.slice(start, end) + (end < msg.content.length ? '…' : '');
+            final.push({ kind: 'conversation', conv: c, snippet });
+            break;
+          }
         }
       }
+      if (final.length !== before) setResults([...final]);
+      // Cached histories still yield to input and painting between batches.
+      await new Promise((resolve) => setTimeout(resolve, 0));
     }
-    setResults(final);
+    if (current()) setSearching(false);
   }, [allConvs, allProjects]);
 
   const actions: PaletteAction[] = [
@@ -221,7 +237,7 @@ export function SearchOverlay() {
    * Results actually rendered. Inside a project scope only its conversations
    * survive, and project rows are dropped — you are already in one.
    */
-  const visible = (() => {
+  const allVisible = (() => {
     // Nothing typed, no project picked: the answer is what you have, newest
     // first. Search is where the rail's conversation list went, and a list you
     // can only see by naming the thing you want is not a list — it is a quiz.
@@ -257,6 +273,7 @@ export function SearchOverlay() {
       (r) => r.kind === 'conversation' && scope.conversation_ids.includes(r.conv.id),
     );
   })();
+  const visible = allVisible.slice(0, limit);
 
   // Headings only while browsing: CREATE / EXPLORE / CONFIGURE over the
   // commands, RECENT over what you have. A typed search is one ranked list.
@@ -271,9 +288,17 @@ export function SearchOverlay() {
   const nothingYet = browsing && allConvs.length === 0 && allProjects.length === 0;
 
   useEffect(() => {
+    const generation = ++searchGeneration.current;
+    setResults([]);
+    setSearching(Boolean(query.trim()));
+    setLimit(50);
+    setActiveIdx(-1);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => { void runSearch(query); }, 150);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+    debounceRef.current = setTimeout(() => { void runSearch(query, generation); }, 150);
+    return () => {
+      searchGeneration.current++;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [query, runSearch]);
 
   /**
@@ -351,7 +376,8 @@ export function SearchOverlay() {
               }
               else if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                setActiveIdx((i) => Math.min(i + 1, visible.length - 1));
+                if (activeIdx + 1 >= limit) setLimit((n) => n + 50);
+                setActiveIdx((i) => Math.min(i + 1, allVisible.length - 1));
               } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 setActiveIdx((i) => Math.max(i - 1, -1));
@@ -361,7 +387,7 @@ export function SearchOverlay() {
               }
             }}
             role="combobox"
-            aria-expanded={query.trim().length > 0}
+            aria-expanded={true}
             aria-controls="search-results"
             aria-activedescendant={activeIdx >= 0 ? `search-result-${activeIdx}` : undefined}
             placeholder={scope ? `Search in ${scope.name}…` : 'Search chats, projects and actions…'}
@@ -408,7 +434,7 @@ export function SearchOverlay() {
             <div className="px-4 py-6 text-center text-sm text-text-disabled">
               {/* Name what was searched. "No matches" alone leaves the user
                   guessing whether the thing they want is even searchable. */}
-              {scope
+              {searching ? 'Searching conversations…' : scope
                 ? (query.trim()
                     ? `Nothing in ${scope.name} matches.`
                     : `${scope.name} has no conversations yet.`)
@@ -521,6 +547,11 @@ export function SearchOverlay() {
             </>
           )}
         </div>
+        {allVisible.length > limit && (
+          <button type="button" onClick={() => setLimit((n) => n + 50)} className="w-full py-2 text-sm text-text-secondary hover:text-text-primary">
+            Show more ({allVisible.length - limit} remaining)
+          </button>
+        )}
         </div>
       </div>
       </MenuInOverlay.Provider>
