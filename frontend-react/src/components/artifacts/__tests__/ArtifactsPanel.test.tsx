@@ -548,16 +548,29 @@ describe('rename, archive and delete in the list', () => {
     await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'archive')).toBe(true));
   });
 
-  it('delete asks first, and only a yes sends it', async () => {
+  it('delete is at once with Undo, like a chat, and Undo keeps it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     render(<ArtifactsPanel onClose={() => {}} />);
     op.mockClear();
     fireEvent.click(await screen.findByLabelText('Delete'));
-    expect(screen.getByText(/for good\?/)).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Cancel'));
+    expect(screen.queryByText('Q3 report')).toBeNull();
+    const toast = useNotifications.getState().toasts.at(-1)!;
+    expect(toast.title).toBe('Artifact deleted');
+    toast.action!.run();
+    vi.advanceTimersByTime(6000);
     expect(op.mock.calls.some((c) => c[1] === 'delete')).toBe(false);
-    fireEvent.click(screen.getByLabelText('Delete'));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    vi.useRealTimers();
+  });
+
+  it('a delete nobody undoes is sent when the toast ends', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    op.mockClear();
+    fireEvent.click(await screen.findByLabelText('Delete'));
+    expect(op.mock.calls.some((c) => c[1] === 'delete')).toBe(false);
+    vi.advanceTimersByTime(6000);
     await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'delete')).toBe(true));
+    vi.useRealTimers();
   });
 
   it('the archive is its own list, asked for by name', async () => {

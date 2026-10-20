@@ -42,6 +42,7 @@ import { useChatContext } from '@/hooks/useChatContext';
 import { ExternalLink } from '@/components/chat/ExternalLink';
 import { cn, readLocal, writeLocal } from '@/lib/utils';
 import { tauri } from '@/lib/tauri';
+import { useNotifications } from '@/stores/notifications';
 
 const WIDTH_KEY = 'cinderpaw.artifactsPanelWidth';
 const DEFAULT_WIDTH = 416;
@@ -104,13 +105,10 @@ export function ArtifactsPanel({
   onAttach?: () => void;
 }) {
   const {
-    rows, loaded, open, busy, error, lastExport, refresh, close, deleteArtifact,
+    rows, loaded, open, busy, error, lastExport, refresh, close,
     editing, startEdit, cancelEdit, save, importPdf, showingArchived, showArchived,
     google, cancelGoogle, panelTab: tab,
   } = useArtifacts();
-  // Delete is for good now, so the header's Delete asks first, in the panel.
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  useEffect(() => setConfirmingDelete(false), [open?.row.id]);
   const pickRef = useRef<HTMLInputElement>(null);
   // Only the newest version is editable; an older one is restored instead.
   const canEdit = !!open && EDITABLE_KINDS.has(open.row.kind) && open.showing === open.row.version;
@@ -289,7 +287,7 @@ export function ArtifactsPanel({
           {open && !editing && (
             <ArtifactAction
               tooltip="Delete" icon={Trash2} disabled={busy}
-              onClick={() => setConfirmingDelete(true)}
+              onClick={() => deleteWithUndo(open.row)}
             />
           )}
           <ArtifactClose onClick={onClose} aria-label="Close panel" />
@@ -313,17 +311,6 @@ export function ArtifactsPanel({
                   : <>{`In ${GOOGLE_PLACE[google.dest ?? 'drive']}: `}<ExternalLink href={google.link}>open it</ExternalLink></>
                 : google.note ?? null}
         </p>
-      )}
-
-      {open && confirmingDelete && (
-        <ConfirmDelete
-          title={open.row.title}
-          onCancel={() => setConfirmingDelete(false)}
-          onConfirm={() => {
-            setConfirmingDelete(false);
-            void deleteArtifact(open.row.id);
-          }}
-        />
       )}
 
       {open ? (
@@ -508,30 +495,14 @@ function DockCard({ row, busy }: { row: ArtifactRow; busy: boolean }) {
  *
  * The actions appear on hover and on keyboard focus, so a list of twenty is not
  * sixty icons, and they are real buttons a keyboard reaches. Rename edits in
- * place. Delete asks in the row itself, because it is for good.
+ * place. Delete is at once, with Undo.
  */
 function RowItem({ row, busy, archived }: { row: ArtifactRow; busy: boolean; archived: boolean }) {
   const openArtifact = useArtifacts((s) => s.openArtifact);
   const renameArtifact = useArtifacts((s) => s.renameArtifact);
   const archiveArtifact = useArtifacts((s) => s.archiveArtifact);
-  const deleteArtifact = useArtifacts((s) => s.deleteArtifact);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(row.title);
-  const [confirming, setConfirming] = useState(false);
-
-  if (confirming) {
-    return (
-      <ConfirmDelete
-        title={row.title}
-        compact
-        onCancel={() => setConfirming(false)}
-        onConfirm={() => {
-          setConfirming(false);
-          void deleteArtifact(row.id);
-        }}
-      />
-    );
-  }
 
   const finishRename = (save: boolean) => {
     setRenaming(false);
@@ -588,7 +559,7 @@ function RowItem({ row, busy, archived }: { row: ArtifactRow; busy: boolean; arc
             label={archived ? 'Unarchive' : 'Archive'} icon={archived ? ArchiveRestore : Archive}
             onClick={() => void archiveArtifact(row.id, !archived)}
           />
-          <RowButton label="Delete" icon={Trash2} onClick={() => setConfirming(true)} />
+          <RowButton label="Delete" icon={Trash2} onClick={() => deleteWithUndo(row)} />
         </div>
       )}
     </div>
@@ -609,42 +580,23 @@ function RowButton({ label, icon: Icon, onClick }: { label: string; icon: typeof
   );
 }
 
-/** "Delete for good?" asked where the click happened, never in a browser dialog. */
-function ConfirmDelete({
-  title, compact, onCancel, onConfirm,
-}: {
-  title: string;
-  compact?: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div
-      role="alertdialog"
-      aria-label={`Delete ${title}`}
-      className={cn(
-        'flex items-center gap-2 border-border-subtle bg-bg-elevated/40 px-3 py-2',
-        compact ? 'rounded-lg border' : 'border-b',
-      )}
-    >
-      <p className="min-w-0 flex-1 truncate text-2xs text-text-primary">{`Delete "${title}" and all its versions for good?`}</p>
-      <button
-        type="button"
-        autoFocus
-        onClick={onCancel}
-        className="rounded-md px-2 py-1 text-2xs text-text-muted hover:bg-bg-hover hover:text-text-primary"
-      >
-        Cancel
-      </button>
-      <button
-        type="button"
-        onClick={onConfirm}
-        className="rounded-md border border-error/40 px-2 py-1 text-2xs text-error hover:bg-error/10"
-      >
-        Delete
-      </button>
-    </div>
-  );
+/**
+ * Delete now, with Undo, the way a chat is deleted (ItemActions
+ * `deleteChatWithUndo`). Artifacts asked "Delete ... for good?" with no undo
+ * while chats deleted at once with one: two rules for one action (UX lab,
+ * 19 Oct, item 25). It leaves the list at once and is really deleted when the
+ * toast ends; if the app closes first, it survives, the safe way round.
+ */
+const UNDO_MS = 5_000;
+function deleteWithUndo(row: Pick<ArtifactRow, 'id' | 'title'>) {
+  const store = useArtifacts.getState();
+  if (store.open?.row.id === row.id) store.close();
+  useArtifacts.setState((s) => ({ rows: s.rows.filter((r) => r.id !== row.id) }));
+  const timer = setTimeout(() => { void useArtifacts.getState().deleteArtifact(row.id); }, UNDO_MS);
+  useNotifications.getState().push('info', 'Artifact deleted', row.title || undefined, {
+    label: 'Undo',
+    run: () => { clearTimeout(timer); void useArtifacts.getState().refresh(); },
+  });
 }
 
 /** Text the person can change. A pdf, an image or an uploaded file is not. */
