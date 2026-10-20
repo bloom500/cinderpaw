@@ -32,6 +32,15 @@ pub(crate) fn get_local_api_token(state: State<'_, AppState>) -> String {
     state.local_api_token.to_string()
 }
 
+/// The port the local API really listens on: `api_port` from settings, unless
+/// that was taken at launch and the API bound a free one (boot.rs). The UI
+/// wrote `localhost:11435` into four places and lost local models then.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn get_local_api_port(state: State<'_, AppState>) -> u16 {
+    state.runtime.effective_api_port()
+}
+
 // ---------- Onboarding record (persisted in ~/.cinderpaw/) ----------
 
 /// Path of the onboarding JSON written/read by `get_onboarding_record` /

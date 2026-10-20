@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { tauri, type Settings, type ByokProvider } from '@/lib/tauri';
 import { useModel } from '@/stores/model';
 import { useCinderpawStore } from '@/stores/cinderpaw';
+import { isLocalEngineUrl } from '@/lib/localApi';
 
 export type { ByokProvider };
 
@@ -54,8 +55,6 @@ interface SettingsStore {
   testByokProvider: (p: ByokTestPayload) => Promise<ByokTestResult>;
 }
 
-// The bundled local engine, as the sidecar addresses it (localhost or 127.0.0.1).
-const LOCAL_ENGINE = /^https?:\/\/(localhost|127\.0\.0\.1):11435/;
 
 /**
  * Keep the agent in step with the provider the person just saved.
@@ -75,7 +74,7 @@ async function pointAgentAtNewProvider(p: ByokProviderUpdate, previousDefault: s
   const cfg = useCinderpawStore.getState().modelConfig;
   if (!cfg) return;
   const onEmptyLocalEngine =
-    (cfg.provider === 'cinderpaw-local' || LOCAL_ENGINE.test(cfg.base_url ?? '')) && !useModel.getState().loaded;
+    (cfg.provider === 'cinderpaw-local' || isLocalEngineUrl(cfg.base_url)) && !useModel.getState().loaded;
   const followingOldDefault =
     !!previousDefault && previousDefault !== p.defaultModel && cfg.provider === p.providerId && cfg.model === previousDefault;
   if (!onEmptyLocalEngine && !followingOldDefault) return;

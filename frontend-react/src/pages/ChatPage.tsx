@@ -32,6 +32,7 @@ import { CoworkerStrip } from '@/components/chat/CoworkerStrip';
 import { useCinderpawSendMessage } from '@/hooks/useCinderpaw';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { setChatDockHeight } from '@/lib/chatDock';
+import { localApiBase } from '@/lib/localApi';
 
 export function ChatPage() {
   const { id } = useParams();
@@ -261,12 +262,12 @@ export function ChatPage() {
       const cfg = useCinderpawStore.getState().modelConfig;
       const onCloud = !!cfg && cfg.provider !== 'openai_compatible' && cfg.provider !== 'ollama';
       if (!onCloud) {
-        void useCinderpawStore.getState().setModel({
+        void localApiBase().then((baseUrl) => useCinderpawStore.getState().setModel({
           source: 'openai_compatible',
           model: loaded.name,
-          baseUrl: 'http://localhost:11435',
+          baseUrl,
           providerId: 'cinderpaw-local',
-        }).catch(console.error);
+        })).catch(console.error);
       }
     }
   }, [loaded]);

@@ -997,6 +997,7 @@ const raw = {
   connectorPairStart:       (id: string) => invoke<ConnectorAccount>('connector_pair_start', { id }),
   connectorPairPoll:        (id: string) => invoke<ConnectorAccount>('connector_pair_poll', { id }),
   getLocalApiToken:         () => invoke<string>('get_local_api_token'),
+  getLocalApiPort:          () => invoke<number>('get_local_api_port'),
   listOllamaModels:         (baseUrl: string) => invoke<string[]>('list_ollama_models', { baseUrl }),
   getMemoryGraph:           () => invoke<MemoryGraphSnapshot>('get_memory_graph'),
   addMemoryFacts:           (facts: MemoryFactInput[]) =>
