@@ -20,7 +20,7 @@ import { autoTitle } from '@/lib/autoTitle';
 import { titleConversation } from '@/lib/chatTitle';
 import { voiceToPersisted } from '@/lib/messageMapping';
 import { splitThinking, stripStreamingToolCalls } from '@/lib/parseThink';
-import { tauri, type CinderpawAgentEvent, type PersistedMessage } from '@/lib/tauri';
+import { events, tauri, type CinderpawAgentEvent, type PersistedMessage } from '@/lib/tauri';
 import {
   ensureCinderpawListener,
   registerCinderpawStream,
@@ -378,6 +378,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         // off `message.askUser`; without this the card never renders).
         chatMessageId: asstId,
         onToken: (token) => {
+          useConversations.getState().setProviderWait(sessionId, 0);
           state.buffer += token;
           // Once per frame, like the local chat's stream: a burst of tokens
           // was a burst of renders inside one frame. A hidden window paints no
@@ -624,6 +625,11 @@ export function useCinderpawGlobal() {
     };
 
     const setup = async () => {
+      const offWait = await events.onRateLimited.listen(({ sessionId, waitMs }) => {
+        useConversations.getState().setProviderWait(sessionId, waitMs);
+      });
+      if (disposed) { offWait(); return; }
+      unlisteners.push(offWait);
       // The stream listener is where ask_user questions are received, and it
       // used to be installed by the first chat SEND. A person whose first act
       // after launch was a voice call never had one: the agent asked, nothing
@@ -667,6 +673,7 @@ export function useCinderpawGlobal() {
         (event) => {
           const reason = event.payload.error?.trim() || null;
           setOffline(true, event.payload.restarting, reason);
+          useConversations.setState({ providerWaits: {} });
           if (!event.payload.restarting) {
             // The reason comes from Rust, which is the only side that knows
             // WHICH failure this was: the sidecar was never found, or it was

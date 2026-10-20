@@ -7,8 +7,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, ChevronDown, Hourglass } from 'lucide-react';
-import { events } from '@/lib/tauri';
 import { useChat } from '@/stores/chat';
+import { useConversations } from '@/stores/conversations';
 import { humanizeError } from '@/lib/humanizeError';
 import { useResendTurn } from '@/hooks/useResendTurn';
 import { cn } from '@/lib/utils';
@@ -96,27 +96,20 @@ export function StreamErrorNotice() {
 export function ProviderWaitNotice() {
   const sessionId = useChat((s) => s.sessionId);
   const status = useChat((s) => s.streamStatus);
-  const [until, setUntil] = useState<number | null>(null);
+  const until = useConversations((s) => s.providerWaits[sessionId] ?? null);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    setUntil(null);
-    let cancelled = false;
-    let off: (() => void) | null = null;
-    void events.onRateLimited.listen((e) => {
-      if (e.sessionId === sessionId && e.waitMs >= 1000) setUntil(Date.now() + e.waitMs);
-    }).then((fn) => { if (cancelled) fn(); else off = fn; });
-    return () => { cancelled = true; off?.(); };
-  }, [sessionId]);
-
-  useEffect(() => {
-    if (until === null) return;
+    if (until === null || status !== 'streaming' || until <= Date.now()) return;
     setNow(Date.now());
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    const id = window.setInterval(() => {
+      setNow(Date.now());
+      if (Date.now() >= until) window.clearInterval(id);
+    }, 1000);
     return () => window.clearInterval(id);
-  }, [until]);
+  }, [until, status]);
 
-  const left = until === null ? 0 : Math.ceil((until - now) / 1000);
+  const left = until === null ? 0 : Math.ceil((until - Math.max(now, Date.now())) / 1000);
   if (status !== 'streaming' || left <= 0) return null;
   return (
     <div role="status" className="mx-auto w-full max-w-2xl px-4 pb-2">
