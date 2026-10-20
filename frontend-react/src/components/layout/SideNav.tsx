@@ -14,6 +14,7 @@ import {
 import { NewProjectDialog } from '@/components/items/NewProjectDialog';
 import { useUI } from '@/stores/ui';
 import { useConversations, type ConversationSummary } from '@/stores/conversations';
+import { useAskUser } from '@/stores/askUser';
 import { groupByRecency, type DatedGroup } from '@/lib/chatGroups';
 import { ConversationActions, ProjectActions } from '@/components/items/ItemActions';
 import { useProjects } from '@/stores/projects';
@@ -146,6 +147,11 @@ function Library({ collapsed }: { collapsed: boolean }) {
   const loaded = useConversations((s) => s.loaded);
   const currentId = useConversations((s) => s.currentId);
   const streamingIds = useConversations((s) => s.streamingIds);
+  const unreadIds = useConversations((s) => s.unreadIds);
+  // The chats with a question waiting on the person. A string, not an array:
+  // a new array from the selector on every store change would re-render forever.
+  const askingKey = useAskUser((s) => [s.pending, ...s.waiting].map((r) => r?.sessionId ?? '').join('\n'));
+  const asking = new Set(askingKey.split('\n').filter(Boolean));
   const projects = useProjects((s) => s.list);
   // Drag-and-drop: a chat row dragged onto a project row moves it there.
   // `draggingChat` drives the rail-wide affordances while a drag is alive;
@@ -226,9 +232,15 @@ function Library({ collapsed }: { collapsed: boolean }) {
                 : 'text-text-muted group-hover:text-text-secondary',
             )}
           >
-            {/* A chat can be generating while you are looking at another one. */}
-            {streamingIds[c.id] ? (
+            {/* A chat can be generating, waiting for you, or finished while you
+                were looking at another one. Each says so, in a different way. */}
+            {asking.has(c.id) ? (
+              <span role="img" aria-label="Waiting for your answer" title="Waiting for your answer"
+                className="size-2 shrink-0 rounded-full bg-brand ring-2 ring-brand/25" />
+            ) : streamingIds[c.id] ? (
               <Loader2 size={12} className="shrink-0 animate-spin text-brand" aria-label="Generating" />
+            ) : unreadIds[c.id] && c.id !== currentId ? (
+              <span role="img" aria-label="New reply" title="New reply" className="size-2 shrink-0 rounded-full bg-info" />
             ) : withStar && (
               <Star size={14} className="shrink-0 fill-current text-brand" aria-hidden />
             )}

@@ -33,6 +33,11 @@ interface ConversationsStore {
    * shallow-equality updates.
    */
   streamingIds: Record<string, true>;
+  /**
+   * Chats whose reply finished while you were in another chat: a dot in the
+   * rail until you open them, so a finished answer is not silent.
+   */
+  unreadIds: Record<string, true>;
 
   refresh:     () => Promise<void>;
   open:        (id: string) => Promise<void>;
@@ -91,6 +96,7 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   currentId: null,
   loadingConversation: false,
   streamingIds: {},
+  unreadIds: {},
 
   refresh: async () => {
     try {
@@ -107,6 +113,11 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   },
 
   open: async (id) => {
+    if (get().unreadIds[id]) {
+      const unread = { ...get().unreadIds };
+      delete unread[id];
+      set({ unreadIds: unread });
+    }
     // If this session is already resident in memory and still streaming,
     // skip the disk load entirely — the in-memory buffer is more complete
     // than the initial disk snapshot and overwriting it would cause a
@@ -212,6 +223,8 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
     if (!get().streamingIds[id]) return;
     const next = { ...get().streamingIds };
     delete next[id];
-    set({ streamingIds: next });
+    // Finished out of sight: mark it, so the rail says there is something to read.
+    const away = useChat.getState().sessionId !== id;
+    set({ streamingIds: next, ...(away ? { unreadIds: { ...get().unreadIds, [id]: true as const } } : {}) });
   },
 }));
