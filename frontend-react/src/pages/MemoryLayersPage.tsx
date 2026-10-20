@@ -152,7 +152,9 @@ function NotesPanel({
             {observer && observer.failures > 0 ? (
               <p className="text-error-text">Could not write notes: {observer.lastError}</p>
             ) : observer?.lastOkAt ? (
-              <p className="text-text-muted">Last note: {formatTimeAgo(now, observer.lastOkAt)}</p>
+              // The time of the last successful look, which can find nothing:
+              // "Last note: 8m ago" sat beside "No notes yet" (UX lab, item 28).
+              <p className="text-text-muted">Checked for new notes {formatTimeAgo(now, observer.lastOkAt)}</p>
             ) : null}
             {reflector && reflector.failures > 0 && (
               <p className="text-error-text">Could not update the summary: {reflector.lastError}</p>
