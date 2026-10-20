@@ -142,7 +142,8 @@ mod command_count_test {
     // chat_complete_local (Chat mode removed, agent-only, 15 Oct 2026).
     // 195 -> 196 = + get_local_api_port (the UI follows the local API to the
     // port it really bound, 20 Oct 2026).
-    const EXPECTED_COMMAND_COUNT: usize = 196;
+    // 196 -> 197 = + set_permission_mode (the mode under the composer, 20 Oct 2026).
+    const EXPECTED_COMMAND_COUNT: usize = 197;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

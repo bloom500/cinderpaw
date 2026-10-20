@@ -587,6 +587,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             submit_bug_report,
             count_install,
             set_usage_sharing,
+            set_permission_mode,
             save_agent,
             get_agents,
             delete_agent,
