@@ -2,9 +2,13 @@ import { useEffect, useState } from 'react';
 import { BarChart3 } from 'lucide-react';
 import { tauri } from '@/lib/tauri';
 import { useSettings } from '@/stores/settings';
+import { useConversations } from '@/stores/conversations';
+import { useAttentionTurn } from '@/lib/attention';
 import { WhatIsSent } from './WhatIsSent';
 
-/** Asked once, on installs that skipped or predate the onboarding question. */
+/** Asked once, on installs that skipped or predate the onboarding question,
+ *  after a first conversation (a question before the app did anything for
+ *  them asks for a favour too early) and only on its turn (lib/attention). */
 export function ShareUsageCard() {
   const settings = useSettings((s) => s.settings);
   const fetchSettings = useSettings((s) => s.fetchSettings);
@@ -19,7 +23,9 @@ export function ShareUsageCard() {
 
   // Only `null` (never asked) shows the card. Not loaded yet stays hidden:
   // flashing the question at someone who already answered is worse.
-  if (done || !settings || settings.usage_sharing !== null) return null;
+  const hadReply = useConversations((s) => s.list.length > 0);
+  const turn = useAttentionTurn('usage', !done && !!settings && settings.usage_sharing === null && hadReply);
+  if (!turn) return null;
 
   const answer = (on: boolean) => {
     setDone(true);
