@@ -118,6 +118,11 @@ function ChatInput({ isEmpty, sendFn }, ref) {
   // `'new'` for a conversation that has not been saved yet — it still has a
   // draft, and it is the single most likely one to be interrupted.
   const convId = useConversations((s) => s.currentId) ?? 'new';
+  const sessionId = useChat((s) => s.sessionId);
+  const [queued, setQueued] = useState<string | null>(null);
+  const queuedRef = useRef(queued);
+  queuedRef.current = queued;
+  const liveDraft = useRef<{ id: string; sessionId: string } | null>(null);
   // The live text, readable from a cleanup that must not re-run on every
   // keystroke. Assigned during render on purpose: a ref is not state, and this
   // one only ever mirrors what was just rendered.
@@ -139,11 +144,17 @@ function ChatInput({ isEmpty, sendFn }, ref) {
    */
   useEffect(() => {
     const id = convId;
+    liveDraft.current = { id, sessionId };
     const typed = prefill.current;
     prefill.current = null;
+    setQueued(null);
     setText(typed ?? readDraft(id));
-    return () => writeDraft(id, textRef.current);
-  }, [convId]);
+    return () => {
+      writeDraft(id, [queuedRef.current, textRef.current].filter(Boolean).join('\n'));
+      queuedRef.current = null;
+      liveDraft.current = null;
+    };
+  }, [convId, sessionId]);
   // Declared after the restore on purpose: effects run in order, so a prefill
   // made together with a chat switch reaches the restore above first, and one
   // made without a switch is forgotten here before the next switch sees it.
@@ -158,7 +169,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
    * app — where `beforeunload` is unreliable and can prompt.
    */
   useEffect(() => {
-    const save = () => writeDraft(convId, textRef.current);
+    const save = () => writeDraft(convId, [queuedRef.current, textRef.current].filter(Boolean).join('\n'));
     window.addEventListener('pagehide', save);
     return () => window.removeEventListener('pagehide', save);
   }, [convId]);
@@ -435,21 +446,27 @@ function ChatInput({ isEmpty, sendFn }, ref) {
   // A message written while a reply is still arriving. It waits here and goes
   // out when the reply is done, like Claude's "type to queue for later"; before,
   // Enter did nothing at all during a reply and nothing said why.
-  const [queued, setQueued] = useState<string | null>(null);
-  const sessionId = useChat((s) => s.sessionId);
   const lastStatus = useRef(status);
   useEffect(() => {
     const was = lastStatus.current;
     lastStatus.current = status;
-    if (was !== 'streaming' || status === 'streaming' || queued === null) return;
+    if (was !== 'streaming' || status === 'streaming' || queued === null || queuedRef.current === null) return;
+    queuedRef.current = null;
     setQueued(null);
     // Done: it goes. Stopped or failed: it comes back to the box, so the person
     // decides, instead of a new turn starting on top of a problem.
-    if (status === 'done') void sendFn(queued).catch(() => setText((cur) => cur || queued));
+    if (status === 'done') {
+      const owner = liveDraft.current;
+      void sendFn(queued).catch(() => {
+        if (owner && liveDraft.current === owner) {
+          setText((cur) => cur ? `${queued}\n${cur}` : queued);
+        } else if (owner) {
+          writeDraft(owner.id, [queued, readDraft(owner.id)].filter(Boolean).join('\n'));
+        }
+      });
+    }
     else setText((cur) => (cur ? `${queued}\n${cur}` : queued));
   }, [status, queued, sendFn]);
-  // A queued message belongs to its chat: switching chats puts it back in the box.
-  useEffect(() => () => setQueued((q) => { if (q !== null) setText((cur) => cur || q); return null; }), [sessionId]);
   const agentPhase = useChat((s) => s.agentPhase);
   const mascotState = useMascotState({
     streamStatus: status,
