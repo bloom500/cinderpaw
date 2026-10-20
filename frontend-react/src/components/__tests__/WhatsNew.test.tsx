@@ -39,6 +39,17 @@ describe("What's new closes only on purpose", () => {
     }
   });
 
+  it('the X is the button its always-visible chip styles reach', async () => {
+    render(<WhatsNew />);
+    useWhatsNew.getState().show();
+    await screen.findByText('Calmer, and it asks first');
+    const x = screen.getByRole('button', { name: 'Close' });
+    // The chip is set on the dialog as [&>button:last-child]; if the dialog
+    // component ever moves its X, this fails instead of the X going dark again.
+    expect(x.parentElement?.lastElementChild).toBe(x);
+    expect(x.parentElement?.className).toContain('[&>button:last-child]:bg-black/55!');
+  });
+
   it('a click outside the card does not close it; Got it does', async () => {
     render(<WhatsNew />);
     useWhatsNew.getState().show();

@@ -94,7 +94,15 @@ export function WhatsNew() {
     <Dialog open={open} onOpenChange={(o) => { if (!o) hide(); }}>
       {/* Closed only by its own buttons or X (Darius, 18 Oct 2026): a stray
           click outside, or closing the Alpha card, used to dismiss it. */}
-      <DialogContent className="max-w-xl gap-0 overflow-hidden p-0 sm:rounded-2xl" onInteractOutside={(e) => e.preventDefault()}>
+      {/* The dialog's X sits on the release picture, which changes every big
+          release. Bare, it took the theme's text colour: dark on the dark
+          mushroom photo in light mode, so it vanished (Darius, 20 Oct: it
+          must be visible at all times). Its own dark chip and white X read on
+          any picture, in either theme. */}
+      <DialogContent
+        className="max-w-xl gap-0 overflow-hidden p-0 sm:rounded-2xl [&>button:last-child]:z-10 [&>button:last-child]:rounded-full [&>button:last-child]:bg-black/55! [&>button:last-child]:p-1.5 [&>button:last-child]:text-white! [&>button:last-child]:opacity-100 [&>button:last-child]:shadow-md [&>button:last-child]:backdrop-blur-sm [&>button:last-child]:hover:bg-black/75!"
+        onInteractOutside={(e) => e.preventDefault()}
+      >
         <ReleasePicture name={RELEASE.hero} src={RELEASE.picture} />
 
         <div className="px-6 pb-6 pt-5">
