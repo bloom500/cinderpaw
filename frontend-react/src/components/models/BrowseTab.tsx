@@ -1,12 +1,27 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { LayoutGroup } from 'framer-motion';
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { AnimatePresence } from 'framer-motion';
 import { AudioLines, FileText, Image, Layers, Search, Tag, X } from 'lucide-react';
-import { HfModelCard } from './HfModelCard';
+import { HfModelCard, HfVariantsRow } from './HfModelCard';
 import { BTN_OUTLINE, BTN_PRIMARY, CARD, MakerTile, Pill, SectionHeader, kindsOf, makerFor, type Filter } from './ui';
 import { ModelLogo } from '@/lib/modelLogos';
 import { useDownload } from '@/stores/download';
 import { tauri, type HfModelSummary, type HfModelDetail } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
+
+/** How many columns the card grid has right now: the same breakpoints as its
+ *  `sm:grid-cols-2 xl:grid-cols-3`, so the opened row lands under the right
+ *  row. jsdom has no matchMedia; it gets one column. */
+function useGridCols(): number {
+  const read = () => (window.matchMedia?.('(min-width: 80rem)').matches ? 3 : window.matchMedia?.('(min-width: 40rem)').matches ? 2 : 1);
+  const [cols, setCols] = useState(read);
+  useEffect(() => {
+    const queries = ['(min-width: 80rem)', '(min-width: 40rem)'].map((q) => window.matchMedia?.(q)).filter(Boolean) as MediaQueryList[];
+    const onChange = () => setCols(read());
+    queries.forEach((q) => q.addEventListener('change', onChange));
+    return () => queries.forEach((q) => q.removeEventListener('change', onChange));
+  }, []);
+  return cols;
+}
 
 const FILTERS: { id: Filter; label: string; icon?: React.ReactNode }[] = [
   { id: 'all', label: 'All' },
@@ -27,7 +42,9 @@ export function BrowseTab() {
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   // Cache of loaded details — keyed by repoId, populated by expand AND silent pill requests
   const [detailCache, setDetailCache]       = useState<Record<string, HfModelDetail>>({});
-  const [detailLoading, setDetailLoading]   = useState(false);
+  // The card whose files are on the way: its chevron spins until they land.
+  const [openingRepoId, setOpeningRepoId]   = useState<string | null>(null);
+  const wantRepoId = useRef<string | null>(null);
   // Track silent fetches so we don't double-fetch
   const fetchingRef = useRef<Set<string>>(new Set());
   const popularLoaded = useRef(false);
@@ -66,27 +83,44 @@ export function BrowseTab() {
   };
 
   // Shared fetch — populates cache; used by both expand and silent pill requests
-  const fetchDetail = async (repoId: string) => {
-    if (detailCache[repoId] || fetchingRef.current.has(repoId)) return;
+  const fetchDetail = async (repoId: string): Promise<boolean> => {
+    if (detailCache[repoId] || fetchingRef.current.has(repoId)) return false;
     fetchingRef.current.add(repoId);
     try {
       const d = await tauri.hf.detail(repoId);
       setDetailCache((prev) => ({ ...prev, [repoId]: d }));
+      return true;
     } catch (e) {
       setError(String(e));
+      return false;
     } finally {
       fetchingRef.current.delete(repoId);
     }
   };
 
+  // Opens only once the files are here. Opened first, the row grew to the
+  // spinner's height and then again when the list landed, and moving to
+  // another card shrank it to the spinner and grew it back: the cards below
+  // bounced each time.
   const handleExpand = async (repoId: string) => {
-    if (selectedRepoId === repoId) { setSelectedRepoId(null); return; }
-    setSelectedRepoId(repoId);
-    if (!detailCache[repoId]) {
-      setDetailLoading(true);
-      await fetchDetail(repoId);
-      setDetailLoading(false);
+    if (selectedRepoId === repoId) {
+      wantRepoId.current = null;
+      setOpeningRepoId(null);
+      setSelectedRepoId(null);
+      return;
     }
+    wantRepoId.current = repoId;
+    // A fetch the Install button already started opens at once, on the spinner.
+    if (!detailCache[repoId] && !fetchingRef.current.has(repoId)) {
+      setOpeningRepoId(repoId);
+      const ok = await fetchDetail(repoId);
+      if (wantRepoId.current !== repoId) return; // another card was picked meanwhile
+      setOpeningRepoId(null);
+      if (!ok) return; // the error shows above the grid
+    } else {
+      setOpeningRepoId(null);
+    }
+    setSelectedRepoId(repoId);
   };
 
   // Silent — loads detail into cache without expanding the card
@@ -98,6 +132,12 @@ export function BrowseTab() {
     () => (filter === 'all' ? results : results.filter((m) => kindsOf(m).has(filter))),
     [results, filter],
   );
+
+  // The opened card's details go after the LAST card of its row.
+  const cols = useGridCols();
+  const selectedIndex = shown.findIndex((m) => m.id === selectedRepoId);
+  const selected = selectedIndex >= 0 ? shown[selectedIndex] : null;
+  const rowEnd = selected ? Math.min(shown.length - 1, Math.floor(selectedIndex / cols) * cols + cols - 1) : -1;
 
   return (
     <div className="space-y-5">
@@ -170,21 +210,27 @@ export function BrowseTab() {
         </div>
       )}
 
-      <LayoutGroup>
-        <div className="grid grid-flow-row-dense gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {shown.map((m) => (
+      {/* Row spacing is each card's own margin, not the grid's row gap: see HfVariantsRow. */}
+      <div className="grid gap-x-4 sm:grid-cols-2 xl:grid-cols-3 [&>article]:mb-4">
+        {shown.map((m, i) => (
+          <Fragment key={m.id}>
             <HfModelCard
-              key={m.id}
               model={m}
               expanded={selectedRepoId === m.id}
+              opening={openingRepoId === m.id}
               detail={detailCache[m.id] ?? null}
-              detailLoading={selectedRepoId === m.id && detailLoading}
               onExpand={handleExpand}
               onRequestDetail={handleRequestDetail}
             />
-          ))}
-        </div>
-      </LayoutGroup>
+            {/* Keyed by row, not by model: another card in the same row swaps the contents in place. */}
+            <AnimatePresence initial={false}>
+              {i === rowEnd && selected && (
+                <HfVariantsRow key={`row-${rowEnd}`} model={selected} detail={detailCache[selected.id] ?? null} />
+              )}
+            </AnimatePresence>
+          </Fragment>
+        ))}
+      </div>
 
       {nextCursor && (
         <div className="flex justify-center pt-2">
