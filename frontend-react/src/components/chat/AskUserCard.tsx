@@ -35,6 +35,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Check, ChevronDown, Circle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { tauri } from '@/lib/tauri';
 import type { AskUserAnswer, AskUserOption, AskUserQuestion } from '@/stores/askUser';
 
 interface AskUserCardProps {
@@ -332,8 +333,13 @@ function QuestionBlock({
         </div>
       )}
 
+      {/* request_secret: a password field; the value never reaches the chat. */}
+      {!disabled && question.secret && (
+        <SecretField secret={question.secret} onDone={onAnswerSingle} />
+      )}
+
       {/* Pending: render options */}
-      {!disabled && (
+      {!disabled && !question.secret && (
         <div className="space-y-1.5">
           {question.options.map((opt, i) => {
             // For single-select, the visual highlight is driven by the
@@ -430,6 +436,76 @@ function QuestionBlock({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Saves the value straight from this field (a connector's secret, or the key
+ * of a service added by its link), then answers "Saved". The words match
+ * `request_secret` in the sidecar; the agent checks the value really landed.
+ */
+export function SecretField({
+  secret,
+  onDone,
+}: {
+  secret: NonNullable<AskUserQuestion['secret']>;
+  onDone: (label: 'Saved' | 'Cancel') => void;
+}) {
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const save = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      if ('connector' in secret) await tauri.connectors.saveSecret(secret.connector, secret.field, value);
+      else await tauri.mcp.installCustom(secret.extensionName ?? '', secret.extensionUrl, value);
+      onDone('Saved');
+    } catch (e) {
+      // A key the service refuses stays here to be fixed, not sent on.
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (value.trim() && !busy) void save();
+      }}
+      className="space-y-2"
+    >
+      <input
+        type="password"
+        autoFocus
+        autoComplete="off"
+        aria-label="Secret value"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        className="w-full text-sm px-2 py-1.5 rounded border border-border-default bg-bg-primary text-text-primary focus:outline-hidden focus:ring-1 focus:ring-brand/50"
+      />
+      <p className="text-xs text-text-muted">Saved on this computer. The assistant never sees it.</p>
+      {err && <p className="text-xs text-error bg-error/10 border border-error/30 rounded px-2 py-1.5">{err}</p>}
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => onDone('Cancel')}
+          className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded transition-colors"
+        >
+          Not now
+        </button>
+        <button
+          type="submit"
+          disabled={!value.trim() || busy}
+          className="text-xs px-3 py-1.5 rounded bg-brand text-on-brand font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-brand/90 transition-colors"
+        >
+          {busy ? 'Connecting…' : 'Save'}
+        </button>
+      </div>
+    </form>
   );
 }
 

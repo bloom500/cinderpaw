@@ -33,6 +33,12 @@ export interface AskUserQuestion {
   header?: string;
   options: AskUserOption[];
   multiSelect: boolean;
+  /**
+   * `request_secret`: show a password field instead of the options. The value
+   * is saved here, never sent back; the agent only hears "Saved" or "Cancel".
+   * A connector's secret, or the key of a service added by its link.
+   */
+  secret?: { connector: string; field: string } | { extensionUrl: string; extensionName?: string };
 }
 
 export interface AskUserAnswer {

@@ -473,8 +473,10 @@ export function createConnectorsManageTool(
       // Seen 21 Oct: asked to connect Publora, the agent said it had no MCP.
       "A service NOT in this list (Publora, Zapier, Notion...) that gives a link for AI " +
       "assistants (an MCP server link) plus a key is not a connector: you DO support it. " +
-      "The person adds it in Capabilities > Add your own (paste the link and the key there, " +
-      "never in the chat); its abilities then appear among your tools as mcp_<name>.",
+      "Ask for its link (the service's docs give it), then call request_secret with " +
+      "extension_url: the key goes in a secure field and saving it connects the service. Where " +
+      "that is not possible, the person adds it in Capabilities > Add your own. Never take the " +
+      "key in the chat. Its abilities then appear among your tools as mcp_<name>.",
     permissions: [],
     networkAccess: false,
     // The WhatsApp download can outrun the 60 s default on a slow line.

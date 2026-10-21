@@ -1758,9 +1758,10 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         // description cannot say "right now". Composed with the voice brief
         // rather than replacing it: a call made from the browser is both.
         const browserBrief = browserSurfaceBrief(msg.browserPage);
-        // The local web page can show a password card; nothing else can.
-        // Per message, because the terminal and the page share the session.
-        markCardSurface(sessionId, msg.surface === "web");
+        // The local web page and the desktop app can show a password card; the
+        // terminal, a call and the connectors cannot. Per message, because the
+        // terminal and the page share the session.
+        markCardSurface(sessionId, msg.surface);
         if (msg.surface === "voice") {
           agent.setSessionSurface(sessionId, [VOICE_SURFACE_BRIEF, browserBrief].filter(Boolean).join("\n\n"), { spoken: true });
         } else if (msg.surface === "text" || msg.surface === "web") {

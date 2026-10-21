@@ -346,6 +346,39 @@ pub async fn connectors_save(
     Ok(view_of(&row))
 }
 
+/// One secret from the chat's secure field (`request_secret`). Only that value
+/// changes: `connectors_save` would also replace the allowlist and channels,
+/// and an empty allowlist answers nobody.
+#[tauri::command]
+#[specta::specta]
+pub async fn connectors_save_secret(
+    state: tauri::State<'_, crate::AppState>,
+    id: String,
+    field: String,
+    value: String,
+) -> Result<(), String> {
+    let entry = catalog()
+        .into_iter()
+        .find(|c| c.id == id)
+        .ok_or_else(|| "Unknown connector.".to_string())?;
+    if !entry.fields.iter().any(|f| f.key == field) {
+        return Err("This connector has no such setting.".to_string());
+    }
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("The field is empty. Paste the value, then press Save.".to_string());
+    }
+    let mut connectors = load_connector_configs();
+    let mut row = connectors.iter().find(|c| c.id == id).cloned().unwrap_or_else(|| blank_connector_config(&id));
+    row.secrets.insert(field, value.to_string());
+    seed_discord(&mut row);
+    connectors.retain(|c| c.id != id);
+    connectors.push(row);
+    save_connector_configs(&connectors)?;
+    notify_sidecar(&state).await;
+    Ok(())
+}
+
 /// Turn a connector on or off. Enabling requires it to be ready (tokens filled,
 /// or QR-auth which links on connect).
 #[tauri::command]

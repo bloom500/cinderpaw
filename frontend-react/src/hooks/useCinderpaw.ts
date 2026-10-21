@@ -141,8 +141,9 @@ export function useCinderpawStream(chatSessionId: string) {
           inferParams: { temperature, max_tokens: max_tokens },
           // Declared per message, not per session: the same conversation is
           // spoken to and typed in alternately, and the format brief has to follow
-          // whichever is happening right now.
-          surface: surface ?? null,
+          // whichever is happening right now. Typed is 'text': it also tells the
+          // sidecar this window can show request_secret's password field.
+          surface: surface ?? 'text',
         });
       } catch (err) {
         callbacks.onError(String(err));
