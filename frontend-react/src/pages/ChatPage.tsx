@@ -20,7 +20,6 @@ import { useArtifacts } from '@/stores/artifacts';
 import { useBrowser } from '@/stores/browser';
 import { cn } from '@/lib/utils';
 import { BrowserPanel } from '@/components/browser/BrowserPanel';
-import { NewChatEmptyState } from '@/components/chat/EmptyStates';
 import { AgentOfflineBanner } from '@/components/chat/AgentOfflineBanner';
 import { HeadsUpCard } from '@/components/chat/HeadsUpCard';
 import { ProviderWaitNotice, StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
@@ -406,7 +405,6 @@ export function ChatPage() {
               guessed a second time, and would drift the first time the field
               grew a line. */}
           {isEmpty && !showAgentOnboarding && <HomeIntents onPick={handleSuggestion} />}
-          <NewChatEmptyState isEmpty={isEmpty} />
           </div>
         </div>
       </div>

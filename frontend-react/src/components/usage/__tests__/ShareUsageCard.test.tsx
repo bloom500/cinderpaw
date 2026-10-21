@@ -52,6 +52,13 @@ describe('ShareUsageCard', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('X closes it for now without answering, so it asks again next time', async () => {
+    const { container } = render(<ShareUsageCard />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Dismiss' }));
+    expect(setUsageSharing).not.toHaveBeenCalled();
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it('on a machine with no tasks yet, "what is sent" shows an example day, not an empty box', async () => {
     render(<ShareUsageCard />);
     fireEvent.click(await screen.findByRole('button', { name: 'Show me what is sent' }));
