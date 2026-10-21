@@ -914,8 +914,9 @@ fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
     });
 }
 
-/// ponytail: Windows only. WKWebView (macOS) needs `elementFullscreenEnabled`
-/// and its own window handling; there a video's fullscreen stays in the panel.
+/// Windows only. On a Mac WebKit takes a video fullscreen in its own window
+/// (wry's `fullscreen` feature, see Cargo.toml), so nothing is hooked there.
+/// ponytail: Linux (WebKitGTK) untested; there it may stay in the panel.
 #[cfg(windows)]
 fn hook_fullscreen(wv: &Webview, app: AppHandle, label: String) {
     use webview2_com::ContainsFullScreenElementChangedEventHandler;
