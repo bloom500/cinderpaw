@@ -99,6 +99,14 @@ export interface MCPServerPermissions {
 export interface MCPClientConfig {
   /** The executable to launch (absolute path or PATH-resolvable name). */
   command: string;
+  /**
+   * A server on the web instead of a program launched here (Streamable HTTP,
+   * falling back to the older SSE pair). Set, and `command` is not run: this
+   * is the one kind of extension that works on a machine without Node.
+   */
+  url?: string;
+  /** Sent with every request to `url`, e.g. `Authorization: Bearer …`. */
+  headers?: Record<string, string>;
   /** Arguments passed to the server process. */
   args?: string[];
   /**
@@ -147,11 +155,22 @@ export class MCPClient {
    * connect error so the desktop can humanize the real cause.
    */
   #stderrTail = "";
+  /** null for a launched program; otherwise which web transport answered. */
+  #http: "streamable" | "sse" | null = null;
+  /** Where JSON-RPC is POSTed: `url`, or the endpoint an SSE server named. */
+  #postUrl = "";
+  #sessionId: string | null = null;
+  #protocol: string | null = null;
+  #abort = new AbortController();
+  /** The Streamable HTTP initialize was turned away the way old servers do. */
+  #legacyWanted = false;
 
   constructor(config: MCPClientConfig, audit: AuditLogger) {
     this.#audit = audit;
     this.#config = {
       command: config.command,
+      url: config.url ?? "",
+      headers: config.headers ?? {},
       args: config.args ?? [],
       env: config.env ?? {},
       initTimeoutMs: config.initTimeoutMs ?? 90_000,
@@ -170,6 +189,7 @@ export class MCPClient {
    */
   async connect(): Promise<void> {
     if (this.#connected) return;
+    if (this.#config.url) return this.#connectHttp();
 
     const safeEnv: Record<string, string> = {
       PATH: process.env.PATH ?? "",
@@ -231,6 +251,46 @@ export class MCPClient {
     });
   }
 
+  /** `connect()` for a server on the web: no process, JSON-RPC over HTTP. */
+  async #connectHttp(): Promise<void> {
+    this.#http = "streamable";
+    this.#postUrl = this.#config.url;
+    const init = (protocolVersion: string) =>
+      this.#rpc(
+        "initialize",
+        { protocolVersion, capabilities: { tools: {} }, clientInfo: { name: "cinderpaw-agent", version: "1.0.0" } },
+        this.#config.initTimeoutMs,
+      );
+    let initResult: unknown;
+    try {
+      initResult = await init("2025-06-18");
+    } catch (err) {
+      // Servers older than the March 2025 spec only speak the GET-stream +
+      // POST pair and turn this POST away; the spec's fallback is to try that.
+      if (!this.#legacyWanted) throw new Error(this.#withStderr(String(err)));
+      try {
+        await this.#openLegacySse();
+        initResult = await init("2024-11-05");
+      } catch (err2) {
+        throw new Error(this.#withStderr(String(err2)));
+      }
+    }
+    if (!initResult || typeof initResult !== "object") {
+      throw new Error(this.#withStderr("MCP initialize returned unexpected result"));
+    }
+    const version = (initResult as { protocolVersion?: unknown }).protocolVersion;
+    if (typeof version === "string") this.#protocol = version;
+    this.#notify("notifications/initialized", {});
+    this.#connected = true;
+    this.#audit({
+      timestamp: Date.now(),
+      sessionId: "mcp",
+      actionType: "tool_call",
+      toolName: `mcp:${new URL(this.#config.url).host}`,
+      result: "success",
+    });
+  }
+
   /** Discover all tools exposed by the server. */
   async listTools(): Promise<MCPToolDef[]> {
     this.#assertConnected();
@@ -272,6 +332,7 @@ export class MCPClient {
   /** Terminate the server process and clean up. */
   async disconnect(): Promise<void> {
     this.#connected = false;
+    this.#abort.abort();
     if (this.#proc) {
       try {
         this.#proc.kill();
@@ -412,6 +473,9 @@ export class MCPClient {
 
     // Notifications have no id — ignore for now (could be used for progress).
     if (!("id" in msg)) return;
+    // A request from the server (a ping, say) carries its own id, which can
+    // equal one of ours; it is not an answer.
+    if ("method" in msg) return;
 
     const resp = msg as JsonRpcResponse;
     const pending = this.#pending.get(resp.id);
@@ -462,12 +526,99 @@ export class MCPClient {
     this.#send(notification);
   }
 
-  #send(msg: unknown): void {
+  #send(msg: JsonRpcRequest | JsonRpcNotification): void {
+    if (this.#http) {
+      void this.#post(msg);
+      return;
+    }
     const proc = this.#proc;
     if (!proc?.stdin) return;
     const line = JSON.stringify(msg) + "\n";
     const stdin = proc.stdin as { write(data: string): void };
     stdin.write(line);
+  }
+
+  /** One JSON-RPC message to a server on the web; answers go to #dispatch. */
+  async #post(msg: JsonRpcRequest | JsonRpcNotification): Promise<void> {
+    const id = "id" in msg ? msg.id : undefined;
+    const fail = (e: Error) => {
+      if (id === undefined) return;
+      const pending = this.#pending.get(id);
+      this.#pending.delete(id);
+      pending?.reject(e);
+    };
+    try {
+      const res = await fetch(this.#postUrl, {
+        method: "POST",
+        headers: {
+          ...this.#config.headers,
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          ...(this.#sessionId ? { "Mcp-Session-Id": this.#sessionId } : {}),
+          ...(this.#protocol && this.#http === "streamable" ? { "MCP-Protocol-Version": this.#protocol } : {}),
+        },
+        body: JSON.stringify(msg),
+        signal: this.#abort.signal,
+      });
+      const sid = res.headers.get("mcp-session-id");
+      if (sid) this.#sessionId = sid;
+      if (!res.ok) {
+        // The status and the server's own words are the only clue to a bad key
+        // or a plan that does not include this; humanize() reads them.
+        const text = (await res.text().catch(() => "")).slice(0, 500);
+        this.#stderrTail = `HTTP ${res.status} ${text}`.trim();
+        if (this.#http === "streamable" && msg.method === "initialize" && [400, 404, 405].includes(res.status)) {
+          this.#legacyWanted = true;
+        }
+        fail(new Error(`HTTP ${res.status}`));
+        return;
+      }
+      // Old SSE servers answer on the event stream, never on the POST.
+      if (this.#http === "sse") return;
+      if ((res.headers.get("content-type") ?? "").includes("text/event-stream")) {
+        await readSse(res, (_event, data) => this.#dispatch(data));
+      } else {
+        const text = await res.text();
+        if (text.trim()) this.#dispatch(text);
+      }
+    } catch (err) {
+      fail(err instanceof Error ? err : new Error(String(err)));
+    }
+  }
+
+  /** The pre-2025 transport: a GET event stream that names where to POST. */
+  async #openLegacySse(): Promise<void> {
+    this.#http = "sse";
+    const res = await fetch(this.#config.url, {
+      headers: { ...this.#config.headers, Accept: "text/event-stream" },
+      signal: this.#abort.signal,
+    });
+    if (!res.ok) {
+      this.#stderrTail = `HTTP ${res.status} ${(await res.text().catch(() => "")).slice(0, 500)}`.trim();
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const origin = new URL(this.#config.url).origin;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("timed out waiting for the server's endpoint")), this.#config.initTimeoutMs);
+      void readSse(res, (event, data) => {
+        if (event === "endpoint") {
+          const next = new URL(data.trim(), this.#config.url);
+          // The key goes with every POST: never to a host the person did not add.
+          if (next.origin !== origin) {
+            reject(new Error(`the server pointed to another site (${next.origin})`));
+            return;
+          }
+          this.#postUrl = next.href;
+          clearTimeout(timer);
+          resolve();
+        } else if (event === "message") {
+          this.#dispatch(data);
+        }
+      }).finally(() => {
+        clearTimeout(timer);
+        reject(new Error("the server closed the event stream"));
+      });
+    });
   }
 
   #assertConnected(): void {
@@ -480,6 +631,41 @@ export class MCPClient {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Read a `text/event-stream` body, calling `on` per event, until it ends. */
+export async function readSse(res: Response, on: (event: string, data: string) => void): Promise<void> {
+  if (!res.body) return;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let event = "message";
+  let data: string[] = [];
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).replace(/\r$/, "");
+        buf = buf.slice(nl + 1);
+        if (line === "") {
+          if (data.length) on(event, data.join("\n"));
+          event = "message";
+          data = [];
+        } else if (line.startsWith("data:")) {
+          data.push(line.slice(5).replace(/^ /, ""));
+        } else if (line.startsWith("event:")) {
+          event = line.slice(6).trim();
+        }
+      }
+    }
+  } catch {
+    /* stream closed or aborted */
+  } finally {
+    reader.releaseLock();
+  }
+}
 
 /**
  * Convert an external JSON-Schema tool definition into registry parameters.

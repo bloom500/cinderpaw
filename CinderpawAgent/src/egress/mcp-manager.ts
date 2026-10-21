@@ -47,6 +47,9 @@ export interface McpServerConfig {
   command: string;
   args: string[];
   env?: Record<string, string>;
+  /** A server on the web ("Add your own"): no command is run. */
+  url?: string;
+  headers?: Record<string, string>;
   enabled: boolean;
 }
 
@@ -80,7 +83,8 @@ export function loadMcpConfig(path: string = defaultMcpConfigPath()): McpServerC
         !!s &&
         typeof (s as McpServerConfig).id === "string" &&
         typeof (s as McpServerConfig).command === "string" &&
-        Array.isArray((s as McpServerConfig).args),
+        Array.isArray((s as McpServerConfig).args) &&
+        ((s as McpServerConfig).url === undefined || typeof (s as McpServerConfig).url === "string"),
     );
   } catch {
     return [];
@@ -199,6 +203,9 @@ export class McpManager {
   }
 
   async #start(server: McpServerConfig): Promise<void> {
+    if (server.url) {
+      return this.#connect(server, new MCPClient({ command: "", url: server.url, headers: server.headers ?? {} }, this.#audit));
+    }
     if (
       process.platform === "win32" &&
       (hasWindowsMetachars(server.command) || server.args.some(hasWindowsMetachars))
@@ -226,6 +233,10 @@ export class McpManager {
       },
       this.#audit,
     );
+    return this.#connect(server, client);
+  }
+
+  async #connect(server: McpServerConfig, client: MCPClient): Promise<void> {
     try {
       await client.connect();
       const tools = await client.buildTools();
