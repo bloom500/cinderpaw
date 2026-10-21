@@ -743,9 +743,6 @@ fn open_or_navigate(app: &AppHandle, url: Url) -> Result<Webview, String> {
 static FULLSCREEN_TAB: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 /// The window was maximised when the page went fullscreen, to restore after.
 static WAS_MAXIMIZED: AtomicBool = AtomicBool::new(false);
-/// The window's size before the page took the screen: how the way back knows
-/// it has really arrived (tao resizes asynchronously in both directions).
-static PRE_FULLSCREEN: std::sync::Mutex<Option<tauri::PhysicalSize<u32>>> = std::sync::Mutex::new(None);
 /// One number per fullscreen change. A page can leave and come straight back
 /// (X used to); the older change, still waiting, must not act after a newer one.
 static FS_GEN: AtomicU64 = AtomicU64::new(0);
@@ -775,9 +772,6 @@ fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
         let (Some(window), Some(wv)) = (app.get_window("main"), app.get_webview(&label)) else { return };
         if on {
             if let Ok(mut f) = FULLSCREEN_TAB.lock() { *f = Some(label.clone()); }
-            // Kept from the first entry: back in mid-way through leaving, the
-            // window is between sizes and would be the wrong size to wait for.
-            if let Ok(mut p) = PRE_FULLSCREEN.lock() { if p.is_none() { *p = window.inner_size().ok(); } }
             // The app hides behind the curtain while the window changes size:
             // without it the app showed stretched over the screen, then re-laid
             // out (20 Oct, filmed). The page is a native view above it.
@@ -838,7 +832,10 @@ fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
                 // Still not the screen's size after ~0.6 s although tao says
                 // fullscreen: cover the monitor ourselves, once (borderless
                 // fullscreen is exactly that), whatever undid the first ask.
-                if i == 9 {
+                // From a maximised window the ask never takes (21 Oct, filmed:
+                // 0.6 s of a black window, then a cut-off video), so there it is
+                // done at once.
+                if i == if was_max { 0 } else { 9 } {
                     if let Some(m) = &monitor {
                         tracing::warn!(%label, size = ?px, "browser: fullscreen did not take; covering the monitor directly");
                         let _ = window.set_position(tauri::Position::Physical(*m.position()));
@@ -868,19 +865,29 @@ fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
             // covers the app re-laying out meanwhile.
             let _ = app.emit("browser://curtain", json!({ "on": true }));
             let _ = wv.hide();
+            // The screen's size: the window has left once it is any other size.
+            // Not the window's own size now, nor one remembered at entry: by the
+            // time WebView2 says the page left, the window is often already back
+            // (21 Oct, logged: 1280x800 at the first look).
+            let full = window.current_monitor().ok().flatten().map(|m| *m.size());
+            // A window that was maximised is back only once maximised again: it
+            // passes through its restored size first (21 Oct, filmed).
+            let to_max = WAS_MAXIMIZED.load(Ordering::SeqCst);
             restore_window(&window);
             // FULLSCREEN_TAB stays set while waiting, so the panel's reports do
-            // not place the page early (`place_all` skips it). Wait for the size
-            // the window had, then for the panel to stop reporting new rects.
-            // Bounded: a window that never gets there (dragged to another
-            // monitor, snapped) is placed anyway.
-            let want = PRE_FULLSCREEN.lock().ok().and_then(|p| *p);
+            // not place the page early (`place_all` skips it). Wait for the window
+            // to leave the screen's size, then for the panel to stop reporting new
+            // rects. It used to wait for the size remembered before fullscreen,
+            // a size the window had already left or never had: every exit sat
+            // 1.6 s on the black curtain until the timeout (21 Oct, filmed, logged).
+            // Bounded: a window that never changes size is placed anyway.
             let start = std::time::Instant::now();
             let mut sized: Option<std::time::Instant> = None;
             while start.elapsed() < Duration::from_millis(1500) {
                 tokio::time::sleep(Duration::from_millis(30)).await;
                 let Some(at) = sized else {
-                    if want.is_none() || window.inner_size().ok() == want { sized = Some(std::time::Instant::now()); }
+                    let left = full.is_none() || window.inner_size().ok() != full;
+                    if left && (!to_max || window.is_maximized().unwrap_or(true)) { sized = Some(std::time::Instant::now()); }
                     continue;
                 };
                 let last = LAST_BOUNDS.lock().ok().and_then(|l| *l).unwrap_or(at).max(at);
@@ -888,7 +895,6 @@ fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
             }
             // Back in fullscreen already: that change owns the page now.
             if !current() { return; }
-            if let Ok(mut p) = PRE_FULLSCREEN.lock() { *p = None; }
             if let Ok(mut f) = FULLSCREEN_TAB.lock() { *f = None; }
             // Sized while still hidden, so the page re-lays out out of sight;
             // then shown, then the curtain lifts.
