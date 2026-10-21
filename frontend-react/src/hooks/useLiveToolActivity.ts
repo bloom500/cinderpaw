@@ -299,7 +299,11 @@ export function startActivity(tool: string, args: Record<string, unknown> | unde
 export function finishActivity(a: ToolActivity, result: unknown): ToolActivity {
   const res = result as { ok?: boolean; content?: string } | null;
   const ok = res?.ok !== false;
-  const content = typeof res?.content === 'string' ? res.content : '';
+  // shell_exec opens its result with the command again, the folder and
+  // "[exit 0, 31ms]", for the model. On the card that header took three of the
+  // six lines and all of a failure's 120-character reason (UX lab, 19 Oct).
+  const content = (typeof res?.content === 'string' ? res.content : '')
+    .replace(/^\$ [^\n]*\n(?: {2}\(cwd: [^\n]*\)\n)?\[exit [^\]\n]*\]\n?/, '');
   return {
     ...a,
     status: ok ? 'done' : 'failed',
