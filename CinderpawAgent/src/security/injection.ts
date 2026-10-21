@@ -163,6 +163,7 @@ const CONSEQUENTIAL = new Set([
   'http_request', 'fetch_url', 'read_webpage', 'web_search',
   'cinderpaw_admin', 'delegate_task', 'install_capability', 'tool_forge', 'computer_use',
   'git_commit', 'git_branch', 'remember', 'create_skill', 'delete_skill', 'connectors_manage',
+  'extension_connect',
 ]);
 
 /** Prefixes of connector tools (discord_send, slack_post, …): all reach someone. */

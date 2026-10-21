@@ -76,7 +76,7 @@ test("a service's key is asked for in the desktop app, which connects it", async
   expect(JSON.parse(res.content)).toEqual({ field: "key", saved: true });
 });
 
-test("the web page and the terminal send the person to Capabilities instead", async () => {
+test("the web page and the terminal offer extension_connect or Capabilities instead", async () => {
   for (const surface of ["web", undefined] as const) {
     const asked: AskUserQuestion[][] = [];
     const tool = createRequestSecretTool({ cardSurface: () => surface, isPresent: async () => true, extensionHasKey: () => true });

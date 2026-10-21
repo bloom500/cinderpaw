@@ -30,8 +30,8 @@
  * review.
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import { MCPClient } from "./mcp-client.ts";
 import type { AuditLogger } from "../types.ts";
@@ -89,6 +89,50 @@ export function loadMcpConfig(path: string = defaultMcpConfigPath()): McpServerC
   } catch {
     return [];
   }
+}
+
+/**
+ * A service added by its link, the same entry the desktop's "Add your own"
+ * writes (`custom_server` in src-tauri/src/mcp.rs; keep the two in step, or
+ * one side names the same service twice). Returns the reason when refused.
+ */
+export function customServer(url: string, key = "", name = ""): McpServerConfig | string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return "That is not a web link. Ask for the whole link, starting with https://";
+  }
+  const host = parsed.hostname;
+  const local = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+  // The key rides along with every request: never in the clear off this machine.
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && local)) {
+    return "The link has to start with https://, so the key travels encrypted.";
+  }
+  const k = key.trim();
+  if (/[\x00-\x1f\x7f]/.test(k)) return "The key has a line break in it. Ask for it again, on its own.";
+  const headers: Record<string, string> = {};
+  if (k) headers.Authorization = k.toLowerCase().startsWith("bearer ") ? k : `Bearer ${k}`;
+  return {
+    id: `custom-${host.replace(/[.:[\]]/g, "-")}`,
+    name: name.trim() || host,
+    description: `Added by you, from ${host}.`,
+    category: "Added by you",
+    command: "",
+    args: [],
+    env: {},
+    url: parsed.href,
+    ...(k ? { headers } : {}),
+    enabled: true,
+  };
+}
+
+/** Same file the desktop writes; temp + rename, private, like its writer. */
+function writeMcpConfig(path: string, raw: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.tmp.${process.pid}`;
+  writeFileSync(tmp, raw, { mode: 0o600 });
+  renameSync(tmp, path);
 }
 
 /**
@@ -160,6 +204,36 @@ export class McpManager {
   reconcile(): Promise<void> {
     this.#reconciling = this.#reconciling.then(() => this.#reconcileOnce());
     return this.#reconciling;
+  }
+
+  /**
+   * Add (or replace) a server from chat, as "Add your own" does on the desktop,
+   * and keep it only if it connects: a failed add leaves the file as it was,
+   * so the next boot does not retry a dead server forever.
+   */
+  addServer(entry: McpServerConfig): Promise<{ ok: true; tools: string[] } | { ok: false; error: string }> {
+    const run = this.#reconciling.then(async () => {
+      let before: string | null = null;
+      try {
+        before = readFileSync(this.#configPath, "utf8");
+      } catch {
+        /* first extension on this machine */
+      }
+      const servers = loadMcpConfig(this.#configPath).filter((s) => s.id !== entry.id);
+      writeMcpConfig(this.#configPath, JSON.stringify({ servers: [...servers, entry] }, null, 2));
+      await this.#stop(entry.id); // same id, new link or key: reconnect
+      await this.#reconcileOnce();
+      const running = this.#running.get(entry.id);
+      if (running) return { ok: true as const, tools: running.toolNames };
+      const error = this.#errors.get(entry.id) ?? "it did not start";
+      if (before === null) rmSync(this.#configPath, { force: true });
+      else writeMcpConfig(this.#configPath, before);
+      await this.#reconcileOnce();
+      this.#errors.delete(entry.id);
+      return { ok: false as const, error };
+    });
+    this.#reconciling = run.then(() => {}, () => {});
+    return run;
   }
 
   /**
