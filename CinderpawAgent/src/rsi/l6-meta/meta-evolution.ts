@@ -34,11 +34,16 @@
  *   - History is an append-only JSONL (one MetaGeneration row per deploy
  *     / accept / rollback, with parent, diff, seed, evaluator) — full
  *     replay, same discipline as the Evolution Journal.
- *   - Rollback is narrow: `rollback()` returns only to the pending
- *     candidate's baseline, refuses while governance has frozen L6, and
- *     refuses when nothing is pending. The history records every prior
- *     generation but nothing replays it; a corrupt state file recovers to
- *     neutral defaults and its baseline is lost.
+ *   - Rollback reaches any generation in the history: `rollback()` returns
+ *     to the pending candidate's baseline, `rollback(n)` to generation n.
+ *     The new state is written to disk BEFORE memory changes, so a failed
+ *     write leaves both as they were. While governance has frozen L6 a
+ *     rollback needs `authorizedBy` (a recovery, recorded in the history and
+ *     the governance audit); evolve stays refused.
+ *   - A missing or corrupt state file recovers the last SETTLED genome in
+ *     the history (bootstrap / accepted / rollback rows; never an unjudged
+ *     candidate), clamped, as a new generation. Neutral defaults only when
+ *     the history has nothing.
  *   - A state write that fails cancels the epoch: memory is put back to
  *     what the disk still says, and the caller gets the reason.
  *
@@ -427,9 +432,78 @@ export function defaultReadWindow(
   return defaultReadWindowVerified(sinceMs, now, opts).entries;
 }
 
+/** One L6 change waiting for a person in chat. `change` starts a new
+ *  candidate; `undo` reverts the pending one, which did not beat its baseline. */
+export interface MetaProposal {
+  id: string;
+  kind: "change" | "undo";
+  field: keyof MetaGenome;
+  from: number;
+  to: number;
+  /** How the previous change ended: `accepted` (it helped), `rejected` (it
+   *  did not, which is what an undo card is), or `bootstrap` (none pending). */
+  settled: "accepted" | "rejected" | "bootstrap";
+  /** Practice score over the window behind it, and the score from before the
+   *  previous change (null when there was none). */
+  score: number;
+  baselineScore: number | null;
+  cycles: number;
+  /** The generation it was computed on and the mutation seed that replays it. */
+  generation: number;
+  seed: number;
+  createdAt: number;
+}
+
+interface ProposalFile {
+  pending: MetaProposal | null;
+  deniedAt: number | null;
+}
+
+type MetaDecision =
+  | { ok: false; reason: string }
+  | {
+      ok: true;
+      fitness: MetaFitness;
+      settled: "accepted" | "rejected" | "bootstrap";
+      championScore: number;
+      seed: number;
+      /** The next candidate; absent when the verdict is a revert. */
+      proposal?: MetaMutation;
+    };
+
+function proposalFrom(d: Extract<MetaDecision, { ok: true }>, state: MetaState, now: number): MetaProposal {
+  const common = {
+    id: `gen-${state.generation}-${d.seed}`,
+    settled: d.settled,
+    score: d.fitness.score,
+    baselineScore: state.baseline?.score ?? null,
+    cycles: d.fitness.cycles,
+    generation: state.generation,
+    seed: d.seed,
+    createdAt: now,
+  };
+  if (!d.proposal) {
+    // Undo: the one field the candidate changed, back to its baseline value.
+    const base = state.baseline!.genome;
+    const field = (Object.keys(base) as (keyof MetaGenome)[]).find((k) => base[k] !== state.genome[k]) ?? "mutation_rate";
+    return { ...common, kind: "undo", field, from: state.genome[field], to: base[field] };
+  }
+  const { field, child } = d.proposal;
+  return { ...common, kind: "change", field, from: state.genome[field], to: child[field] };
+}
+
+/** Does decision `d` still do what proposal `p` told the person it would? */
+function matches(d: Extract<MetaDecision, { ok: true }>, p: MetaProposal, state: MetaState): boolean {
+  if (p.generation !== state.generation) return false;
+  if (p.kind === "undo") return d.settled === "rejected";
+  return d.proposal !== undefined && d.proposal.field === p.field && d.proposal.child[p.field] === p.to;
+}
+
 export class MetaEvolution {
   private readonly statePath: string;
   private readonly historyPath: string;
+  /** The chat card waiting for an answer, and when the last one was declined. */
+  private readonly proposalPath: string;
   /** Where the L5 chained audit mirror lives (G-INV-5). */
   private readonly governanceDir: string;
   private readonly now: () => number;
@@ -444,6 +518,7 @@ export class MetaEvolution {
     const dir = opts.dir ?? paths().root;
     this.statePath = join(dir, "meta_genome.json");
     this.historyPath = join(dir, "meta_history.jsonl");
+    this.proposalPath = join(dir, "meta_proposal.json");
     this.governanceDir = join(dir, "governance");
     this.now = opts.now ?? Date.now;
     const legacyWindow = opts.readWindow;
@@ -488,8 +563,111 @@ export class MetaEvolution {
    *  its window fitness beats the baseline by the margin, else revert),
    *  then propose + deploy the next mutated candidate. A revert ends the
    *  epoch without proposing (see the reject branch). Refuses without
-   *  MIN_META_CYCLES episodes of journal evidence under the current genome. */
-  evolve(): MetaResultPayload {
+   *  MIN_META_CYCLES episodes of journal evidence under the current genome.
+   *  When the policy demands a human for L6 (`approvals.l6Evolve`, true on a
+   *  fresh install), `approvedBy` must name who asked: a person running
+   *  `cinderpaw meta evolve`, or answering the chat card. Anything that calls
+   *  this on a schedule passes nothing and is refused (spec S0.2).
+   *  `seed` + `expect` replay a proposal the person saw (`approve`): if the
+   *  decision now differs from it, nothing is applied. */
+  evolve(opts: { approvedBy?: string; seed?: number; expect?: MetaProposal } = {}): MetaResultPayload {
+    const pol = this.policy?.();
+    if (pol?.frozen.l6) {
+      return { ok: false, reason: "frozen by governance (frozen.l6) — see cinderpaw governance status" };
+    }
+    if (pol?.approvals.l6Evolve && !opts.approvedBy?.trim()) {
+      return {
+        ok: false,
+        reason: `L6 evolution needs a person to start it (approvals.l6Evolve in policy ${pol.policyId}); run \`cinderpaw meta evolve\` yourself`,
+      };
+    }
+    const d = this.decide(opts.seed ?? this.seedSource() >>> 0);
+    if (!d.ok) return { ok: false, reason: d.reason };
+    if (opts.expect && !matches(d, opts.expect, this.state)) {
+      return {
+        ok: false,
+        stale: true,
+        reason: "Cinderpaw's practice record changed since this was proposed, so nothing was changed. A new card will follow.",
+      };
+    }
+    const { fitness, settled, championScore } = d;
+    const before = this.state;
+    const by = opts.approvedBy?.trim();
+
+    if (settled === "accepted") {
+      this.append("accepted", fitness.score, `beat baseline ${this.state.baseline!.score}`, null, this.state.genome);
+    } else if (settled === "rejected") {
+      const baseline = this.state.baseline!;
+      this.append(
+        "rejected",
+        fitness.score,
+        `did not beat baseline ${baseline.score} — reverting to generation ${baseline.generation}`,
+        null,
+        this.state.genome,
+      );
+      this.state = {
+        ...this.state,
+        generation: this.state.generation + 1,
+        genome: baseline.genome,
+        deployedAt: this.now(),
+        baseline: null,
+      };
+      this.append("rollback", championScore, "auto-revert after rejected candidate", null, this.state.genome);
+      // Stop here: no proposal on top of a reject. The baseline's score came
+      // from an older window, and later windows ratchet less (the champion
+      // gets harder to beat), so measuring every new candidate against it
+      // drifts toward rejecting everything. The next evolve() re-measures
+      // the restored genome over a fresh window, settles it as a bootstrap
+      // and proposes from that. Cost: one window per rejected generation.
+      const unsaved = this.commitEpoch(
+        before,
+        `rejected → reverted to generation ${baseline.generation}, re-measuring it before the next proposal${by ? ` (approved by ${by})` : ""}`,
+      );
+      if (unsaved) return unsaved;
+      return {
+        ok: true,
+        settled,
+        previousFitness: fitness,
+        generation: this.state.generation,
+        genome: this.state.genome,
+        pendingCandidate: false,
+        note:
+          "The candidate did not beat its baseline and was reverted. The next evolve measures the " +
+          "restored genome over fresh dream episodes before it proposes again.",
+      };
+    }
+
+    // Propose the next candidate from the settled champion.
+    const champion = this.state.genome;
+    const championGen = this.state.generation;
+    const { child, diff } = d.proposal!;
+    this.state = {
+      version: 1,
+      generation: championGen + 1,
+      genome: child,
+      deployedAt: this.now(),
+      baseline: { generation: championGen, genome: champion, score: championScore },
+    };
+    this.append("proposed", null, `candidate over generation ${championGen} (${settled})`, d.seed, child, diff);
+    const unsaved = this.commitEpoch(
+      before,
+      `${settled} → proposed generation ${this.state.generation} (${diff})${by ? `, approved by ${by}` : ""}`,
+    );
+    if (unsaved) return unsaved;
+    return {
+      ok: true,
+      settled,
+      previousFitness: fitness,
+      generation: this.state.generation,
+      diff,
+      genome: child,
+    };
+  }
+
+  /** What evolve() would do now, decided without writing anything: the
+   *  settle verdict on the pending candidate and, unless that verdict is a
+   *  revert, the next candidate made from `seed`. */
+  private decide(seed: number): MetaDecision {
     const pol = this.policy?.();
     if (pol?.frozen.l6) {
       return { ok: false, reason: "frozen by governance (frozen.l6) — see cinderpaw governance status" };
@@ -512,119 +690,123 @@ export class MetaEvolution {
         reason: `insufficient evidence: need >= ${minCycles} dream cycles under the current meta-genome before evolving`,
       };
     }
-
-    const before = this.state;
-    let settled: "accepted" | "rejected" | "bootstrap" = "bootstrap";
-    let championScore = fitness.score;
-
     // Policy margin composes tighten-only on the hardcoded floor (§7).
     const acceptMargin = Math.max(META_ACCEPT_MARGIN, pol?.meta.acceptMargin ?? 0);
-
-    if (this.state.baseline) {
-      // The meta-ratchet: strict-greater BY MARGIN (see META_ACCEPT_MARGIN —
-      // the two windows are not paired, so bare > is a coin flip on noise).
-      if (fitness.score > this.state.baseline.score + acceptMargin) {
-        settled = "accepted";
-        this.append("accepted", fitness.score, `beat baseline ${this.state.baseline.score}`, null, this.state.genome);
-      } else {
-        settled = "rejected";
-        championScore = this.state.baseline.score;
-        this.append(
-          "rejected",
-          fitness.score,
-          `did not beat baseline ${this.state.baseline.score} — reverting to generation ${this.state.baseline.generation}`,
-          null,
-          this.state.genome,
-        );
-        const restored = this.state.baseline.generation;
-        this.state = {
-          ...this.state,
-          generation: this.state.generation + 1,
-          genome: this.state.baseline.genome,
-          deployedAt: this.now(),
-          baseline: null,
-        };
-        this.append("rollback", championScore, "auto-revert after rejected candidate", null, this.state.genome);
-        // Stop here: no proposal on top of a reject. The baseline's score came
-        // from an older window, and later windows ratchet less (the champion
-        // gets harder to beat), so measuring every new candidate against it
-        // drifts toward rejecting everything. The next evolve() re-measures
-        // the restored genome over a fresh window, settles it as a bootstrap
-        // and proposes from that. Cost: one window per rejected generation.
-        const unsaved = this.commitEpoch(
-          before,
-          `rejected → reverted to generation ${restored}, re-measuring it before the next proposal`,
-        );
-        if (unsaved) return unsaved;
-        return {
-          ok: true,
-          settled,
-          previousFitness: fitness,
-          generation: this.state.generation,
-          genome: this.state.genome,
-          pendingCandidate: false,
-          note:
-            "The candidate did not beat its baseline and was reverted. The next evolve measures the " +
-            "restored genome over fresh dream episodes before it proposes again.",
-        };
-      }
+    const baseline = this.state.baseline;
+    // The meta-ratchet: strict-greater BY MARGIN (see META_ACCEPT_MARGIN —
+    // the two windows are not paired, so bare > is a coin flip on noise).
+    if (baseline && !(fitness.score > baseline.score + acceptMargin)) {
+      return { ok: true, fitness, settled: "rejected", championScore: baseline.score, seed };
     }
-
-    // Propose the next candidate from the settled champion.
-    const seed = this.seedSource() >>> 0;
-    const champion = this.state.genome;
-    const championGen = this.state.generation;
-    const { child, diff } = mutateMetaGenome(champion, seed, effectiveBounds(pol));
-    this.state = {
-      version: 1,
-      generation: championGen + 1,
-      genome: child,
-      deployedAt: this.now(),
-      baseline: { generation: championGen, genome: champion, score: championScore },
-    };
-    this.append("proposed", null, `candidate over generation ${championGen} (${settled})`, seed, child, diff);
-    const unsaved = this.commitEpoch(before, `${settled} → proposed generation ${this.state.generation} (${diff})`);
-    if (unsaved) return unsaved;
     return {
       ok: true,
-      settled,
-      previousFitness: fitness,
-      generation: this.state.generation,
-      diff,
-      genome: child,
+      fitness,
+      settled: baseline ? "accepted" : "bootstrap",
+      championScore: fitness.score,
+      seed,
+      proposal: mutateMetaGenome(this.state.genome, seed, effectiveBounds(pol)),
     };
   }
 
-  /** Manual rollback: drop the pending candidate and return to its
-   *  baseline champion. Errors when there is nothing pending. */
-  rollback(): MetaResultPayload {
-    if (this.policy?.().frozen.l6) {
-      return { ok: false, reason: "frozen by governance (frozen.l6) — see cinderpaw governance status" };
+  /** The proposal waiting for a person's answer in chat, or null. One that
+   *  was made on an older generation is dropped: the state moved on. */
+  pendingProposal(): MetaProposal | null {
+    const { pending } = this.readProposals();
+    return pending && pending.generation === this.state.generation ? pending : null;
+  }
+
+  /**
+   * Make the next proposal for the chat card, after a dream episode. Nothing
+   * changes until a person approves it. Returns null when there is nothing
+   * to ask: frozen, too little evidence, or a "no" less than MIN_META_CYCLES
+   * dream episodes ago (a no is not asked again after the very next dream).
+   * A card already waiting is returned as it is, not remade.
+   */
+  propose(): { proposal: MetaProposal; created: boolean } | null {
+    const waiting = this.pendingProposal();
+    if (waiting) return { proposal: waiting, created: false };
+    const { deniedAt } = this.readProposals();
+    if (deniedAt !== null) {
+      const since = metaFitness(this.readWindowEx(deniedAt).entries);
+      if (!since || since.cycles < MIN_META_CYCLES) return null;
     }
-    if (!this.state.baseline) {
-      return { ok: false, reason: "no pending candidate — nothing to roll back" };
+    const d = this.decide(this.seedSource() >>> 0);
+    if (!d.ok) return null;
+    const proposal = proposalFrom(d, this.state, this.now());
+    this.writeProposals({ pending: proposal, deniedAt });
+    this.log(`meta-evolution: proposed ${proposal.kind} ${proposal.field} ${proposal.from} → ${proposal.to}, waiting for a person`);
+    return { proposal, created: true };
+  }
+
+  /** The person said yes to the card `id`: apply exactly that proposal. */
+  approve(id: string, approvedBy: string): MetaResultPayload {
+    const pending = this.pendingProposal();
+    if (!pending || pending.id !== id) {
+      return { ok: false, stale: true, reason: "That card is out of date, so nothing was changed." };
     }
-    const before = this.state;
-    const { genome, generation, score } = this.state.baseline;
-    this.state = {
-      version: 1,
-      generation: this.state.generation + 1,
-      genome,
-      deployedAt: this.now(),
-      baseline: null,
-    };
-    this.append("rollback", score, `manual rollback to generation ${generation}`, null, genome);
-    const unsaved = this.saveOrRestore(before);
-    if (unsaved) return unsaved;
+    const result = this.evolve({ approvedBy, seed: pending.seed, expect: pending });
+    if (result.ok || result.stale) this.writeProposals({ pending: null, deniedAt: null });
+    return result;
+  }
+
+  /** The person said no: drop the card and wait before asking again. */
+  deny(id: string, deniedBy: string): MetaResultPayload {
+    const pending = this.pendingProposal();
+    if (!pending || pending.id !== id) return { ok: false, stale: true, reason: "That card is out of date." };
+    this.writeProposals({ pending: null, deniedAt: this.now() });
+    const summary = `declined ${pending.kind} ${pending.field} ${pending.from} → ${pending.to} (${deniedBy})`;
+    appendGovernanceAudit(this.governanceDir, { timestamp: this.now(), source: "l6", event: "deny", refId: pending.id, summary });
+    this.log(`meta-evolution: ${summary}`);
+    return { ok: true, denied: true };
+  }
+
+  /** Manual rollback. No target: drop the pending candidate and return to
+   *  its baseline. With `target`: return to that generation's genome as
+   *  recorded in the history. While L6 is frozen it runs only with
+   *  `authorizedBy`, the human who asked for the recovery. */
+  rollback(target?: number, opts: { authorizedBy?: string } = {}): MetaResultPayload {
+    const by = opts.authorizedBy?.trim();
+    if (this.policy?.().frozen.l6 && !by) {
+      return {
+        ok: false,
+        reason: "frozen by governance (frozen.l6): a rollback while frozen needs the name of the person authorizing it",
+      };
+    }
+    let genome: MetaGenome;
+    let generation: number;
+    let score: number | null;
+    if (target === undefined) {
+      if (!this.state.baseline) return { ok: false, reason: "no pending candidate — nothing to roll back" };
+      ({ genome, generation, score } = this.state.baseline);
+    } else {
+      if (target === this.state.generation) return { ok: false, reason: `already on generation ${target}` };
+      const row = this.history(Number.MAX_SAFE_INTEGER).findLast((r) => r.generation === target);
+      if (!row) return { ok: false, reason: `generation ${target} is not in the history (${this.historyPath})` };
+      genome = clampMetaGenome(row.genome);
+      generation = target;
+      score = row.score;
+    }
+    const next: MetaState = { version: 1, generation: this.state.generation + 1, genome, deployedAt: this.now(), baseline: null };
+    // Disk first: a rollback that is not on disk would vanish on restart.
+    const error = this.persist(next);
+    if (error !== null) {
+      return {
+        ok: false,
+        reason: `could not save the meta-genome to ${this.statePath} (${error}); nothing changed, still on generation ${this.state.generation}`,
+      };
+    }
+    this.state = next;
+    const summary = `manual rollback to generation ${generation}${by ? `, authorized by ${by}` : ""}`;
+    this.append("rollback", score, summary, null, genome);
     // G-INV-5: one chained governance-audit row per rollback.
     appendGovernanceAudit(this.governanceDir, {
       timestamp: this.now(),
       source: "l6",
       event: "rollback",
       refId: `gen-${this.state.generation}`,
-      summary: `manual rollback to generation ${generation}`,
+      summary,
     });
-    this.log(`meta-evolution: manual rollback to generation ${generation}`);
+    this.log(`meta-evolution: ${summary}`);
     return { ok: true, generation: this.state.generation, genome };
   }
 
@@ -652,6 +834,28 @@ export class MetaEvolution {
 
   // ── internals ──────────────────────────────────────────────────────────
 
+  private readProposals(): ProposalFile {
+    try {
+      const raw = JSON.parse(readFileSync(this.proposalPath, "utf8")) as Partial<ProposalFile>;
+      return {
+        pending: raw.pending && typeof raw.pending.id === "string" ? raw.pending : null,
+        deniedAt: typeof raw.deniedAt === "number" ? raw.deniedAt : null,
+      };
+    } catch {
+      return { pending: null, deniedAt: null };
+    }
+  }
+
+  private writeProposals(file: ProposalFile): void {
+    try {
+      mkdirSync(dirname(this.proposalPath), { recursive: true });
+      atomicWriteFileSync(this.proposalPath, JSON.stringify(file, null, 2));
+    } catch (e) {
+      this.log(`meta-evolution: failed to save the proposal: ${String(e)}`);
+    }
+  }
+
+
   private load(): MetaState {
     try {
       const raw = JSON.parse(readFileSync(this.statePath, "utf8")) as Partial<MetaState>;
@@ -671,18 +875,20 @@ export class MetaEvolution {
         baseline,
       };
     } catch {
-      // Missing OR corrupt state → neutral defaults, but the generation
-      // counter resumes from the history's max + 1: a corrupt file must
-      // never silently reset provenance to duplicate generation numbers.
+      // Missing OR corrupt state → the last settled genome in the history
+      // (S0.1), else neutral defaults. The generation counter resumes past
+      // the history's max: a lost file must never reset provenance to
+      // duplicate generation numbers.
       const corrupt = existsSync(this.statePath);
       const prior = this.history(Number.MAX_SAFE_INTEGER);
+      const settled = prior.findLast((r) => r.event === "bootstrap" || r.event === "accepted" || r.event === "rollback");
       const generation = prior.length
-        ? Math.max(...prior.map((r) => r.generation)) + (corrupt ? 1 : 0)
+        ? Math.max(...prior.map((r) => r.generation)) + (corrupt || settled ? 1 : 0)
         : 0;
       const state: MetaState = {
         version: 1,
         generation,
-        genome: { ...DEFAULT_META_GENOME },
+        genome: settled ? clampMetaGenome(settled.genome) : { ...DEFAULT_META_GENOME },
         deployedAt: this.now(),
         baseline: null,
       };
@@ -692,9 +898,11 @@ export class MetaEvolution {
       this.append(
         "bootstrap",
         null,
-        corrupt
-          ? `state file unreadable — recovered to neutral defaults at generation ${generation}`
-          : "generation 0 — neutral defaults",
+        settled
+          ? `state file ${corrupt ? "unreadable" : "missing"} — recovered generation ${settled.generation} from the history as generation ${generation}`
+          : corrupt
+            ? `state file unreadable — recovered to neutral defaults at generation ${generation}`
+            : "generation 0 — neutral defaults",
         null,
         state.genome,
       );

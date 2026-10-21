@@ -3,6 +3,8 @@ import { useChat, type AgentPhase } from '@/stores/chat';
 import { useModel } from '@/stores/model';
 import { events, type StreamProgressEvent } from '@/lib/tauri';
 import { MessageLoading } from '@/components/ui/message-loading';
+import { kindOf } from '@/hooks/useLiveToolActivity';
+import { stepTitle } from './MessageChain';
 
 interface StreamingIndicatorProps {
   phase?: AgentPhase;
@@ -15,8 +17,10 @@ interface StreamingIndicatorProps {
 const SLOW_START_MS = 5_000;
 
 function phaseLabel(phase: AgentPhase, tool?: string | null): string {
-  if (phase === 'calling' && tool) return `Calling ${tool.replace(/_/g, ' ')}…`;
-  if (phase === 'calling') return 'Calling tool…';
+  // The step's own words ("Searching the web"), the same as its row in the
+  // reply. A tool id here read "Calling ask user…" while it waited for the person.
+  if (phase === 'calling' && tool) return `${stepTitle({ tool, kind: kindOf(tool), status: 'running', artifact: null })}…`;
+  if (phase === 'calling') return 'Working…';
   // After a tool returns the model is reading the result, which is thinking.
   if (phase === 'processing') return 'Thinking…';
   if (phase === 'reading') return 'Reading…';
@@ -33,9 +37,9 @@ function formatElapsed(ms: number): string {
 
 function progressLabel(p: StreamProgressEvent): string {
   if (p.phase === 'prefill') return Number.isFinite(p.elapsedMs) && p.elapsedMs >= 0
-    ? `Prefill · ${formatElapsed(p.elapsedMs)}` : 'Prefill…';
-  if (Number.isFinite(p.tokensPerSec) && p.tokensPerSec > 0.5) return `Generating · ${p.tokensPerSec.toFixed(1)} tok/s`;
-  return 'Generating…';
+    ? `Reading your message · ${formatElapsed(p.elapsedMs)}` : 'Reading your message…';
+  if (Number.isFinite(p.tokensPerSec) && p.tokensPerSec > 0.5) return `Writing · ${p.tokensPerSec.toFixed(1)} tok/s`;
+  return 'Writing…';
 }
 
 export function StreamingIndicator({ phase = 'thinking', tool, icon }: StreamingIndicatorProps) {

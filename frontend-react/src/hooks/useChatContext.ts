@@ -1,8 +1,9 @@
 import { useSyncExternalStore } from 'react';
 import { useChat } from '@/stores/chat';
-import { chatContext, type ChatContext } from '@/lib/chatContext';
+import { createChatContextReader, type ChatContext } from '@/lib/chatContext';
 
 let cache: { messages: readonly unknown[]; ctx: ChatContext; key: string } | null = null;
+const readContext = createChatContextReader();
 
 /**
  * The context of the chat on screen, as one snapshot that keeps its identity
@@ -17,7 +18,7 @@ let cache: { messages: readonly unknown[]; ctx: ChatContext; key: string } | nul
 function snapshot(): ChatContext {
   const messages = useChat.getState().messages;
   if (cache?.messages === messages) return cache.ctx;
-  const ctx = chatContext(messages);
+  const ctx = readContext(messages);
   const key = JSON.stringify(ctx);
   cache = { messages, ctx: cache?.key === key ? cache.ctx : ctx, key };
   return cache.ctx;

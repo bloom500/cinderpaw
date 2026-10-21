@@ -17,7 +17,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createRef } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ChatInput } from '../ChatInput';
+import { ChatInput, DRAFT_KEY } from '../ChatInput';
 import { useChat } from '@/stores/chat';
 import { useNotifications } from '@/stores/notifications';
 import { useConversations } from '@/stores/conversations';
@@ -109,6 +109,78 @@ describe('a send that fails', () => {
 
     await waitFor(() => expect(box.value).toBe(''));
     expect(useNotifications.getState().toasts).toHaveLength(0);
+  });
+});
+
+describe('a message written while a reply is arriving', () => {
+  it('restores a queued message and newer draft after leaving the chat', async () => {
+    useConversations.setState({ currentId: 'queue-chat' });
+    useChat.setState({ sessionId: 'queue-chat', streamStatus: 'streaming' });
+    const sendFn = vi.fn(async () => {});
+    const view = render(<ChatInput sendFn={sendFn} />);
+    const box = await type('queued words');
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await type('newer words');
+    view.unmount();
+    render(<ChatInput sendFn={sendFn} />);
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('queued words\nnewer words');
+    act(() => useChat.setState({ streamStatus: 'done' }));
+    expect(sendFn).not.toHaveBeenCalled();
+  });
+
+  it('does not send a queued message into a different chat', async () => {
+    useConversations.setState({ currentId: 'queue-chat' });
+    useChat.setState({ sessionId: 'queue-chat', streamStatus: 'streaming' });
+    const sendFn = vi.fn(async () => {});
+    render(<ChatInput sendFn={sendFn} />);
+    const box = await type('belongs to the old chat');
+    fireEvent.keyDown(box, { key: 'Enter' });
+    act(() => {
+      useChat.setState({ sessionId: 'other-chat', streamStatus: 'done' });
+      useConversations.setState({ currentId: 'other-chat' });
+    });
+    expect(sendFn).not.toHaveBeenCalled();
+    expect(box.value).toBe('');
+    act(() => {
+      useChat.setState({ sessionId: 'queue-chat' });
+      useConversations.setState({ currentId: 'queue-chat' });
+    });
+    expect(box.value).toBe('belongs to the old chat');
+  });
+
+  it('saves the queued words when the window closes', async () => {
+    useConversations.setState({ currentId: 'queue-chat' });
+    useChat.setState({ streamStatus: 'streaming' });
+    const view = render(<ChatInput sendFn={vi.fn()} />);
+    fireEvent.keyDown(await type('survive reload'), { key: 'Enter' });
+    fireEvent(window, new Event('pagehide'));
+    expect(localStorage.getItem(DRAFT_KEY('queue-chat'))).toBe('survive reload');
+    view.unmount();
+  });
+
+  it('waits, says so, and goes out when the reply is done', async () => {
+    const sendFn = vi.fn(async () => {});
+    useChat.setState({ streamStatus: 'streaming' });
+    render(<ChatInput sendFn={sendFn} />);
+    const box = await type('and one more thing');
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(screen.getByText(/Sends when this reply is done/)).toBeTruthy();
+    expect(box.value).toBe('');
+    expect(sendFn).not.toHaveBeenCalled();
+    act(() => useChat.setState({ streamStatus: 'done' }));
+    await waitFor(() => expect(sendFn).toHaveBeenCalledWith('and one more thing'));
+    expect(screen.queryByText(/Sends when this reply is done/)).toBeNull();
+  });
+
+  it('comes back to the box when the reply is stopped instead', async () => {
+    const sendFn = vi.fn(async () => {});
+    useChat.setState({ streamStatus: 'streaming' });
+    render(<ChatInput sendFn={sendFn} />);
+    const box = await type('wait');
+    fireEvent.keyDown(box, { key: 'Enter' });
+    act(() => useChat.setState({ streamStatus: 'stopped' }));
+    await waitFor(() => expect(box.value).toBe('wait'));
+    expect(sendFn).not.toHaveBeenCalled();
   });
 });
 

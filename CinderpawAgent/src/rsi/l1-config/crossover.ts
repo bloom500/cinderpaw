@@ -7,8 +7,8 @@
  *
  * NEAT inherits disjoint/excess genes from the fitter parent and blends
  * the rest; here:
- *   - categorical genes (prompt/system template ids, retrieval strategy)
- *     come from the FITTER parent;
+ *   - categorical genes (prompt/system template ids, retrieval strategy,
+ *     reasoning effort) come from the FITTER parent;
  *   - bounded reals (temperature, contextWindowUsage) are averaged;
  *   - toolPreferenceWeights are averaged element-wise then renormalised
  *     back onto the simplex;
@@ -47,6 +47,8 @@ export function crossoverConfigs(
     decompositionDepth: Math.round(
       mean(fitter.decompositionDepth, other.decompositionDepth),
     ),
+    // Categorical, from the fitter; a default parent passes on the default.
+    ...(fitter.reasoningEffort ? { reasoningEffort: fitter.reasoningEffort } : {}),
   };
 }
 

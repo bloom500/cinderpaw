@@ -10,6 +10,7 @@ import {
   ArtifactTitle,
 } from '@/components/ai-elements/artifact';
 import { Markdown } from '@/lib/markdown';
+import { emberText, liveUntil, type Ember } from '@/lib/emberLetters';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SelectMenu } from '@/components/ui/select-menu';
 import { LiveFrame } from './LiveFrame';
@@ -30,6 +31,7 @@ function Loading() {
     </div>
   );
 }
+import { useShallow } from 'zustand/react/shallow';
 import { useArtifacts, shownKind, type ArtifactRow, type GoogleDest } from '@/stores/artifacts';
 import { GoogleMenu, googleCanTake } from './GoogleMenu';
 import { ContextTab } from './ContextTab';
@@ -42,6 +44,8 @@ import { useChatContext } from '@/hooks/useChatContext';
 import { ExternalLink } from '@/components/chat/ExternalLink';
 import { cn, readLocal, writeLocal } from '@/lib/utils';
 import { tauri } from '@/lib/tauri';
+import { useNotifications } from '@/stores/notifications';
+import { useOnboarding } from '@/stores/onboarding';
 
 const WIDTH_KEY = 'cinderpaw.artifactsPanelWidth';
 const DEFAULT_WIDTH = 416;
@@ -94,8 +98,11 @@ export function ArtifactsPanel({
   onAsk,
   onCompose,
   onAttach,
+  compact = false,
 }: {
   onClose: () => void;
+  /** The row is too narrow for chat + panel: the panel takes all of it. */
+  compact?: boolean;
   /** Put a question about this artifact into the chat input. */
   onAsk?: (row: ArtifactRow) => void;
   /** Context tab: fill the composer (Links and Memory "Add"). */
@@ -104,16 +111,19 @@ export function ArtifactsPanel({
   onAttach?: () => void;
 }) {
   const {
-    rows, loaded, open, busy, error, lastExport, refresh, close, deleteArtifact,
+    rows, loaded, openRow, openShowing, busy, error, lastExport, refresh, close,
     editing, startEdit, cancelEdit, save, importPdf, showingArchived, showArchived,
     google, cancelGoogle, panelTab: tab,
-  } = useArtifacts();
-  // Delete is for good now, so the header's Delete asks first, in the panel.
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  useEffect(() => setConfirmingDelete(false), [open?.row.id]);
+  } = useArtifacts(useShallow((s) => ({ rows: s.rows, loaded: s.loaded, openRow: s.open?.row, openShowing: s.open?.showing, busy: s.busy, error: s.error, lastExport: s.lastExport, refresh: s.refresh, close: s.close, editing: s.editing, startEdit: s.startEdit, cancelEdit: s.cancelEdit, save: s.save, importPdf: s.importPdf, showingArchived: s.showingArchived, showArchived: s.showArchived, google: s.google, cancelGoogle: s.cancelGoogle, panelTab: s.panelTab })));
   const pickRef = useRef<HTMLInputElement>(null);
   // Only the newest version is editable; an older one is restored instead.
-  const canEdit = !!open && EDITABLE_KINDS.has(open.row.kind) && open.showing === open.row.version;
+  // The chrome needs which artifact and which version, never its text: a
+  // streamed chunk changes `open.content` and must not redraw the header (R8).
+  const open = useMemo(() => (openRow ? { row: openRow, showing: openShowing } : null), [openRow, openShowing]);
+  const canEdit = !!open && EDITABLE_KINDS.has(open.row.kind) && open.showing === open.row.version && open.row.version > 0;
+  // A document still being written (or never saved) is not in the store yet:
+  // there is nothing to ask about, delete or switch from.
+  const isDraft = open?.row.version === 0;
   // A build without Cinderpaw's Google registration (a fork, a local build, a
   // release whose CI secret is missing) gets no button, not one that only fails.
   const [googleRegistered, setGoogleRegistered] = useState(false);
@@ -146,6 +156,9 @@ export function ArtifactsPanel({
   }, []);
   const drag = useRef<{ x: number; w: number } | null>(null);
   const resizeTo = (w: number) => setWidth(clampWidth(w, rowWidth()));
+  // A mouse reports moves faster than the screen draws: keep the newest and
+  // resize once per frame, not once per event (R8).
+  const moved = useRef<{ w: number; raf: number } | null>(null);
 
   return (
     // The panel takes its width at once and slides in on transform + opacity.
@@ -158,7 +171,7 @@ export function ArtifactsPanel({
       initial={{ x: 32, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: 32, opacity: 0 }}
-      style={{ width }}
+      style={compact ? undefined : { width }}
       transition={{ duration: 0.16, ease: 'easeOut' }}
       onAnimationComplete={() => {
         if (!entered.current) {
@@ -171,13 +184,14 @@ export function ArtifactsPanel({
         // panel gives way down to its minimum rather than pushing the chat off.
         // The boards draw the panel as a card of its own, lifted off the window's
         // edges; mt-10 keeps it under the window's close/maximize/minimize.
-        'relative mb-3 mr-3 mt-10 flex min-w-[320px] shrink flex-col overflow-hidden rounded-3xl border border-border-default bg-bg-surface shadow-xl',
+        'relative mb-3 mr-3 mt-10 flex shrink flex-col overflow-hidden rounded-3xl border border-border-default bg-bg-surface shadow-xl',
+        compact ? 'ml-3 min-w-0 flex-1' : 'min-w-[320px]',
         // The frame is another document: without this, crossing it mid-drag
         // hands the pointer to the page inside and the drag stops.
         dragging && '[&_iframe]:pointer-events-none select-none',
       )}
     >
-      <div
+      {!compact && <div
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize artifacts panel"
@@ -190,12 +204,25 @@ export function ArtifactsPanel({
           setDragging(true);
         }}
         onPointerMove={(e) => {
-          if (drag.current) resizeTo(drag.current.w + drag.current.x - e.clientX);
+          if (!drag.current) return;
+          const w = drag.current.w + drag.current.x - e.clientX;
+          if (moved.current) { moved.current.w = w; return; }
+          moved.current = { w, raf: requestAnimationFrame(() => {
+            if (moved.current) resizeTo(moved.current.w);
+            moved.current = null;
+          }) };
         }}
         onPointerUp={() => {
           drag.current = null;
           setDragging(false);
-          writeLocal(WIDTH_KEY, String(width));
+          let final = width;
+          if (moved.current) {
+            cancelAnimationFrame(moved.current.raf);
+            final = clampWidth(moved.current.w, rowWidth());
+            moved.current = null;
+            setWidth(final);
+          }
+          writeLocal(WIDTH_KEY, String(final));
         }}
         onKeyDown={(e) => {
           const step = e.key === 'ArrowLeft' ? 24 : e.key === 'ArrowRight' ? -24 : 0;
@@ -206,7 +233,7 @@ export function ArtifactsPanel({
           writeLocal(WIDTH_KEY, String(next));
         }}
         className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize hover:bg-brand/40 focus-visible:bg-brand/40 focus-visible:outline-hidden"
-      />
+      />}
       {/* pt-6: the window's own close/maximize/minimize sit fixed at the top-right
           of the whole app (32px tall), and this panel is the rightmost thing on
           screen. Without it the panel's close button sat almost on the window's. */}
@@ -232,7 +259,7 @@ export function ArtifactsPanel({
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand">
               <FileBox size={16} />
             </span>
-            {editing || rows.length < 2
+            {editing || isDraft || rows.length < 2
               ? <ArtifactTitle className="shrink-0 font-display text-xl font-normal">Artifact</ArtifactTitle>
               : <Switcher rows={rows} current={open.row.id} />}
           </div>
@@ -283,13 +310,13 @@ export function ArtifactsPanel({
           {open && !editing && canEdit && (
             <ArtifactAction tooltip="Edit" icon={Pencil} disabled={busy} onClick={startEdit} />
           )}
-          {open && !editing && onAsk && (
+          {open && !editing && !isDraft && onAsk && (
             <ArtifactAction tooltip="Ask Cinderpaw" icon={MessageSquare} onClick={() => onAsk(open.row)} />
           )}
-          {open && !editing && (
+          {open && !editing && !isDraft && (
             <ArtifactAction
               tooltip="Delete" icon={Trash2} disabled={busy}
-              onClick={() => setConfirmingDelete(true)}
+              onClick={() => deleteWithUndo(open.row)}
             />
           )}
           <ArtifactClose onClick={onClose} aria-label="Close panel" />
@@ -313,17 +340,6 @@ export function ArtifactsPanel({
                   : <>{`In ${GOOGLE_PLACE[google.dest ?? 'drive']}: `}<ExternalLink href={google.link}>open it</ExternalLink></>
                 : google.note ?? null}
         </p>
-      )}
-
-      {open && confirmingDelete && (
-        <ConfirmDelete
-          title={open.row.title}
-          onCancel={() => setConfirmingDelete(false)}
-          onConfirm={() => {
-            setConfirmingDelete(false);
-            void deleteArtifact(open.row.id);
-          }}
-        />
       )}
 
       {open ? (
@@ -508,30 +524,14 @@ function DockCard({ row, busy }: { row: ArtifactRow; busy: boolean }) {
  *
  * The actions appear on hover and on keyboard focus, so a list of twenty is not
  * sixty icons, and they are real buttons a keyboard reaches. Rename edits in
- * place. Delete asks in the row itself, because it is for good.
+ * place. Delete is at once, with Undo.
  */
 function RowItem({ row, busy, archived }: { row: ArtifactRow; busy: boolean; archived: boolean }) {
   const openArtifact = useArtifacts((s) => s.openArtifact);
   const renameArtifact = useArtifacts((s) => s.renameArtifact);
   const archiveArtifact = useArtifacts((s) => s.archiveArtifact);
-  const deleteArtifact = useArtifacts((s) => s.deleteArtifact);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(row.title);
-  const [confirming, setConfirming] = useState(false);
-
-  if (confirming) {
-    return (
-      <ConfirmDelete
-        title={row.title}
-        compact
-        onCancel={() => setConfirming(false)}
-        onConfirm={() => {
-          setConfirming(false);
-          void deleteArtifact(row.id);
-        }}
-      />
-    );
-  }
 
   const finishRename = (save: boolean) => {
     setRenaming(false);
@@ -565,7 +565,9 @@ function RowItem({ row, busy, archived }: { row: ArtifactRow; busy: boolean; arc
             {row.title}
           </p>
           <p className="truncate text-2xs text-text-muted">
-            {row.kind}
+            {/* The same word as the card and the detail view; the raw kind
+                ("markdown") sat beside "Document" (UX lab, item 24). */}
+            {artifactKind(row.kind).word}
             {row.version > 1 ? ` · v${row.version}` : ''} · {when(row.updatedAt)}
           </p>
         </button>
@@ -586,7 +588,7 @@ function RowItem({ row, busy, archived }: { row: ArtifactRow; busy: boolean; arc
             label={archived ? 'Unarchive' : 'Archive'} icon={archived ? ArchiveRestore : Archive}
             onClick={() => void archiveArtifact(row.id, !archived)}
           />
-          <RowButton label="Delete" icon={Trash2} onClick={() => setConfirming(true)} />
+          <RowButton label="Delete" icon={Trash2} onClick={() => deleteWithUndo(row)} />
         </div>
       )}
     </div>
@@ -607,42 +609,23 @@ function RowButton({ label, icon: Icon, onClick }: { label: string; icon: typeof
   );
 }
 
-/** "Delete for good?" asked where the click happened, never in a browser dialog. */
-function ConfirmDelete({
-  title, compact, onCancel, onConfirm,
-}: {
-  title: string;
-  compact?: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div
-      role="alertdialog"
-      aria-label={`Delete ${title}`}
-      className={cn(
-        'flex items-center gap-2 border-border-subtle bg-bg-elevated/40 px-3 py-2',
-        compact ? 'rounded-lg border' : 'border-b',
-      )}
-    >
-      <p className="min-w-0 flex-1 truncate text-2xs text-text-primary">{`Delete "${title}" and all its versions for good?`}</p>
-      <button
-        type="button"
-        autoFocus
-        onClick={onCancel}
-        className="rounded-md px-2 py-1 text-2xs text-text-muted hover:bg-bg-hover hover:text-text-primary"
-      >
-        Cancel
-      </button>
-      <button
-        type="button"
-        onClick={onConfirm}
-        className="rounded-md border border-error/40 px-2 py-1 text-2xs text-error hover:bg-error/10"
-      >
-        Delete
-      </button>
-    </div>
-  );
+/**
+ * Delete now, with Undo, the way a chat is deleted (ItemActions
+ * `deleteChatWithUndo`). Artifacts asked "Delete ... for good?" with no undo
+ * while chats deleted at once with one: two rules for one action (UX lab,
+ * 19 Oct, item 25). It leaves the list at once and is really deleted when the
+ * toast ends; if the app closes first, it survives, the safe way round.
+ */
+const UNDO_MS = 5_000;
+function deleteWithUndo(row: Pick<ArtifactRow, 'id' | 'title'>) {
+  const store = useArtifacts.getState();
+  if (store.open?.row.id === row.id) store.close();
+  useArtifacts.setState((s) => ({ rows: s.rows.filter((r) => r.id !== row.id) }));
+  const timer = setTimeout(() => { void useArtifacts.getState().deleteArtifact(row.id); }, UNDO_MS);
+  useNotifications.getState().push('info', 'Artifact deleted', row.title || undefined, {
+    label: 'Undo',
+    run: () => { clearTimeout(timer); void useArtifacts.getState().refresh(); },
+  });
 }
 
 /** Text the person can change. A pdf, an image or an uploaded file is not. */
@@ -652,17 +635,28 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
   const {
     open, lastExport, showVersion, editing, setDraft, conflict, save, cancelEdit, busy,
     review, showChanges, hideChanges, restore, applyPdf, focus, clearFocus,
-  } = useArtifacts();
+  } = useArtifacts(useShallow((s) => ({ open: s.open, lastExport: s.lastExport, showVersion: s.showVersion, editing: s.editing, setDraft: s.setDraft, conflict: s.conflict, save: s.save, cancelEdit: s.cancelEdit, busy: s.busy, review: s.review, showChanges: s.showChanges, hideChanges: s.hideChanges, restore: s.restore, applyPdf: s.applyPdf, focus: s.focus, clearFocus: s.clearFocus })));
   // The overview (Darius's Artifact board, 30 Sep) first; Open shows the whole thing.
   // A PDF is usually a form to fill or sign: it opens straight into its editor.
   // A deep dive from a chat card (a section chip) skips the overview too.
   // A board is already its own overview: it opens as itself.
   const direct = (kind?: string) => kind === 'pdf' || kind === 'board';
-  const [full, setFull] = useState(direct(open?.row.kind) || (!!open && focus?.id === open.row.id));
-  useEffect(() => setFull(direct(open?.row.kind) || (!!open && useArtifacts.getState().focus?.id === open.row.id)), [open?.row.id]);
+  const [full, setFull] = useState(direct(open?.row.kind) || !!open?.live || (!!open && focus?.id === open.row.id));
+  // A document Cinderpaw is writing opens on the document itself, and stays
+  // there when the saved version takes its place: the overview in between
+  // would be the jump the live view exists to avoid.
+  const wasDraft = useRef(false);
+  useEffect(() => {
+    const fromDraft = wasDraft.current;
+    wasDraft.current = open?.row.version === 0;
+    setFull(direct(open?.row.kind) || fromDraft || !!open?.live || (!!open && useArtifacts.getState().focus?.id === open.row.id));
+  }, [open?.row.id]);
+  // An edit Cinderpaw makes to the document on screen is shown where it happens.
+  useEffect(() => { if (open?.live && open.row.version > 0) setFull(true); }, [!!open?.live]);
   // A deep dive into the artifact already on screen, its overview included.
   useEffect(() => { if (open && focus?.id === open.row.id) setFull(true); }, [focus, open?.row.id]);
   const viewer = useRef<HTMLDivElement>(null);
+  const agentName = useOnboarding((s) => s.agentName.trim()) || 'Cinderpaw';
   // Scroll to the asked-for heading once THAT document is on screen, then forget it.
   useEffect(() => {
     if (!full || !focus || !open || focus.id !== open.row.id) return;
@@ -675,8 +669,82 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
     }, 80);
     return () => window.clearTimeout(id);
   }, [full, focus, open?.content, open?.row.id]);
+  // Letters animate on a clock, not on new text: one more render when the old
+  // words have gone and one when the last letter has finished, so the spans
+  // go back to plain text.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const live = open?.live;
+    if (!live) return;
+    const now = Date.now();
+    const due = [live.out?.until ?? 0, liveUntil(live.runs) + 60].filter((t) => t > now);
+    if (due.length === 0) return;
+    const t = window.setTimeout(() => setTick((n) => n + 1), Math.min(...due) - now);
+    return () => window.clearTimeout(t);
+  }, [open?.live, open?.content, tick]);
+  // Follow the writing down the page, unless the person scrolled up to read.
+  const stick = useRef(true);
+  /** When the person last moved the page themselves: wheel, touch, a key, the scrollbar. */
+  const touched = useRef(0);
+  const scroller = () => viewer.current?.querySelector<HTMLElement>('[data-radix-scroll-area-viewport]') ?? null;
+  useEffect(() => {
+    stick.current = true;
+    const el = scroller();
+    const area = viewer.current;
+    if (!el || !area) return;
+    const mine = () => { touched.current = Date.now(); };
+    const gestures = ['wheel', 'touchmove', 'pointerdown', 'keydown'] as const;
+    for (const g of gestures) area.addEventListener(g, mine, { passive: true });
+    const onScroll = () => {
+      // Only a scroll the person made decides. The page also scrolls by itself
+      // when a placeholder goes and the text below moves; read as "scrolled
+      // away", that stopped the following for good after the first part (20 Oct).
+      if (Date.now() - touched.current > 1000) return;
+      const caret = viewer.current?.querySelector<HTMLElement>('.ember-caret');
+      if (caret) {
+        const edge = caret.getBoundingClientRect();
+        const bounds = el.getBoundingClientRect();
+        stick.current = edge.bottom >= bounds.top && edge.top <= bounds.bottom;
+      } else {
+        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      }
+    };
+    el.addEventListener('scroll', onScroll);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      for (const g of gestures) area.removeEventListener(g, mine);
+    };
+  }, [open?.row.id, full]);
+  useEffect(() => {
+    const el = scroller();
+    if (!open?.live?.writing || !stick.current || !el) return;
+    // Parts replace placeholders above later chapters: follow the writing
+    // edge, not the end of the outline. The clock also runs this after the
+    // placeholder fades out and the cursor first becomes visible.
+    const caret = viewer.current?.querySelector<HTMLElement>('.ember-caret');
+    if (caret) caret.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    else if (!open.live.edit) el.scrollTop = el.scrollHeight;
+  }, [open?.content, open?.row.id, full, tick]);
   if (!open) return null;
-  const { row, content, showing, versions } = open;
+  const { row, content, showing, versions, live } = open;
+  const draft = row.version === 0;
+  const now = Date.now();
+  // An edit first shows the old text with its removed words going out.
+  const leaving = live?.out && now < live.out.until ? live.out : null;
+  // While Cinderpaw writes, a cursor with its name sits at the writing edge:
+  // the end of a new document, or the end of the part written so far.
+  const writingEnd = live?.edit ? live.edit.at + live.edit.replace.length : content.length;
+  // Markdown drops trailing whitespace from its text nodes. Keep the cursor
+  // on the last visible letter so a newline cannot hide it or stop following.
+  const caretAt = live?.writing && !leaving ? content.slice(0, writingEnd).trimEnd().length : undefined;
+  const ember: Ember | undefined = live
+    ? { runs: leaving ? [] : live.runs, out: leaving?.ranges, now, ...(caretAt !== undefined ? { caret: { at: caretAt, name: agentName } } : {}) }
+    : undefined;
+  const text = leaving ? leaving.content : content;
+  // While it is written, anything that is not prose shows as its source: a page
+  // or a board half written cannot be drawn, and a frame reloaded on every
+  // letter would flicker. A PDF is written as markdown.
+  const viewKind = draft ? (row.kind === 'pdf' || shownKind(row.kind, text) === 'markdown' ? 'markdown' : 'code') : shownKind(row.kind, text);
 
   if (editing) {
     return (
@@ -738,15 +806,29 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
 
   return (
     <>
+      {/* One row, the same height either way, so nothing below it moves when
+          the saved version takes the draft's place. */}
       <div className="flex items-center border-b border-border-subtle px-3 py-1.5">
-        <button
-          type="button"
-          onClick={() => setFull(false)}
-          className="flex items-center gap-1 rounded-md px-1.5 py-1 text-2xs text-text-muted hover:bg-bg-hover hover:text-text-primary"
-        >
-          <ArrowLeft size={12} />
-          Overview
-        </button>
+        {draft ? (
+          <p role="status" className={cn('flex min-w-0 items-center gap-1.5 px-1.5 py-1 text-2xs', live?.stopped ? 'text-(--warning)' : 'text-text-muted')}>
+            {live?.writing && <span aria-hidden className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-brand motion-reduce:animate-none" />}
+            <span className="truncate">
+              {live?.stopped
+                ?? (live?.writing
+                  ? `Cinderpaw is writing${row.title.trim() ? ` “${row.title.trim()}”` : ''}…`
+                  : 'Saving…')}
+            </span>
+          </p>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setFull(false)}
+            className="flex items-center gap-1 rounded-md px-1.5 py-1 text-2xs text-text-muted hover:bg-bg-hover hover:text-text-primary"
+          >
+            <ArrowLeft size={12} />
+            Overview
+          </button>
+        )}
       </div>
       {/* The version picker, only when there is a choice to make. */}
       {versions.length > 1 && (
@@ -800,7 +882,7 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
         </p>
       )}
 
-      {row.kind === 'pdf' ? (
+      {row.kind === 'pdf' && !draft ? (
         <Suspense fallback={<Loading />}>
           <PdfEditor
             base64={content}
@@ -814,7 +896,7 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
         </Suspense>
       ) : (
         <div ref={viewer} className="contents">
-          <Preview kind={shownKind(row.kind, content)} title={row.title} content={content} id={row.id} />
+          <Preview kind={viewKind} title={row.title} content={text} id={row.id} ember={ember} />
         </div>
       )}
     </>
@@ -835,7 +917,7 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
  * `srcdoc` rather than a URL: there is no origin to serve it from, and none is
  * wanted.
  */
-function Preview({ kind, title, content, id = '' }: { kind: string; title: string; content: string; id?: string }) {
+function Preview({ kind, title, content, id = '', ember }: { kind: string; title: string; content: string; id?: string; ember?: Ember }) {
   const image = kind === 'image' ? artifactImageSource(content) : null;
   if (image) {
     return (
@@ -866,7 +948,7 @@ function Preview({ kind, title, content, id = '' }: { kind: string; title: strin
     return (
       <ScrollArea className="flex-1">
         <div className="px-3 py-3 text-xs">
-          <Markdown>{content}</Markdown>
+          <Markdown ember={ember}>{content}</Markdown>
         </div>
       </ScrollArea>
     );
@@ -874,7 +956,7 @@ function Preview({ kind, title, content, id = '' }: { kind: string; title: strin
   return (
     <ScrollArea className="flex-1">
       <pre className="whitespace-pre-wrap break-words px-3 py-3 text-2xs text-text-primary">
-        {content}
+        {ember ? emberText(content, ember) : content}
       </pre>
     </ScrollArea>
   );
@@ -889,7 +971,7 @@ function Preview({ kind, title, content, id = '' }: { kind: string; title: strin
 function Overview({ googleRegistered, onOpen }: { googleRegistered: boolean; onOpen: () => void }) {
   const {
     open, busy, exportArtifact, sendToGoogle, signOutGoogle, google, showVersion, showChanges, restore, lastExport,
-  } = useArtifacts();
+  } = useArtifacts(useShallow((s) => ({ open: s.open, busy: s.busy, exportArtifact: s.exportArtifact, sendToGoogle: s.sendToGoogle, signOutGoogle: s.signOutGoogle, google: s.google, showVersion: s.showVersion, showChanges: s.showChanges, restore: s.restore, lastExport: s.lastExport })));
   const summary = useMemo(() => (open ? summaryOf(shownKind(open.row.kind, open.content), open.content) : ''), [open?.row.kind, open?.content]);
   if (!open) return null;
   const { row, content, showing, versions } = open;

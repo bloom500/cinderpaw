@@ -39,7 +39,8 @@ const en = {
   'home.afternoon': 'Good afternoon',
   'home.evening': 'Good evening',
   'home.night.1': 'Hello, night owl',
-  'home.night.2': 'Staying up late again, night owl?',
+  // Not "again": it said that to people on their very first night (UX lab, item 12).
+  'home.night.2': 'Up late tonight, night owl?',
   'home.ask': 'What can I help you with?',
   // The four intents. A statement about what the product is, so they are fixed
   // and in this order — they are not suggestions and they are not shuffled.

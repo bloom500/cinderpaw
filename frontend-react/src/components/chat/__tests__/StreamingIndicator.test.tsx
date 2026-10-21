@@ -53,24 +53,30 @@ describe('StreamingIndicator', () => {
     act(() => emitAgent(progress()));
     rerender(<StreamingIndicator phase="calling" tool="read_file" />);
     settle();
-    expect(screen.getByText('Calling read file…')).toBeInTheDocument();
+    expect(screen.getByText('Reading files…')).toBeInTheDocument();
     act(() => emitAgent(progress({ tokensPerSec: 99 })));
     rerender(<StreamingIndicator phase="thinking" />);
     settle();
     expect(screen.queryByText(/tok\/s/)).not.toBeInTheDocument();
   });
 
+  it('names a waiting question as waiting for the person, not a tool call', () => {
+    render(<StreamingIndicator phase="calling" tool="ask_user" />);
+    settle();
+    expect(screen.getByText('Waiting for your answer…')).toBeInTheDocument();
+  });
+
   it('omits invalid durations and rates while retaining valid progress', () => {
     render(<StreamingIndicator />);
     settle();
     act(() => emitAgent(progress({ tokensPerSec: Infinity })));
-    expect(screen.getByText('Generating…')).toBeInTheDocument();
+    expect(screen.getByText('Writing…')).toBeInTheDocument();
     act(() => emitAgent(progress({ phase: 'prefill', elapsedMs: NaN })));
-    expect(screen.getByText('Prefill…')).toBeInTheDocument();
+    expect(screen.getByText('Reading your message…')).toBeInTheDocument();
     act(() => emitAgent(progress({ phase: 'prefill', elapsedMs: -1000 })));
-    expect(screen.getByText('Prefill…')).toBeInTheDocument();
+    expect(screen.getByText('Reading your message…')).toBeInTheDocument();
     act(() => emitAgent(progress({ phase: 'prefill', elapsedMs: 65000 })));
-    expect(screen.getByText('Prefill · 1m 5s')).toBeInTheDocument();
+    expect(screen.getByText('Reading your message · 1m 5s')).toBeInTheDocument();
   });
 
   it('restarts the slow-response grace period for a different chat', () => {

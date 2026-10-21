@@ -6,6 +6,9 @@ describe('cleanTitle', () => {
     expect(cleanTitle('"Zbor spre Lisabona în octombrie."')).toBe('Zbor spre Lisabona în octombrie');
     expect(cleanTitle('Title: Quarterly report draft')).toBe('Quarterly report draft');
     expect(cleanTitle('<think>the user wants a flight</think>\nLisbon flight search')).toBe('Lisbon flight search');
+    // A tool call is not a title: nothing, so the first-message title stays.
+    expect(cleanTitle('<tool_call>{"name": "ask_user", "arguments": {}}</tool_call>')).toBe('');
+    expect(cleanTitle('{"name": "todo_write", "arguments": {}}')).toBe('');
   });
 
   it('never returns a title longer than a sidebar row', () => {

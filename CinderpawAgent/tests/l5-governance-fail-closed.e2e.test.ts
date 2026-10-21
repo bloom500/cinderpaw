@@ -137,8 +137,10 @@ describe("L5 — governance freeze / fail-closed (CINDERPAW_E2E)", () => {
       expect(loaded.source).toBe("file");
       if (loaded.source !== "file") throw new Error("unreachable");
       expect(loaded.policy.policyId).toBe("gp-1");
-      // Genesis is not frozen → l6_evolve is allowed without human approval.
-      expect(governanceCheck("l6_evolve", { dir }).allowed).toBe(true);
+      // Genesis is not frozen, but since spec S0.2 L6 evolves only when a
+      // person starts it: refused alone, allowed with an approval.
+      expect(governanceCheck("l6_evolve", { dir }).allowed).toBe(false);
+      expect(governanceCheck("l6_evolve", { dir, approvalPresent: true }).allowed).toBe(true);
       // l3 needs human approval even under the genesis policy.
       expect(governanceCheck("l3_code_patch_apply", { dir }).allowed).toBe(false);
       expect(

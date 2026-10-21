@@ -18,8 +18,8 @@
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, ArrowLeft, ArrowUp, AudioLines, BarChart3, Brain, Check, ChevronRight, Cloud, Cpu, Database, Download, ExternalLink, Eye, EyeOff, FileText, Globe, Gpu, Laptop, Layers, Loader2, MemoryStick, Paperclip, PenLine, Search, Settings, Shield, ShieldAlert, ShieldCheck, Sparkles, Star, Wrench, type LucideIcon } from 'lucide-react';
-import { useOnboarding } from '@/stores/onboarding';
+import { ArrowRight, ArrowLeft, ArrowUp, AudioLines, BarChart3, Check, ChevronRight, Cloud, Cpu, Database, Download, ExternalLink, Eye, EyeOff, FileText, Globe, Gpu, Laptop, Layers, Loader2, MemoryStick, Paperclip, PenLine, Search, Settings, Shield, ShieldAlert, ShieldCheck, Sparkles, Star, Wrench, type LucideIcon } from 'lucide-react';
+import { STEP_IDS, useOnboarding } from '@/stores/onboarding';
 import { useSystemInfo } from '@/stores/systemInfo';
 import { useDownload } from '@/stores/download';
 import { useSettings } from '@/stores/settings';
@@ -107,7 +107,9 @@ export function OnboardingWizard() {
               </motion.div>
             </AnimatePresence>
 
-            <nav className="mt-8 flex flex-wrap items-center gap-4">
+            {/* Pinned to the bottom of the window: on an 800 px screen the last
+                board pushed "Start exploring" below the fold (UX lab, item 8). */}
+            <nav className="sticky bottom-0 z-10 mt-8 flex flex-wrap items-center gap-4 bg-bg-primary py-4">
               {!isFirst && (
                 <button type="button" onClick={prev} className={cn(SECONDARY_BUTTON, 'rounded-2xl px-5 py-3 text-base')}>
                   <ArrowLeft size={16} /> Back
@@ -129,6 +131,8 @@ export function OnboardingWizard() {
                   {isFirst ? 'Get started' : 'Continue'} <ArrowRight size={16} />
                 </button>
               )}
+              {/* A grey button with no reason was a wall (UX lab, item 13). */}
+              {!canProceed && <span className="text-sm text-text-muted">Type your name to continue.</span>}
               {isFirst && (
                 <button
                   type="button"
@@ -251,7 +255,8 @@ function NamesStep() {
   const setUserName = useOnboarding((s) => s.setUserName);
   const agentName = useOnboarding((s) => s.agentName);
   const setAgentName = useOnboarding((s) => s.setAgentName);
-  const you = userName.trim() || 'you';
+  // Empty, the preview read "Sure, you!" (UX lab, item 13).
+  const you = userName.trim();
   const me = agentName.trim() || 'Cinderpaw';
 
   return (
@@ -290,7 +295,7 @@ function NamesStep() {
       <div className="mt-6 space-y-2 rounded-2xl bg-bg-surface p-4 text-sm">
         <p className="ml-auto w-fit rounded-2xl rounded-br-sm bg-brand/10 px-3.5 py-2 text-text-primary">Hi, I have a question.</p>
         <p className="w-fit rounded-2xl rounded-bl-sm border border-border-default bg-bg-elevated px-3.5 py-2 text-text-primary">
-          <span className="font-medium text-brand">{me}:</span> Sure, {you}! What can I help you with?
+          <span className="font-medium text-brand">{me}:</span> {you ? `Sure, ${you}!` : 'Sure!'} What can I help you with?
         </p>
       </div>
     </div>
@@ -343,7 +348,9 @@ function ConnectArt() {
 /** The app, drawn small: the sidebar, the home screen and the Context panel. */
 function WorkspaceArt() {
   const nav: [LucideIcon, string][] = [[PenLine, 'New Chat'], [FileText, 'Artifacts'], [Globe, 'Browser'], [Layers, 'Models']];
-  const context: [LucideIcon, string, string][] = [[Globe, 'Current Page', 'cinderpaw.com'], [FileText, 'Selected Text', '3 snippets'], [Database, 'Relevant Memory', '2 memories']];
+  // What the real Context panel shows (UX lab, item 15: this drew a panel and
+  // two home cards that do not exist, and the wrong web address).
+  const context: [LucideIcon, string, string][] = [[Layers, 'Model', 'The one answering'], [Database, 'Memory', '2 memories used'], [Wrench, 'Tools', 'Searched the web']];
   return (
     <div className="relative w-[520px] pb-16 pt-14">
       <Callout className="left-4 top-0">All in one place. Chat, browse, build from the sidebar.</Callout>
@@ -368,8 +375,8 @@ function WorkspaceArt() {
             </p>
           </div>
           <div className="grid w-full grid-cols-2 gap-2">
-            <p className="rounded-xl border border-border-subtle p-2"><span className="flex items-center gap-1.5 text-text-primary"><Brain size={12} className="text-brand" /> Agent Pulse</span><span className="text-text-muted">What your agent is doing.</span></p>
-            <p className="rounded-xl border border-border-subtle p-2"><span className="flex items-center gap-1.5 text-text-primary"><Database size={12} className="text-brand" /> Memory Peek</span><span className="text-text-muted">Relevant context.</span></p>
+            <p className="rounded-xl border border-border-subtle p-2"><span className="flex items-center gap-1.5 text-text-primary"><Search size={12} className="text-brand" /> Research</span><span className="text-text-muted">Find and sum up.</span></p>
+            <p className="rounded-xl border border-border-subtle p-2"><span className="flex items-center gap-1.5 text-text-primary"><PenLine size={12} className="text-brand" /> Create</span><span className="text-text-muted">Write and build.</span></p>
           </div>
         </div>
         <div className="w-36 shrink-0 space-y-1.5 border-l border-border-subtle p-3">
@@ -511,8 +518,8 @@ export function ProviderStep() {
         <StepIntro
           voice="onboarding.provider"
           title="Choose your model"
-          lead="Cloud, Hugging Face, or Local. Pick what fits your workflow."
-          body="Cinderpaw works with hosted providers and local models on your machine. You can change this anytime in Models."
+          lead="Pick where my brain runs: online, or on this computer."
+          body="Online is the easiest start. You can change this anytime in Models."
         />
         <span className="hidden shrink-0 sm:block" aria-hidden><CinderpawMascot state="curious" width={150} /></span>
       </div>
@@ -522,24 +529,24 @@ export function ProviderStep() {
       <div className="mt-6 grid gap-3 sm:grid-cols-3">
         <ForkCard
           icon={<Cloud size={28} className="text-brand" />}
-          title="Cloud"
-          subtitle="Get started quickly with top models in the cloud."
-          badge="Fast & easy"
+          title="Online"
+          subtitle="Ready in a minute. Uses the best models over the internet."
+          badge="Easiest"
           selected={choice === 'cloud'}
           onClick={() => setChoice('cloud')}
         />
         <ForkCard
           icon={<BrandLogo id="huggingface" name="Hugging Face" className="size-8 border-0 bg-transparent" />}
           title="Hugging Face"
-          subtitle="Browse and use thousands of open source models."
-          badge="Wide selection"
+          subtitle="Thousands of free models you can download."
+          badge="Most choice"
           selected={choice === 'hub'}
           onClick={() => setChoice('hub')}
         />
         <ForkCard
           icon={<Laptop size={28} className="text-text-secondary" />}
-          title="Local"
-          subtitle="Run models on your own machine, for more control."
+          title="This computer"
+          subtitle="Runs here, private. Needs a strong computer."
           selected={choice === 'local'}
           onClick={() => setChoice('local')}
         >
@@ -558,7 +565,7 @@ export function ProviderStep() {
 
       <p className="mt-3 flex items-center gap-2 rounded-full bg-brand/10 px-4 py-2 text-sm text-text-primary">
         <Star size={16} className="fill-brand text-brand" />
-        <span><span className="font-medium text-brand">Recommended:</span> start with {localFits ? 'Local, your machine can run a model big enough' : 'Cloud'}</span>
+        <span><span className="font-medium text-brand">Recommended:</span> start with {localFits ? 'this computer, it can run a model big enough' : 'Online'}</span>
       </p>
 
       <div className="mt-4">
@@ -567,7 +574,7 @@ export function ProviderStep() {
         {choice === 'hub' && (
           <div className="rounded-lg border border-border-subtle bg-bg-primary/40 p-4 space-y-3">
             <p className="text-sm text-text-secondary leading-relaxed">
-              Pick any open model from Hugging Face and Cinderpaw downloads it for you. The Models page shows which ones fit this machine.
+              Pick any free model from Hugging Face and Cinderpaw downloads it for you. The Models page shows which ones fit this computer.
             </p>
             <button
               type="button"
@@ -786,8 +793,9 @@ function CloudBranch() {
   const visibleCurated = catalogLoaded
     ? CURATED_PROVIDERS.filter((p) => catalogEntries.some((c) => c.id === p.id))
     : CURATED_PROVIDERS; // offline fallback: show all curated
+  // Hugging Face has its own card above; listed here too it read as two things.
   const genericOnly = catalogLoaded
-    ? catalogEntries.filter((c) => !curatedIds.has(c.id))
+    ? catalogEntries.filter((c) => !curatedIds.has(c.id) && c.id !== 'huggingface')
     : [];
 
   const def = visibleCurated.find((p) => p.id === selected) ?? null;
@@ -992,12 +1000,27 @@ function DoneStep() {
 
   return (
     <div>
-      <StepIntro
-        voice="onboarding.done"
-        title={<>You’re ready<br />to explore</>}
-        lead="Your adaptive workspace is set up."
-        body="Start a conversation, build an artifact, or let Cinderpaw help with research, writing, and automation."
-      />
+      {/* With no model nothing can answer, so it does not say "ready" (UX lab,
+          item 2: confetti here, then "No model is chosen yet" on the first message). */}
+      {hasModel ? (
+        <StepIntro
+          voice="onboarding.done"
+          title={<>You’re ready<br />to explore</>}
+          lead="Your workspace is set up."
+          body="Start a conversation, build an artifact, or let Cinderpaw help with research, writing, and automation."
+        />
+      ) : (
+        <div>
+          <StepIntro
+            title={<>Almost<br />ready</>}
+            lead="Pick a model so I can answer you."
+            body="A model is the brain that writes the answers. Without one, I cannot reply yet. It takes a minute."
+          />
+          <button type="button" onClick={() => useOnboarding.setState({ step: STEP_IDS.indexOf('provider') })} className={cn(PRIMARY_BUTTON, 'mt-5')}>
+            Choose a model <ArrowRight size={16} />
+          </button>
+        </div>
+      )}
       <FeatureCards
         items={[
           { icon: Search, title: 'Research', line: 'Find, summarize, and explore information.' },
@@ -1016,6 +1039,13 @@ function DoneStep() {
           </li>
         ))}
       </ul>
+      {/* Alpha, said once, here: it used to be a card that came back every
+          week over whatever the person was doing (Darius, 20 Oct). One quiet
+          line, not another box: this screen already has enough of them. */}
+      <p className="mt-4 text-xs leading-relaxed text-text-muted">
+        Cinderpaw is still in alpha, so some things may change or break between updates.
+        If something goes wrong, Settings, About, Report a bug helps us fix it.
+      </p>
       <div className="mt-5 grid gap-2 sm:grid-cols-2">
         <DiskEncryptionNotice />
         <InstallCountNotice />

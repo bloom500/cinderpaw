@@ -108,9 +108,12 @@ export function createBrowserTool(): Tool {
       "names the browser or wants to watch, and whenever a web page has to be USED " +
       "rather than read: a form, a login, a search on a site, a download, or a page " +
       "fetch_url returned empty. Do it without being asked. To only LOOK SOMETHING UP, " +
-      "web_search and fetch_url are faster and do not take over the screen. The panel is " +
-      "shared with the user: `snapshot` reads whatever tab is on screen, including a page " +
-      "THEY opened, so when asked what they are looking at, take a snapshot. `open` a url " +
+      "web_search and fetch_url are faster and do not take over the screen. `open` always " +
+      "opens a NEW tab of your own and never replaces a page the user has open; when they " +
+      "are on a page of their own (a video, say), yours opens behind it, so tell them where " +
+      "it is. Every other action works in your tab. When they ask about the page THEY have " +
+      "in front (\"this page\", \"what am I looking at\", \"summarize this\"), pass " +
+      "tab: \"user\". `open` a url " +
       "(or search words), `snapshot` to read the page and its numbered controls, " +
       "then `click` or `type` by number (`ref`). `extract` returns the page's article as " +
       "clean text (title, byline, body; Mozilla's Readability, the Firefox reader), the " +
@@ -148,6 +151,7 @@ export function createBrowserTool(): Tool {
       text: { type: "string", description: "type: what to enter (replaces the field's content).", required: false },
       submit: { type: "boolean", description: "type: submit the form afterwards.", required: false },
       dy: { type: "number", description: "scroll: pixels down (negative scrolls up), default 600.", required: false },
+      tab: { type: "string", description: "Every action but open: \"user\" for the page the user has in front. Leave it out to work in your own tab.", required: false },
     },
     async execute(args, ctx) {
       const action = args.action as Action;
@@ -176,6 +180,7 @@ export function createBrowserTool(): Tool {
         params.submit = args.submit === true;
       }
       if (action === "scroll" && typeof args.dy === "number") params.dy = args.dy;
+      if (action !== "open" && args.tab === "user") params.tab = "user";
 
       const sid = ctx.sessionId ?? "";
       const page = lastPage.get(sid);
@@ -257,7 +262,7 @@ export function createBrowserTool(): Tool {
       if (action === "open") {
         return {
           ok: true,
-          content: `Opened ${result.url ?? String(params.url)}${result.loading ? " (still loading)" : ""}. Take a snapshot to read it.`,
+          content: `Opened ${result.url ?? String(params.url)} in a new tab of yours${(result as { background?: boolean }).background ? ", behind the page the user is on (tell them it is there)" : ""}${result.loading ? " (still loading)" : ""}. Take a snapshot to read it.`,
           data: { url: result.url },
         };
       }

@@ -1,9 +1,10 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
-import { Brain, FileText, Globe, LogIn, Moon, Phone, type LucideIcon } from 'lucide-react';
+import { Download, Layers, Lightbulb, ShieldCheck, Sparkles, Zap, type LucideIcon } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { useOnboarding } from '@/stores/onboarding';
 import { readLocal, writeLocal } from '@/lib/utils';
+import { useAttentionTurn } from '@/lib/attention';
 
 /**
  * The big "what's new" card, for big releases only, after the one the Claude
@@ -22,53 +23,86 @@ import { readLocal, writeLocal } from '@/lib/utils';
 
 const SEEN_KEY = 'cinderpaw.whatsNew.seen';
 
+/** Longest it may hold the notice queue while it finds out who this is. A
+ *  read that never answers must not keep every other notice away; it gives up
+ *  for this launch without marking the release seen, so the next one shows it. */
+export const WHATS_NEW_DECIDE_MS = 3_000;
+
 const RELEASE: { id: string; hero: string; picture: string; title: string; subtitle: string; items: { icon: LucideIcon; title: string; body: string }[] } = {
-  id: '2026-09-cinderpaw',
+  id: '2026-10-mycena',
   hero: 'Cinderpaw',
-  // The release's picture, the same one the site's hero and share card use
-  // (cinderpaw.dev lib/releases.ts). Bundled, so it shows offline.
-  picture: '/releases/2026-09-moth.webp',
-  title: 'Feral has a new name',
-  subtitle: 'And it can do a lot more. Here is what changed.',
+  // Each big release gets its own science picture (Darius, 20 Oct): glowing
+  // Mycena mushrooms over the mycelium that links them, picked from Google
+  // Flow. Bundled, so it shows offline. The site's release page should carry
+  // the same picture (cinderpaw.dev lib/releases.ts).
+  picture: '/releases/2026-10-mycena.webp',
+  title: 'Calmer, and it asks first',
+  subtitle: 'This update is about trust: you see what it may do, and it tells you what it found.',
   items: [
-    { icon: Globe, title: 'A browser inside the app', body: 'Cinderpaw can open websites next to your chat and use them for you. You can watch it work, and one click pauses it.' },
-    { icon: FileText, title: 'Documents it makes, kept for you', body: 'Reports, PDFs, Word and Excel files it writes stay in Artifacts, even after the chat ends.' },
-    { icon: Phone, title: 'Talk to it out loud', body: 'Press the phone button and have a real conversation, even while you use other apps.' },
-    { icon: Brain, title: 'It remembers what matters', body: 'It uses what you told it before to answer better. You can make it forget anything.' },
-    { icon: LogIn, title: 'Easier to start', body: 'Sign in with OpenRouter in one click. No keys to copy and paste.' },
-    { icon: Moon, title: 'It practices while you are away', body: 'It tries small improvements on its own and keeps only what works. You choose how much it may spend.' },
+    { icon: ShieldCheck, title: 'You choose what it may do', body: 'Under the message box: look only, edit files, or full access. Each one says in plain words what it means.' },
+    { icon: Lightbulb, title: 'It tells you what matters', body: 'While it works, Cinderpaw can point out something you should know. Say you knew it, and it flags less.' },
+    { icon: Sparkles, title: 'It asks before it changes itself', body: 'After it practices, it shows the change it wants as before and after. You say yes or no, and you can undo it.' },
+    { icon: Layers, title: 'One thing at a time', body: 'Notices no longer pile up on the screen. They come one by one, the most important first.' },
+    { icon: Download, title: 'A quieter first start', body: 'The big memory download now waits until after your first answer, instead of starting the moment you open the app.' },
+    { icon: Zap, title: 'Steadier everywhere', body: 'Messages you queue, chats you switch and waits for the provider no longer get lost or mixed up.' },
   ],
 };
 
-export const useWhatsNew = create<{ open: boolean; show: () => void; hide: () => void }>((set) => ({
+export const useWhatsNew = create<{
+  open: boolean;
+  /** Opens by itself this launch: null = not decided yet (the onboarding state
+   *  is read async), and while undecided it holds its place in the notice
+   *  queue so the Alpha card cannot jump ahead of it. */
+  due: boolean | null;
+  show: () => void;
+  hide: () => void;
+}>((set) => ({
   open: false,
+  due: readLocal(SEEN_KEY) === RELEASE.id ? false : null,
   show: () => set({ open: true }),
   hide: () => {
     writeLocal(SEEN_KEY, RELEASE.id);
-    set({ open: false });
+    set({ open: false, due: false });
   },
 }));
 
 export function WhatsNew() {
   const open = useWhatsNew((s) => s.open);
   const hide = useWhatsNew((s) => s.hide);
+  const due = useWhatsNew((s) => s.due);
+  // First in the notice queue: the Alpha card and the rest wait until it is closed.
+  const turn = useAttentionTurn('whatsNew', due !== false);
 
   useEffect(() => {
-    if (readLocal(SEEN_KEY) === RELEASE.id) return;
+    if (due !== null) return;
     let alive = true;
+    const giveUp = setTimeout(() => { alive = false; useWhatsNew.setState({ due: false }); }, WHATS_NEW_DECIDE_MS);
     void useOnboarding.getState().loadPersisted().then((onboarded) => {
       if (!alive) return;
-      if (onboarded) useWhatsNew.getState().show();
-      else writeLocal(SEEN_KEY, RELEASE.id);
-    }).catch(() => {});
-    return () => { alive = false; };
-  }, []);
+      clearTimeout(giveUp);
+      if (!onboarded) writeLocal(SEEN_KEY, RELEASE.id);
+      useWhatsNew.setState({ due: onboarded });
+    }).catch(() => { if (alive) { clearTimeout(giveUp); useWhatsNew.setState({ due: false }); } });
+    return () => { alive = false; clearTimeout(giveUp); };
+  }, [due]);
+
+  useEffect(() => {
+    if (turn && due) useWhatsNew.getState().show();
+  }, [turn, due]);
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) hide(); }}>
       {/* Closed only by its own buttons or X (Darius, 18 Oct 2026): a stray
           click outside, or closing the Alpha card, used to dismiss it. */}
-      <DialogContent className="max-w-xl gap-0 overflow-hidden p-0 sm:rounded-2xl" onInteractOutside={(e) => e.preventDefault()}>
+      {/* The dialog's X sits on the release picture, which changes every big
+          release. Bare, it took the theme's text colour: dark on the dark
+          mushroom photo in light mode, so it vanished (Darius, 20 Oct: it
+          must be visible at all times). Its own dark chip and white X read on
+          any picture, in either theme. */}
+      <DialogContent
+        className="max-w-xl gap-0 overflow-hidden p-0 sm:rounded-2xl [&>button:last-child]:z-10 [&>button:last-child]:rounded-full [&>button:last-child]:bg-black/55! [&>button:last-child]:p-1.5 [&>button:last-child]:text-white! [&>button:last-child]:opacity-100 [&>button:last-child]:shadow-md [&>button:last-child]:backdrop-blur-sm [&>button:last-child]:hover:bg-black/75!"
+        onInteractOutside={(e) => e.preventDefault()}
+      >
         <ReleasePicture name={RELEASE.hero} src={RELEASE.picture} />
 
         <div className="px-6 pb-6 pt-5">

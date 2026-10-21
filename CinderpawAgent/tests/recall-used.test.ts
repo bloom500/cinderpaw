@@ -11,7 +11,7 @@ import { AuditLog } from "../src/egress/audit-log.ts";
 import { EpisodicMemory } from "../src/memory/episodic.ts";
 import { SemanticMemory } from "../src/memory/semantic.ts";
 import { MemoryGraph } from "../src/memory/graph.ts";
-import { RecallEngine } from "../src/memory/recall.ts";
+import { RecallEngine, isToolRow } from "../src/memory/recall.ts";
 
 describe("RecallEngine.used", () => {
   test("a fact carries its mirrored edge, and only what the block shows is listed", () => {
@@ -32,6 +32,22 @@ describe("RecallEngine.used", () => {
     expect(fact).toEqual({ kind: "fact", text: "city: Cluj", forget: { from: "k-city", to: "v-cluj", relation: "has" } });
     // The graph block leaves out the edge the facts block already said, so it is listed once.
     expect(r.used?.filter((m) => m.text.includes("Cluj"))).toHaveLength(1);
+    db.close();
+  });
+
+  test("a past tool result reaches the model but is not listed as a memory", () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const episodic = new EpisodicMemory(db.raw, audit.logger);
+    episodic.record("old", "user", "make me a week plan for the garden");
+    episodic.record("old", "tool", 'artifact_create: Created markdown "Week plan" — id 72fff044 (v1, 114 bytes)');
+    const engine = new RecallEngine(episodic, new SemanticMemory(db.raw, audit.logger));
+
+    const r = engine.recall("week plan", "now");
+    expect(r.context).toContain("artifact_create");
+    expect(r.used?.map((m) => m.text)).toEqual(["make me a week plan for the garden"]);
+    expect(isToolRow("", "web_search: 3 results")).toBe(true);
+    expect(isToolRow("assistant", "Note: web_search: is a tool")).toBe(false);
     db.close();
   });
 

@@ -64,6 +64,7 @@ import { setTaskFeedback } from "./telemetry/task-metrics.ts";
 import { rollup } from "./telemetry/usage-rollup.ts";
 import { appVersion, buildPayload, osLabel, readSentLog, sharingSetting } from "./telemetry/usage-sender.ts";
 import type { Database } from "bun:sqlite";
+import { headsUpLedger } from "./tools/builtin/heads-up.ts";
 
 /**
  * Diagnostics go to stderr; stdout is reserved for the transport protocol.
@@ -287,7 +288,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         transport.send({ type: "meta_result", id: msg.id ?? "", op: "status", ...metaEvolution.status() });
         break;
       case "meta_evolve":
-        transport.send({ type: "meta_result", id: msg.id ?? "", op: "evolve", ...metaEvolution.evolve() });
+        transport.send({ type: "meta_result", id: msg.id ?? "", op: "evolve", ...metaEvolution.evolve({ approvedBy: "operator" }) });
         break;
       case "meta_rollback":
         transport.send({ type: "meta_result", id: msg.id ?? "", op: "rollback", ...metaEvolution.rollback() });
@@ -295,6 +296,22 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       case "meta_history":
         transport.send({ type: "meta_result", id: msg.id ?? "", op: "history", ok: true, history: metaEvolution.history() });
         break;
+      // The L6 chat card. Approving applies exactly the proposal the person
+      // saw (MetaEvolution.approve refuses one that went out of date); either
+      // answer re-sends the card state so every open chat drops it.
+      case "meta_proposal":
+        transport.send({ type: "meta_proposal", proposal: metaEvolution.pendingProposal() });
+        break;
+      case "meta_approve":
+      case "meta_deny": {
+        const op = msg.type === "meta_approve" ? "approve" : "deny";
+        const result = op === "approve"
+          ? metaEvolution.approve(msg.id ?? "", "you, in chat")
+          : metaEvolution.deny(msg.id ?? "", "you, in chat");
+        transport.send({ type: "meta_result", id: msg.id ?? "", op, ...result });
+        transport.send({ type: "meta_proposal", proposal: metaEvolution.pendingProposal() });
+        break;
+      }
 
       // Slice A5 (L5 Governance) — host drives the `GovernanceLifecycle`
       // FSM through one inbound message per op, paired by `id` with the
@@ -745,8 +762,10 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
               id: replyId,
               ok: true,
               // `content: "archived"` asks for the archive instead of the list.
+              // The store's own ceiling, not its default of 50: the Artifacts page
+              // shows every card, and a 51st artifact must not quietly vanish.
               items: artifacts
-                .list({ workspaceId: activeWorkspaceId(db.raw), archived: msg.content === "archived" })
+                .list({ workspaceId: activeWorkspaceId(db.raw), archived: msg.content === "archived", limit: 500 })
                 .map(toPanelRow),
             });
             break;
@@ -1621,6 +1640,15 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         break;
       }
 
+      case "heads_up_answer": {
+        // The card does not block the agent; the answer only tunes what it
+        // flags next in this chat ("I already knew this").
+        const choice = msg.headsUpChoice;
+        if (msg.headsUpId && (choice === "more" || choice === "knew" || choice === "dismiss")) {
+          headsUpLedger.answer(msg.sessionId ?? "", msg.headsUpId, choice);
+        }
+        break;
+      }
       case "ask_user_response": {
         // Forward the user's selection back to the matching pending request.
         // Both `requestId` and `answers` are required — the transport's
@@ -2070,10 +2098,11 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         const goal = msg.rsiGoal ?? "rsiautomation";
         const maxIterations = msg.rsiMaxIterations ?? 50;
         const maxTotalTokens = msg.rsiMaxTotalTokens ?? 5_000_000;
+        const maxTotalCostUsd = msg.rsiMaxTotalCostUsd;
         const concurrency = msg.rsiConcurrency ?? 1;
-        log(`rsi_start goal="${goal}" maxIter=${maxIterations} maxTokens=${maxTotalTokens} conc=${concurrency}`);
+        log(`rsi_start goal="${goal}" maxIter=${maxIterations} maxTokens=${maxTotalTokens} maxCostUsd=${maxTotalCostUsd ?? "unset"} conc=${concurrency}`);
         await rsiSidecar.start(
-          { goal, maxIterations, maxTotalTokens, concurrency },
+          { goal, maxIterations, maxTotalTokens, maxTotalCostUsd, concurrency },
           msg.id,
         );
         break;

@@ -5,6 +5,7 @@ import { tauri } from '@/lib/tauri';
 import type { MemoryGraphNodeView, DreamEpisode, MemoryNotesLine } from '@/lib/tauri';
 import { stopReasonWords, triggerWords } from '@/lib/rsiWords';
 import { cn } from '@/lib/utils';
+import { useSettings } from '@/stores/settings';
 import { rsiState, type RsiSnapshot, type RsiPhase } from './rsiState';
 
 /**
@@ -152,7 +153,9 @@ function NotesPanel({
             {observer && observer.failures > 0 ? (
               <p className="text-error-text">Could not write notes: {observer.lastError}</p>
             ) : observer?.lastOkAt ? (
-              <p className="text-text-muted">Last note: {formatTimeAgo(now, observer.lastOkAt)}</p>
+              // The time of the last successful look, which can find nothing:
+              // "Last note: 8m ago" sat beside "No notes yet" (UX lab, item 28).
+              <p className="text-text-muted">Checked for new notes {formatTimeAgo(now, observer.lastOkAt)}</p>
             ) : null}
             {reflector && reflector.failures > 0 && (
               <p className="text-error-text">Could not update the summary: {reflector.lastError}</p>
@@ -298,6 +301,7 @@ export default function MemoryLayersPage() {
   const [notesReply, setNotesReply] = useState<MemoryNotesLine | null>(null);
   const [dreamLast, setDreamLast] = useState<DreamEpisode[]>([]);
   const [bestScore, setBestScore] = useState<number | null>(null);
+  const dreamsOn = useSettings((s) => s.settings?.dreams_enabled === true);
   // True from the first paint. Starting false made the hero announce
   // "Cinderpaw hasn't remembered anything yet" to someone with hundreds of
   // memories, every single time the tab was opened, for as long as the read
@@ -513,8 +517,11 @@ export default function MemoryLayersPage() {
           </header>
           {dreamLast.length === 0 ? (
             <p className="text-xs text-text-muted">
-              No dreams yet. Leave Cinderpaw alone for about 5 minutes and it starts
-              practicing on its own. Each practice shows up here.
+              {/* It promised a dream in 5 minutes while Dreaming was off, the
+                  default (UX lab, item 26). */}
+              {dreamsOn
+                ? 'No dreams yet. Leave Cinderpaw alone for about 5 minutes and it starts practicing on its own. Each practice shows up here.'
+                : 'No dreams yet. Dreaming is off, so Cinderpaw does not practice in the background. Turn it on in Settings, under Learning.'}
             </p>
           ) : (
             <ul className="space-y-2">

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { useChat } from '@/stores/chat';
+import { memoryUsedFrom, turnEndFrom, useChat } from '@/stores/chat';
 
 // The approval verdict must reach the sidecar; in tests there is no Tauri
 // runtime, so stub the one call this suite exercises and let everything
@@ -247,5 +247,15 @@ describe('a turn that ends with a tool call still open', () => {
     startCall();
     useChat.getState().setStreamStatus('streaming');
     expect(useChat.getState().toolCallStream[0]).toMatchObject({ status: 'running' });
+  });
+});
+
+describe('what a saved reply carries back', () => {
+  it('reads a saved end and saved memories, and nothing that is not one', () => {
+    expect(turnEndFrom({ kind: 'stopped' })).toEqual({ kind: 'stopped' });
+    expect(turnEndFrom({ kind: 'error', raw: 'HTTP 503' })).toEqual({ kind: 'error', raw: 'HTTP 503' });
+    expect(turnEndFrom({ kind: 'error' })).toBeUndefined();
+    expect(memoryUsedFrom([{ kind: 'fact', text: 'pet: Miso' }, { kind: 'x', text: 'no' }, 3])).toEqual([{ kind: 'fact', text: 'pet: Miso' }]);
+    expect(memoryUsedFrom(null)).toBeUndefined();
   });
 });

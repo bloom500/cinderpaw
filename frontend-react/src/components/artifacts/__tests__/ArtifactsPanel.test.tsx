@@ -231,6 +231,29 @@ describe('resizing and the live frame', () => {
     for (let i = 0; i < 100; i++) fireEvent.keyDown(edge, { key: 'ArrowRight' });
     expect(Number(edge.getAttribute('aria-valuenow'))).toBe(320);
   });
+
+  it('a drag ends at the last place the pointer was, even between frames', () => {
+    const { container } = render(<div><ArtifactsPanel onClose={() => {}} /></div>);
+    Object.defineProperty(container.firstElementChild!, 'clientWidth', { value: 1200, configurable: true });
+    const edge = screen.getByRole('separator', { name: 'Resize artifacts panel' });
+    edge.setPointerCapture = () => {};
+    const start = Number(edge.getAttribute('aria-valuenow'));
+    fireEvent.pointerDown(edge, { clientX: 500, pointerId: 1 });
+    for (const x of [490, 480, 470, 460]) fireEvent.pointerMove(edge, { clientX: x, pointerId: 1 });
+    fireEvent.pointerUp(edge, { pointerId: 1 });
+    expect(Number(edge.getAttribute('aria-valuenow'))).toBe(start + 40);
+    expect(localStorage.getItem('cinderpaw.artifactsPanelWidth')).toBe(String(start + 40));
+  });
+
+  it('a narrow row: the panel takes all of it, with no edge and no fixed width', () => {
+    // 900 px window, sidebar open: ~604 px left, chat 448 + panel 320 cannot sit side by side.
+    const { container } = render(<ArtifactsPanel compact onClose={() => {}} />);
+    expect(screen.queryByRole('separator', { name: 'Resize artifacts panel' })).toBeNull();
+    const aside = container.querySelector('aside')!;
+    expect(aside.style.width).toBe('');
+    expect(aside.className).toContain('flex-1');
+    expect(aside.className).not.toContain('min-w-[320px]');
+  });
 });
 
 describe('live edits', () => {
@@ -548,16 +571,29 @@ describe('rename, archive and delete in the list', () => {
     await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'archive')).toBe(true));
   });
 
-  it('delete asks first, and only a yes sends it', async () => {
+  it('delete is at once with Undo, like a chat, and Undo keeps it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     render(<ArtifactsPanel onClose={() => {}} />);
     op.mockClear();
     fireEvent.click(await screen.findByLabelText('Delete'));
-    expect(screen.getByText(/for good\?/)).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Cancel'));
+    expect(screen.queryByText('Q3 report')).toBeNull();
+    const toast = useNotifications.getState().toasts.at(-1)!;
+    expect(toast.title).toBe('Artifact deleted');
+    toast.action!.run();
+    vi.advanceTimersByTime(6000);
     expect(op.mock.calls.some((c) => c[1] === 'delete')).toBe(false);
-    fireEvent.click(screen.getByLabelText('Delete'));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    vi.useRealTimers();
+  });
+
+  it('a delete nobody undoes is sent when the toast ends', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    op.mockClear();
+    fireEvent.click(await screen.findByLabelText('Delete'));
+    expect(op.mock.calls.some((c) => c[1] === 'delete')).toBe(false);
+    vi.advanceTimersByTime(6000);
     await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'delete')).toBe(true));
+    vi.useRealTimers();
   });
 
   it('the archive is its own list, asked for by name', async () => {
@@ -890,5 +926,55 @@ describe('the artifact overview', () => {
   it('summaryOf reads the words of a page, not its tags or its title', () => {
     expect(summaryOf('document', '<h1>Q3</h1><p>Up <b>12%</b>.</p>')).toBe('Up 12% .');
     expect(summaryOf('markdown', '# T\n\ntext')).toBe('');
+  });
+});
+
+describe('live writing', () => {
+  const draft = (append: string, title = 'Launch plan') =>
+    act(() => useArtifacts.getState().onDraft({ id: 'turn-1', sessionId: 's1', draft: '0:0', title, append, onScreen: true }));
+
+  it('shows the document as it is written, with its title, and nothing to edit yet', () => {
+    useArtifacts.setState({ loaded: true });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    draft('# Launch plan\n\nSeven days.');
+    expect(screen.getByText(/Cinderpaw is writing “Launch plan”/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Launch plan' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Overview/ })).toBeNull();
+  });
+
+  it('becomes the saved version in place: same document on screen, now with its Overview', async () => {
+    useArtifacts.setState({ loaded: true });
+    const { container } = render(<ArtifactsPanel onClose={() => {}} />);
+    draft('# Launch plan\n\nSeven days.');
+    const doc = container.querySelector('.prose');
+    expect(doc).not.toBeNull();
+    act(() => useArtifacts.getState().endDraft('turn-1', { artifactId: 'a1' }));
+    await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'get')).toBe(true));
+    act(() => {
+      useArtifacts.getState().onResult({ id: idOfAction('get'), ok: true, items: [row({ id: 'a1', version: 1, title: 'Launch plan' })], content: '# Launch plan\n\nSeven days.' });
+    });
+    expect(screen.getByRole('button', { name: /Overview/ })).toBeInTheDocument();
+    // Not swapped for a new one: React kept the same document element.
+    expect(container.querySelector('.prose')).toBe(doc);
+    expect(screen.queryByText(/Cinderpaw is writing/)).toBeNull();
+  });
+
+  it('says why when the document was never saved, and keeps what was written', () => {
+    useArtifacts.setState({ loaded: true });
+    const { container } = render(<ArtifactsPanel onClose={() => {}} />);
+    draft('Seven days.');
+    act(() => useArtifacts.getState().endDraft('turn-1', { reason: 'Cinderpaw stopped before saving this.' }));
+    expect(screen.getByText('Cinderpaw stopped before saving this.')).toBeInTheDocument();
+    expect(container.querySelector('.prose')?.textContent).toBe('Seven days.');
+  });
+
+  it('shows an app as its source while it is written', () => {
+    useArtifacts.setState({ loaded: true });
+    const { container } = render(<ArtifactsPanel onClose={() => {}} />);
+    act(() => useArtifacts.getState().onDraft({ id: 'turn-1', sessionId: 's1', draft: '0:0', kind: 'app', title: 'Timer', append: '<div>Hi</div>', onScreen: true }));
+    expect(container.querySelector('iframe')).toBeNull();
+    expect(container.querySelector('pre')?.textContent).toBe('<div>Hi</div>');
   });
 });

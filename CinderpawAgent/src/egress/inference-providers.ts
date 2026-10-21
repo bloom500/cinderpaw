@@ -330,6 +330,9 @@ export class OllamaProvider implements InferenceProvider {
                 };
               }
             }
+            if (acc.name) {
+              req.onToolArgs?.(idx, acc.name, acc.argumentsObject ? JSON.stringify(acc.argumentsObject) : acc.argumentsString);
+            }
           }
         }
 
@@ -438,12 +441,6 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       messages,
       temperature: cloudTemperature(target, req),
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
-      // See `InferenceRequest.reasoningMaxTokens`: on a reasoning model the
-      // thinking is spent out of `max_tokens` BEFORE the answer, so bounding
-      // the reply alone yields a long monologue and an empty `content`.
-      // `effort` wins when both are given: it survives OpenRouter's per-request
-      // routing, where a token cap is honoured by some upstreams and ignored by
-      // others.
       // Pin the upstream where the gateway routes per request — see
       // `InferenceRequest.providerOnly` for the measurements that make this
       // mandatory rather than tidy. `allow_fallbacks: false` is the point: a
@@ -451,11 +448,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       ...(req.providerOnly && req.providerOnly.length > 0
         ? { provider: { only: req.providerOnly, allow_fallbacks: false } }
         : {}),
-      ...(req.reasoningEffort
-        ? { reasoning: { effort: req.reasoningEffort } }
-        : req.reasoningMaxTokens
-          ? { reasoning: { max_tokens: req.reasoningMaxTokens } }
-          : {}),
+      ...openAIReasoning(target, req),
       ...cinderpawExtensionBody(target, req),
       ...openRouterUsageAccounting(target),
       stream: false,
@@ -587,6 +580,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       messages,
       temperature: cloudTemperature(target, req),
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
+      ...openAIReasoning(target, req),
       ...cinderpawExtensionBody(target, req),
       stream: true,
       // Without this, an OpenAI-compatible server sends NO usage block in a
@@ -802,6 +796,8 @@ export class OpenAICompatibleProvider implements InferenceProvider {
             if (tc.function?.arguments) {
               toolCallsAccumulator[idx].arguments += tc.function.arguments;
             }
+            const acc = toolCallsAccumulator[idx];
+            if (acc.name) req.onToolArgs?.(idx, acc.name, acc.arguments);
           }
         }
 
@@ -947,6 +943,7 @@ export class AnthropicProvider implements InferenceProvider {
       max_tokens: req.maxTokens ?? 128_000,
       messages: userMessages,
       ...anthropicSampling(target, req),
+      ...anthropicEffort(target, req),
     };
     if (systemText) body.system = systemText;
     // A3: use native function calling when tool definitions are provided.
@@ -1024,6 +1021,7 @@ export class AnthropicProvider implements InferenceProvider {
       max_tokens: req.maxTokens ?? 128_000,
       messages: userMessages,
       ...anthropicSampling(target, req),
+      ...anthropicEffort(target, req),
       stream: true,
     };
     if (systemText) body.system = systemText;
@@ -1088,6 +1086,7 @@ export class AnthropicProvider implements InferenceProvider {
           activeBlockType = cb?.type ?? "";
           if (cb?.type === "tool_use" && cb.name) {
             toolBlocks.set(idx, { name: cb.name, json: "" });
+            req.onToolArgs?.(idx, cb.name, "");
           }
         } else if (type === "content_block_delta") {
           const delta = (chunk as { delta?: { type?: string; text?: string; partial_json?: string } }).delta;
@@ -1098,7 +1097,10 @@ export class AnthropicProvider implements InferenceProvider {
           } else if (delta.type === "input_json_delta") {
             // Accumulate partial JSON for the current tool_use block.
             const block = toolBlocks.get(activeBlockIndex);
-            if (block) block.json += delta.partial_json ?? "";
+            if (block) {
+              block.json += delta.partial_json ?? "";
+              req.onToolArgs?.(activeBlockIndex, block.name, block.json);
+            }
           }
         } else if (type === "content_block_stop") {
           if (activeBlockType === "tool_use") {
@@ -1722,6 +1724,36 @@ const ANTHROPIC_TAKES_TEMPERATURE = /^claude-(?:2|3|instant)(?:[-.]|$)|^claude-(
 
 export function anthropicSampling(target: ModelTarget, req: InferenceRequest): { temperature?: number } {
   return ANTHROPIC_TAKES_TEMPERATURE.test(target.model) ? { temperature: cloudTemperature(target, req) } : {};
+}
+
+// Effort (output_config.effort) exists from Opus 4.5 and Sonnet 4.6 on; Haiku
+// 4.5, Sonnet 4.5 and older answer it with a 400, and so might a model we have
+// never seen, so an unknown name gets none.
+const ANTHROPIC_TAKES_EFFORT =
+  /^claude-(?:opus-4-[5-9]|sonnet-4-[6-9]|(?:opus|sonnet|haiku|fable|mythos)-[5-9](?:-\d+)?)(?:-\d{8})?$/;
+
+export function anthropicEffort(target: ModelTarget, req: InferenceRequest): { output_config?: { effort: string } } {
+  return req.reasoningEffort && ANTHROPIC_TAKES_EFFORT.test(target.model)
+    ? { output_config: { effort: req.reasoningEffort } }
+    : {};
+}
+
+/**
+ * OpenRouter's `reasoning` field, sent only where it is understood: OpenRouter
+ * itself and a local server (which ignores what it does not know). OpenAI's own
+ * API refuses an unknown argument with a 400, so sending it everywhere would
+ * break every chat the moment an evolved champion carried an effort.
+ */
+export function openAIReasoning(target: ModelTarget, req: InferenceRequest): { reasoning?: Record<string, unknown> } {
+  if (!/openrouter\.ai/i.test(target.baseUrl ?? "") && !isLoopbackTarget(target)) return {};
+  // See `InferenceRequest.reasoningMaxTokens`: on a reasoning model the
+  // thinking is spent out of `max_tokens` BEFORE the answer, so bounding the
+  // reply alone yields a long monologue and an empty `content`. `effort` wins
+  // when both are given: it survives OpenRouter's per-request routing, where a
+  // token cap is honoured by some upstreams and ignored by others.
+  if (req.reasoningEffort) return { reasoning: { effort: req.reasoningEffort } };
+  if (req.reasoningMaxTokens) return { reasoning: { max_tokens: req.reasoningMaxTokens } };
+  return {};
 }
 
 /** API key -> the workspace its requests run in, for keys that must name one. */

@@ -406,6 +406,18 @@ export const MessageItem = memo(function MessageItem({
           }}
         />
       )}
+      {!streaming && message.ended?.kind === 'stopped' && (
+        // Report item 10: a stopped reply used to end on a green check, as if done.
+        <div className="flex items-center gap-2 text-sm text-text-muted" role="status">
+          <span>You stopped this reply.</span>
+          {onRetry && (
+            <button type="button" onClick={onRetry}
+              className="rounded-lg border border-border-default px-2.5 py-1 text-xs text-text-primary hover:bg-text-primary/5">
+              Try again
+            </button>
+          )}
+        </div>
+      )}
       {isTruncated && (
         <div
           className="flex items-start gap-2 mt-1 px-3 py-2 rounded-md bg-warning/10 border border-warning/30 text-warning"

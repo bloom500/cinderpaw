@@ -86,9 +86,11 @@ export function AgentSettingsTab() {
       {list.length === 0 && !loading ? (
         <div className="rounded-md border border-border-subtle bg-bg-surface p-8 text-center">
           <Bot size={28} className="text-text-muted mx-auto mb-3" />
-          <h3 className="text-sm font-medium text-text-primary mb-1">No agent yet</h3>
+          {/* "No agent yet" read wrong after weeks of chatting with Cinderpaw,
+              which is an agent (UX lab, item 27). These are the extra ones. */}
+          <h3 className="text-sm font-medium text-text-primary mb-1">No extra agents yet</h3>
           <p className="text-xs text-text-muted mb-4">
-            Create one to give your chat a personality, tools, and a goal.
+            Your chats are with Cinderpaw. Make another agent with its own personality, tools, and goal.
           </p>
           <button
             type="button"

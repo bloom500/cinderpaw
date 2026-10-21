@@ -27,12 +27,14 @@ describe("costOfRun", () => {
   test("one unpriced completion makes the whole sum an estimate; loopback prices at $0", () => {
     const db = dbWith([
       { model: "z-ai/glm-5.3-flash", baseUrl: "https://openrouter.ai/api", tokens: 1000, usd: 0.001 },
-      { model: "glm-4.5-air", baseUrl: "https://api.z.ai/v1", tokens: 1000, usd: null }, // blended glm = 0.0015/1k
+      // No per-family price table since the spend authority: an unpriced cloud
+      // completion is estimated at the conservative $0.01 per 1k (rsi-cost.ts).
+      { model: "glm-4.5-air", baseUrl: "https://api.z.ai/v1", tokens: 1000, usd: null },
       { model: "qwen3", baseUrl: "http://127.0.0.1:11435/v1", tokens: 5000, usd: null },
     ]);
     const out = costOfRun(db, "s", 0);
     expect(out.estimated).toBe(true);
-    expect(out.usd).toBeCloseTo(0.0025, 6);
+    expect(out.usd).toBeCloseTo(0.011, 6);
   });
 
   test("another session and an earlier time window are not counted", () => {

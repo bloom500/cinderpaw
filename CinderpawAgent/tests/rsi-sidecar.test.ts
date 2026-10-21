@@ -13,6 +13,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { dispatchMessage } from "../src/dispatch.ts";
+import type { BootContext } from "../src/boot.ts";
 import { RsiBridge, type RsiResponse } from "../src/rsi/infra/bridge.ts";
 import {
   RsiSidecar,
@@ -23,6 +25,7 @@ import { openDatabase } from "../src/db.ts";
 import { EventBus } from "../src/rsi/infra/event-bus.ts";
 import type { EvalSpec } from "../src/rsi/infra/eval-spec.ts";
 import type { EvalOutcome } from "../src/rsi/infra/eval-worker.ts";
+import type { InferenceRequest } from "../src/types.ts";
 import { join, resolve } from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -39,6 +42,17 @@ class FakeRouter implements InvokeRouter {
       model: "fake",
       usedFallback: false,
     });
+  }
+}
+
+class RecordingRouter extends FakeRouter {
+  readonly calls: InferenceRequest[] = [];
+  readonly firstCall = Promise.withResolvers<InferenceRequest>();
+
+  override complete(req: InferenceRequest): ReturnType<FakeRouter["complete"]> {
+    this.calls.push(req);
+    this.firstCall.resolve(req);
+    return super.complete();
   }
 }
 
@@ -176,6 +190,72 @@ function ratchetAdv(hash: string): RsiResponse {
 }
 
 describe("RsiSidecar — lifecycle", () => {
+  test("dispatch preserves the explicit USD cap independently of the token cap", async () => {
+    let received: unknown;
+    const ctx = {
+      rsiSidecar: {
+        start: async (options: unknown) => { received = options; },
+      },
+    } as unknown as BootContext;
+
+    await dispatchMessage(ctx, {
+      type: "rsi_start",
+      rsiGoal: "bounded cloud run",
+      rsiMaxIterations: 2,
+      rsiMaxTotalTokens: 700_000,
+      rsiMaxTotalCostUsd: 0.75,
+      rsiConcurrency: 1,
+    });
+
+    expect(received).toEqual({
+      goal: "bounded cloud run",
+      maxIterations: 2,
+      maxTotalTokens: 700_000,
+      maxTotalCostUsd: 0.75,
+      concurrency: 1,
+    });
+  });
+
+  test("threads one USD authority through eval requests and Stop aborts its shared signal", async () => {
+    const bridge = new FakeBridge();
+    const router = new RecordingRouter();
+    const { sidecar } = buildSidecar({ bridge, router });
+
+    await sidecar.start({
+      goal: "bounded cloud run",
+      maxIterations: 1,
+      maxTotalTokens: 1_000,
+      maxTotalCostUsd: 1,
+      concurrency: 1,
+    }, "ack-budget");
+    const request = await router.firstCall.promise;
+
+    expect(request.spendAuthority).toBeDefined();
+    expect(request.spendAuthority!.signal.aborted).toBe(false);
+
+    sidecar.stop();
+    expect(request.spendAuthority!.signal.aborted).toBe(true);
+  });
+
+  test("Stop aborts a manual run even when it has no USD authority", async () => {
+    const bridge = new FakeBridge();
+    const router = new RecordingRouter();
+    const { sidecar } = buildSidecar({ bridge, router });
+
+    await sidecar.start({
+      goal: "local manual run",
+      maxIterations: 1,
+      maxTotalTokens: 1_000,
+      concurrency: 1,
+    }, "ack-manual");
+    const request = await router.firstCall.promise;
+
+    expect(request.spendAuthority).toBeUndefined();
+    expect(request.signal?.aborted).toBe(false);
+    sidecar.stop();
+    expect(request.signal?.aborted).toBe(true);
+  });
+
   test("start emits a 'started' ack event", async () => {
     const bridge = new FakeBridge();
     bridge.enqueue(TIER0_RESPONSE); // fetchTier0
@@ -253,6 +333,7 @@ describe("RsiSidecar — lifecycle", () => {
   test("onIdle fires after a run ends (passive-supervisor restart hook)", async () => {
     const bridge = new FakeBridge();
     let idleCount = 0;
+    let idleAuthority: unknown;
     const sidecar = new RsiSidecar({
       bridge,
       db: makeDb(),
@@ -260,16 +341,18 @@ describe("RsiSidecar — lifecycle", () => {
       send: () => {},
       championPath: resolve(import.meta.dir, `../.tmp-nochampion-idle-${Math.random()}.json`),
       championTreePath: resolve(import.meta.dir, `../.tmp-tree-idle-${Math.random()}.json`),
-      onIdle: () => {
+      onIdle: (_stats, authority) => {
         idleCount += 1;
+        idleAuthority = authority;
       },
     });
 
-    await sidecar.start({ goal: "t", maxIterations: 1, maxTotalTokens: 1_000, concurrency: 1 }, "ack");
+    await sidecar.start({ goal: "t", maxIterations: 1, maxTotalTokens: 1_000, maxTotalCostUsd: 0, concurrency: 1 }, "ack");
     for (let i = 0; i < 50 && idleCount === 0; i++) {
       await new Promise((r) => setTimeout(r, 10));
     }
     expect(idleCount).toBe(1);
+    expect(idleAuthority).toBeDefined();
     expect(sidecar.isRunning()).toBe(false);
   });
 

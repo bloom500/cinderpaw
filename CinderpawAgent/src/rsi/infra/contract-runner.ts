@@ -8,10 +8,8 @@
  * frozen contract below).
  *
  * ── What the runner guarantees ──────────────────────────────────────────────
- *   I5  Budget precheck BEFORE each stage. `assertBudget(phase, estimate)` runs
- *       first; an explicit-estimate breach → HALT. (Estimate is `null` today —
- *       fail-open — until an estimator is wired; the breach branch is still live
- *       whenever `assertBudget` denies, which is what the test exercises.)
+ *   I5  Budget precheck BEFORE each stage. Missing estimates fail closed;
+ *       explicit estimates are checked against accumulated measured spend.
  *   I6  Confidence gate AFTER regression, BEFORE deploy. If the gate rejects,
  *       the pipeline stops before deploy and the decision is `reject` (the
  *       candidate WAS evaluated, just not promoted).
@@ -43,7 +41,7 @@ import {
   type StageFn,
   type StageResult,
 } from "./contract.ts";
-import { remaining, DEFAULT_BUDGET_CAPS, type BudgetSpend, type CyclePhase } from "./budget.ts";
+import { CycleBudgetLedger, remaining, type BudgetSpend, type CyclePhase } from "./budget.ts";
 import type { PairedSample } from "./confidence.ts";
 import type {
   BudgetRemaining,
@@ -58,9 +56,7 @@ import type {
 type RunStage = Exclude<ContractStage, "candidate_proposed">;
 
 /** Which dream-cycle phase a contract stage bills its budget against. The
- *  candidate pipeline lives inside the Dream Cycle's Evaluate/Remember phases;
- *  the map only affects the budget-breach `reason` string today (estimate is
- *  null → fail-open), so a coarse-but-honest attribution is enough. */
+ *  candidate pipeline lives inside the Dream Cycle's Evaluate/Remember phases. */
 const STAGE_TO_PHASE: Record<ContractStage, CyclePhase> = {
   candidate_proposed: "dream",
   static_analysis: "evaluate",
@@ -96,20 +92,37 @@ function handlerFor(deps: ContractDeps, stage: RunStage): StageFn {
  * fail a candidate).
  */
 export const runContract: RunContract = async (initial, deps) => {
-  let state = initial;
+  const ledger = deps.budgetLedger ?? new CycleBudgetLedger(initial.budgetCaps, initial.budgetSpent);
+  let state = { ...initial, budgetCaps: ledger.caps, budgetSpent: ledger.spent };
 
   for (const stage of STAGE_ORDER) {
     if (stage === "candidate_proposed") continue; // entry state, no handler
     const phase = STAGE_TO_PHASE[stage];
 
-    // I5 — budget precheck BEFORE the stage runs.
-    // ponytail: estimate is null (fail-open) until a per-stage estimator exists;
-    // wire one through a future ADR-gated ContractDeps field when it does.
-    const budget = deps.assertBudget(phase, null);
+    // I5 — a stage without an explicit estimate is not authorized to start.
+    const estimate = deps.estimateBudget(stage, state);
+    if (estimate === null) {
+      return terminal(state, deps, stage, {
+        action: "halt",
+        reason: `stage ${stage}: missing budget estimate (fail-closed)`,
+        stage: phase,
+      });
+    }
+    const budget = deps.assertBudget(phase, ledger.projectedSpend(), estimate);
     if (!budget.allow) {
+      state = { ...state, budgetSpent: ledger.spent };
       return terminal(state, deps, stage, {
         action: "halt",
         reason: budget.reason,
+        stage: phase,
+      });
+    }
+    const held = ledger.reserve(phase, estimate);
+    if (!held.decision.allow || !held.reservation) {
+      state = { ...state, budgetSpent: ledger.spent };
+      return terminal(state, deps, stage, {
+        action: "halt",
+        reason: held.decision.reason,
         stage: phase,
       });
     }
@@ -120,6 +133,7 @@ export const runContract: RunContract = async (initial, deps) => {
       const gate = deps.evaluateConfidence(benchmarkSamples(state));
       state = { ...state, confidence: gate, bootstrap: gate.bootstrap };
       if (!gate.accept) {
+        held.reservation.release();
         return terminal(state, deps, stage, {
           action: "reject",
           reason: gate.reason,
@@ -136,18 +150,23 @@ export const runContract: RunContract = async (initial, deps) => {
     //
     // The bug is still reported — as a halt naming the stage and the error —
     // rather than being turned into a quiet rejection.
+    const stageStartedAt = Date.now();
     let result: StageResult;
     try {
       result = await handlerFor(deps, stage)(state);
     } catch (err) {
+      held.reservation.release();
       const message = err instanceof Error ? err.message : String(err);
-      return terminal(state, deps, stage, {
+      return terminal({ ...state, budgetSpent: ledger.spent }, deps, stage, {
         action: "halt",
         reason: `leaf error in ${stage}: ${message}`,
         stage: phase,
       });
     }
+    const measured = deps.measureSpend(stage, state, result, Date.now() - stageStartedAt);
+    held.reservation.settle(measured);
     state = withHistory(state, stage, result);
+    state = { ...state, budgetSpent: ledger.spent };
 
     if (!result.ok) {
       return terminal(state, deps, stage, verdictFor(result, phase));
@@ -276,7 +295,7 @@ function toJournalEntry(state: ContractState): JournalEntry {
         }
       : null,
     decided: state.decided ?? { action: "halt", reason: "no decision recorded", stage: "evaluate" },
-    budgetRemaining: budgetRemaining(state.budgetSpent, state.startedAt),
+    budgetRemaining: budgetRemaining(state.budgetCaps, state.budgetSpent),
   };
 }
 
@@ -287,29 +306,23 @@ function toExperimentLayer(layer: ContractState["layer"]): ExperimentLayer {
 }
 
 /**
- * Remaining budget for the Journal row (drops energyKwh — never a hard cap).
+ * Remaining budget for the Journal row (drops energyKwh — never a hard cap),
+ * read from the cycle ledger against the caps this candidate was given.
  *
- * Wall clock is REAL: the contract knows when it started, so the elapsed
- * minutes are an observation and are deducted here. The other four are not
- * tracked at all — `assertBudget` is called with a null estimate and a zero
- * spend, so nothing accumulates — and they are reported as caps, flagged
- * `unmeasured`, rather than dressed up as remaining budget.
- *
- * ponytail: uses DEFAULT_BUDGET_CAPS; thread the live SandboxBounds caps
- * through when `makeInitialState` starts storing them on the state.
+ * Wall clock and tokens are measured (each stage's elapsed time, the eval's
+ * tokens charged by the caller). CPU, RAM and disk have no meter yet, so they
+ * are reported as caps flagged `unmeasured` rather than dressed up as
+ * remaining budget.
  */
-function budgetRemaining(spent: BudgetSpend, startedAt: number): BudgetRemaining {
-  const elapsedMin = Math.max(0, (Date.now() - startedAt) / 60_000);
-  const r = remaining(DEFAULT_BUDGET_CAPS, spent);
+function budgetRemaining(caps: ContractState["budgetCaps"], spent: BudgetSpend): BudgetRemaining {
+  const r = remaining(caps, spent);
   return {
-    wallClockMin: Math.max(0, DEFAULT_BUDGET_CAPS.wallClockMin - elapsedMin),
+    wallClockMin: Math.max(0, r.wallClockMin),
     tokens: r.tokens,
     cpuPct: r.cpuPct,
     ramMb: r.ramMb,
     diskMb: r.diskMb,
-    // Everything the contract does not track. Wall clock is absent from the
-    // list on purpose: it is the one field above that was actually measured.
-    unmeasured: ["tokens", "cpuPct", "ramMb", "diskMb"],
+    unmeasured: ["cpuPct", "ramMb", "diskMb"],
   };
 }
 

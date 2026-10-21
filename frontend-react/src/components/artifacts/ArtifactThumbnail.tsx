@@ -63,7 +63,9 @@ export function ArtifactThumbnail({ row, version = row.version, content, size = 
   version?: number;
   /** The overview already has the selected version: do not read it again. */
   content?: string;
-  size?: 'sm' | 'lg';
+  /** `page`: the Artifacts gallery's card, where a document's first page fills
+   *  the width from the top and runs off the bottom, as a page seen from above. */
+  size?: 'sm' | 'lg' | 'page';
   className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -107,7 +109,7 @@ export function ArtifactThumbnail({ row, version = row.version, content, size = 
     <div ref={ref} aria-hidden="true" data-artifact-thumbnail={row.id}
       className={cn('pointer-events-none relative flex items-center justify-center overflow-hidden bg-bg-active/60', className)}>
       {!preview ? (
-        <ArtifactCover title={row.title} kind={row.kind} size={size} className="h-full w-full" />
+        <ArtifactCover title={row.title} kind={row.kind} size={size === 'sm' ? 'sm' : 'lg'} className="h-full w-full" />
       ) : image && failedImage !== image ? (
         <img src={image} alt="" loading="lazy" decoding="async" onError={() => setFailedImage(image)}
           className="h-full w-full object-contain" />
@@ -125,7 +127,9 @@ export function ArtifactThumbnail({ row, version = row.version, content, size = 
         <pre className="h-full w-full overflow-hidden p-3 font-mono text-micro leading-relaxed text-text-secondary">{code}</pre>
       ) : (
         <div className="absolute left-1/2 top-1/2 h-[360px] w-[260px] overflow-hidden rounded-sm border border-[#E4D6C8] bg-[#FFFDFA] p-5 text-[#2F2A26] shadow-sm"
-          style={{ transform: `translate(-50%, -50%) scale(${size === 'lg' ? 0.5 : 0.28})` }}>
+          style={size === 'page'
+            ? { top: 16, transformOrigin: 'top center', transform: 'translateX(-50%) scale(0.85)' }
+            : { transform: `translate(-50%, -50%) scale(${size === 'lg' ? 0.5 : 0.28})` }}>
           <p className="whitespace-pre-line text-micro leading-relaxed first-line:font-display first-line:text-xl">{words}</p>
         </div>
       )}

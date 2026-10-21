@@ -140,7 +140,7 @@ export function ConnectStep() {
         <span className="min-w-0 flex-1">
           <span className="block font-display text-base text-text-primary">Secure and private</span>
           <span className="block text-xs text-text-muted">
-            Cinderpaw only reaches what you approve. Review or remove a connection anytime in Settings, under Accounts.
+            Cinderpaw only reaches what you approve. Review or remove one anytime in Settings: chat apps under Accounts, tools like Notion or GitHub under Capabilities.
           </span>
         </span>
         <button type="button" onClick={next} className="px-2 py-1 text-sm font-medium text-text-muted underline underline-offset-4 hover:text-text-secondary">
@@ -156,7 +156,7 @@ export function ConnectStep() {
               onInstalled={() => { refresh(); setOpen(null); }} />
           )}
           {open?.kind === 'chat' && (
-            <ConnectorCard entry={open.entry} state={savedById.get(open.entry.id) ?? null} onChanged={refresh} />
+            <ConnectorCard entry={open.entry} state={savedById.get(open.entry.id) ?? null} onChanged={refresh} startOpen />
           )}
         </DialogContent>
       </Dialog>

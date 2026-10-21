@@ -18,7 +18,7 @@ import { events as agentEvents } from './events';
 // ── Types (mirrors Rust structs exactly — snake_case, no rename_all) ──────────
 export type { DownloadProgressEvent, DownloadCompleteEvent, DownloadErrorEvent };
 export type { ModelLoadProgressEvent };
-export type { StreamProgressEvent, RsiEngineEventLine, FractalActivityLine, DreamCycleLine, MemoryNotesLine } from './events';
+export type { StreamProgressEvent, RateLimitedEvent, RsiEngineEventLine, FractalActivityLine, DreamCycleLine, MemoryNotesLine } from './events';
 
 /**
  * One row of the voice-engine picker — mirrors `cinderpaw_core::tts::TtsEngine`.
@@ -181,6 +181,9 @@ export interface ConnectorField { key: string; label: string; secret: boolean }
 
 /** A pairing in flight. Public values only — what to type and where. The
  *  device code is a credential and never crosses this boundary. */
+/** Ops of `cinderpaw_meta` (L6): the panel's four, plus the chat card's three. */
+export type MetaOp = 'status' | 'evolve' | 'rollback' | 'history' | 'proposal' | 'approve' | 'deny';
+
 export type ConnectorAuthState = {
   kind: 'waiting_for_user';
   user_code: string;
@@ -306,6 +309,8 @@ export interface SkillPreview {
   content: string;
 }
 
+export type PermissionMode = 'read_only' | 'workspace_write' | 'full_access';
+
 export interface Settings {
   models_dir: string;
   default_gpu_layers: number;
@@ -330,6 +335,9 @@ export interface Settings {
   /** Opt-in daily usage summary. null = never asked (the home card asks once),
    *  false = asked and said no. Optional: older hosts do not send it. */
   usage_sharing?: boolean | null;
+  /** What the agent may do without asking (sidecar permission-mode.ts).
+   *  Absent/null = `workspace_write`, the sidecar's default. */
+  permission_mode?: PermissionMode | null;
   /** The chosen inference route: `"<provider>:<model>"` (cloud) or
    *  `"local:<file>"`. null = the bundled local default. */
   active_route: string | null;
@@ -586,7 +594,7 @@ export interface CodePatchResolvedPayload {
 export interface VoiceMeta { audio_path: string; duration_ms: number; transcript: string; peaks: number[] }
 /** Mirrors `conversations::ScratchStats` — churn in the agent's own workspace. */
 export interface ScratchStats        { edits: number; added: number; removed: number }
-export interface PersistedMessage    { role: string; content: string; thinking?: string; thinking_ms?: number | null; voice?: VoiceMeta | null; scratch?: ScratchStats | null; tools?: unknown; created_at?: number | null }
+export interface PersistedMessage    { role: string; content: string; thinking?: string; thinking_ms?: number | null; voice?: VoiceMeta | null; scratch?: ScratchStats | null; tools?: unknown; created_at?: number | null; ended?: unknown; memory_used?: unknown }
 export interface ConversationSummary {
   id: string; title: string; updated_at: string;
   /** Set when this conversation belongs to an agent (Agents tab); null for chat. */
@@ -776,6 +784,9 @@ export type CinderpawAgentEvent =
       sessionId: string;
       action: 'created' | 'updated' | 'deleted';
     }
+  // A document Cinderpaw is writing, piece by piece, while it writes it.
+  // `id` is the turn; its tool_done / done / error close the draft.
+  | { type: 'artifact_draft'; id: string; sessionId: string; draft: string; kind?: string; title?: string; append: string; editOf?: string; find?: string }
   | {
       type: 'artifact_result';
       id: string;
@@ -865,6 +876,7 @@ const raw = {
     invoke<void>('submit_bug_report', { description, includeLog }),
   countInstall:          (send: boolean, heard: string | null) => invoke<void>('count_install', { send, heard }),
   setUsageSharing:       (on: boolean) => invoke<void>('set_usage_sharing', { on }),
+  setPermissionMode:     (mode: PermissionMode) => invoke<void>('set_permission_mode', { mode }),
   saveAgent:             (cfg: AgentConfig) => invoke<AgentConfig>('save_agent', { cfg }),
   getAgents:             ()    => invoke<AgentConfig[]>('get_agents'),
   deleteAgent:           (id: string) => invoke<void>('delete_agent', { id }),
@@ -997,6 +1009,7 @@ const raw = {
   connectorPairStart:       (id: string) => invoke<ConnectorAccount>('connector_pair_start', { id }),
   connectorPairPoll:        (id: string) => invoke<ConnectorAccount>('connector_pair_poll', { id }),
   getLocalApiToken:         () => invoke<string>('get_local_api_token'),
+  getLocalApiPort:          () => invoke<number>('get_local_api_port'),
   listOllamaModels:         (baseUrl: string) => invoke<string[]>('list_ollama_models', { baseUrl }),
   getMemoryGraph:           () => invoke<MemoryGraphSnapshot>('get_memory_graph'),
   addMemoryFacts:           (facts: MemoryFactInput[]) =>
@@ -1029,8 +1042,10 @@ const raw = {
   rsiDreamNow:        () => invoke<void>('cinderpaw_dream_now'),
   // Faza 6 (L6) Meta Evolution — fire-and-forget; the sidecar replies async
   // via a `meta_result` event (handled by `events.onMetaResult`).
-  cinderpawMeta:          (op: 'status' | 'evolve' | 'rollback' | 'history') =>
-    invoke<void>('cinderpaw_meta', { op }),
+  // `proposal` / `approve` / `deny` are the L6 chat card; approve and deny
+  // name the card they answer, so an out-of-date card changes nothing.
+  cinderpawMeta:          (op: MetaOp, proposalId?: string) =>
+    invoke<void>('cinderpaw_meta', { op, proposalId: proposalId ?? null }),
   // Slice A6 (L5 Governance) — fire-and-forget; the sidecar replies async
   // via a `governance_result` event (handled by `events.onGovernanceResult`).
   cinderpawGovernance:    (op: 'status' | 'verify' | 'approve' | 'reject', policyId?: string, reason?: string) =>
@@ -1212,7 +1227,7 @@ const raw = {
   // ships against builds compiled with different features, so it cannot know
   // from its own source whether the local path exists.
   sttLocalAvailable:    () => invoke<boolean>('stt_local_available'),
-  // Fractal Memory Search: fetch the bge-small embedding model (~130 MB) into
+  // Fractal Memory Search: fetch the bge-m3 embedding model (~630 MB) into
   // the models dir. Idempotent — a no-op if already present — so it is safe to
   // fire on startup. Progress streams over `cinderpaw://embedding-download-*`.
   downloadEmbeddingModel:   () =>
@@ -1258,6 +1273,7 @@ export const tauri = {
     setDesktopControlYolo: async (enabled: boolean) => raw.setDesktopControlYolo(enabled),
     setTokenBudget: async (budget: number | null) => raw.setTokenBudgetConversation(budget),
     setRsiBudget: async (budget: number | null) => raw.setRsiBudget(budget),
+    setPermissionMode: async (mode: PermissionMode) => raw.setPermissionMode(mode),
     setRsiAllowCloudDreams: async (enabled: boolean) => raw.setRsiAllowCloudDreams(enabled),
     setDreamsEnabled: async (enabled: boolean) => raw.setDreamsEnabled(enabled),
   },
@@ -1396,8 +1412,8 @@ export const tauri = {
     dreamNow:        async () => raw.rsiDreamNow(),
     /** Faza 6 (L6) Meta Evolution — status / evolve / rollback / history.
      *  Reply arrives async via `events.onMetaResult`. */
-    meta:            async (op: 'status' | 'evolve' | 'rollback' | 'history') =>
-      raw.cinderpawMeta(op),
+    meta:            async (op: MetaOp, proposalId?: string) =>
+      raw.cinderpawMeta(op, proposalId),
     /** Slice A6 (L5 Governance) — safety-rules card + approval inbox.
      *  Reply arrives async via `events.onGovernanceResult`. */
     governance:      async (op: 'status' | 'verify' | 'approve' | 'reject', args?: { policyId?: string; reason?: string }) =>

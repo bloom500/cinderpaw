@@ -238,6 +238,8 @@ already recorded, so it costs no model call and cannot make things up.
 with up to four next-request chips. Never HTML; misfit data is a plain list. Card pictures (named, or a linked page's preview image)
 are fetched once through the egress door and kept in `~/.cinderpaw/cache/images`. A finished artifact is a card in the reply.
 `find_images` returns credited photos; Pexels/Unsplash need `CINDERPAW_PEXELS_KEY` / `CINDERPAW_UNSPLASH_KEY`.
+`heads_up` puts "something you should know" above the message box while work goes on: Learn more,
+I already knew this (the agent flags less of the obvious), Dismiss. One per chat every two minutes at most.
 
 ## Keeping its place on a long task
 
@@ -277,7 +279,9 @@ chart, table, code or PDF under a stable id; `artifact_download` saves a PDF or
 Word form from the web; `artifact_list`/`artifact_read` find them; `artifact_edit`
 changes a span or fills a form, as a new version; `artifact_export` writes a file;
 `artifact_delete` hides one; `artifact_send` puts one in your Telegram or Discord
-chat once you approve. You sign PDFs in the Artifacts panel.
+chat once you approve. You sign PDFs in the Artifacts panel. Before a poster, post,
+slide or card, `design_guide` gives the agent artboard sizes, type, palettes and a
+checklist, so a design looks finished without a design skill installed.
 
 ## Teammates (Agent Cowork)
 

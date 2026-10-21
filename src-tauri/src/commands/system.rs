@@ -32,6 +32,15 @@ pub(crate) fn get_local_api_token(state: State<'_, AppState>) -> String {
     state.local_api_token.to_string()
 }
 
+/// The port the local API really listens on: `api_port` from settings, unless
+/// that was taken at launch and the API bound a free one (boot.rs). The UI
+/// wrote `localhost:11435` into four places and lost local models then.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn get_local_api_port(state: State<'_, AppState>) -> u16 {
+    state.runtime.effective_api_port()
+}
+
 // ---------- Onboarding record (persisted in ~/.cinderpaw/) ----------
 
 /// Path of the onboarding JSON written/read by `get_onboarding_record` /
@@ -47,20 +56,11 @@ pub(crate) fn get_local_api_token(state: State<'_, AppState>) -> String {
 ///   2. We only need 2 ops (read whole file, write whole file) — a plugin
 ///      is overkill
 fn onboarding_path() -> Option<std::path::PathBuf> {
-    // USERPROFILE on Windows, HOME elsewhere. Fall back to dirs::cache_dir
-    // only as a last resort — home is what we want.
-    let home = std::env::var("USERPROFILE")
-        .ok()
-        .or_else(|| std::env::var("HOME").ok());
-    // The home folder moved with the rename. Left hard-coded, this read the
-    // onboarding record from the OLD folder while everything else wrote to the
-    // new one — so a person who had finished onboarding was asked to do it
-    // again, on a machine where the answer was sitting one directory over.
-    home.map(|h| {
-        std::path::PathBuf::from(h)
-            .join(cinderpaw_core::brand::APP_HOME_DIR_NAME)
-            .join("onboarding.json")
-    })
+    // The same folder as everything else, CINDERPAW_HOME included. Built by hand
+    // from USERPROFILE, this wrote the record outside a relocated home while the
+    // agent (user-loader.ts) read it inside, so the name a person picked never
+    // reached the agent (19 Oct). The rename bug before it was the same shape.
+    Some(cinderpaw_core::paths::cinderpaw_dir().join("onboarding.json"))
 }
 
 #[derive(serde::Serialize, serde::Deserialize, specta::Type, Debug, Clone)]

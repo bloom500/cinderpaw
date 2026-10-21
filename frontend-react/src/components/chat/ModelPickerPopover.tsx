@@ -21,11 +21,11 @@ import { BackendBadge } from '@/components/BackendBadge';
 import { ROLES, resolveRole, roleModelName, sameModel, type RoleModel } from '@/lib/modelRoles';
 import { cn } from '@/lib/utils';
 import logoUrl from '@/assets/logo.svg';
+import { isLocalEngineUrl, localApiBase } from '@/lib/localApi';
 
 // Cinderpaw's own model engine exposes an OpenAI-compatible API here. In agent mode
 // a local pick must target THIS (not external Ollama on 11434) so the agent uses
 // the model loaded in the Models tab.
-const CINDERPAW_API_BASE = 'http://localhost:11435';
 const LOCAL_PROVIDER_ID = 'cinderpaw-local';
 
 function formatBytes(n: number): string {
@@ -127,7 +127,7 @@ export function ModelPickerPopover() {
       await cinderpawSetModel({
         source: 'openai_compatible',
         model: m.name,
-        baseUrl: CINDERPAW_API_BASE,
+        baseUrl: await localApiBase(),
         providerId: LOCAL_PROVIDER_ID,
       });
     } catch (err) {
@@ -186,7 +186,7 @@ export function ModelPickerPopover() {
   // The model answering now, in the roles' terms: the check mark, and
   // Primary's default until one is chosen (lib/modelRoles.ts).
   const active: RoleModel | null = cinderpawConfig?.model
-    ? cinderpawConfig.provider === LOCAL_PROVIDER_ID || cinderpawConfig.base_url?.startsWith(CINDERPAW_API_BASE)
+    ? cinderpawConfig.provider === LOCAL_PROVIDER_ID || isLocalEngineUrl(cinderpawConfig.base_url)
       ? { kind: 'local', path: '', name: cinderpawConfig.model }
       : { kind: 'cloud', providerId: cinderpawConfig.provider, providerName: providerName(cinderpawConfig.provider), modelId: cinderpawConfig.model }
     : null;
