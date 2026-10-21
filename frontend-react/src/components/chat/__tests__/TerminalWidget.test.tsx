@@ -14,6 +14,9 @@ describe('terminal widget', () => {
     const { container } = render(<Widget activity={a} flat />);
     expect(container.textContent).toContain('hello');
     expect(container.textContent).not.toContain('[exit 0');
+    // jsdom counts as Windows: PowerShell's prompt, not the Mac's `%`.
+    expect(container.textContent).toContain('PS ~>');
+    expect(container.textContent).not.toContain('%');
   });
 
   it('a failed command shows why, not its own header', () => {
