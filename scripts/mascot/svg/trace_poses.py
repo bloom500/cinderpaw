@@ -225,6 +225,134 @@ def trace_pose(name, spec):
     return scene
 
 
+# Poses drawn for the 2026.10.23 release (docs/design/moodboard/SVG/v2/): other
+# angles of the same character, and the things he holds drawn into the pose
+# instead of pasted over it. Generated from the seven originals as references,
+# picked by Darius one by one (22 Oct).
+V2 = ['idle34l', 'idleFront', 'restFront', 'listen34l', 'listenFront', 'listen34r', 'think34l', 'think34r',
+      'thinkProfile', 'doneFront', 'doneProfile', 'search', 'write', 'read', 'call1', 'call2']
+
+
+def trace_pose_v2(name, face_h_units):
+    """A pose with things in his paws (a book, a headset, a lens) and no parts that move.
+
+    The originals know three materials besides the orange: cream, the eyes and
+    the laptop's grey. These carry more (a brown book, a yellow pencil, a slate
+    headset), so the body is the orange alone, read by how far red sits above
+    green, and everything else that is not cream or an eye is an item, traced
+    per colour and drawn over the body. An eye is a near-black neutral shape,
+    taller than wide, inside the face: the microphone in front of the mask and
+    the closed, happy eyes are items, so they never blink.
+    """
+    # Stored as palette PNGs (1 MB for all sixteen instead of 10); read back as RGBA.
+    from PIL import Image
+    im = np.asarray(Image.open(os.path.join(SRC, 'v2', name + '.png')).convert('RGBA')).astype(int)
+    r, g, b, a = im[..., 0], im[..., 1], im[..., 2], im[..., 3]
+    shape = a.shape
+    opaque = a >= 128
+    cream = opaque & (r > 215) & (g > 190) & (b > 165) & ((r - b) < 70)
+    orange = opaque & ~cream & (r >= 170) & ((r - g) >= 100) & (b < 80)
+    inky = opaque & (r < 70) & (g < 70) & (b < 70) & (abs(r - g) < 22) & (abs(g - b) < 22)
+
+    creams = keep(cream, 1500)
+    cream_parts = sorted(measure.regionprops(measure.label(creams)), key=lambda p: -p.area)
+    face_only = measure.label(creams) == cream_parts[0].label
+    face_box = cream_parts[0].bbox
+    fy0, fx0, fy1, fx1 = face_box
+    eyes = np.zeros(shape, bool)
+    for p in measure.regionprops(measure.label(keep(inky, 300))):
+        cy, cx = p.centroid
+        y0, x0, y1, x1 = p.bbox
+        if fy0 <= cy <= fy1 and fx0 <= cx <= fx1 and (y1 - y0) > 1.15 * (x1 - x0):
+            eyes |= measure.label(keep(inky, 300)) == p.label
+
+    body = keep(orange, 8000)
+    creature = morphology.remove_small_holes(body | creams | eyes, max_size=3000)
+    things = opaque & ~orange & ~cream & ~eyes
+    things = keep(morphology.opening(things, disk(1)), 150)
+
+    # Scale by the face's height, not its area: in profile the window is half
+    # as wide while the head is as big, and an area rule made him huge there.
+    s = face_h_units / (fy1 - fy0)
+    ys, xs = np.nonzero(creature | things)
+    bottom = ys.max()
+    low = (creature | things) & (np.arange(shape[0])[:, None] > bottom - 0.08 * (bottom - ys.min()))
+    cx = np.nonzero(low)[1].mean()
+    tx, ty = 64 - cx * s, GROUND - bottom * s
+    X = lambda x: x * s + tx
+    Y = lambda y: y * s + ty
+
+    def trace(mask, tol=1.6, sigma=1.4):
+        f = filters.gaussian(np.pad(mask.astype(float), 2), sigma=sigma)
+        out = []
+        for c in measure.find_contours(f, 0.5):
+            if len(c) < 10:
+                continue
+            c = measure.approximate_polygon(c, tolerance=tol)
+            out.append('M' + ' L'.join(f'{X(p[1] - 2):.1f} {Y(p[0] - 2):.1f}' for p in c) + 'Z')
+        return ''.join(out)
+
+    sm = np.stack([filters.gaussian(im[..., i].astype(float), sigma=1.5, preserve_range=True) for i in range(3)], -1)
+    inside = orange & creature
+    main = np.median(im[inside & morphology.erosion(creature, disk(6))][:, :3], axis=0)
+    dg = sm[..., 1] - main[1]
+    dr = sm[..., 0] - main[0]
+    light = keep(morphology.opening(inside & (dg >= 6) & (dr >= 2), disk(2)), 1500)
+    shadow = keep(morphology.opening(inside & (dg <= -22), disk(1)), 120)
+    outline = keep(morphology.opening(inside & (dg <= -9) & ~shadow, disk(1)), 120)
+    tone = lambda m: '#%02X%02X%02X' % tuple(im[m][:, :3].mean(0).astype(int)) if m.any() else None
+
+    # Items, one per colour: the pixels' colours grouped by a coarse grid, the
+    # groups merged while their means sit within 48 of each other.
+    items = []
+    if things.any():
+        px = im[things][:, :3]
+        keys = [tuple(k) for k in (px // 40)]
+        groups = {}
+        for k, c in zip(keys, px):
+            groups.setdefault(k, []).append(c)
+        means = sorted(((np.mean(v, 0), len(v)) for v in groups.values()), key=lambda t: -t[1])
+        merged = []
+        for m, n in means:
+            for t in merged:
+                if np.abs(t[0] - m).max() < 48:
+                    t[0] = (t[0] * t[1] + m * n) / (t[1] + n)
+                    t[1] += n
+                    break
+            else:
+                merged.append([m, n])
+        centres = np.array([t[0] for t in merged])
+        near = np.argmin(((im[..., :3][..., None, :] - centres) ** 2).sum(-1), -1)
+        for i, (m, n) in enumerate(merged):
+            mask = keep(things & (near == i), 60)
+            if mask.any():
+                items.append(dict(d=trace(mask, tol=1.0, sigma=1.0), color='#%02X%02X%02X' % tuple(im[mask][:, :3].mean(0).astype(int))))
+
+    eye_list = []
+    lab = measure.label(eyes)
+    for p in sorted(measure.regionprops(lab), key=lambda p: p.centroid[1]):
+        y0, x0, y1, x1 = p.bbox
+        eye_list.append(dict(
+            d=trace(lab == p.label, tol=0.8),
+            at=(round(X(p.centroid[1]), 1), round(Y(p.centroid[0]), 1)),
+            rx=round((x1 - x0) * s / 2, 1), ry=round((y1 - y0) * s / 2, 1),
+        ))
+
+    sil = morphology.dilation(creature, disk(2))
+    return dict(
+        base=dict(sil=trace(sil), light=trace(light), outline=trace(outline, tol=1.0, sigma=0.9), shadow=trace(shadow)),
+        colors=dict(main='#%02X%02X%02X' % tuple(main.astype(int)), light=tone(light) or '', outline=tone(outline) or '',
+                    shadow=tone(shadow) or '', cream=tone(face_only), eye=tone(eyes) or '#2B2827'),
+        parts={},
+        face=trace(creams),
+        faceBox=(round(X(fx0), 1), round(Y(fy0), 1), round(X(fx1), 1), round(Y(fy1), 1)),
+        eyes=eye_list,
+        marks=[],
+        items=items,
+        place=(round(float(s), 5), round(float(tx), 2), round(float(ty), 2)),
+    )
+
+
 def num(x):
     x = float(x)
     # Coordinates need one decimal; a scale factor needs all of its.
@@ -234,6 +362,8 @@ def num(x):
 def ts(v, ind=''):
     """A small JSON-ish printer that keeps paths on one line each."""
     if isinstance(v, dict):
+        if not v:
+            return '{}'
         inner = ',\n'.join(f"{ind}  {k}: {ts(x, ind + '  ')}" for k, x in v.items())
         return '{\n' + inner + f',\n{ind}}}'
     if isinstance(v, (list, tuple)):
@@ -247,6 +377,10 @@ def ts(v, ind=''):
 
 def main():
     scenes = {name: trace_pose(name, spec) for name, spec in POSES.items()}
+    # The new poses take their head size from the calm sitting original.
+    sit = scenes['sit']['faceBox']
+    for name in V2:
+        scenes[name] = trace_pose_v2(name, sit[3] - sit[1])
     with open(DST, 'w', newline='\n') as f:
         f.write('// GENERATED by scripts/mascot/svg/trace_poses.py from the flat poses in\n')
         f.write('// docs/design/moodboard/SVG/. Do not edit; change the script and regenerate.\n\n')
@@ -259,6 +393,8 @@ def main():
         f.write("  /** The face window's box: x0, y0, x1, y1. */\n  faceBox: readonly [number, number, number, number];\n")
         f.write("  eyes: { d: string; at: readonly [number, number]; rx: number; ry: number }[];\n")
         f.write("  marks: { d: string; color: string }[];\n  laptop?: { lid: string; base: string; logo: string };\n")
+        f.write("  /** What the v2 poses hold (book, headset, lens...), drawn over the body, one path per colour. */\n")
+        f.write("  items?: { d: string; color: string }[];\n")
         f.write("  /** Source image to drawing: x * scale + x0, y * scale + y0. */\n  place: readonly [number, number, number];\n}\n\n")
         f.write('export type SceneName = ' + ' | '.join(f"'{n}'" for n in scenes) + ';\n\n')
         f.write('export const SCENES: Record<SceneName, Scene> = ' + ts(scenes) + ';\n')

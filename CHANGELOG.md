@@ -38,6 +38,12 @@
   keeps working. Press **I already knew this** and it flags less of the obvious.
 - **One notice at a time.** What's new, the update card and the usage question
   now take turns, in the same card, in the same top-right corner.
+- **You see when a service is connected.** A card shows its logo next to
+  Cinderpaw's and what it can now do, whether you connected it in
+  Capabilities or in the chat.
+- **Cubby has 16 new drawings.** It looks at you, turns its head, thinks with
+  a paw on its chin, reads, searches with a lens, writes and talks on the
+  phone, and it changes drawings so it does not repeat the same one.
 - **What's new shows a picture of each change.**
 - **Kimi has two choices:** Kimi Code (subscription) and Kimi API (Moonshot,
   pay per use), each with the right place to get its key.
@@ -60,7 +66,7 @@
 - **Deleting a model Windows keeps locked works now.** Cinderpaw deletes it the
   next time it starts, before any model loads.
 - **Security:** updated parts with known security problems (zip, webpki,
-  follow-redirects, vite).
+  follow-redirects, vite, DOMPurify).
 
 ## 2026.10.19
 
