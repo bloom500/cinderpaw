@@ -3,7 +3,7 @@
  * person's "Connect" as the only way in. McpManager.addServer keeps the entry
  * only when the service really answered.
  */
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,7 +25,17 @@ const server = Bun.serve({
     return Response.json({ jsonrpc: "2.0", id: msg.id, result });
   },
 });
-afterAll(() => server.stop(true));
+// The client uses the global fetch, which other files stub; give it the real
+// one, as mcp-http.test.ts does (on CI a leftover stub hung every call).
+let stubbedFetch: typeof globalThis.fetch;
+beforeAll(() => {
+  stubbedFetch = globalThis.fetch;
+  globalThis.fetch = Bun.fetch as typeof globalThis.fetch;
+});
+afterAll(() => {
+  globalThis.fetch = stubbedFetch;
+  server.stop(true);
+});
 
 function fakeRegistry() {
   const tools = new Map<string, Tool>();
