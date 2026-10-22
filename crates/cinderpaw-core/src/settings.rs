@@ -255,8 +255,12 @@ mod tests {
         let Some(home) = dirs::home_dir() else { return };
         let mut s = Settings::default();
         s.models_dir = home.join(crate::brand::LEGACY_HOME_DIR_NAME).join("models");
-        let repaired = repair_legacy_models_dir(s);
-        assert!(repaired.models_dir.starts_with(paths::cinderpaw_dir()));
+        // Under the RSI tests' lock: they point CINDERPAW_HOME elsewhere in
+        // parallel, and the home read twice here flaked on CI (#32, 21 Oct).
+        let (repaired, root) = crate::rsi::test_support::with_temp_cinderpaw_home(|root| {
+            (repair_legacy_models_dir(s), root.to_path_buf())
+        });
+        assert!(repaired.models_dir.starts_with(root));
         assert!(repaired.models_dir.ends_with("models"));
 
         let mut chosen = Settings::default();

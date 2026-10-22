@@ -86,6 +86,9 @@ pub fn build_runtime() -> Arc<RuntimeState> {
 
     let _ = paths::ensure_dirs();
 
+    // Models whose delete Windows refused last time, before anything loads one.
+    crate::models::delete_queued_at_startup();
+
     // Move any plaintext connector secrets left in `connectors.json` (pre-vault
     // installs) into the OS keychain before anything reads that file. No user
     // interaction; a crash mid-migration is safe to retry on the next start
