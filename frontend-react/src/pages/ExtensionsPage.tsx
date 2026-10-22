@@ -174,6 +174,7 @@ export function ExtensionsPage() {
                     />
                   ))}
                 </div>
+                <AddYourOwnCard onInstalled={refresh} />
                 <p className="text-xs text-text-muted text-center mt-8">
                   More extensions coming in future updates ✨
                 </p>
@@ -495,6 +496,103 @@ export function CatalogCard({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ── Add your own: a service's link for AI assistants, plus its key ───────────
+
+const inputClass =
+  'mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-hidden';
+
+/**
+ * Many services (Publora, Zapier, Notion…) give a link "for AI assistants"
+ * and a key. Reached over the web, so unlike the store's extensions it needs
+ * nothing installed on this computer.
+ */
+export function AddYourOwnCard({ onInstalled }: { onInstalled: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [url, setUrl] = useState('');
+  const [key, setKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const add = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await tauri.mcp.installCustom(name, url, key);
+      setOpen(false);
+      setName('');
+      setUrl('');
+      setKey('');
+      onInstalled();
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 rounded-xl border border-dashed border-border-default bg-bg-surface p-4">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full text-left flex items-center gap-3"
+      >
+        <span aria-hidden="true" className="text-lg">🔗</span>
+        <span className="flex-1">
+          <span className="block text-sm font-semibold text-text-primary">Add your own</span>
+          <span className="block text-xs text-text-muted mt-0.5">
+            A service gave you a link for AI assistants? Paste it here with its key.
+          </span>
+        </span>
+        {open ? <ChevronUp size={14} className="text-text-muted" /> : <ChevronDown size={14} className="text-text-muted" />}
+      </button>
+
+      {open && (
+        <div className="mt-3 space-y-2">
+          <label className="block">
+            <span className="text-2xs text-text-secondary">Link</span>
+            <input
+              type="url"
+              placeholder="https://mcp.example.com"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              className={inputClass}
+            />
+          </label>
+          <label className="block">
+            <span className="text-2xs text-text-secondary">
+              Key <span className="text-text-muted">(if the service gave you one)</span>
+            </span>
+            <input type="password" value={key} onChange={(e) => setKey(e.target.value)} className={inputClass} />
+          </label>
+          <label className="block">
+            <span className="text-2xs text-text-secondary">
+              Name <span className="text-text-muted">(optional)</span>
+            </span>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
+          </label>
+          <p className="text-2xs text-text-muted">
+            Your assistant will send this service what you ask it to do there. Only add services you trust.
+          </p>
+          {err && (
+            <p className="text-2xs text-error bg-error/10 border border-error/30 rounded px-2 py-1.5">{err}</p>
+          )}
+          <button
+            type="button"
+            onClick={() => void add()}
+            disabled={busy || !url.trim()}
+            className="w-full text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand text-on-brand hover:bg-brand/90 disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+          >
+            {busy && <Loader2 size={12} className="animate-spin" />}
+            {busy ? 'Connecting…' : 'Connect'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

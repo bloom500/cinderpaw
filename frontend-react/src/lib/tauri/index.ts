@@ -978,6 +978,8 @@ const raw = {
   mcpList:                  () => invoke<McpServerView[]>('mcp_list'),
   mcpInstall:               (id: string, values: Record<string, string>) =>
     invoke<McpServerView>('mcp_install', { id, values }),
+  mcpInstallCustom:         (name: string, url: string, key: string) =>
+    invoke<McpServerView>('mcp_install_custom', { name, url, key }),
   mcpSetEnabled:            (id: string, enabled: boolean) =>
     invoke<McpServerView>('mcp_set_enabled', { id, enabled }),
   mcpRemove:                (id: string) => invoke<void>('mcp_remove', { id }),
@@ -1001,6 +1003,8 @@ const raw = {
   connectorsList:           () => invoke<ConnectorView[]>('connectors_list'),
   connectorsSave:           (id: string, secrets: Record<string, string>, allowlist: string[], channels: string[], mode?: string, knowledgeBase?: string) =>
     invoke<ConnectorView>('connectors_save', { id, secrets, allowlist, channels, mode, knowledgeBase }),
+  connectorsSaveSecret:     (id: string, field: string, value: string) =>
+    invoke<void>('connectors_save_secret', { id, field, value }),
   connectorsSetEnabled:     (id: string, enabled: boolean) =>
     invoke<ConnectorView>('connectors_set_enabled', { id, enabled }),
   connectorsRemove:         (id: string) => invoke<void>('connectors_remove', { id }),
@@ -1356,6 +1360,7 @@ export const tauri = {
     catalog:    async () => raw.mcpCatalog(),
     list:       async () => raw.mcpList(),
     install:    async (id: string, values: Record<string, string>) => raw.mcpInstall(id, values),
+    installCustom: async (name: string, url: string, key: string) => raw.mcpInstallCustom(name, url, key),
     setEnabled: async (id: string, enabled: boolean) => raw.mcpSetEnabled(id, enabled),
     remove:     async (id: string) => raw.mcpRemove(id),
     listTools:  async (id: string) => raw.mcpListTools(id),
@@ -1366,6 +1371,7 @@ export const tauri = {
     catalog:    async () => raw.connectorsCatalog(),
     list:       async () => raw.connectorsList(),
     save:       async (id: string, secrets: Record<string, string>, allowlist: string[], channels: string[], mode?: string, knowledgeBase?: string) => raw.connectorsSave(id, secrets, allowlist, channels, mode, knowledgeBase),
+    saveSecret: async (id: string, field: string, value: string) => raw.connectorsSaveSecret(id, field, value),
     setEnabled: async (id: string, enabled: boolean) => raw.connectorsSetEnabled(id, enabled),
     remove:     async (id: string) => raw.connectorsRemove(id),
     whatsappQr: async () => raw.connectorsWhatsappQr(),

@@ -42,6 +42,19 @@ github.com/bloom500/cinderpaw, community Discord discord.gg/eqvfVRD6y7.
 - A one-time security acknowledgement is shown: Cinderpaw runs with the user's
   permissions, so shared/multi-user machines should be locked down.
 
+## Extensions (services connected by a link)
+
+Many services (Publora, Zapier, Notion and others) give a link "for AI
+assistants" (an MCP server link) and usually a key. **You support these and
+connect them yourself**; never say you have no MCP. Get the link from the
+person or the service's docs. In the desktop app, call `request_secret` with
+`extension_url` (and `extension_name`): the key goes in a secure field and
+saving it connects the service. If the key is already in the chat, or
+request_secret answers unsupported_surface, call `extension_connect` with
+`url`, `name` and `key`. Both ask the person to confirm. Once connected, the
+service's abilities are your tools, named `mcp_<tool>`. Adding it by hand in
+Capabilities > Add your own is the manual way, never required.
+
 ## Connectors
 
 Connectors let the agent talk on chat platforms. Configuration lives in
@@ -53,7 +66,7 @@ memory or from this file WHICH platforms exist: call `connectors_manage`
 ids back. A list typed here rots: it named three while the build carried 21,
 and people were turned away from connectors we had the code for.
 `action:"configure"` saves the config and applies it immediately. Ask the user for the required secrets (e.g. the Discord bot
-token): on the Cinderpaw page, call `request_secret`, which opens a secure
+token): in the desktop app or on the Cinderpaw page, call `request_secret`, which opens a secure
 field so the value never enters the chat; elsewhere ask in the chat. Then configure it yourself — do not send them to the settings UI
 unless they prefer that. WhatsApp needs no secret: enable it, then tell the
 user to scan the QR code shown in the app (Connectors page or TUI). The first
