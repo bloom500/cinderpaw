@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2 } from 'lucide-react';
+import { Check } from 'lucide-react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
+import logoUrl from '@/assets/logo.svg';
+import { BrandLogo, brandIdFor } from '@/lib/brandLogos';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { tauri } from '@/lib/tauri';
 import { useConnected } from '@/stores/connected';
@@ -11,6 +14,38 @@ const pretty = (name: string) => {
   const words = name.replace(/^mcp_/, '').replace(/[_-]/g, ' ').trim();
   return words.charAt(0).toUpperCase() + words.slice(1);
 };
+
+/**
+ * Cinderpaw's mark and the service's slide in, meet once and a check lands on
+ * the seam (Darius picked this over Cubby and a plain check, 22 Oct: "mai
+ * profesionala"). It moves once and rests: a loop would read as loading.
+ */
+function ConnectPair({ logoId, name }: { logoId: string; name: string }) {
+  const still = useReducedMotion();
+  const tile = 'inline-flex size-16 items-center justify-center rounded-2xl border border-border-default bg-bg-elevated shadow-lg';
+  const slide = (from: number, rotate: number) =>
+    still
+      ? { initial: false as const, animate: { x: 0, rotate } }
+      : { initial: { x: from, rotate: 0, opacity: 0 }, animate: { x: 0, rotate, opacity: 1 }, transition: { type: 'spring' as const, stiffness: 320, damping: 18 } };
+  return (
+    <div className="relative mx-auto flex h-24 items-center justify-center" aria-hidden>
+      <motion.span className={`${tile} -mr-2`} {...slide(-36, -6)}>
+        <img src={logoUrl} alt="" draggable={false} className="size-10" />
+      </motion.span>
+      <motion.span className="-ml-2" {...slide(36, 6)}>
+        <BrandLogo id={logoId} name={name} className={`${tile} text-2xl [&>img]:size-9`} />
+      </motion.span>
+      <motion.span
+        className="absolute left-1/2 top-[66px] -ml-3.5 flex size-7 items-center justify-center rounded-full bg-success text-white ring-4 ring-bg-primary"
+        initial={still ? false : { scale: 0 }}
+        animate={{ scale: 1 }}
+        transition={{ delay: 0.35, type: 'spring', stiffness: 500, damping: 16 }}
+      >
+        <Check size={16} strokeWidth={3} />
+      </motion.span>
+    </div>
+  );
+}
 
 /**
  * "Notion is connected", over the blurred app: what it can do now and one
@@ -45,7 +80,7 @@ export function ConnectedDialog() {
   return (
     <Dialog open onOpenChange={(o) => { if (!o) close(); }}>
       <DialogContent className="max-w-md text-center">
-        <CheckCircle2 size={44} className="mx-auto text-success" />
+        <ConnectPair logoId={brandIdFor(item.logoId ?? item.name, item.name)} name={item.name} />
         <DialogHeader>
           <DialogTitle className="text-center text-2xl">{item.name} is connected</DialogTitle>
         </DialogHeader>

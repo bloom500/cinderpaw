@@ -65,6 +65,7 @@ export function ConnectorAccounts() {
             const name = id.charAt(0).toUpperCase() + id.slice(1);
             useConnected.getState().show({
               name,
+              logoId: id,
               body: updated.display_name ? `Signed in as ${updated.display_name}. Cinderpaw can use it now.` : 'Cinderpaw can use it now.',
             });
           }

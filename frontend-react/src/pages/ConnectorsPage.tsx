@@ -172,7 +172,7 @@ export function ConnectorCard({
   const wasLinked = useRef(linked);
   useEffect(() => {
     if (linked && !wasLinked.current) {
-      useConnected.getState().show({ name: entry.name, body: `Your phone is linked. Message Cinderpaw on ${entry.name} to try it.` });
+      useConnected.getState().show({ name: entry.name, logoId: entry.id, body: `Your phone is linked. Message Cinderpaw on ${entry.name} to try it.` });
     }
     wasLinked.current = linked;
   }, [linked, entry.name]);

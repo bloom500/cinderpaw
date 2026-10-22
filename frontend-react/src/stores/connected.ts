@@ -7,6 +7,8 @@ import { tauri } from '@/lib/tauri';
  */
 export interface Connected {
   name: string;
+  /** Which logo to show beside Cinderpaw's: a catalog or connector id; the name is tried too. */
+  logoId?: string;
   /** The line under the title; without it, the dialog says what the tools allow. */
   body?: string;
   /** Ability names to show. With only `mcpId`, the dialog asks the extension. */
@@ -45,7 +47,7 @@ export async function announceWhenLive(id: string, ms = 30_000): Promise<string 
     const row = (await tauri.connectors.list().catch(() => [])).find((c) => c.id === id);
     if (!row?.enabled) return null;
     if (row.live === true) {
-      useConnected.getState().show({ name: row.name, body: `Message Cinderpaw on ${row.name} to try it. It answers there.` });
+      useConnected.getState().show({ name: row.name, logoId: row.id, body: `Message Cinderpaw on ${row.name} to try it. It answers there.` });
       return null;
     }
     if (row.live === false && row.liveError && Date.now() - started > 6_000) return row.liveError;

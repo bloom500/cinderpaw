@@ -71,7 +71,7 @@ export function ExtensionsPage() {
   const onConnected = (server?: McpServerView) => {
     void refresh();
     if (server) {
-      useConnected.getState().show({ name: server.name, mcpId: server.id, prompt: `What can you do in ${server.name}?` });
+      useConnected.getState().show({ name: server.name, logoId: server.id, mcpId: server.id, prompt: `What can you do in ${server.name}?` });
     }
   };
 
