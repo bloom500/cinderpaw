@@ -4,7 +4,7 @@
  * stream), one of the older SSE pair, one that refuses the key.
  */
 
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { MCPClient } from "../src/egress/mcp-client.ts";
 
@@ -65,7 +65,17 @@ const refusing = Bun.serve({
   fetch: () => new Response("Upgrade to Pro to use MCP", { status: 403 }),
 });
 
+// Other files swap the global fetch for stubs; on macOS one was still in place
+// when this file ran and every call hung. The client uses the global fetch,
+// so give it the real one here, as redirect-credentials.test.ts does.
+let stubbedFetch: typeof globalThis.fetch;
+beforeAll(() => {
+  stubbedFetch = globalThis.fetch;
+  globalThis.fetch = Bun.fetch as typeof globalThis.fetch;
+});
+
 afterAll(() => {
+  globalThis.fetch = stubbedFetch;
   streamable.stop(true);
   legacy.stop(true);
   refusing.stop(true);
