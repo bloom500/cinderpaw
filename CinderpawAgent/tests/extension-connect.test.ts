@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { McpManager, customServer, loadMcpConfig } from "../src/egress/mcp-manager.ts";
+import { validateManifest } from "../src/egress/tool-permissions.ts";
 import { createExtensionConnectTool } from "../src/tools/builtin/extension-connect.ts";
 import type { AskUserAnswer, AskUserQuestion, Tool, ToolContext } from "../src/types.ts";
 
@@ -118,4 +119,9 @@ describe("customServer", () => {
     expect(customServer("http://mcp.publora.com", "sk")).toContain("https://");
     expect(customServer("https://x.dev", "a\nb")).toContain("line break");
   });
+});
+
+test("the registry accepts extension_connect's manifest (a refused one stopped the engine at start, 22 Oct)", () => {
+  const tool = createExtensionConnectTool({ addServer: async () => ({ ok: true, tools: [] }) });
+  expect(() => validateManifest(tool.manifest)).not.toThrow();
 });

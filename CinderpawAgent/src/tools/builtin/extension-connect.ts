@@ -45,7 +45,10 @@ export function createExtensionConnectTool(deps: ExtensionConnectDeps): Tool {
         "key in the chat, pass it as key. If not, and request_secret with extension_url is available, use that " +
         "instead so the key never enters the chat; otherwise ask for it. Returns { connected, tools } or the reason.",
       permissions: [],
-      networkAccess: true,
+      // The tool itself fetches nothing: McpManager makes the connection, as it
+      // does for Capabilities. `true` also needs network:outbound and domains,
+      // and a manifest the registry refuses stops the whole engine at start.
+      networkAccess: false,
     },
     parameters: {
       url: { type: "string", description: "The service's link for AI assistants, https://...", required: true },
