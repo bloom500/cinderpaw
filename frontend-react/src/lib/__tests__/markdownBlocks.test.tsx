@@ -64,12 +64,14 @@ describe('a reply cut into blocks renders exactly as the whole reply', () => {
     });
   }
 
+  // Renders the reply twice per prefix, dozens of prefixes: 5.2 s on a busy dev
+  // machine against the 5 s default (verify.sh, 22 Oct), green on CI.
   it('at every point while it streams', () => {
     for (let i = 1; i <= SAMPLE.length; i += 23) {
       const md = SAMPLE.slice(0, i);
       expect(split(md), `prefix of ${i} characters`).toBe(whole(md));
     }
-  });
+  }, 30_000);
 
   it('is actually cut: a real reply is many blocks', () => {
     expect(splitBlocks(SAMPLE).length).toBeGreaterThan(8);
