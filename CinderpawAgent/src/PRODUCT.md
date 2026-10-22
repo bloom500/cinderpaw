@@ -184,6 +184,8 @@ person).
   retrieval). The agent can use `recall` and `self_memory`; the TUI's `/memory`
   command does not implement statistics or search.
 - Dream cycles: background reflection that consolidates memory when idle.
+  Off on a new install, local and cloud alike, until the user turns on Dreams
+  in Settings → Learning.
   The TUI's `/dream` shows its last observed dream event; `/dream now` is unavailable.
 - LoRA personalization: on-device fine-tuning proposals gated by eval
   (never auto-applied blind). `/lora` shows training status.
