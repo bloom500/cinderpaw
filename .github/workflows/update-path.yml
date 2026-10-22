@@ -1,0 +1,273 @@
+name: Update path
+
+# Updates a machine the way a person's machine gets updated, then checks what
+# that person sees. 2026.10.16 shipped a Feral update that left Cinderpaw with
+# nothing that opened it and Feral still installed: on Windows the updater runs
+# the installer with /UPDATE, which makes no shortcuts; on Linux it runs
+# `dpkg -i` / `rpm -U`, which keep a differently named old package and install
+# no new dependency. "It opened" proves nothing, because the update starts the
+# new app once by itself. What counts is the menu, the app list, and the old
+# app gone when the name changed.
+#
+# macOS is not here: its updater swaps the app inside the old .app folder, so
+# there is never a second app (tauri-plugin-updater 2.10.1, macOS install_inner).
+#
+# Runs after every release build (release.yml calls it), on a push to a
+# `smoke/...` branch (like rc-smoke.yml), or by hand once this file is on main.
+# Updates TO the given tag, or to the newest pre-release.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  push:
+    branches: ["smoke/**"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to update to (default: the newest pre-release)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  pick:
+    name: Pick the releases
+    runs-on: ubuntu-latest
+    outputs:
+      to: ${{ steps.pick.outputs.to }}
+      previous: ${{ steps.pick.outputs.previous }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      TO_TAG: ${{ inputs.tag }}
+    steps:
+      - id: pick
+        run: |
+          set -euo pipefail
+          to="${TO_TAG:-}"
+          [ -n "$to" ] || to=$(gh release list --repo "$REPO" --limit 50 --json tagName,isPrerelease \
+            --jq '[.[] | select(.isPrerelease)][0].tagName // empty')
+          previous=$(gh release list --repo "$REPO" --limit 50 --exclude-pre-releases --exclude-drafts --json tagName \
+            --jq "[.[].tagName | select(test(\"^v[0-9]\")) | select(. != \"$to\")][0] // empty")
+          [ -n "$to" ] && [ -n "$previous" ] || { echo "::error::Could not pick the releases (to: '$to', previous: '$previous')."; exit 1; }
+          echo "Updating to $to; the previous public release is $previous."
+          echo "to=$to" >> "$GITHUB_OUTPUT"
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+
+  # Each platform updates from two places. previous: the newest public release
+  # before this one, what most people update from. v2026.08.11: the last Feral,
+  # so the rename stays covered while Feral installs are still out there.
+  windows:
+    name: Windows, from ${{ matrix.from }}
+    needs: pick
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        from: [previous, v2026.08.11]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      TO_TAG: ${{ needs.pick.outputs.to }}
+      FROM_TAG: ${{ matrix.from == 'previous' && needs.pick.outputs.previous || matrix.from }}
+    steps:
+      - name: Install the old version, update it, look
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $to = $env:TO_TAG
+          $from = $env:FROM_TAG
+
+          # The plain NSIS installer, Name_1.2.3_x64-setup.exe (not a suffixed CUDA one).
+          function Get-Setup($tag) {
+            $pattern = '^([^_]+)_(\d+\.\d+\.\d+)_x64-setup\.exe$'
+            $asset = (gh release view $tag --repo $env:REPO --json assets | ConvertFrom-Json).assets.name |
+              Where-Object { $_ -match $pattern } | Select-Object -First 1
+            if (-not $asset) { throw "Release $tag has no Windows installer." }
+            $null = $asset -match $pattern
+            $dir = Join-Path $env:RUNNER_TEMP $tag
+            gh release download $tag --repo $env:REPO --pattern $asset --dir $dir
+            [pscustomobject]@{ Tag = $tag; Path = Join-Path $dir $asset; Name = $Matches[1]; Version = $Matches[2] }
+          }
+          $old = Get-Setup $from
+          $new = Get-Setup $to
+          Write-Host "Updating $($old.Name) $($old.Version) ($from) to $($new.Name) $($new.Version) ($to)"
+
+          $apps = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
+          $startMenu = [Environment]::GetFolderPath('Programs')
+          $desktop = [Environment]::GetFolderPath('Desktop')
+
+          # A fresh silent install makes the Start menu and desktop shortcuts.
+          Start-Process $old.Path -ArgumentList '/S' -Wait
+          if (-not (Test-Path "$apps\$($old.Name)")) { throw "Installing $from left no $($old.Name) in the app list." }
+
+          # What the updater runs, minus /P: passive mode can stop on a message box
+          # nobody will click. /S takes the same shortcut and hook paths.
+          Start-Process $new.Path -ArgumentList '/S', '/UPDATE' -Wait
+
+          $problems = @()
+          $entry = Get-ItemProperty "$apps\$($new.Name)" -ErrorAction SilentlyContinue
+          if (-not $entry) { $problems += "$($new.Name) is not in the app list after the update." }
+          elseif ($entry.DisplayVersion -ne $new.Version) {
+            $problems += "The app list shows $($new.Name) $($entry.DisplayVersion), expected $($new.Version)."
+          }
+          $shell = New-Object -ComObject WScript.Shell
+          foreach ($place in @(@('Start menu', $startMenu), @('desktop', $desktop))) {
+            $lnk = Join-Path $place[1] "$($new.Name).lnk"
+            if (-not (Test-Path $lnk)) {
+              $problems += "No $($new.Name) shortcut on the $($place[0]): after this update nothing there opens the app."
+            } elseif ($entry -and $shell.CreateShortcut($lnk).TargetPath -ne $entry.DisplayIcon.Trim('"')) {
+              $problems += "The $($place[0]) shortcut opens $($shell.CreateShortcut($lnk).TargetPath), not $($entry.DisplayIcon)."
+            }
+          }
+          if ($old.Name -ne $new.Name) {
+            # The new installer starts the old app's uninstaller and does not wait for it.
+            $deadline = (Get-Date).AddSeconds(90)
+            while ((Test-Path "$apps\$($old.Name)") -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 3 }
+            if (Test-Path "$apps\$($old.Name)") { $problems += "$($old.Name) is still installed next to $($new.Name)." }
+            foreach ($place in @(@('Start menu', $startMenu), @('desktop', $desktop))) {
+              if (Test-Path (Join-Path $place[1] "$($old.Name).lnk")) {
+                $problems += "The $($place[0]) still has a $($old.Name) shortcut, which opens the old app."
+              }
+            }
+          }
+
+          $title = "Update from $($old.Name) $($old.Version) to $($new.Name) $($new.Version)"
+          if ($problems) {
+            "### $title`: FAILED`n" + (($problems | ForEach-Object { "- $_" }) -join "`n") >> $env:GITHUB_STEP_SUMMARY
+            $problems | ForEach-Object { Write-Host "::error::$_" }
+            exit 1
+          }
+          "### $title`: OK`nShortcuts open $($new.Name), the app list shows $($new.Version)." >> $env:GITHUB_STEP_SUMMARY
+
+  # The updater installs a .deb with `pkexec dpkg -i` and an .rpm with
+  # `pkexec rpm -U` (tauri-plugin-updater 2.10.1, install_deb / install_rpm):
+  # no dependency is installed, and a package with another name stays unless
+  # the new one replaces it. The old app then restarts itself by its old path.
+  linux-deb:
+    name: Linux .deb, from ${{ matrix.from }}
+    needs: pick
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        from: [previous, v2026.08.11]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      TO_TAG: ${{ needs.pick.outputs.to }}
+      FROM_TAG: ${{ matrix.from == 'previous' && needs.pick.outputs.previous || matrix.from }}
+    steps:
+      - name: Install the old version, update it, look
+        run: |
+          set -euo pipefail
+          asset() { gh release view "$1" --repo "$REPO" --json assets \
+            --jq ".assets[].name | select(endswith(\"$2\")) | select(contains(\"cuda\") | not)" | head -n1; }
+          old=$(asset "$FROM_TAG" _amd64.deb); new=$(asset "$TO_TAG" _amd64.deb)
+          [ -n "$old" ] && [ -n "$new" ] || { echo "::error::No .deb on $FROM_TAG or $TO_TAG."; exit 1; }
+          gh release download "$FROM_TAG" --repo "$REPO" --pattern "$old" --dir old
+          gh release download "$TO_TAG" --repo "$REPO" --pattern "$new" --dir new
+          old_pkg=$(dpkg-deb -f "old/$old" Package)
+          new_pkg=$(dpkg-deb -f "new/$new" Package)
+          new_ver=$(dpkg-deb -f "new/$new" Version)
+
+          # How the person installed it: apt, which brings the dependencies.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "./old/$old" > /dev/null
+          old_desktop=$(dpkg -L "$old_pkg" | grep '^/usr/share/applications/.*\.desktop$' || true)
+          old_bin="/usr/bin/$({ grep -h -m1 '^Exec=' $old_desktop /dev/null || true; } | cut -d= -f2 | cut -d' ' -f1)"
+
+          problems=()
+          if ! sudo dpkg -i "new/$new" > dpkg.log 2>&1; then
+            problems+=("dpkg -i, which the in-app updater runs, failed (a new required dependency?): $(grep -m1 'depends on' dpkg.log || tail -n1 dpkg.log)")
+          fi
+          status=$(dpkg-query -W -f='${Status} ${Version}' "$new_pkg" 2>/dev/null || true)
+          [ "$status" = "install ok installed $new_ver" ] ||
+            problems+=("$new_pkg $new_ver is not installed after the update (dpkg says: ${status:-nothing}).")
+          if [ "$old_pkg" != "$new_pkg" ]; then
+            if dpkg-query -W -f='${Status}' "$old_pkg" 2>/dev/null | grep -q 'ok installed'; then
+              problems+=("$old_pkg is still installed next to $new_pkg: two apps in the menu.")
+            fi
+            for f in $old_desktop; do [ ! -e "$f" ] || problems+=("The menu still has the old app ($f)."); done
+            owner=$(dpkg -S "$old_bin" 2>/dev/null | cut -d: -f1 || true)
+            if [ "$owner" != "$new_pkg" ] || [ ! -x "$old_bin" ]; then
+              problems+=("$old_bin, which the old app restarts after updating, does not open $new_pkg: the app closes and nothing opens.")
+            fi
+          fi
+
+          title="Update from $old_pkg ($FROM_TAG) to $new_pkg $new_ver ($TO_TAG), .deb"
+          if [ ${#problems[@]} -gt 0 ]; then
+            { echo "### $title: FAILED"; printf -- '- %s\n' "${problems[@]}"; } >> "$GITHUB_STEP_SUMMARY"
+            printf '::error::%s\n' "${problems[@]}"
+            exit 1
+          fi
+          echo "### $title: OK" >> "$GITHUB_STEP_SUMMARY"
+
+  linux-rpm:
+    name: Linux .rpm, from ${{ matrix.from }}
+    needs: pick
+    runs-on: ubuntu-22.04
+    container: fedora:latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        from: [previous, v2026.08.11]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      TO_TAG: ${{ needs.pick.outputs.to }}
+      FROM_TAG: ${{ matrix.from == 'previous' && needs.pick.outputs.previous || matrix.from }}
+    steps:
+      - name: Install the old version, update it, look
+        run: |
+          set -euo pipefail
+          dnf install -y -q gh > /dev/null
+          asset() { gh release view "$1" --repo "$REPO" --json assets \
+            --jq ".assets[].name | select(endswith(\"$2\")) | select(contains(\"cuda\") | not)" | head -n1; }
+          old=$(asset "$FROM_TAG" .x86_64.rpm); new=$(asset "$TO_TAG" .x86_64.rpm)
+          [ -n "$old" ] && [ -n "$new" ] || { echo "::error::No .rpm on $FROM_TAG or $TO_TAG."; exit 1; }
+          gh release download "$FROM_TAG" --repo "$REPO" --pattern "$old" --dir old
+          gh release download "$TO_TAG" --repo "$REPO" --pattern "$new" --dir new
+          old_pkg=$(rpm -qp --qf '%{NAME}' "old/$old" 2>/dev/null)
+          new_pkg=$(rpm -qp --qf '%{NAME}' "new/$new" 2>/dev/null)
+          new_ver=$(rpm -qp --qf '%{VERSION}' "new/$new" 2>/dev/null)
+
+          # How the person installed it: dnf, which brings the dependencies.
+          dnf install -y -q --nogpgcheck "./old/$old" > /dev/null
+          old_desktop=$(rpm -ql "$old_pkg" | grep '^/usr/share/applications/.*\.desktop$' || true)
+          old_bin="/usr/bin/$({ grep -h -m1 '^Exec=' $old_desktop /dev/null || true; } | cut -d= -f2 | cut -d' ' -f1)"
+
+          problems=()
+          # A beta of an already released version is the same version, which
+          # rpm -U refuses; the updater never offers that, so reinstall instead.
+          same=()
+          [ "$old_pkg" != "$new_pkg" ] || [ "$(rpm -q --qf '%{VERSION}' "$old_pkg")" != "$new_ver" ] || same=(--replacepkgs)
+          if ! rpm -U "${same[@]}" "new/$new" > rpm.log 2>&1; then
+            problems+=("rpm -U, which the in-app updater runs, failed (a new required dependency?): $(grep -v -m1 NOKEY rpm.log || true)")
+          fi
+          ver=$(rpm -q --qf '%{VERSION}' "$new_pkg" 2>/dev/null || true)
+          [ "$ver" = "$new_ver" ] || problems+=("$new_pkg $new_ver is not installed after the update (rpm says: ${ver:-nothing}).")
+          if [ "$old_pkg" != "$new_pkg" ]; then
+            if rpm -q "$old_pkg" > /dev/null 2>&1; then
+              problems+=("$old_pkg is still installed next to $new_pkg: two apps in the menu.")
+            fi
+            for f in $old_desktop; do [ ! -e "$f" ] || problems+=("The menu still has the old app ($f)."); done
+            owner=$(rpm -qf --qf '%{NAME}' "$old_bin" 2>/dev/null || true)
+            if [ "$owner" != "$new_pkg" ] || [ ! -x "$old_bin" ]; then
+              problems+=("$old_bin, which the old app restarts after updating, does not open $new_pkg: the app closes and nothing opens.")
+            fi
+          fi
+
+          title="Update from $old_pkg ($FROM_TAG) to $new_pkg $new_ver ($TO_TAG), .rpm"
+          if [ ${#problems[@]} -gt 0 ]; then
+            { echo "### $title: FAILED"; printf -- '- %s\n' "${problems[@]}"; } >> "$GITHUB_STEP_SUMMARY"
+            printf '::error::%s\n' "${problems[@]}"
+            exit 1
+          fi
+          echo "### $title: OK" >> "$GITHUB_STEP_SUMMARY"

@@ -26,7 +26,7 @@ the old vault format have both hidden first-run bugs before.
 The release workflow builds `Cinderpaw_<version>_x64-setup.exe` (NSIS) and
 the `.msi` on a tag; take the `-setup.exe` from the GitHub release, or from
 the `cinderpaw-windows-unsigned` artifact of the run if the tag is not cut
-yet. A local `bun tauri build` produces the same file under
+yet. A local `cargo tauri build` produces the same file under
 `target/release/bundle/nsis/` and takes about an hour on a laptop.
 
 ## The run
@@ -49,8 +49,8 @@ write down the exact text on screen (or "nothing"), and the step.
    silence, a spinner, or a stack trace.
 5. **Pick a cloud provider and paste a key.** Expected: the key is accepted
    or rejected with a sentence; on accept, one test message gets a reply.
-6. **Open Connectors.** Expected: 18 cards enabled, 3 marked coming soon
-   (iMessage, Tlon, Zalo personal). Open LINE: the card text names the
+6. **Open Settings → Accounts.** Expected: 21 cards, none marked coming
+   soon. Open LINE: the card text names the
    port (18790) and the path (`/connectors/line`) BEFORE any field is
    filled.
 7. **Enable Telegram with an empty allowlist.** Expected: the card or the

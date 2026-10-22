@@ -102,9 +102,10 @@ test("the drawer is sorted by what a task needs to move forward, not by what is 
     expect(isCoreTool(search)).toBe(true);
   }
 
-  // 583 tokens on every call, reached for about once a month. The single
-  // clearest example of the rule.
-  expect(isExtendedTool("tool_forge")).toBe(true);
+  // `tool_forge` was the poster child of this rule, and is core again: the
+  // agent never tried it on problems it could build a tool for. Seen is not
+  // enough on its own; its description opens with when to use it (tiers.ts).
+  expect(isCoreTool("tool_forge")).toBe(true);
   for (const rare of ["git_branch", "git_commit", "git_log"]) {
     expect(isExtendedTool(rare)).toBe(true);
   }

@@ -322,6 +322,12 @@ function QuestionBlock({
         <p className="text-sm text-text-primary font-medium">{question.question}</p>
       </div>
 
+      {question.preview && (
+        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border-default bg-bg-primary p-2 text-xs font-mono text-text-secondary">
+          {question.preview}
+        </pre>
+      )}
+
       {/* Answered: compact summary */}
       {disabled && answer && (
         <div className="text-xs text-text-muted flex items-center gap-1.5">

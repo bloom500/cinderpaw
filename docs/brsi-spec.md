@@ -600,10 +600,12 @@ target).**
   on its own (at most one per 24 h) and holds anything that loosens for a
   human approval record. Nothing in the dream cycle writes a proposal.
 - **L6 runs only when a human runs it** (`cinderpaw meta evolve`); nothing
-  schedules it. That is the human gate today. `approvals.l6Evolve` in the
-  policy is read by nobody: `governanceCheck("l6_evolve")` has no caller,
-  and `meta-evolution.ts` reads `frozen.l6` itself. Setting the flag changes
-  nothing until something schedules L6 and asks `governanceCheck` first.
+  schedules it. `MetaEvolution.evolve()` enforces it: when
+  `approvals.l6Evolve` is true (the genesis default since 5 Oct 2026) a
+  call must name who started it, which `dispatch.ts` does for the CLI
+  (`"operator"`); a scheduled call names no one and is refused with the
+  reason. `frozen.l6` still refuses evolve outright; a rollback while
+  frozen needs `authorizedBy`.
 
 Promotion gate between layers (must hold):
 

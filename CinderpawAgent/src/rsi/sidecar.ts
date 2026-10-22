@@ -43,7 +43,7 @@ import { makeInvokeAgent, type InvokeRouter } from "./infra/invoke-agent.ts";
 import { builtinPlanSteps, itemsToHits, liveSeamAdapter, repliesToSteps } from "./l4-modules/seam-runtime.ts";
 import { spawnModuleHost } from "./l4-modules/module-host-client.ts";
 import { selectCrossoverPairs } from "./l1-config/crossover-selection.ts";
-import { cfgPath, readEnv } from "../config.ts";
+import { cfgBool, cfgPath, readEnv } from "../config.ts";
 import { PopulationManager, type GenomeSpec } from "./l1-config/population-manager.ts";
 import { EventBus } from "./infra/event-bus.ts";
 import { TasteMiner, makeTasteDeps } from "./l1-config/taste-miner.ts";
@@ -51,7 +51,9 @@ import type { GenomeConfig } from "./l1-config/genome.ts";
 import type { EvalKind, EvalExpected } from "./infra/eval-spec.ts";
 import { STRATEGY_SEED_VERSION, STRATEGY_SEEDS } from "./l1-config/strategy-seeds.ts";
 import { PROMPT_STYLE_POOL } from "./l1-config/prompt-pool.ts";
-import { blendedPricePer1kUsd } from "./infra/rsi-cost.ts";
+import { blendedPricePer1kUsd, priceResolverFromJson } from "./infra/rsi-cost.ts";
+import { InferenceSpendAuthority } from "../egress/inference-spend-authority.ts";
+import { DEFAULT_BUDGET_CAPS } from "./infra/budget.ts";
 import { evaluateGate } from "./infra/confidence.ts";
 import { recentToolCalls, recentFeedback, recentTaskOutcomes } from "../egress/audit-log.ts";
 import { PbtController, type StrategyGenome } from "./l1-config/pbt-controller.ts";
@@ -161,7 +163,7 @@ export interface RsiSidecarDeps {
    *  engine is torn down. The Dream Cycle scheduler uses this to enter
    *  its sleep/cooldown window; `stats` (present on a normal stop) lets
    *  the host append per-episode telemetry. */
-  onIdle?: (stats?: RsiRunStats) => void;
+  onIdle?: (stats?: RsiRunStats, spendAuthority?: InferenceSpendAuthority) => void;
   /** Optional: called when the engine ratchets a new best genome (the
    *  Crux). The host maps the record's config onto the live agent so
    *  the evolved configuration actually reaches the agent the user
@@ -202,6 +204,8 @@ export interface RsiSidecarDeps {
   /** Sidecar singleton — one per process. */
 export class RsiSidecar {
   private engine: RsiEngine | null = null;
+  private spendAuthority: InferenceSpendAuthority | null = null;
+  private runAbort: AbortController | null = null;
   private tasteMiner: TasteMiner | null = null;
   private mirrors: Array<() => void> = [];
 
@@ -351,6 +355,7 @@ export class RsiSidecar {
 
       const invokeAgent = makeInvokeAgent({
         router: this.deps.router,
+        ...(this.spendAuthority ? { spendAuthority: this.spendAuthority } : {}),
         contextBudget: this.evalTokenBudget(),
         getSystemPrompt: (id) => this.evalSystemPrompt(id),
         // The module's seam differs between runs; every other seam keeps
@@ -465,6 +470,21 @@ export class RsiSidecar {
     const scoreGenome = makeScoreGenomeAdapter({ bridge: this.deps.bridge, log: this.deps.log });
     const getSpecs = makeGetSpecs({ fetchTier0: this.fetchTier0() });
 
+    // One authority covers the whole run, including concurrent genomes and
+    // decomposition sub-calls. The router snapshots the live primary/fallback
+    // on each request, so a hot-swap cannot inherit a boot-time price. Unknown
+    // cloud models fail closed; loopback is recognized as free by the authority.
+    const spendAuthority = opts.maxTotalCostUsd !== undefined
+      ? new InferenceSpendAuthority({
+          maxCostUsd: opts.maxTotalCostUsd,
+          allowCloud: cfgBool("CINDERPAW_RSI_ALLOW_CLOUD"),
+          price: priceResolverFromJson(cfgPath("CINDERPAW_AUTONOMOUS_PRICING_JSON")),
+        })
+      : undefined;
+    this.spendAuthority = spendAuthority ?? null;
+    const runAbort = new AbortController();
+    this.runAbort = runAbort;
+
     // Empty-response telemetry. A model that returns empty/whitespace
     // content makes every eval score ~0 (validateOutcome fails) while
     // the engine keeps running — a silent "running but learning
@@ -479,6 +499,8 @@ export class RsiSidecar {
     const breaker = this.emptyResponseBreaker();
     const baseInvokeAgent = makeInvokeAgent({
       router: this.deps.router,
+      ...(spendAuthority ? { spendAuthority } : {}),
+      signal: runAbort.signal,
       contextBudget: this.evalTokenBudget(),
       getSystemPrompt: (id) => this.evalSystemPrompt(id),
       // L4 planner seam (§1.2): eval decomposition consults the live seam —
@@ -547,7 +569,15 @@ export class RsiSidecar {
         throw err;
       }
     };
-    const runEval = makeRunEval({ getSpecs, invokeAgent, log: this.deps.log });
+    const runEval = makeRunEval({
+      getSpecs,
+      invokeAgent,
+      signal: runAbort.signal,
+      abort: (reason) => {
+        if (!runAbort.signal.aborted) runAbort.abort(reason);
+      },
+      log: this.deps.log,
+    });
 
     // ── Crossover wiring (LCA over the bridge) ────────────────────────
     const lca = makeLcaAdapter({ bridge: this.deps.bridge, pop });
@@ -667,6 +697,11 @@ export class RsiSidecar {
         ...(opts.maxTotalCostUsd !== undefined ? { maxTotalCostUsd: opts.maxTotalCostUsd } : {}),
         ...(opts.maxWallClockMs !== undefined ? { maxWallClockMs: opts.maxWallClockMs } : {}),
         ...(opts.plateauIterations !== undefined ? { plateauPatience: opts.plateauIterations } : {}),
+        signal: runAbort.signal,
+        abort: (reason) => {
+          if (!runAbort.signal.aborted) runAbort.abort(reason);
+        },
+        ...(spendAuthority ? { currentCostUsd: () => spendAuthority.spentUsd } : {}),
         pricePer1kUsd,
       },
       evalDeps: { runEval, scoreGenome },
@@ -694,6 +729,13 @@ export class RsiSidecar {
         // The gate's baseline outlives the engine: without it the first
         // candidate of every episode bypassed I6 (each episode is a new engine).
         ...(persistedChampion?.outcomes?.length ? { championOutcomes: persistedChampion.outcomes } : {}),
+        budgetCaps: {
+          ...DEFAULT_BUDGET_CAPS,
+          tokens: opts.maxTotalTokens,
+          wallClockMin: opts.maxWallClockMs !== undefined
+            ? opts.maxWallClockMs / 60_000
+            : DEFAULT_BUDGET_CAPS.wallClockMin,
+        },
         // §2.10 personal fitness: recent tool-call outcomes + thumbs feedback
         // → a real userSatisfaction in each candidate's Journal row. Observed
         // only — the deploy leaf still hands the ratchet the raw score.
@@ -850,7 +892,10 @@ export class RsiSidecar {
         // final evolved state. Also mkdir's ~/.cinderpaw/rsi/, so the
         // telemetry append below lands even on the first cold episode.
         writePopulationSnapshot(snapshotPath, engine.pop.snapshot());
+        const completedSpendAuthority = this.spendAuthority ?? undefined;
         this.engine = null;
+        this.spendAuthority = null;
+        this.runAbort = null;
         for (const off of this.mirrors) off();
         this.mirrors = [];
         this.deps.onIdle?.({
@@ -862,7 +907,7 @@ export class RsiSidecar {
           errors: result.errors,
           emptyResponses,
           ...(abortedForEmptyResponses ? { abortedForEmptyResponses: true } : {}),
-        });
+        }, completedSpendAuthority);
       },
       (err) => {
         const detail = err instanceof Error ? err.message : String(err);
@@ -876,10 +921,13 @@ export class RsiSidecar {
         } else {
           this.deps.log?.(`rsi dream: background episode failed (logged, not surfaced): ${detail}`);
         }
+        const failedSpendAuthority = this.spendAuthority ?? undefined;
         this.engine = null;
+        this.spendAuthority = null;
+        this.runAbort = null;
         for (const off of this.mirrors) off();
         this.mirrors = [];
-        this.deps.onIdle?.({ iterations: 0, tokens: 0, stopReason: "error", ratchets: ratchetCount, confidenceRejections, errors: [detail], emptyResponses, ...(abortedForEmptyResponses ? { abortedForEmptyResponses: true } : {}) });
+        this.deps.onIdle?.({ iterations: 0, tokens: 0, stopReason: "error", ratchets: ratchetCount, confidenceRejections, errors: [detail], emptyResponses, ...(abortedForEmptyResponses ? { abortedForEmptyResponses: true } : {}) }, failedSpendAuthority);
       },
     );
   }
@@ -895,6 +943,8 @@ export class RsiSidecar {
       return;
     }
     this.engine.gm.stop();
+    if (!this.runAbort?.signal.aborted) this.runAbort?.abort("UserStopped");
+    this.spendAuthority?.stop("user stopped RSI run");
     // The ack for `stopped` is emitted by the engine's run() promise
     // resolution — we don't double-ack here. But if the host passed an
     // id we surface an early "ack received" hint so a tight UI loop

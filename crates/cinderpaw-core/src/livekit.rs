@@ -57,6 +57,16 @@ struct Ports {
     worker: u16,
 }
 
+/// The installed app has no console, so on Windows every console program it
+/// starts (node, npm, the LiveKit server) opened a black terminal window of its
+/// own: beta.1 showed them on entering voice and two more on every call. Dev
+/// never does, because `cargo tauri dev` runs in a terminal they share.
+fn no_console(cmd: &mut Command) -> &mut Command {
+    #[cfg(windows)]
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    cmd
+}
+
 /// Ask the OS for a free TCP port by binding to 0 and letting go.
 ///
 /// There is a window between letting go and the server binding it, and nothing
@@ -200,6 +210,30 @@ pub struct S2sProvider {
 /// would need a chain we assemble and then maintain, which is the thing this
 /// migration exists to stop doing — see `docs/voice-livekit.md`.
 pub const S2S_PROVIDERS: &[S2sProvider] = &[
+    // OpenAI first: the order is the default for a call nobody picked a
+    // vendor for (`resolve_provider` takes the first with a key, and the
+    // call screen mirrors it). On 14 Oct GPT-Live ran a whole agent task
+    // flawlessly while Gemini's native-audio models dropped calls and cut
+    // last words (a known Google-side problem), so OpenAI is the
+    // recommended one. A stored pick of Gemini is still honoured.
+    S2sProvider {
+        id: "openai",
+        label: "OpenAI Realtime",
+        plugin: "@livekit/agents-plugin-openai",
+        // GPT-Live: ChatGPT's own full-duplex voice in the API (10 Sep 2026).
+        // It listens while it talks and keeps the conversation going while a
+        // tool runs, which is what the realtime models needed a filler for.
+        // A `gpt-realtime` id picked in the model list still runs as before.
+        model: "gpt-live-1",
+        voice: "marin",
+        // GPT-Live's names (plugin 1.9.0 and the launch list). A stored
+        // realtime-only voice falls back to `marin`, which both models have.
+        voices: &[
+            "marin", "cinder", "aster", "beacon", "stone", "vesper", "quartz", "ripple", "willow", "gleam",
+            "meridian", "bossa", "tempo", "delta",
+        ],
+        pipeline: false,
+    },
     S2sProvider {
         id: "google",
         label: "Gemini Realtime",
@@ -210,15 +244,6 @@ pub const S2S_PROVIDERS: &[S2sProvider] = &[
         model: "gemini-2.5-flash-native-audio-latest",
         voice: "Kore",
         voices: &["Kore", "Puck", "Charon", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr"],
-        pipeline: false,
-    },
-    S2sProvider {
-        id: "openai",
-        label: "OpenAI Realtime",
-        plugin: "@livekit/agents-plugin-openai",
-        model: "gpt-realtime",
-        voice: "marin",
-        voices: &["marin", "cedar", "alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"],
         pipeline: false,
     },
     // The pipeline, assembled from parts that already ship in this binary.
@@ -890,7 +915,7 @@ pub(crate) async fn ensure_agent(
     // left the person on the call screen with a spinner and no sentence,
     // for as long as they cared to wait. Five minutes is generous for four
     // packages on a slow line, and the message says what to check.
-    let child = Command::new(npm)
+    let child = no_console(&mut Command::new(npm))
         .args(["install", "--no-audit", "--no-fund"])
         .args(&specs)
         .current_dir(&root)
@@ -981,7 +1006,13 @@ pub async fn start(
     // model is simply told the door is shut.
     runtime: Option<Arc<crate::runtime::RuntimeState>>,
 ) -> Result<Session, String> {
-    let node = crate::toolchain::find_node().ok_or_else(|| "livekit-no-node".to_string())?;
+    // A stranger's machine has no Node. The first call fetches a pinned copy,
+    // the same way it fetches the server binary below; asking a person to go
+    // install a runtime first is how voice stayed broken on every fresh install.
+    let node = match crate::toolchain::find_node() {
+        Some(node) => node,
+        None => crate::toolchain::fetch_node().await?,
+    };
 
     // A build with no on-device transcriber used to start a local call anyway:
     // the room opened, the microphone was published, the overlay showed a
@@ -1027,7 +1058,7 @@ pub async fn start(
     // six of them.
     reap_orphan_server();
 
-    let mut server = Command::new(&server_bin)
+    let mut server = no_console(&mut Command::new(&server_bin))
         .arg("--config")
         .arg(&cfg)
         .stdout(Stdio::null())
@@ -1201,9 +1232,19 @@ pub async fn start(
             // tool in JavaScript would be a second description of the same door
             // — and that description is load-bearing prose that was rewritten
             // after a measurement, not boilerplate.
+            // Gemini gets its own Google Search in the worker (`geminiTools`),
+            // so its door is described without "the only way to the web".
             .env(
                 "CINDERPAW_LIVE_TOOLS",
-                serde_json::to_string(&crate::live::bridge::declarations()).unwrap_or_else(|_| "[]".into()),
+                serde_json::to_string(&crate::live::bridge::declarations_for(p.id == "google"))
+                    .unwrap_or_else(|_| "[]".into()),
+            )
+            // For the reopen when Google refuses its search: the doors without
+            // "use your own Google Search".
+            .env(
+                "CINDERPAW_LIVE_TOOLS_NO_SEARCH",
+                serde_json::to_string(&crate::live::bridge::declarations_for(false))
+                    .unwrap_or_else(|_| "[]".into()),
             );
         // Where to send a tool call, and the credential for it. The API server
         // is already listening on loopback for the sidecar; this reuses it
@@ -1213,7 +1254,7 @@ pub async fn start(
                 .env("CINDERPAW_API_TOKEN", rt.local_api_token.as_ref());
         }
     }
-    let mut agent = cmd.spawn().map_err(|e| format!("cannot start the voice agent: {e}"))?;
+    let mut agent = no_console(&mut cmd).spawn().map_err(|e| format!("cannot start the voice agent: {e}"))?;
 
     // Both pipes are drained from the moment the child exists, and that is a
     // correctness requirement rather than tidiness. stderr used to be read only
@@ -1494,14 +1535,12 @@ mod tests {
         }
     }
 
-    /// The call must not go silent while a tool runs.
+    /// The pipeline call must not go silent while a tool runs.
     ///
-    /// The brief already asks the model to keep talking, at length, and on every
-    /// vendor except Gemini's native-audio model it CANNOT: the tool call runs
-    /// inside the turn, so the model is not choosing silence, it is unable to
-    /// speak. Thirty seconds of that is indistinguishable from a dropped call,
-    /// which is why the filler is spoken by the worker rather than asked of the
-    /// model, and why no prompt change can replace it.
+    /// Its model is blocked while a tool runs, so the filler is spoken by the
+    /// worker rather than asked of the model. A realtime vendor is not: Gemini
+    /// answers mid-tool, and gpt-realtime calls functions asynchronously, so
+    /// it gets no second voice (6 Oct; see the test below).
     #[test]
     fn the_worker_speaks_for_itself_while_a_tool_is_running() {
         let agent = include_str!("livekit_agent.mjs");
@@ -1518,6 +1557,45 @@ mod tests {
             agent.contains("CINDERPAW_LIVE_LANGUAGE"),
             "the worker cannot know the language it should speak in",
         );
+    }
+
+    /// The four failures of the 6 Oct call review, each pinned by the line
+    /// that caused it. String checks, like the tests above, because the worker
+    /// only runs inside a live call.
+    #[test]
+    fn the_worker_asks_as_the_person_and_survives_a_dropped_line() {
+        let agent = include_str!("livekit_agent.mjs");
+        // Piper is on no release build, so naming it was an error per filler.
+        assert!(!agent.contains("|| 'piper'"), "the worker assumes an engine Rust never named");
+        // And a realtime vendor speaks in its own voice only: a local voice
+        // attached to it talked over the model as a second person.
+        assert!(!agent.contains("LocalTTS(null)"), "a realtime call has a second, local voice");
+        // A Gemini 3.8 model recites a turn handed to it as its own: the
+        // English search answer read out before the Romanian reply.
+        for recited in ["generateReply({ instructions: text })", "generateReply({ instructions: String(msg.text) })"] {
+            assert!(!agent.contains(recited), "{recited} hands Gemini a turn as the model's own");
+        }
+        assert!(agent.contains("role: 'user'"), "nothing asks the model as the person");
+        // The SDK's own userInput path sends an empty turn list on 3.x and mutes the call.
+        assert!(!agent.contains("generateReply({ userInput: String(msg.text) })"), "typed text mutes a 3.x call");
+        // A vendor that drops the line (1011) gets a new session, not a dead call.
+        assert!(agent.contains("MAX_REOPENS") && agent.contains("TRANSIENT_CODES"), "a dropped line ends the call");
+        // A lookup still running is not started a second time.
+        assert!(agent.contains("inFlight > 0"), "the guard duplicates a running lookup");
+    }
+
+    /// The two simpler paths from the 6 Oct comparison with ChatGPT, Gemini,
+    /// OpenClaw and Hermes: GPT-Live on OpenAI, Google's own search on Gemini.
+    #[test]
+    fn openai_runs_on_gpt_live_and_gemini_searches_on_its_own() {
+        let openai = provider_by_id("openai").unwrap();
+        assert_eq!(openai.model, "gpt-live-1");
+        assert!(openai.voices.contains(&openai.voice), "the default voice is not in its own list");
+        let agent = include_str!("livekit_agent.mjs");
+        assert!(agent.contains("GPTLiveModel"), "OpenAI still runs on a realtime model");
+        assert!(agent.contains("googleSearch: {}"), "Gemini sends every quick fact the long way round");
+        // Its own searches have to count as a search, or the guard starts a second one.
+        assert!(agent.contains("groundingMetadata") && agent.contains("turn.called = true"));
     }
 
     /// What entering a call actually costs, on this machine, with the real

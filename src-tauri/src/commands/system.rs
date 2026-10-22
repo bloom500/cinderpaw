@@ -32,6 +32,15 @@ pub(crate) fn get_local_api_token(state: State<'_, AppState>) -> String {
     state.local_api_token.to_string()
 }
 
+/// The port the local API really listens on: `api_port` from settings, unless
+/// that was taken at launch and the API bound a free one (boot.rs). The UI
+/// wrote `localhost:11435` into four places and lost local models then.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn get_local_api_port(state: State<'_, AppState>) -> u16 {
+    state.runtime.effective_api_port()
+}
+
 // ---------- Onboarding record (persisted in ~/.cinderpaw/) ----------
 
 /// Path of the onboarding JSON written/read by `get_onboarding_record` /
@@ -47,20 +56,11 @@ pub(crate) fn get_local_api_token(state: State<'_, AppState>) -> String {
 ///   2. We only need 2 ops (read whole file, write whole file) — a plugin
 ///      is overkill
 fn onboarding_path() -> Option<std::path::PathBuf> {
-    // USERPROFILE on Windows, HOME elsewhere. Fall back to dirs::cache_dir
-    // only as a last resort — home is what we want.
-    let home = std::env::var("USERPROFILE")
-        .ok()
-        .or_else(|| std::env::var("HOME").ok());
-    // The home folder moved with the rename. Left hard-coded, this read the
-    // onboarding record from the OLD folder while everything else wrote to the
-    // new one — so a person who had finished onboarding was asked to do it
-    // again, on a machine where the answer was sitting one directory over.
-    home.map(|h| {
-        std::path::PathBuf::from(h)
-            .join(cinderpaw_core::brand::APP_HOME_DIR_NAME)
-            .join("onboarding.json")
-    })
+    // The same folder as everything else, CINDERPAW_HOME included. Built by hand
+    // from USERPROFILE, this wrote the record outside a relocated home while the
+    // agent (user-loader.ts) read it inside, so the name a person picked never
+    // reached the agent (19 Oct). The rename bug before it was the same shape.
+    Some(cinderpaw_core::paths::cinderpaw_dir().join("onboarding.json"))
 }
 
 #[derive(serde::Serialize, serde::Deserialize, specta::Type, Debug, Clone)]
@@ -177,7 +177,7 @@ const INSTALL_COUNT_URL: &str = "https://cinderpaw-bug-report.bloommediacorporat
 /// Written once, and never again, whatever the answer was.
 ///
 /// Its CONTENTS are the point: it holds the exact line that was sent, or the
-/// word `declined`. "We only send a version and an OS" is a claim; a file on
+/// word `declined`. "We only send a version, an OS and the source you picked" is a claim; a file on
 /// the person's own disk saying what left is a thing they can check. Promise 4
 /// in PROMISES.md points at this path.
 fn install_marker() -> std::path::PathBuf {
@@ -197,15 +197,17 @@ fn install_marker() -> std::path::PathBuf {
 /// to them.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn count_install(send: bool) -> Result<(), String> {
+pub(crate) async fn count_install(send: bool, heard: Option<String>) -> Result<(), String> {
     let marker = install_marker();
     if marker.exists() {
         return Ok(()); // counted (or declined) on a previous first run
     }
     let version = env!("CARGO_PKG_VERSION");
     let os = format!("{} {}", std::env::consts::OS, std::env::consts::ARCH);
+    let body = install_body(version, &os, heard.as_deref());
     let line = if send {
-        format!("sent {}\nversion={version}\nos={os}\n", chrono::Utc::now().to_rfc3339())
+        let heard_line = body.get("heard").and_then(|h| h.as_str()).map(|h| format!("heard={h}\n")).unwrap_or_default();
+        format!("sent {}\nversion={version}\nos={os}\n{heard_line}", chrono::Utc::now().to_rfc3339())
     } else {
         "declined\n".to_string()
     };
@@ -219,7 +221,6 @@ pub(crate) async fn count_install(send: bool) -> Result<(), String> {
     if !send {
         return Ok(());
     }
-    let body = serde_json::json!({ "version": version, "os": os });
     let _ = reqwest::Client::new()
         .post(INSTALL_COUNT_URL)
         .timeout(std::time::Duration::from_secs(10))
@@ -229,25 +230,55 @@ pub(crate) async fn count_install(send: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Where the person heard about Cinderpaw, picked from these words on the last
+/// setup screen, or nothing. A word not on this list is dropped, so the ping
+/// can never carry text somebody typed. Same list as the wizard's buttons and
+/// the worker's (`workers/bug-report/worker.js`).
+const HEARD_FROM: &[&str] = &[
+    "reddit", "youtube", "github", "discord", "instagram", "tiktok", "x", "hackernews", "friend", "other",
+];
+
+/// The whole install ping: a version, an OS, and, only if the person picked
+/// one, where they heard about Cinderpaw.
+fn install_body(version: &str, os: &str, heard: Option<&str>) -> serde_json::Value {
+    let mut body = serde_json::json!({ "version": version, "os": os });
+    if let Some(h) = heard.filter(|h| HEARD_FROM.contains(h)) {
+        body["heard"] = serde_json::json!(h);
+    }
+    body
+}
+
 #[cfg(test)]
 mod install_counter_tests {
-    /// The body is built in `count_install` from two constants; what matters is
-    /// that it carries nothing else. Pinned as a test because the failure mode
-    /// is somebody helpfully adding a machine id to "make the number better",
-    /// which is the exact promise this is allowed to exist under.
+    use super::install_body;
+
+    const OS: &str = "windows x86_64";
+
+    /// What matters is that the ping carries nothing else. Pinned as a test
+    /// because the failure mode is somebody helpfully adding a machine id to
+    /// "make the number better", which is the exact promise this is allowed to
+    /// exist under.
     #[test]
-    fn the_ping_carries_only_a_version_and_an_os() {
-        let body = serde_json::json!({
-            "version": env!("CARGO_PKG_VERSION"),
-            "os": format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
-        });
-        let object = body.as_object().unwrap();
-        let mut keys: Vec<&String> = object.keys().collect();
-        keys.sort();
-        assert_eq!(keys, vec!["os", "version"]);
+    fn the_ping_carries_only_a_version_an_os_and_a_picked_source() {
+        let keys = |b: serde_json::Value| {
+            let mut k: Vec<String> = b.as_object().unwrap().keys().cloned().collect();
+            k.sort();
+            k
+        };
+        assert_eq!(keys(install_body(env!("CARGO_PKG_VERSION"), OS, None)), vec!["os", "version"]);
+        let picked = install_body(env!("CARGO_PKG_VERSION"), OS, Some("reddit"));
+        assert_eq!(keys(picked.clone()), vec!["heard", "os", "version"]);
+        assert_eq!(picked["heard"], "reddit");
         // And no field is long enough to be smuggling anything.
-        for (_, v) in object {
+        for (_, v) in picked.as_object().unwrap() {
             assert!(v.as_str().unwrap().len() < 64);
+        }
+    }
+
+    #[test]
+    fn a_source_that_is_not_one_of_the_buttons_is_not_sent() {
+        for typed in ["Reddit", "my friend Ana", "reddit; id=42", ""] {
+            assert!(install_body("1", OS, Some(typed)).get("heard").is_none(), "{typed}");
         }
     }
 }

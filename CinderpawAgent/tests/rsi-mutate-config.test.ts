@@ -42,10 +42,10 @@ function grammar(over: Partial<MutationGrammar> = {}): MutationGrammar {
 
 describe("RSI mutateConfig", () => {
   test("mutates exactly one field, leaves the rest identical", () => {
-    // MUTABLE_FIELDS is derived from LIVE_REACH: [temperature, systemPromptId].
-    // Index 1 of 2 = systemPromptId: floor(0.72*2) = 1. Then resampleIndex
-    // over the pool of 5 consumes one more value: floor(0.6*5) = 3.
-    const g = grammar({ rng: seqRng([0.72, 0.6]) });
+    // MUTABLE_FIELDS is derived from LIVE_REACH: [temperature, systemPromptId,
+    // reasoningEffort]. Index 1 of 3 = systemPromptId: floor(0.5*3) = 1. Then
+    // resampleIndex over the pool of 5 consumes one more value: floor(0.6*5) = 3.
+    const g = grammar({ rng: seqRng([0.5, 0.6]) });
     const { child, field, mutationType } = mutateConfig(PARENT, g);
 
     expect(field).toBe("systemPromptId");
@@ -64,7 +64,7 @@ describe("RSI mutateConfig", () => {
   });
 
   test("temperature mutation respects the provider ceiling", () => {
-    // Index 0 of 2 = temperature: floor(0.2*2) = 0. Huge gaussian step.
+    // Index 0 of 3 = temperature: floor(0.2*3) = 0. Huge gaussian step.
     const g = grammar({ rng: seqRng([0.2]), gaussian: () => 100, maxTemperature: 1.0 });
     const { child, field } = mutateConfig(PARENT, g);
     expect(field).toBe("temperature");
@@ -75,7 +75,7 @@ describe("RSI mutateConfig", () => {
     // 13 Sep 2026: five of seven dimensions never reached the user, so eval
     // paid tokens to score noise. Whatever the rng draws, the child differs
     // from the parent only on a LIVE_REACH "applied" field.
-    expect(MUTABLE_FIELDS).toEqual(["temperature", "systemPromptId"]);
+    expect(MUTABLE_FIELDS).toEqual(["temperature", "systemPromptId", "reasoningEffort"]);
     let x = 0.017;
     const rng = () => (x = (x * 9301 + 49297) % 233280) / 233280;
     for (let i = 0; i < 200; i++) {
@@ -106,5 +106,27 @@ describe("RSI mutateConfig", () => {
       expect(child.systemPromptId).toBeLessThan(5);
     }
     expect(categorical).toBeGreaterThan(50);
+  });
+
+  test("effort moves between the provider default and low/medium/high, never to itself", () => {
+    // 19 Oct 2026: current Claude models refuse temperature, so on Claude the
+    // only gene that reached the agent was the prompt style. Effort is the
+    // dial they do take. Absent = the provider default = the agent as shipped.
+    let x = 0.53;
+    const rng = () => (x = (x * 9301 + 49297) % 233280) / 233280;
+    const seen = new Set<string>();
+    for (const parent of [PARENT, { ...PARENT, reasoningEffort: "high" as const }]) {
+      for (let i = 0; i < 300; i++) {
+        const { child, field } = mutateConfig(parent, grammar({ rng }));
+        if (field !== "reasoningEffort") continue;
+        expect(child.reasoningEffort).not.toBe(parent.reasoningEffort);
+        expect([undefined, "low", "medium", "high"]).toContain(child.reasoningEffort);
+        // Back to the default is a missing key, not `undefined`, so its live
+        // projection (and parity hash) is the shipped agent's exactly.
+        if (child.reasoningEffort === undefined) expect("reasoningEffort" in child).toBe(false);
+        seen.add(String(child.reasoningEffort));
+      }
+    }
+    expect([...seen].sort()).toEqual(["high", "low", "medium", "undefined"]);
   });
 });

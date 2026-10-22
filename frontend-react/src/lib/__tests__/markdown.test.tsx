@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Markdown } from '../markdown';
+import { chunkRun } from '../emberLetters';
 
 describe('Markdown math', () => {
   it('draws a $$ block as a formula, not as text', () => {
@@ -25,4 +26,99 @@ describe('Markdown mermaid', () => {
     const { container } = render(<Markdown>{'```mermaid\ngraph TD; A-->B;\n```'}</Markdown>);
     expect(container.textContent).toContain('graph TD; A-->B;');
   });
+});
+
+describe('Markdown ember (live writing)', () => {
+  it('lights only the new letters, and keeps the old ones as the same DOM nodes', () => {
+    const r1 = [chunkRun(0, 'Hello', 0)];
+    const { container, rerender } = render(<Markdown ember={{ runs: r1, now: 10 }}>{'Hello'}</Markdown>);
+    const h = container.querySelector('.ember-word > span');
+    expect(h?.textContent).toBe('H');
+    expect(h?.className).toBe('ember-in');
+
+    const r2 = [...r1, chunkRun(5, ' world', 300)];
+    rerender(<Markdown ember={{ runs: r2, now: 310 }}>{'Hello world'}</Markdown>);
+    // Same element: React kept it, so its animation is not started again.
+    expect(container.querySelector('.ember-word > span')).toBe(h);
+    const lit = Array.from(container.querySelectorAll('.ember-in')).map((s) => s.textContent).join('');
+    expect(lit).toContain('world');
+  });
+
+  it('goes back to plain text once every letter has finished', () => {
+    const runs = [chunkRun(0, 'Hello', 0), chunkRun(5, ' world', 300)];
+    const { container } = render(<Markdown ember={{ runs, now: 5_000 }}>{'# Title\n\nHello world'}</Markdown>);
+    expect(container.querySelector('.ember-in, .ember-word')).toBeNull();
+    const plain = render(<Markdown>{'# Title\n\nHello world'}</Markdown>).container;
+    expect(container.innerHTML).toBe(plain.innerHTML);
+  });
+
+  it('finds a letter in a later block by its offset in the whole document', () => {
+    const { container } = render(<Markdown ember={{ runs: [chunkRun(9, 'Hello', 0)], now: 10 }}>{'# Title\n\nHello'}</Markdown>);
+    expect(Array.from(container.querySelectorAll('.ember-in')).map((s) => s.textContent).join('')).toBe('Hello');
+    expect(container.querySelector('h1 .ember-word')).toBeNull();
+  });
+
+  it('takes out the words an edit removes', () => {
+    const { container } = render(
+      <Markdown ember={{ runs: [], out: [[0, 5]], now: 0 }}>{'Seven days'}</Markdown>,
+    );
+    expect(Array.from(container.querySelectorAll('.ember-out')).map((s) => s.textContent).join('')).toBe('Seven');
+    expect(container.textContent).toBe('Seven days');
+  });
+});
+
+describe('Markdown in a document drafted in parts', () => {
+  it('draws a [[...]] paragraph as a grey line without its brackets', () => {
+    const { container } = render(<Markdown>{'## Pasta\n\n[[Pasta: 3 ingredients]]\n\nA real line [[not this]].'}</Markdown>);
+    const pending = container.querySelector('.md-placeholder');
+    expect(pending?.textContent).toBe('Pasta: 3 ingredients');
+    expect(container.querySelectorAll('.md-placeholder')).toHaveLength(1);
+  });
+
+  it('draws one inside a heading or a line in grey too, never with its brackets', () => {
+    const { container } = render(<Markdown>{'## 1. [[title of idea 1]]\n\nIngredients: [[for idea 1]] and salt.'}</Markdown>);
+    const inline = Array.from(container.querySelectorAll('.md-placeholder-inline')).map((s) => s.textContent);
+    expect(inline).toEqual(['title of idea 1', 'for idea 1']);
+    expect(container.textContent).not.toContain('[[');
+    expect(container.querySelector('p')?.textContent).toBe('Ingredients: for idea 1 and salt.');
+  });
+
+  it('a letter inside one still arrives at its place while written', () => {
+    const text = 'Ingredients: [[for idea 1]]';
+    const { container } = render(<Markdown ember={{ runs: [chunkRun(15, 'for', Date.now())], now: Date.now() }}>{text}</Markdown>);
+    const moving = Array.from(container.querySelectorAll('.md-placeholder-inline .ember-in')).map((s) => s.textContent).join('');
+    expect(moving).toBe('for');
+  });
+
+  it('puts a cursor with the writer name at the writing edge', () => {
+    const text = '# Plan\n\nDay one is';
+    const { container } = render(
+      <Markdown ember={{ runs: [chunkRun(13, ' is', Date.now())], now: Date.now(), caret: { at: text.length, name: 'Cinderpaw' } }}>{text}</Markdown>,
+    );
+    const caret = container.querySelectorAll('.ember-caret');
+    expect(caret).toHaveLength(1);
+    expect(caret[0]!.getAttribute('data-name')).toBe('Cinderpaw');
+    expect(caret[0]!.previousSibling?.textContent).toContain('is');
+  });
+});
+
+describe('Markdown expanded table', () => {
+  // Plain DOM queries: role queries walk the whole accessibility tree and took
+  // over 5 s here when the full suite ran beside it.
+  it('is a real dialog: Escape closes it and focus goes back to the button', async () => {
+    render(<Markdown>{'| a | b |\n|---|---|\n| 1 | 2 |'}</Markdown>);
+    const expand = screen.getByLabelText('Expand table');
+    expand.focus();
+    fireEvent.click(expand);
+    const dialog = await waitFor(() => {
+      const d = document.querySelector<HTMLElement>('[role="dialog"]');
+      expect(d).not.toBeNull();
+      return d!;
+    });
+    expect(dialog.getAttribute('aria-labelledby')).toBeTruthy();
+    expect(dialog.querySelector('table')).not.toBeNull();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(expand));
+  }, 15_000);
 });

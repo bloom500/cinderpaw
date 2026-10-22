@@ -5,6 +5,7 @@ import { tauri } from '@/lib/tauri';
 import { useNotifications } from '@/stores/notifications';
 import { useSettings } from '@/stores/settings';
 import { emberAvailability } from '@/components/chat/ember/emberAvailability';
+import { SoundSettings } from './SoundSettings';
 
 /**
  * Settings > Appearance (spec 7.4, canvas "Settings: appearance"): theme cards
@@ -99,6 +100,8 @@ export function AppearanceTab() {
   const setTheme = useUI((s) => s.setTheme);
   const chatFont    = useUI((s) => s.chatFont);
   const setChatFont = useUI((s) => s.setChatFont);
+  const glassEffects    = useUI((s) => s.glassEffects);
+  const setGlassEffects = useUI((s) => s.setGlassEffects);
   const mascotEnabled    = useUI((s) => s.mascotEnabled);
   const setMascotEnabled = useUI((s) => s.setMascotEnabled);
   const emberGameEnabled    = useUI((s) => s.emberGameEnabled);
@@ -131,6 +134,8 @@ export function AppearanceTab() {
   return (
     <div className="space-y-8">
       <h2 className="text-lg font-semibold text-text-primary">Appearance</h2>
+
+      <SoundSettings />
 
       <section className="space-y-3">
         <h3 className="text-sm font-semibold text-text-primary">Theme</h3>
@@ -192,6 +197,37 @@ export function AppearanceTab() {
           ]}
         />
       </section>
+
+      {/* The window above is the OS transparency. This one is every blur the
+          app paints itself (pane frost, composer refraction): off by default,
+          because a blur re-runs on every scrolled frame and the default is
+          what weak machines get. */}
+      <div className="flex max-w-[616px] items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-text-primary">Glass effects</p>
+          <p className="text-xs text-text-muted mt-0.5">
+            Blurred translucency over the wallpaper and the transcript. Off is faster.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={glassEffects}
+          aria-label="Toggle glass effects"
+          onClick={() => setGlassEffects(!glassEffects)}
+          className={cn(
+            'inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors',
+            glassEffects ? 'bg-brand hover:bg-brand-hover' : 'bg-border-default hover:bg-bg-hover',
+          )}
+        >
+          <span
+            className={cn(
+              'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200',
+              glassEffects ? 'translate-x-[18px]' : 'translate-x-[2px]',
+            )}
+          />
+        </button>
+      </div>
 
       <div className="flex max-w-[616px] items-center justify-between">
         <div>

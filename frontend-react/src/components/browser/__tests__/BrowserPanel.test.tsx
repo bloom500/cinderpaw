@@ -44,6 +44,22 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+describe('a narrow workspace', () => {
+  it('fills the workspace and switches between the page and the mounted chat', async () => {
+    const view = render(<BrowserPanel compact chat={<textarea aria-label="Chat draft" defaultValue="Keep my words" />} />);
+    expect(screen.queryByRole('separator', { name: 'Resize browser panel' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Back to split view' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Chat with Cinderpaw' }));
+    expect(screen.getByRole('textbox', { name: 'Chat draft' })).toHaveValue('Keep my words');
+    await waitFor(() => expect(ui).toHaveBeenCalledWith('set_bounds', { visible: false }));
+    fireEvent.click(screen.getByRole('button', { name: 'Hide chat' }));
+    expect(screen.queryByRole('textbox', { name: 'Chat draft' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Chat with Cinderpaw' }));
+    expect(screen.getByRole('textbox', { name: 'Chat draft' })).toHaveValue('Keep my words');
+    view.unmount();
+  });
+});
+
 describe('the browser panel', () => {
   it('opens what is typed into the address bar', async () => {
     render(<BrowserPanel />);

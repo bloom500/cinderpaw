@@ -63,21 +63,33 @@ export async function attachmentFromDomFile(file: File): Promise<AttachedFile> {
       return { name, path, content: null, error: String(err) };
     }
   }
+  // A document has no path here, so it never met the extractor a picked file
+  // goes through: a pasted CV was read with file.text(), came out as junk and
+  // reached the agent as "binary, no extractable text" (6 Oct 2026). Saved to
+  // a temp file first, it takes the picked-file road and the agent gets a path.
+  const viaFile = async () => {
+    const staged = await invoke<string>('stage_pasted_file', {
+      bytes: Array.from(new Uint8Array(await file.arrayBuffer())),
+      name: file.name || name,
+    });
+    return { ...(await attachmentFromPath(staged)), name: file.name || name };
+  };
   try {
+    if (DOCUMENT.test(file.name) || DOCUMENT_TYPES.includes(file.type)) return await viaFile();
     const content = await file.text();
-    // Pasted binaries (e.g. a copied .pdf) survive file.text() but come out
-    // as mojibake — detect the tell-tale replacement chars / NULs and fall
-    // back to a binary attachment note rather than feeding garbage.
+    // Other pasted binaries survive file.text() but come out as mojibake: the
+    // tell-tale replacement chars / NULs send them the file road too.
     const sample = content.slice(0, 2000);
     const junk = (sample.match(/[\uFFFD\u0000]/g) ?? []).length;
-    if (sample.length > 0 && junk / sample.length > 0.05) {
-      return { name: file.name || name, path, content: null, kind: 'binary' };
-    }
+    if (sample.length > 0 && junk / sample.length > 0.05) return await viaFile();
     return { name: file.name || name, path, content };
   } catch {
     return { name: file.name || name, path, content: null, kind: 'binary' };
   }
 }
+
+const DOCUMENT = /\.(pdf|docx|pptx|xlsx|odt)$/i;
+const DOCUMENT_TYPES = ['application/pdf'];
 
 /** Extract attachable files from a paste event. Returns [] for plain text pastes. */
 export async function attachmentsFromClipboard(

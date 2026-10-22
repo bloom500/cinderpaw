@@ -6,9 +6,11 @@ import {
 import { useChat } from '@/stores/chat';
 import { cn } from '@/lib/utils';
 import { MessageItem, ReplyHead } from './MessageItem';
+import { ChapterRail } from './ChapterRail';
 import { useResendTurn } from '@/hooks/useResendTurn';
 import { StreamingIndicator } from './StreamingIndicator';
 import { ApprovalCard } from './ApprovalCard';
+import { MetaProposalCard } from './MetaProposalCard';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
 import { SYSTEM_FONT, useUI } from '@/stores/ui';
 import { useChatDockHeight } from '@/lib/chatDock';
@@ -144,12 +146,16 @@ export function MessageList({ onFollowUp }: {
               </MessageScroller.Item>
             ))}
             {approvals.map((e) => <ApprovalCard key={e.id} e={e} />)}
+            {/* L6 asks here before it changes how Cinderpaw practices. */}
+            <MetaProposalCard />
             {waitingForFirstToken && (
               <StreamingIndicator phase={agentPhase ?? 'thinking'} tool={agentTool} icon={<ReplyHead writing />} />
             )}
           </MessageScroller.Content>
         </MessageScroller.Viewport>
         <JumpToBottom count={messages.length} />
+        {/* Qwen-style chapter rail: one tick per user turn, with a popup list. */}
+        <ChapterRail />
       </MessageScroller.Root>
     </MessageScroller.Provider>
   );

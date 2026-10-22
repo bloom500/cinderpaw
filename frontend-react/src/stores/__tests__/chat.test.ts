@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { useChat } from '@/stores/chat';
+import { memoryUsedFrom, turnEndFrom, useChat } from '@/stores/chat';
 
 // The approval verdict must reach the sidecar; in tests there is no Tauri
 // runtime, so stub the one call this suite exercises and let everything
@@ -13,6 +13,10 @@ vi.mock('@/lib/tauri', async (importOriginal) => {
       cinderpawAgent: {
         ...actual.tauri.cinderpawAgent,
         coworkApprovalResolve: vi.fn().mockResolvedValue(undefined),
+      },
+      raw: {
+        ...actual.tauri.raw,
+        cinderpawSubmitFeedback: vi.fn().mockResolvedValue(undefined),
       },
     },
   };
@@ -31,6 +35,19 @@ const reset = () =>
 
 describe('useChat', () => {
   beforeEach(reset);
+
+  // A 👍 teaches the engine only when it names the turn the engine knows
+  // (sidecar core/learned-ways.ts); the page's own id means nothing there.
+  it('setFeedback sends the engine id of the reply when it has one', async () => {
+    const { tauri } = await import('@/lib/tauri');
+    useChat.getState().addMessage({ id: 'ui-1', role: 'assistant', content: 'done', createdAt: 0, agentMessageId: 'engine-1' });
+    useChat.getState().addMessage({ id: 'ui-2', role: 'assistant', content: 'old', createdAt: 1 });
+    useChat.getState().setFeedback('ui-1', 'up');
+    useChat.getState().setFeedback('ui-2', 'down');
+    expect(tauri.raw.cinderpawSubmitFeedback).toHaveBeenCalledWith('test-session', 'engine-1', 'up');
+    expect(tauri.raw.cinderpawSubmitFeedback).toHaveBeenCalledWith('test-session', 'ui-2', 'down');
+    expect(useChat.getState().feedback).toEqual({ 'ui-1': 'up', 'ui-2': 'down' });
+  });
 
   it('addMessage appends to messages', () => {
     useChat.getState().addMessage({ id: '1', role: 'user', content: 'hi', createdAt: 0 });
@@ -230,5 +247,15 @@ describe('a turn that ends with a tool call still open', () => {
     startCall();
     useChat.getState().setStreamStatus('streaming');
     expect(useChat.getState().toolCallStream[0]).toMatchObject({ status: 'running' });
+  });
+});
+
+describe('what a saved reply carries back', () => {
+  it('reads a saved end and saved memories, and nothing that is not one', () => {
+    expect(turnEndFrom({ kind: 'stopped' })).toEqual({ kind: 'stopped' });
+    expect(turnEndFrom({ kind: 'error', raw: 'HTTP 503' })).toEqual({ kind: 'error', raw: 'HTTP 503' });
+    expect(turnEndFrom({ kind: 'error' })).toBeUndefined();
+    expect(memoryUsedFrom([{ kind: 'fact', text: 'pet: Miso' }, { kind: 'x', text: 'no' }, 3])).toEqual([{ kind: 'fact', text: 'pet: Miso' }]);
+    expect(memoryUsedFrom(null)).toBeUndefined();
   });
 });

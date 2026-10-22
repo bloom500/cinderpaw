@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useOnboarding, DEFAULTS } from '@/stores/onboarding';
 import { persistAsync } from '@/stores/onboardingPersistence';
-import { tauri } from '@/lib/tauri';
+import { tauri, type Settings } from '@/lib/tauri';
+import { useSettings } from '@/stores/settings';
 
 // The store's OWN defaults, not a copy of them: a copy drifts silently and
 // then the suite tests the copy.
@@ -62,13 +63,16 @@ describe('useOnboarding', () => {
     expect(useOnboarding.getState().step).toBe(0);
   });
 
-  it('setUserName trims whitespace', () => {
-    useOnboarding.getState().setUserName('  Darius  ');
-    expect(useOnboarding.getState().userName).toBe('Darius');
+  it('setUserName keeps the space before a second word; the end is trimmed on save', async () => {
+    useOnboarding.getState().setUserName('  Ana ');
+    expect(useOnboarding.getState().userName).toBe('Ana ');
+    useOnboarding.getState().setUserName('Ana Maria ');
+    await useOnboarding.getState().finish();
+    expect(useOnboarding.getState().userName).toBe('Ana Maria');
   });
 
-  it('setAgentName trims whitespace and allows empty input', () => {
-    useOnboarding.getState().setAgentName('  Bob  ');
+  it('setAgentName trims the front while typing and allows empty input', () => {
+    useOnboarding.getState().setAgentName('  Bob');
     expect(useOnboarding.getState().agentName).toBe('Bob');
     // Empty input is allowed — the user must be able to fully clear the
     // field to retype. The "Cinderpaw" default is applied at use sites, not here.
@@ -106,6 +110,35 @@ describe('useOnboarding', () => {
     expect(s.hasOnboardedBefore).toBe(true);
     expect(s.userName).toBe('Darius');
     expect(s.agentName).toBe('Bob');
+  });
+
+  it('usage sharing is off by default and finish records the answer', async () => {
+    const spy = vi.spyOn(tauri.system, 'setUsageSharing').mockResolvedValue(undefined);
+    expect(useOnboarding.getState().shareUsage).toBe(false);
+    await useOnboarding.getState().finish();
+    expect(spy).toHaveBeenCalledWith(false);
+    spy.mockRestore();
+  });
+
+  // Final review S7: the box used to come back unticked, and finish() then wrote false.
+  it('reopen() seeds the share box from the saved answer, so re-running the welcome never turns sharing off', async () => {
+    const spy = vi.spyOn(tauri.system, 'setUsageSharing').mockResolvedValue(undefined);
+    useSettings.setState({ settings: { usage_sharing: true } as Settings });
+    useOnboarding.getState().reopen();
+    expect(useOnboarding.getState().shareUsage).toBe(true);
+    await useOnboarding.getState().finish();
+    expect(spy).toHaveBeenCalledWith(true);
+    useSettings.setState({ settings: { usage_sharing: false } as Settings });
+    useOnboarding.getState().reopen();
+    expect(useOnboarding.getState().shareUsage).toBe(false);
+    // Clicked before the Settings page finished loading: the answer is fetched first.
+    useSettings.setState({ settings: null });
+    const get = vi.spyOn(tauri.settings, 'get').mockResolvedValue({ usage_sharing: true } as Settings);
+    useOnboarding.getState().reopen();
+    await vi.waitFor(() => expect(useOnboarding.getState().shareUsage).toBe(true));
+    useSettings.setState({ settings: null });
+    get.mockRestore();
+    spy.mockRestore();
   });
 
   it('reopen() reactivates the wizard from step 0', () => {
@@ -234,7 +267,8 @@ describe('a completion that reached no storage is not treated as saved', () => {
 });
 
 /**
- * The install count is the only thing Cinderpaw ever sends about itself, and
+ * The install count is the only thing Cinderpaw sends about itself without a
+ * separate yes (the daily usage summary needs its own opt-in), and
  * the whole basis on which it is allowed to exist is WHEN it happens: on the
  * last screen of setup, after the notice, once, and never if the box is
  * unticked. A move of this call to a launch hook would keep every test above
@@ -247,7 +281,7 @@ describe('the install count fires from the end of onboarding, and nowhere else',
     const spy = vi.spyOn(tauri.system, 'countInstall').mockResolvedValue(undefined);
     useOnboarding.setState({ userName: 'Darius', countInstall: true });
     await useOnboarding.getState().finish();
-    expect(spy).toHaveBeenCalledWith(true);
+    expect(spy).toHaveBeenCalledWith(true, null);
     spy.mockRestore();
   });
 
@@ -257,7 +291,19 @@ describe('the install count fires from the end of onboarding, and nowhere else',
     const spy = vi.spyOn(tauri.system, 'countInstall').mockResolvedValue(undefined);
     useOnboarding.setState({ userName: 'Darius', countInstall: false });
     await useOnboarding.getState().finish();
-    expect(spy).toHaveBeenCalledWith(false);
+    expect(spy).toHaveBeenCalledWith(false, null);
+    spy.mockRestore();
+  });
+
+  it('carries where they heard about Cinderpaw, and only with the count', async () => {
+    const spy = vi.spyOn(tauri.system, 'countInstall').mockResolvedValue(undefined);
+    useOnboarding.setState({ userName: 'Darius', countInstall: true, heardFrom: 'reddit' });
+    await useOnboarding.getState().finish();
+    expect(spy).toHaveBeenCalledWith(true, 'reddit');
+    reset();
+    useOnboarding.setState({ userName: 'Darius', countInstall: false, heardFrom: 'reddit' });
+    await useOnboarding.getState().finish();
+    expect(spy).toHaveBeenLastCalledWith(false, null);
     spy.mockRestore();
   });
 

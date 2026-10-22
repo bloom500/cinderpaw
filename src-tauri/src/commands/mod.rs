@@ -132,7 +132,22 @@ mod command_count_test {
     //   files, copied into its folder under the agent's scratch dir).
     // 193 -> 194 = + artifact_frame::artifact_frame_put (3bf2829: installed
     //   artifact frames use their own URI scheme).
-    const EXPECTED_COMMAND_COUNT: usize = 194;
+    // 194 -> 196 = + migrate_preview / migrate_apply (onboarding's import step
+    // for an OpenClaw or Hermes Agent setup, 6 Oct 2026).
+    // 196 -> 197 = + stage_pasted_file (a pasted or browser-dropped file goes
+    // through the same text extractor as a picked one, 6 Oct 2026).
+    // 197 -> 198 = + set_usage_sharing (usage telemetry opt-in, 8 Oct 2026).
+    // 198 -> 199 = + cinderpaw_usage_summary (Leaderboard tab, 8 Oct 2026).
+    // 199 -> 195 = - chat_stream, stop_generation, chat_cloud_stream,
+    // chat_complete_local (Chat mode removed, agent-only, 15 Oct 2026).
+    // 195 -> 196 = + get_local_api_port (the UI follows the local API to the
+    // port it really bound, 20 Oct 2026).
+    // 196 -> 197 = + set_permission_mode (the mode under the composer, 20 Oct 2026).
+    // 197 -> 198 = + cinderpaw_heads_up_answer (heads_up cards, 19 Oct 2026,
+    // merged from fix/brsi-real-rsi on 20 Oct).
+    // 198 -> 199 = + mcp::mcp_install_custom (an extension added by its link
+    // and key, 21 Oct 2026).
+    const EXPECTED_COMMAND_COUNT: usize = 199;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

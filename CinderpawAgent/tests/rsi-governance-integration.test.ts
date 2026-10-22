@@ -106,7 +106,7 @@ describe("ensureGenesisPolicy", () => {
   test("genesis document equals the spec §2.1 defaults", () => {
     const doc = defaultGenesisPolicy(T0);
     expect(doc.gates).toEqual({ pValueMax: 0.05, effectSizeMin: 0.1, confidenceMin: 0.95 });
-    expect(doc.approvals.l6Evolve).toBe(false);
+    expect(doc.approvals.l6Evolve).toBe(true);
     expect(doc.approvals.l4ModulePromote).toBe(true);
     expect(doc.frozen).toEqual({ l1: false, l2: false, l3: false, l4: false, l6: false });
   });
@@ -124,12 +124,11 @@ describe("governanceCheck", () => {
     }
   });
 
-  test("under the genesis policy: l6 flows autonomously, human-gated actions need the approval flag", () => {
+  test("under the genesis policy every gated action, L6 included (S0.2), needs the approval flag", () => {
     const dir = freshDir();
     ensureGenesisPolicy(dir, () => T0);
-    expect(governanceCheck("l6_evolve", { dir }).allowed).toBe(true);
     // Human-gated (approvals.* = true): refuse without, allow with.
-    for (const action of ["l3_code_patch_apply", "l2_lora_promote", "l4_module_promote"] as const) {
+    for (const action of ["l3_code_patch_apply", "l2_lora_promote", "l4_module_promote", "l6_evolve"] as const) {
       expect(governanceCheck(action, { dir }).allowed).toBe(false);
       expect(governanceCheck(action, { dir }).reason).toMatch(/approval/i);
       expect(governanceCheck(action, { dir, approvalPresent: true }).allowed).toBe(true);
@@ -177,7 +176,7 @@ describe("MetaEvolution × policy accessor (§7)", () => {
     const policy = defaultGenesisPolicy(T0);
     policy.meta.minCycles = 10;
     const meta = metaWith(policy, () => entries(6)); // ≥ hardcoded 5, < policy 10
-    const ev = meta.evolve();
+    const ev = meta.evolve({ approvedBy: "operator" });
     expect(ev.ok).toBe(false);
     expect(String(ev.reason)).toMatch(/10/);
   });
@@ -188,9 +187,9 @@ describe("MetaEvolution × policy accessor (§7)", () => {
     const strict = defaultGenesisPolicy(T0);
     strict.meta.acceptMargin = 0.5;
     const meta = metaWith(strict, () => window);
-    expect(meta.evolve().ok).toBe(true); // bootstrap, sets baseline
+    expect(meta.evolve({ approvedBy: "operator" }).ok).toBe(true); // bootstrap, sets baseline
     window = entries(6, 0.5);
-    const second = meta.evolve();
+    const second = meta.evolve({ approvedBy: "operator" });
     expect(second.ok).toBe(true);
     expect(second.settled).toBe("rejected"); // margin 0.5 swallows the win
 
@@ -198,9 +197,9 @@ describe("MetaEvolution × policy accessor (§7)", () => {
     let window2 = entries(6, 0.1);
     const lax = defaultGenesisPolicy(T0);
     const meta2 = metaWith(lax, () => window2);
-    expect(meta2.evolve().ok).toBe(true);
+    expect(meta2.evolve({ approvedBy: "operator" }).ok).toBe(true);
     window2 = entries(6, 0.5);
-    const second2 = meta2.evolve();
+    const second2 = meta2.evolve({ approvedBy: "operator" });
     expect(second2.ok).toBe(true);
     expect(second2.settled).toBe("accepted");
   });

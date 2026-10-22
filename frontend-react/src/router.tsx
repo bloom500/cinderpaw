@@ -10,6 +10,7 @@ import { ChatPage } from '@/pages/ChatPage';
 // a spinner would only flash.
 const ChatsPage       = lazy(() => import('@/pages/ChatsPage').then((m) => ({ default: m.ChatsPage })));
 const ProjectsPage    = lazy(() => import('@/pages/ProjectsPage').then((m) => ({ default: m.ProjectsPage })));
+const ArtifactsPage   = lazy(() => import('@/pages/ArtifactsPage').then((m) => ({ default: m.ArtifactsPage })));
 const ModelsPage      = lazy(() => import('@/pages/ModelsPage').then((m) => ({ default: m.ModelsPage })));
 const SettingsPage    = lazy(() => import('@/pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 
@@ -32,6 +33,7 @@ if (typeof window !== 'undefined' && import.meta.env.MODE !== 'test') {
     void import('@/pages/SettingsPage');
     void import('@/pages/ChatsPage');
     void import('@/pages/ProjectsPage');
+    void import('@/pages/ArtifactsPage');
     void import('@/pages/ModelsPage');
   };
   const idle = (window as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void }).requestIdleCallback;
@@ -49,6 +51,7 @@ export const router = createMemoryRouter([
       { path: 'chat/:id', element: <ChatPage /> },
       { path: 'chats',    element: lazyPage(<ChatsPage />) },
       { path: 'projects', element: lazyPage(<ProjectsPage />) },
+      { path: 'artifacts', element: lazyPage(<ArtifactsPage />) },
       { path: 'models',     element: lazyPage(<ModelsPage />) },
       { path: 'settings', element: lazyPage(<SettingsPage />) },
       // Phase 5 S1. These three were top-level pages whose ONLY entry point was

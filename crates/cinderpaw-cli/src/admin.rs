@@ -1953,18 +1953,37 @@ fn client() -> reqwest::Client {
 }
 
 
+/// A refused request says why in its body: the gateway writes the engine's own
+/// words there (a bad key, no credit, no such model). `error_for_status` threw
+/// that away, so a stranger read "504 Gateway Timeout" and looked for a network
+/// problem that was not there.
+async fn checked(resp: reqwest::Response) -> Result<reqwest::Response, String> {
+    let status = resp.status();
+    if status.is_success() {
+        return Ok(resp);
+    }
+    let text = resp.text().await.unwrap_or_default();
+    let reason = serde_json::from_str::<serde_json::Value>(&text)
+        .ok()
+        .and_then(|v| v["error"].as_str().or(v["error"]["message"].as_str()).map(str::to_owned))
+        .unwrap_or(text);
+    let reason = reason.trim();
+    Err(if reason.is_empty() { status.to_string() } else { reason.to_owned() })
+}
+
+async fn json_of(resp: reqwest::Response) -> Result<serde_json::Value, String> {
+    checked(resp).await?.json().await.map_err(|e| e.to_string())
+}
+
 pub(crate) async fn fetch_json(token: &str, path: &str) -> Result<serde_json::Value, String> {
     client()
         .get(format!("{}{}", base_url(), path))
         .bearer_auth(token)
         .send()
         .await
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
         .map_err(|e| e.to_string())
+        .map(json_of)?
+        .await
 }
 
 async fn post_json(token: &str, path: &str) -> Result<serde_json::Value, String> {
@@ -1973,12 +1992,9 @@ async fn post_json(token: &str, path: &str) -> Result<serde_json::Value, String>
         .bearer_auth(token)
         .send()
         .await
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
         .map_err(|e| e.to_string())
+        .map(json_of)?
+        .await
 }
 
 /// `POST` with a JSON body. Mirrors `post_json` but serialises the body and
@@ -1996,17 +2012,14 @@ pub(crate) async fn post_json_with_body(
         .json(&body)
         .send()
         .await
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
         .map_err(|e| e.to_string())
+        .map(json_of)?
+        .await
 }
 
 /// POST with a long client timeout — `/modules/evaluate` runs the paired
 /// eval suite twice on the live model (the gateway side waits 30min).
-async fn post_json_slow(
+pub(crate) async fn post_json_slow(
     token: &str,
     path: &str,
     body: serde_json::Value,
@@ -2020,12 +2033,9 @@ async fn post_json_slow(
         .json(&body)
         .send()
         .await
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map_err(|e| e.to_string())?
-        .json()
-        .await
         .map_err(|e| e.to_string())
+        .map(json_of)?
+        .await
 }
 
 async fn post(token: &str, path: &str) -> Result<(), String> {
@@ -2034,10 +2044,10 @@ async fn post(token: &str, path: &str) -> Result<(), String> {
         .bearer_auth(token)
         .send()
         .await
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map(|_| ())
         .map_err(|e| e.to_string())
+        .map(checked)?
+        .await
+        .map(|_| ())
 }
 
 /* ------------------------------------------------------------ providers */
@@ -2315,4 +2325,33 @@ pub fn providers_set_key(id: &str, model: Option<String>, no_verify: bool, activ
     }
     println!("{META}make it the active route: cinderpaw providers use {id}{RESET}");
     0
+}
+
+#[cfg(test)]
+mod reason_tests {
+    use super::*;
+
+    /// One canned HTTP reply on a free local port.
+    fn serve_once(status: &'static str, body: &'static str) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = s.read(&mut buf);
+            let _ = write!(s, "HTTP/1.1 {status}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+        });
+        format!("http://{addr}/")
+    }
+
+    #[tokio::test]
+    async fn a_refusal_shows_the_engines_reason_not_the_status() {
+        let r = reqwest::get(serve_once("504 Gateway Timeout", "sidecar inference error: 401 invalid api key")).await.unwrap();
+        assert_eq!(json_of(r).await.unwrap_err(), "sidecar inference error: 401 invalid api key");
+        let r = reqwest::get(serve_once("400 Bad Request", r#"{"error":"no such model"}"#)).await.unwrap();
+        assert_eq!(checked(r).await.unwrap_err(), "no such model");
+        let r = reqwest::get(serve_once("502 Bad Gateway", "")).await.unwrap();
+        assert_eq!(checked(r).await.unwrap_err(), "502 Bad Gateway");
+    }
 }

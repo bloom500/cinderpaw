@@ -47,7 +47,11 @@ const RULES: Rule[] = [
   {
     test: /\b429\b|rate.?limit|too many requests/i,
     title: 'Too many requests right now',
-    message: 'Rate limit reached. Wait a moment and try again, or switch to another model/provider.',
+    // Free plans also cap the day (OpenRouter free: 50 requests). "Wait a
+    // moment" alone sent that person into retries that could not succeed.
+    message:
+      'Rate limit reached. Wait a minute and try again. If it keeps happening, the free daily allowance ' +
+      'is used up: it resets tomorrow, or add credit with the provider, or switch to another model.',
     action: null,
   },
   {
@@ -91,7 +95,10 @@ const RULES: Rule[] = [
     action: null,
   },
   {
-    test: /econnrefused|connection refused|fetch failed|enotfound|network|dns|timed?.?out|unreachable/i,
+    // Bun says "Unable to connect. Is the computer able to access the url?"; without
+    // it here, an address that cannot be reached fell to the 5xx rule below and read
+    // "the provider is overloaded" (UX lab, report item 18).
+    test: /econnrefused|connection refused|fetch failed|enotfound|network|dns|timed?.?out|unreachable|unable to connect|econnreset|connection reset|socket hang up/i,
     title: 'Could not reach the model',
     message:
       'Could not reach the inference endpoint. Check your internet connection ' +

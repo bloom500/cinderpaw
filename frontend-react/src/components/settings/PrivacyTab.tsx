@@ -17,10 +17,16 @@
  * collection block below rather than left for someone to discover, for the
  * same reason the opening line was rewritten — this is the page a person
  * quotes back at you.
+ *
+ * 2026-10-08: the second thing is the daily usage summary (PROMISES.md 4),
+ * opt-in, with its switch and the log of what was sent on this page.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSettings } from '@/stores/settings';
+import { tauri } from '@/lib/tauri';
+import { cn } from '@/lib/utils';
+import { WhatIsSent } from '@/components/usage/WhatIsSent';
 
 const rowCls =
   'flex items-start justify-between gap-4 p-4 rounded-lg border border-border-subtle bg-bg-surface';
@@ -36,6 +42,8 @@ export function PrivacyTab() {
   }, [settings, fetchSettings]);
 
   const cloudFallback = settings?.cloud_fallback_enabled ?? false;
+  const sharing = settings?.usage_sharing === true;
+  const [showSent, setShowSent] = useState(false);
 
   return (
     <div className="space-y-6">
@@ -55,10 +63,10 @@ export function PrivacyTab() {
       <div>
         <p className="text-sm font-medium text-text-primary">Data collection</p>
         <p className="text-xs text-text-muted mt-0.5">
-          One install count was offered during setup: the version and your OS, once,
-          refusable, recorded in <code>~/.cinderpaw/.install-counted</code>. Nothing else
-          reports on its own; bug reports are sent only when you write one. Online
-          features still transmit the data they need.
+          Two things can leave this computer about Cinderpaw itself, and only if you allow them:
+          the one-time install count from setup (recorded in <code>~/.cinderpaw/.install-counted</code>),
+          and the daily usage summary below. Bug reports are sent only when you write one. Online
+          features still send what they need.
         </p>
       </div>
 
@@ -106,6 +114,35 @@ export function PrivacyTab() {
           }}
           className="h-4 w-4 accent-orange-500 shrink-0"
         />
+      </div>
+
+      {/* Opt-in daily usage summary (PROMISES.md 4). Off stops the next send:
+          the sidecar reads settings.json each time, no restart. */}
+      <div className={rowCls}>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-text-primary">Share a daily usage summary</p>
+          <p className="text-xs text-text-muted mt-0.5">
+            Tasks, time and cost per model. Never your messages or files. Off means nothing is sent.
+          </p>
+          <button type="button" onClick={() => setShowSent((o) => !o)} className="mt-1.5 text-xs text-brand hover:underline" aria-expanded={showSent}>
+            {showSent ? 'Hide' : 'See what was sent'}
+          </button>
+          {showSent && <WhatIsSent showLog />}
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={sharing}
+          aria-label="Share a daily usage summary"
+          disabled={!settings}
+          onClick={() => void tauri.system.setUsageSharing(!sharing).then(fetchSettings).catch(() => {})}
+          className={cn(
+            'w-10 h-6 rounded-full transition-colors relative shrink-0 overflow-hidden',
+            sharing ? 'bg-brand' : 'bg-border-default',
+          )}
+        >
+          <span className={cn('absolute top-1 left-0 w-4 h-4 rounded-full bg-white transition-transform', sharing ? 'translate-x-5' : 'translate-x-1')} />
+        </button>
       </div>
     </div>
   );

@@ -7,6 +7,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import type { ArtifactFact, ToolActivity, ToolKind, DesktopFact, DesktopElement } from '@/hooks/useLiveToolActivity';
+import { stepTitle } from './MessageChain';
 
 /**
  * A screen in the corner of a call, showing what Cinderpaw is actually doing.
@@ -144,7 +145,8 @@ export function Widget({ activity: a, flat = false }: { activity: ToolActivity; 
       ) : (
         <header className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
           <Icon size={14} className={cn('shrink-0', tint)} />
-          <span className="shrink-0 text-2xs font-medium text-text-secondary">{a.tool}</span>
+          {/* The step's words, not its id: this read "read_file" or "ask_user". */}
+          <span className="min-w-0 truncate text-2xs font-medium text-text-secondary">{stepTitle(a)}</span>
           <State a={a} className="ml-auto" />
         </header>
       )}

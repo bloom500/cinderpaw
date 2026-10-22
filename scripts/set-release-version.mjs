@@ -55,8 +55,7 @@ function patch(relPath, regex, label) {
 }
 
 patch('src-tauri/tauri.conf.json', /"version":\s*"([^"]+)"/, 'tauri.conf.json');
-patch('src-tauri/Cargo.toml', /^version = "([^"]+)"/m, 'src-tauri/Cargo.toml');
-// [workspace.package] version, inherited by crates/cinderpaw-cli and crates/cinderpaw-core
+// [workspace.package] version, inherited by src-tauri, crates/cinderpaw-cli and crates/cinderpaw-core
 // via `version.workspace = true`. Left out until 2026.07.26, so every npm CLI
 // ever published answered `cinderpaw --version` with the workspace default (0.2.0)
 // while its package said something else entirely.

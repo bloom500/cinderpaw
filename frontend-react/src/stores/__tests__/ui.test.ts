@@ -2,37 +2,21 @@ import { describe, it, expect } from 'vitest';
 import { useUI } from '@/stores/ui';
 
 /**
- * What is left of reasoning mode and the tool list after their composer
- * controls were removed: two values that are read and never written.
- *
- * The tests that used to live here exercised `cycleReasoningMode` and
- * `toggleTool`. Both are gone, and testing a setter nobody can reach would
- * only have kept the dead code alive. What matters now is the pair of defaults
- * everyone silently runs on, and the one way an old machine can fail to get
- * them.
+ * Chat mode is gone, and with it `inputMode` and the Tools menu's two values.
+ * Removing them from the store does not remove them from the blob an older
+ * build saved, and rehydration merges that blob over the defaults.
  */
-describe('useUI: the settings that no longer have a switch', () => {
-  it('defaults to auto reasoning and no chat-mode tools', () => {
-    expect(useUI.getState().reasoningMode).toBe('auto');
-    expect(useUI.getState().enabledTools).toEqual([]);
-  });
-
-  it('ignores values an older build left in storage', () => {
-    // The regression this exists for: dropping the two keys from `partialize`
-    // stops them being written, but a machine that already ran an older build
-    // still has them on disk, and rehydration merges that blob over the
-    // defaults. Someone who once chose "suppress thinking blocks" would keep
-    // suppressing them forever, with no control left on screen to undo it —
-    // the fix reaching everyone EXCEPT the people who needed it.
+describe('useUI: the chat-mode keys an older build saved', () => {
+  it('drops them on rehydrate and keeps every real setting', () => {
     const merge = (useUI.persist.getOptions().merge)!;
     const merged = merge(
-      { reasoningMode: 'off', enabledTools: ['file_write'], theme: 'light' },
+      { inputMode: 'chat', reasoningMode: 'off', enabledTools: ['file_write'], theme: 'light' },
       useUI.getState(),
-    ) as ReturnType<typeof useUI.getState>;
+    ) as unknown as Record<string, unknown>;
 
-    expect(merged.reasoningMode).toBe('auto');
-    expect(merged.enabledTools).toEqual([]);
-    // …while everything that IS still a setting survives untouched.
+    expect(merged).not.toHaveProperty('inputMode');
+    expect(merged).not.toHaveProperty('reasoningMode');
+    expect(merged).not.toHaveProperty('enabledTools');
     expect(merged.theme).toBe('light');
   });
 });
@@ -89,5 +73,39 @@ describe('useUI: the campfire game', () => {
     const saved = useUI.persist.getOptions().partialize!(useUI.getState()) as Record<string, unknown>;
     expect(saved).toHaveProperty('emberGameEnabled');
     expect(saved).toHaveProperty('emberBest');
+  });
+});
+
+/**
+ * Glass effects default to off (solid): backdrop blur re-runs on every
+ * scrolled frame, and the default is what weak machines get.
+ */
+describe('useUI: glass effects', () => {
+  it('starts a fresh install solid', () => {
+    expect(useUI.getInitialState().glassEffects).toBe(false);
+  });
+
+  it('keeps the choice across launches', () => {
+    const saved = useUI.persist.getOptions().partialize!(useUI.getState()) as Record<string, unknown>;
+    expect(saved).toHaveProperty('glassEffects');
+  });
+
+  it('stamps the document when the choice changes', () => {
+    useUI.getState().setGlassEffects(true);
+    expect(useUI.getState().glassEffects).toBe(true);
+    expect(document.documentElement.getAttribute('data-glass')).toBe('on');
+    useUI.getState().setGlassEffects(false);
+    expect(document.documentElement.getAttribute('data-glass')).toBe('off');
+  });
+
+  it('gives an old install without the key the new default', () => {
+    // The blob predates the switch, so there is nothing to keep: solid,
+    // stamped, same as a stranger.
+    const start = useUI.persist.getOptions().onRehydrateStorage;
+    const finish = start?.(useUI.getInitialState());
+    expect(finish).toBeDefined();
+    document.documentElement.removeAttribute('data-glass');
+    finish?.({ theme: 'system' } as never, undefined);
+    expect(document.documentElement.getAttribute('data-glass')).toBe('off');
   });
 });

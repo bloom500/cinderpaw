@@ -134,6 +134,43 @@ pub(crate) fn set_dreams_enabled(
     Ok(())
 }
 
+/// Turn the daily usage summary on or off. Off also deletes the monthly code,
+/// so nothing links a later "yes" to this one. No sidecar restart: it reads
+/// settings.json each time it would send.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn set_usage_sharing(on: bool) -> Result<(), String> {
+    let mut s = settings::load();
+    s.usage_sharing = Some(on);
+    settings::save(&s).map_err(|e| e.to_string())?;
+    if !on {
+        let _ = std::fs::remove_file(cinderpaw_core::paths::cinderpaw_dir().join("usage-code.json"));
+    }
+    Ok(())
+}
+
+/// What the agent may do without asking: `read_only`, `workspace_write` or
+/// `full_access` (sidecar permission-mode.ts). No restart: the sidecar reads
+/// settings.json every 2 s. Refused, with the reason on screen, when an env var
+/// set at launch decides instead, so the picker never shows a mode that is
+/// not the one in force.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn set_permission_mode(mode: String) -> Result<(), String> {
+    if !matches!(mode.as_str(), "read_only" | "workspace_write" | "full_access") {
+        return Err(format!("Unknown permission mode: {mode}"));
+    }
+    if std::env::var("CINDERPAW_PERMISSION_MODE").is_ok_and(|v| !v.trim().is_empty()) {
+        return Err("CINDERPAW_PERMISSION_MODE was set when Cinderpaw started, and it decides. Remove it and restart to choose here.".into());
+    }
+    if std::env::var("CINDERPAW_SHELL_WHITELIST").is_ok_and(|v| v.trim() == "*") {
+        return Err("CINDERPAW_SHELL_WHITELIST=* was set when Cinderpaw started, which means full access. Remove it and restart to choose here.".into());
+    }
+    let mut s = settings::load();
+    s.permission_mode = Some(mode);
+    settings::save(&s).map_err(|e| e.to_string())
+}
+
 /// Toggle desktop-control "YOLO mode" (no per-action confirmation) at runtime.
 ///
 /// The confirmation gate lives in the SIDECAR (it reads

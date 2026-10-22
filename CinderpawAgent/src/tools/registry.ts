@@ -309,7 +309,7 @@ export class ToolRegistry {
               `A web page this session read ${reason}. The agent now wants to run "${name}" ` +
               `with ${summary}. This could be the page acting, not you. Allow it?`,
             header: "Web page",
-            options: [{ label: "Deny", recommended: true }, { label: "Allow" }],
+            options: [{ label: "Allow" }, { label: "Deny", recommended: true }],
             multiSelect: false,
             forceEscalate: true,
           },

@@ -12,8 +12,20 @@ export type ChatEvent =
   | { type: "waiting"; tool: string; message: string }
   | { type: "error"; detail: string }
   | ({ type: "secret" } & SecretAsk)
-  | { type: "ask"; requestId: string; question: string; options: string[] }
+  | { type: "ask"; requestId: string; questions: AskQuestion[] }
   | { type: "done" };
+
+/** One question of an agent's ask, with what each option means. */
+export type AskQuestion = {
+  question: string;
+  options: { label: string; description?: string; recommended?: boolean }[];
+  multiSelect: boolean;
+  /** What the person must read before answering (a skill a link would install). */
+  preview?: string;
+};
+
+/** What the person chose for one question; customText is what they typed instead. */
+export type AskAnswer = { question: string; selected: string[]; customText?: string };
 
 /** A request_secret question: the page shows a password field for it. */
 export type SecretAsk = { requestId: string; question: string; connector: string; field: string };
@@ -152,7 +164,7 @@ export async function streamChat(f: Fetch, content: string, on: (e: ChatEvent) =
           if (q.secret?.connector && q.secret?.field) {
             on({ type: "secret", requestId: String(raw.id), question: String(q.question), connector: q.secret.connector, field: q.secret.field });
           } else {
-            on({ type: "ask", requestId: String(raw.id), question: String(q.question), options: (q.options ?? []).map((o: any) => String(o.label)) });
+            on({ type: "ask", requestId: String(raw.id), questions: raw.questions.map(toAskQuestion) });
           }
           continue;
         }
@@ -177,13 +189,26 @@ export async function streamChat(f: Fetch, content: string, on: (e: ChatEvent) =
   on({ type: "error", detail: "the answer stopped before it finished" });
 }
 
-/** Answer an agent's question (ask_user) with one option label. */
-export async function answerAsk(f: Fetch, requestId: string, question: string, label: string): Promise<boolean> {
+function toAskQuestion(q: any): AskQuestion {
+  return {
+    question: String(q.question),
+    options: (q.options ?? []).map((o: any) => ({
+      label: String(o.label),
+      ...(o.description ? { description: String(o.description) } : {}),
+      ...(o.recommended ? { recommended: true } : {}),
+    })),
+    multiSelect: q.multiSelect === true,
+    ...(typeof q.preview === "string" ? { preview: q.preview } : {}),
+  };
+}
+
+/** Answer an agent's ask (ask_user): one answer per question, all at once. */
+export async function answerAsk(f: Fetch, requestId: string, answers: AskAnswer[]): Promise<boolean> {
   try {
     const r = await f("/runtime/ask/respond", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ requestId, answers: [{ question, selected: [label] }] }),
+      body: JSON.stringify({ requestId, answers }),
     });
     return r.ok;
   } catch {
@@ -208,7 +233,7 @@ export async function saveSecret(f: Fetch, ask: SecretAsk, raw: string): Promise
   } catch {
     return false;
   }
-  return answerAsk(f, ask.requestId, ask.question, "Saved");
+  return answerAsk(f, ask.requestId, [{ question: ask.question, selected: ["Saved"] }]);
 }
 
 /**
@@ -256,4 +281,17 @@ export function chatFailure(detail: string): ChatFailure {
   if (/\b429\b|rate.?limit|overloaded|\b503\b/i.test(detail)) return "busy";
   if (/failed to fetch|networkerror|ENOTFOUND|ECONNREFUSED|timed? ?out/i.test(detail)) return "offline";
   return "other";
+}
+
+/**
+ * A question with the text it asks about, as Markdown: the text inside a code
+ * fence one backtick longer than any run of backticks in it, so a SKILL.md
+ * cannot close the fence and have the rest rendered (an image loaded before
+ * the yes, a heading that looks like ours).
+ */
+export function withPreview(question: string, preview?: string): string {
+  if (!preview) return question;
+  const longest = Math.max(0, ...(preview.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = "`".repeat(Math.max(3, longest + 1));
+  return `${question}\n\n${fence}\n${preview}\n${fence}`;
 }

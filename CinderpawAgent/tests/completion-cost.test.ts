@@ -375,3 +375,30 @@ describe("one row per completion, at the seam every completion passes", () => {
     close();
   });
 });
+
+describe("telemetry columns", () => {
+  test("OpenRouter's served model and the provider land on the row", async () => {
+    const { rows, close } = await completeOnce(
+      {
+        model: "anthropic/claude-sonnet-5.5",
+        choices: [{ message: { content: "hi" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 10, completion_tokens: 2, cost: 0.0001 },
+      },
+      "openai",
+    );
+    const r = rows[0] as unknown as { served_model: string | null; provider: string; retries: number; task_id: string | null };
+    expect(r.served_model).toBe("anthropic/claude-sonnet-5.5");
+    expect(r.provider).toBe("example.com");
+    expect(r.retries).toBe(0);
+    expect(r.task_id).toBeNull();
+    close();
+  });
+  test("no model in the response leaves served_model NULL", async () => {
+    const { rows, close } = await completeOnce(
+      { choices: [{ message: { content: "hi" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } },
+      "openai",
+    );
+    expect((rows[0] as unknown as { served_model: string | null }).served_model).toBeNull();
+    close();
+  });
+});

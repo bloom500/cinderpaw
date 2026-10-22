@@ -13,13 +13,13 @@
  */
 
 import { join } from "node:path";
-import type { InboundMessage, ModelTarget, OutboundEvent, Schedule, DeliveryTarget } from "./types.ts";
+import type { CronJob, InboundMessage, ModelTarget, OutboundEvent, Schedule, DeliveryTarget } from "./types.ts";
 import type { BootContext } from "./boot.ts";
 import { forgetEdge } from "./memory/forget.ts";
 import { cfgBool, cfgInt, cfgPath } from "./config.ts";
 import { runUnattended } from "./core/unattended.ts";
 import { withHumanReplies } from "./cowork/runtime.ts";
-import { removeTeammate } from "./tools/builtin/cowork.ts";
+import { removeTeammate, teammateRepliesBrief } from "./tools/builtin/cowork.ts";
 import { parseDoneWhenFromMessage } from "./cron/done-when.ts";
 import { sha256Canonical } from "./rsi/infra/hash-chain.ts";
 import { defaultJournalDir, journalFilename, verifyJournal } from "./rsi/infra/journal.ts";
@@ -60,6 +60,11 @@ import { parseResponse } from "./core/agent-loop.ts";
 import { BrainStack } from "./brain/brain-stack.ts";
 import { rebuildDerivedBrain } from "./brain/brain-config.ts";
 import { markCardSurface } from "./core/card-surface.ts";
+import { setTaskFeedback } from "./telemetry/task-metrics.ts";
+import { rollup } from "./telemetry/usage-rollup.ts";
+import { appVersion, buildPayload, osLabel, readSentLog, sharingSetting } from "./telemetry/usage-sender.ts";
+import type { Database } from "bun:sqlite";
+import { headsUpLedger } from "./tools/builtin/heads-up.ts";
 
 /**
  * Diagnostics go to stderr; stdout is reserved for the transport protocol.
@@ -155,6 +160,39 @@ const VOICE_SURFACE_BRIEF = [
  * card, the notes, and whether the Observer and Reflector manage to write. A
  * delete answers with the fresh list, so the page never shows a deleted note.
  */
+/** Every scheduled task, the shape `cinderpaw cron` prints. */
+export function cronListResult(id: string, jobs: CronJob[], error?: string): Extract<OutboundEvent, { type: "cron_list_result" }> {
+  return {
+    type: "cron_list_result",
+    id,
+    ok: error === undefined,
+    ...(error ? { error } : {}),
+    jobs: jobs.map(({ id, name, task, schedule, enabled, nextRunMs, lastRunMs }) => ({ id, name, task, schedule, enabled, nextRunMs, lastRunMs })),
+  };
+}
+
+/**
+ * The Leaderboard tab's "Your numbers" and the consent screens' "what is
+ * sent": this month's groups, the payload yesterday would produce (with a
+ * placeholder instead of the real code), and the local sent log.
+ */
+export function usageSummaryReply(id: string, db: Database, now: Date): Extract<OutboundEvent, { type: "usage_summary_result" }> {
+  const month = now.toISOString().slice(0, 7);
+  try {
+    const from = Date.parse(`${month}-01T00:00:00Z`);
+    const yesterday = new Date(now.getTime() - 86_400_000).toISOString().slice(0, 10);
+    return {
+      type: "usage_summary_result", id, ok: true, month,
+      groups: rollup(db, from, now.getTime()),
+      preview: buildPayload(db, yesterday, "(a random code, new every month)", appVersion(), osLabel()),
+      sent: readSentLog(30),
+      sharing: sharingSetting(),
+    };
+  } catch (e) {
+    return { type: "usage_summary_result", id, ok: false, error: String(e), month, groups: [], preview: null, sent: [], sharing: null };
+  }
+}
+
 export function memoryNotesReply(
   msg: { id?: string; notesOp?: "list" | "delete"; noteId?: number },
   d: {
@@ -229,6 +267,13 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           result: msg.feedbackValue === "up" ? "success" : "error",
           toolName: msg.feedbackMessageId,
         });
+        // Learned ways (learning, beta): a 👍 teaches the reply's steps, a 👎
+        // counts against a way the reply used. core/learned-ways.ts.
+        if (msg.feedbackMessageId && (msg.feedbackValue === "up" || msg.feedbackValue === "down")) {
+          setTaskFeedback(db.raw, msg.feedbackMessageId, msg.feedbackValue);
+          const changed = agent.rateReply(msg.feedbackMessageId, msg.feedbackValue);
+          if (changed) log(`[learned-ways] ${changed} (${msg.feedbackValue} on ${msg.feedbackMessageId})`);
+        }
         break;
       // BRSI §2.8 `user` Wake trigger: run one dream episode now. The scheduler
       // launches it on its next tick, bypassing the idle/cooldown gate.
@@ -243,7 +288,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         transport.send({ type: "meta_result", id: msg.id ?? "", op: "status", ...metaEvolution.status() });
         break;
       case "meta_evolve":
-        transport.send({ type: "meta_result", id: msg.id ?? "", op: "evolve", ...metaEvolution.evolve() });
+        transport.send({ type: "meta_result", id: msg.id ?? "", op: "evolve", ...metaEvolution.evolve({ approvedBy: "operator" }) });
         break;
       case "meta_rollback":
         transport.send({ type: "meta_result", id: msg.id ?? "", op: "rollback", ...metaEvolution.rollback() });
@@ -251,6 +296,22 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       case "meta_history":
         transport.send({ type: "meta_result", id: msg.id ?? "", op: "history", ok: true, history: metaEvolution.history() });
         break;
+      // The L6 chat card. Approving applies exactly the proposal the person
+      // saw (MetaEvolution.approve refuses one that went out of date); either
+      // answer re-sends the card state so every open chat drops it.
+      case "meta_proposal":
+        transport.send({ type: "meta_proposal", proposal: metaEvolution.pendingProposal() });
+        break;
+      case "meta_approve":
+      case "meta_deny": {
+        const op = msg.type === "meta_approve" ? "approve" : "deny";
+        const result = op === "approve"
+          ? metaEvolution.approve(msg.id ?? "", "you, in chat")
+          : metaEvolution.deny(msg.id ?? "", "you, in chat");
+        transport.send({ type: "meta_result", id: msg.id ?? "", op, ...result });
+        transport.send({ type: "meta_proposal", proposal: metaEvolution.pendingProposal() });
+        break;
+      }
 
       // Slice A5 (L5 Governance) — host drives the `GovernanceLifecycle`
       // FSM through one inbound message per op, paired by `id` with the
@@ -701,8 +762,10 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
               id: replyId,
               ok: true,
               // `content: "archived"` asks for the archive instead of the list.
+              // The store's own ceiling, not its default of 50: the Artifacts page
+              // shows every card, and a 51st artifact must not quietly vanish.
               items: artifacts
-                .list({ workspaceId: activeWorkspaceId(db.raw), archived: msg.content === "archived" })
+                .list({ workspaceId: activeWorkspaceId(db.raw), archived: msg.content === "archived", limit: 500 })
                 .map(toPanelRow),
             });
             break;
@@ -807,6 +870,18 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
                 await reply(res.artifact, next);
               }
             }
+          } else if (row.kind === "image" && action === "get") {
+            // Images are bytes, not UTF-8. A data URL preserves them and lets
+            // both the read-only thumbnail and the viewer use the same reply.
+            const bytes = artifacts.readBytes(wanted, version);
+            if (!bytes) {
+              fail(`Artifact ${wanted} has no version ${String(version)}.`);
+              break;
+            }
+            transport.send({
+              type: "artifact_result", id: replyId, ok: true, items: [toPanelRow(row)],
+              content: `data:${row.mime};base64,${Buffer.from(bytes).toString("base64")}`,
+            });
           } else if (action === "get") {
             const v = msg.artifactVersion;
             const content =
@@ -992,6 +1067,33 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       // Only the edge goes; its two nodes may carry other facts. The fact the
       // edge mirrors goes with it: deleting the edge alone left it in "Known
       // facts" on every turn. See memory/forget.ts.
+      // `cinderpaw memory search`: what recall would show the model for these
+      // words, item by item. A store that fails answers with nothing found.
+      case "memory_search": {
+        const q = (msg.query ?? "").trim();
+        let items: Array<{ kind: "fact" | "past"; text: string; ts?: number }> = [];
+        if (q) {
+          try {
+            const r = await fractalMemory.recall(q, "memory-search");
+            items = (r.used ?? []).map(({ kind, text, ts }) => ({ kind, text, ...(ts ? { ts } : {}) }));
+          } catch (e) {
+            log(`memory_search failed: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+        transport.send({ type: "memory_search_result", id: msg.id ?? "", items });
+        break;
+      }
+      // `cinderpaw message send`: say something in one chat-app conversation.
+      case "message_send": {
+        const to = (msg.to ?? "").trim();
+        const text = (msg.content ?? "").trim();
+        let error: string | undefined;
+        if (!to.includes(":") || !text) error = "Say where and what, like: --to telegram:12345 \"hello\"";
+        else if (connectors.fileChannel(to) === "not_connected") error = `${to.split(":")[0]} is not connected right now.`;
+        else await connectors.send(to, text).catch((e: unknown) => { error = e instanceof Error ? e.message : String(e); });
+        transport.send({ type: "message_send_result", id: msg.id ?? "", ok: !error, ...(error ? { error } : {}) });
+        break;
+      }
       case "memory_forget": {
         const f = msg.forget;
         if (!f?.from || !f.to) {
@@ -1496,6 +1598,9 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         break;
       }
 
+      case "usage_summary":
+        transport.send(usageSummaryReply(msg.id ?? "", db.raw, new Date()));
+        break;
       case "memory_notes": {
         try {
           transport.send(memoryNotesReply(msg, { notes: notesStore, observer: extractor.health, reflector: reflector.health, semantic }));
@@ -1535,6 +1640,15 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         break;
       }
 
+      case "heads_up_answer": {
+        // The card does not block the agent; the answer only tunes what it
+        // flags next in this chat ("I already knew this").
+        const choice = msg.headsUpChoice;
+        if (msg.headsUpId && (choice === "more" || choice === "knew" || choice === "dismiss")) {
+          headsUpLedger.answer(msg.sessionId ?? "", msg.headsUpId, choice);
+        }
+        break;
+      }
       case "ask_user_response": {
         // Forward the user's selection back to the matching pending request.
         // Both `requestId` and `answers` are required — the transport's
@@ -1758,16 +1872,21 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         // description cannot say "right now". Composed with the voice brief
         // rather than replacing it: a call made from the browser is both.
         const browserBrief = browserSurfaceBrief(msg.browserPage);
+        // Teammate answers that landed since the last turn, handed over rather
+        // than left for the agent to remember to fetch. Read only where the brief
+        // is set: reading marks them read, and an answer marked read that no
+        // brief carried would be lost.
+        const repliesBrief = () => teammateRepliesBrief(sessionId, coworkAgents, coworkMailbox);
         // The local web page and the desktop app can show a password card; the
         // terminal, a call and the connectors cannot. Per message, because the
         // terminal and the page share the session.
         markCardSurface(sessionId, msg.surface);
         if (msg.surface === "voice") {
-          agent.setSessionSurface(sessionId, [VOICE_SURFACE_BRIEF, browserBrief].filter(Boolean).join("\n\n"), { spoken: true });
+          agent.setSessionSurface(sessionId, [VOICE_SURFACE_BRIEF, browserBrief, repliesBrief()].filter(Boolean).join("\n\n"), { spoken: true });
         } else if (msg.surface === "text" || msg.surface === "web") {
           // Explicitly typed → drop the spoken brief. Only the desktop sends this
           // field, so a connector's own brief is never touched here.
-          agent.setSessionSurface(sessionId, browserBrief);
+          agent.setSessionSurface(sessionId, [browserBrief, repliesBrief()].filter(Boolean).join("\n\n"));
         }
         // Image attachments (data URLs) forwarded by the host. Passed through
         // to the agent loop so vision-capable models receive real pixels.
@@ -1905,12 +2024,10 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       // detail fields yet — V1 reads them off `msg as any` and
       // validates inside the handler).
       case "cron_list": {
+        // Used to answer with a `model_set` carrying only the count, so no
+        // client could ever show the tasks. `cinderpaw cron` reads this.
         const jobs = cronRepo.list();
-        transport.send({
-          type: "model_set", // reuse existing event shape for now
-          provider: "cron",
-          model: `jobs:${jobs.length}`,
-        });
+        transport.send(cronListResult(msg.id ?? "", jobs));
         log(`cron_list → ${jobs.length} job(s)`);
         break;
       }
@@ -1937,6 +2054,9 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           delivery: m.delivery,
         });
         log(`cron_add → ${job.id} (${job.name})`);
+        // `requestId`, not `id`: on this message `id` names the job.
+        const req = (msg as { requestId?: string }).requestId;
+        if (req) transport.send(cronListResult(req, cronRepo.list()));
         break;
       }
       case "cron_remove": {
@@ -1950,6 +2070,8 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         }
         const removed = cronRepo.remove(m.id);
         log(`cron_remove → ${m.id} (${removed ? "ok" : "not found"})`);
+        const req = (msg as { requestId?: string }).requestId;
+        if (req) transport.send(cronListResult(req, cronRepo.list(), removed ? undefined : "No task with that id."));
         break;
       }
       case "cron_toggle": {
@@ -1963,6 +2085,8 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         }
         cronRepo.setEnabled(m.id, m.enabled);
         log(`cron_toggle → ${m.id} enabled=${m.enabled}`);
+        const req = (msg as { requestId?: string }).requestId;
+        if (req) transport.send(cronListResult(req, cronRepo.list()));
         break;
       }
 
@@ -1975,10 +2099,11 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         const goal = msg.rsiGoal ?? "rsiautomation";
         const maxIterations = msg.rsiMaxIterations ?? 50;
         const maxTotalTokens = msg.rsiMaxTotalTokens ?? 5_000_000;
+        const maxTotalCostUsd = msg.rsiMaxTotalCostUsd;
         const concurrency = msg.rsiConcurrency ?? 1;
-        log(`rsi_start goal="${goal}" maxIter=${maxIterations} maxTokens=${maxTotalTokens} conc=${concurrency}`);
+        log(`rsi_start goal="${goal}" maxIter=${maxIterations} maxTokens=${maxTotalTokens} maxCostUsd=${maxTotalCostUsd ?? "unset"} conc=${concurrency}`);
         await rsiSidecar.start(
-          { goal, maxIterations, maxTotalTokens, concurrency },
+          { goal, maxIterations, maxTotalTokens, maxTotalCostUsd, concurrency },
           msg.id,
         );
         break;

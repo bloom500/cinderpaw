@@ -75,11 +75,13 @@ import {
 } from "./cinderpaw-prompt.ts";
 import { buildToolCallGrammar, TOOL_CALL_TRIGGERS } from "./tool-grammar.ts";
 import { createToolDrawerTools } from "../tools/builtin/tool-drawer.ts";
+import { type LearnedWays, learnedWayHint } from "./learned-ways.ts";
 import { NOTEBOOK_TOOL_NAME } from "../tools/builtin/notebook.ts";
 import { buildNotebookSection, WORKER_BRIEF } from "../rlm/prompt.ts";
 import { toIdentifier } from "../rlm/repl.ts";
 import { isConnectorTool, isCoreTool, isOwnerOnlyTool } from "../tools/tiers.ts";
 import { selectTools } from "../tools/tool-intent.ts";
+import { createArtifactDraftTracker } from "./artifact-draft.ts";
 // Vendored from OpenClaw (MIT) — see src/vendor/tool-call-repair/README.md.
 import {
   parseStandalonePlainTextToolCallBlocks,
@@ -95,9 +97,9 @@ export interface AgentLoopConfig {
    * Grammar-constrained tool calls. When true, every main-loop completion
    * carries a GBNF grammar (lazy, triggered on a tool-call fence) so the local
    * engine can only emit a valid tool-call JSON once the model opens one —
-   * prose answers stay unconstrained. Off by default: it requires the bundled
-   * llama.cpp engine (the grammar field is a no-op on other backends) and the
-   * text parser remains the proven fallback. Enable with CINDERPAW_TOOL_GRAMMAR=true.
+   * prose answers stay unconstrained. On by default; CINDERPAW_TOOL_GRAMMAR=false
+   * turns it off. Only the bundled llama.cpp engine reads the grammar (it is a
+   * no-op on other backends), and the text parser remains the fallback.
    */
   useToolGrammar: boolean;
   /**
@@ -311,6 +313,12 @@ export interface TurnResult {
    * is reading simply do not render it.
    */
   diagnostic?: string;
+  /**
+   * The turn ended on a thrown error or a provider failure, not on a model
+   * that answered with nothing. Usage stats count only these as `error`;
+   * every `no_answer` carries a diagnostic, so that cannot tell them apart.
+   */
+  failed?: true;
 }
 
 /** Whether an outcome should be re-invoked rather than reported as done. */
@@ -479,7 +487,12 @@ export class AgentLoop {
    * gets a better-tuned agent over time without touching any config.
    * Set by `applyChampionParams` (on RSI ratchet + at boot).
    */
-  #championParams: { temperature?: number; maxTokens?: number; systemPromptAddendum?: string } = {};
+  #championParams: {
+    temperature?: number;
+    maxTokens?: number;
+    systemPromptAddendum?: string;
+    reasoningEffort?: "low" | "medium" | "high";
+  } = {};
   /**
    * Cached GBNF tool-call grammar, built once from the registry's tool names.
    * Null when grammar is disabled or there are no tools. See `tool-grammar.ts`.
@@ -568,6 +581,17 @@ export class AgentLoop {
    */
   setTodoStore(store: { list(): Array<{ id: string; content: string; status: string }> }): void {
     this.#todos = store;
+  }
+
+  /** Learned ways (learning, beta): see core/learned-ways.ts. */
+  setLearnedWays(ways: LearnedWays): void {
+    this.#learnedWays = ways;
+  }
+  #learnedWays: LearnedWays | null = null;
+
+  /** A 👍/👎 on a reply (dispatch "feedback"): what it taught or retired, if anything. */
+  rateReply(messageId: string, value: "up" | "down"): string | null {
+    return this.#learnedWays?.feedback(messageId, value) ?? null;
   }
   #todos: { list(): Array<{ id: string; content: string; status: string }> } | null = null;
 
@@ -848,6 +872,7 @@ export class AgentLoop {
     temperature?: number;
     maxTokens?: number;
     systemPromptAddendum?: string;
+    reasoningEffort?: "low" | "medium" | "high";
   }): void {
     this.#championParams = { ...params };
   }
@@ -917,25 +942,41 @@ export class AgentLoop {
 
     const abortController = new AbortController();
     const ctx: SessionRunContext = { stopped: false, emit };
+    let result: TurnResult | undefined;
+    let turnStart = 0;
 
     try {
       await safePrev;
+      turnStart = Date.now();
       this.#activeSessions.add(sessionId);
       this.#sessionStartedAt.set(sessionId, Date.now());
       this.#sessionToolSignals.set(sessionId, abortController);
       this.#sessionContexts.set(sessionId, ctx);
-      return await this.#handle(sessionId, userText, messageId, ctx, skillsContext, images);
+      // Usage stats (telemetry/task-metrics.ts). `?.` because a router stand-in
+      // without these hooks must cost the stats, never the turn.
+      this.#router.beginTask?.(sessionId, messageId, {
+        brsiOn: readEnv("CINDERPAW_DREAMS_ENABLED") === "true",
+        memoryOn: recallInjectionEnabled(),
+      });
+      result = await this.#handle(sessionId, userText, messageId, ctx, skillsContext, images);
+      return result;
     } catch (err) {
       // `#handle` is documented as never throwing, but a throw here must not
       // look like a completed turn to an unattended caller.
-      return {
+      result = {
         text: "Something went wrong on my side and I couldn't finish that.",
         diagnostic: `turn failed: ${String(err)}`,
+        failed: true,
         outcome: "no_answer",
         toolCallCount: 0,
         incomplete: false,
       };
+      return result;
     } finally {
+      // Stats are not the work: if they throw, the lock below must still open.
+      try {
+        this.#router.endTask?.(sessionId, result, Date.now() - turnStart);
+      } catch { /* never costs the turn */ }
       release();
       this.#activeSessions.delete(sessionId);
       this.#sessionStartedAt.delete(sessionId);
@@ -1255,19 +1296,35 @@ export class AgentLoop {
     // conversation instead of being fixed at session start. Failure is
     // swallowed on purpose: a memory store that is slow, locked or corrupt
     // must cost the user nothing worse than a turn without recall.
+    //
+    // Learned ways (learning, beta, core/learned-ways.ts): steps that earned a
+    // 👍 on a request like this one ride in front of the recall block, so the
+    // size cap can never cut them, and show in Memory Peek like any memory.
+    // Owner text sessions only, the same rule as Memory Resume below.
+    const way =
+      this.#learnedWays && !this.#spokenSurface.has(sessionId) && isReplayableSession(sessionId) && !this.#profileFor(sessionId)
+        ? this.#learnedWays.turnStarted(messageId, sessionId, userTextClean)
+        : null;
+    const hint = way ? `${learnedWayHint(way)}\n\n` : "";
+    const wayItems = way ? [{ kind: "learned" as const, text: `"${way.request}": ${way.steps.join(" → ")}` }] : [];
     if (this.#recall && !this.#spokenSurface.has(sessionId) && recallInjectionEnabled()) {
       try {
         const recalled = await this.#recall.recall(userTextClean, sessionId);
         const max = recallInjectionMaxChars();
-        memory.setRecall(recalled.context, max);
+        memory.setRecall(hint + recalled.context, max + hint.length);
         // Memory Peek: tell the app which memories went in, as data. Only what
         // survived the size cap: an item cut off the end was never seen.
         const kept = recalled.context.slice(0, max);
-        const items = (recalled.used ?? []).filter((m) => kept.includes(m.text.slice(0, 60)));
+        const items = [...wayItems, ...(recalled.used ?? []).filter((m) => kept.includes(m.text.slice(0, 60)))];
         if (items.length > 0) ctx.emit({ type: "memory_used", id: messageId, sessionId, items });
       } catch {
-        memory.setRecall("");
+        memory.setRecall(hint);
+        if (way) ctx.emit({ type: "memory_used", id: messageId, sessionId, items: wayItems });
       }
+    } else if (this.#learnedWays && !this.#spokenSurface.has(sessionId)) {
+      // Recall is off, so nothing else clears this slot: an empty hint must.
+      memory.setRecall(hint);
+      if (way) ctx.emit({ type: "memory_used", id: messageId, sessionId, items: wayItems });
     }
 
     // When the message names a file, the transcript carries the one instruction
@@ -1532,6 +1589,7 @@ export class AgentLoop {
       return {
         text: "Something went wrong on my side and I couldn't finish that.",
         diagnostic: message,
+        failed: true,
         outcome: "no_answer",
         toolCallCount,
         incomplete: false,
@@ -1689,11 +1747,23 @@ export class AgentLoop {
       const sentAt = Date.now();
       let firstTokenAt = 0;
       let streamedChunks = 0;
+      // The document an artifact_create call is writing, sent to the desktop
+      // while it is written so it can appear letter by letter. One tracker per
+      // model call: a retry is a new draft, never more of the old one.
+      const drafts = createArtifactDraftTracker(String(i), (u) =>
+        ctx.emit({ type: "artifact_draft", id: messageId, sessionId, ...u, traceId }),
+      );
+      // A call written as text is read from the stream itself, but only once
+      // the tool's name has shown up: re-reading every reply on every token
+      // would cost each answer for the few that write a document.
+      let writesDocument = false;
       const onToken = (token: string) => {
         if (firstTokenAt === 0) firstTokenAt = Date.now();
         streamedChunks++;
         streamedSoFar += token;
         hold.push(token);
+        writesDocument ||= streamedSoFar.includes("artifact_create", Math.max(0, streamedSoFar.length - token.length - 20));
+        if (writesDocument) drafts.fromText(streamedSoFar);
       };
 
       const { content: completion, finishReason, promptTokens, completionTokens } = await this.#complete(
@@ -1704,6 +1774,7 @@ export class AgentLoop {
         ctx,
         messageId,
         traceId,
+        (call, name, args) => drafts.fromArgs(call, name, args),
       );
       // Surface REAL token usage so the UI context ring reflects actual context
       // consumption (the latest call's prompt = full context fed to the model,
@@ -2293,6 +2364,8 @@ export class AgentLoop {
     ctx?: SessionRunContext,
     messageId?: string,
     traceId?: string,
+    /** A native tool call's arguments as they stream (InferenceRequest.onToolArgs). */
+    onToolArgs?: (call: number, name: string, argsSoFar: string) => void,
   ): Promise<CompletionOutcome> {
     // Pick up any tools registered since the last turn (MCP servers finish
     // connecting after boot) before deriving this turn's schemas from them.
@@ -2456,6 +2529,7 @@ export class AgentLoop {
         maxTokens,
         temperature,
         onToken,
+        onToolArgs,
         cachePrompt: true,
         // The main loop is the one place in the product where this is
         // unambiguously true: system prompt and tool schemas are rebuilt only
@@ -2468,6 +2542,11 @@ export class AgentLoop {
         nativeTools,
         // A3 regression fix: native tool definitions for OpenAI-compatible providers.
         openAITools,
+        // The RSI champion's effort; the provider sends it only where the API
+        // takes it (inference-providers.ts anthropicEffort / openAIReasoning).
+        ...(this.#championParams.reasoningEffort
+          ? { reasoningEffort: this.#championParams.reasoningEffort }
+          : {}),
         ...grammarFields,
       };
       if (routeTargets) {
@@ -2580,6 +2659,7 @@ export class AgentLoop {
       const detail = String(err);
       console.warn(`[brain] route failed, falling back to router defaults: ${detail}`);
       const current = this.#router.currentModel;
+      this.#router.noteTaskFallback?.(sessionId);
       ctx.emit({
         type: "model_routed",
         sessionId,
@@ -2955,7 +3035,9 @@ export function buildSystemPrompt(
     "- Be concise and direct.",
     "- If you cannot help or a tool fails, say so clearly.",
     "- Never output raw JSON outside a tool block as your final answer.",
-    "- Respond in the same language the user writes in.",
+    // 10 Oct: an English request after a page full of other languages got a
+    // Russian reply. Pages and tool results never pick the language.
+    "- Respond in the language of the user's latest message, never in the language of a page or tool result.",
   ].filter((s) => s.length > 0).join("\n");
 }
 

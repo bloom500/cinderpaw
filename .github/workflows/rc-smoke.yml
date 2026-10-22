@@ -6,14 +6,14 @@ name: RC smoke
 #
 # Run it by pushing any commit to a `smoke/...` branch (the workflow file must
 # be on the default branch for workflow_dispatch, and this one is not yet), or
-# by hand once it is. It tests the newest `-rc` pre-release unless told a tag.
+# by hand once it is. It tests the newest pre-release (beta or rc) unless told a tag.
 on:
   push:
     branches: ["smoke/**"]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to test (default: the newest -rc pre-release)"
+        description: "Release tag to test (default: the newest pre-release)"
         required: false
 
 permissions:
@@ -36,9 +36,9 @@ jobs:
           $tag = "${{ inputs.tag }}"
           if (-not $tag) {
             $tag = gh release list --repo "${{ github.repository }}" --limit 30 --json tagName,isPrerelease `
-              --jq '[.[] | select(.isPrerelease and (.tagName | contains("-rc")))][0].tagName'
+              --jq '[.[] | select(.isPrerelease)][0].tagName'
           }
-          if (-not $tag) { throw "No -rc pre-release to test" }
+          if (-not $tag) { throw "No pre-release to test" }
           Write-Host "Testing $tag"
           "TAG=$tag" >> $env:GITHUB_ENV
       - name: Install it like a stranger (NSIS, silent, per user)
@@ -58,6 +58,21 @@ jobs:
         run: |
           npm install --no-save --no-package-lock --prefix scripts/rc-smoke playwright-core@1
           node scripts/rc-smoke/windows.mjs
+      # A failure with no picture was all beta.1 left behind ("no WebView2
+      # DevTools port"): say whether the window was there, what ran, and what
+      # the app logged.
+      - name: What was on screen
+        if: failure()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force smoke-out | Out-Null
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save("smoke-out/windows-desktop.png")
+          Get-Process cinderpaw*, msedgewebview2 -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, MainWindowTitle -AutoSize | Out-File smoke-out/processes.txt
+          Copy-Item "$HOME/.cinderpaw/logs" smoke-out/logs -Recurse -ErrorAction SilentlyContinue
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -75,9 +90,9 @@ jobs:
           tag="${{ inputs.tag }}"
           if [ -z "$tag" ]; then
             tag=$(gh release list --repo "${{ github.repository }}" --limit 30 --json tagName,isPrerelease \
-              --jq '[.[] | select(.isPrerelease and (.tagName | contains("-rc")))][0].tagName')
+              --jq '[.[] | select(.isPrerelease)][0].tagName')
           fi
-          [ -n "$tag" ] || { echo "No -rc pre-release to test"; exit 1; }
+          [ -n "$tag" ] || { echo "No pre-release to test"; exit 1; }
           echo "TAG=$tag" >> "$GITHUB_ENV"
       - name: Install, open, and look
         run: |

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Cloud, Laptop, SlidersHorizontal } from 'lucide-react';
+import { Cloud, Laptop, SlidersHorizontal, Trophy } from 'lucide-react';
 import { useSystemInfo } from '@/stores/systemInfo';
 import { useModel } from '@/stores/model';
 import { useSettings } from '@/stores/settings';
@@ -12,16 +12,18 @@ import { CinderpawMascot } from '@/components/chat/mascot/CinderpawMascot';
 import type { MascotState } from '@/components/chat/mascot/frames';
 import { ModelLogo } from '@/lib/modelLogos';
 import { RolesTab } from '@/components/models/RolesTab';
+import { LeaderboardTab } from '@/components/models/LeaderboardTab';
 import { cn } from '@/lib/utils';
 
-type Tab = 'local' | 'browse' | 'cloud' | 'roles';
-const TABS: readonly Tab[] = ['local', 'browse', 'cloud', 'roles'];
+type Tab = 'local' | 'browse' | 'cloud' | 'roles' | 'leaderboard';
+const TABS: readonly Tab[] = ['local', 'browse', 'cloud', 'roles', 'leaderboard'];
 
 /** In the order the bar shows them: where models live, from far to near. */
 const TAB_BAR: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'cloud', label: 'Cloud', icon: <Cloud size={16} /> },
   { id: 'browse', label: 'Hugging Face', icon: <ModelLogo provider="huggingface" className="size-4" /> },
   { id: 'local', label: 'Local', icon: <Laptop size={16} /> },
+  { id: 'leaderboard', label: 'Leaderboard', icon: <Trophy size={16} /> },
   // Spec 8: which model each role in the Model Switcher means.
   { id: 'roles', label: 'Roles', icon: <SlidersHorizontal size={16} /> },
 ];
@@ -32,6 +34,7 @@ const HERO: Record<Tab, { state: MascotState; line: string }> = {
   browse: { state: 'searching', line: 'Thousands of community models. Find one, and I’ll fetch it for you.' },
   local: { state: 'typing', line: 'Your models. Your machine. All private, all yours.' },
   roles: { state: 'thinking', line: 'Tell me who answers what: a quick one, a careful one, a private one.' },
+  leaderboard: { state: 'thinking', line: 'Which model does the job, for how much. Real tasks, real numbers.' },
 };
 
 export function ModelsPage() {
@@ -126,6 +129,7 @@ export function ModelsPage() {
             {tab === 'local' ? <LocalModelsTab onBrowse={() => setTab('browse')} /> : null}
             {tab === 'browse' ? <BrowseTab /> : null}
             {tab === 'cloud' ? <ByokTab /> : null}
+            {tab === 'leaderboard' ? <LeaderboardTab /> : null}
             {tab === 'roles' ? <RolesTab onCloud={() => setTab('cloud')} onBrowse={() => setTab('browse')} /> : null}
           </motion.main>
         </AnimatePresence>

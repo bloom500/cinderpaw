@@ -99,6 +99,9 @@ type AskQuestion struct {
 	Question    string      `json:"question"`
 	Options     []AskOption `json:"options"`
 	MultiSelect bool        `json:"multiSelect,omitempty"`
+	// Preview is text the person must read before answering: the whole skill
+	// a pasted link would install.
+	Preview string `json:"preview,omitempty"`
 }
 
 // AskOption is one selectable choice.

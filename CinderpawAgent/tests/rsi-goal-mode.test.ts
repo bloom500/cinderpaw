@@ -20,6 +20,7 @@ import { RatchetHandler } from "../src/rsi/l1-config/ratchet-handler.ts";
 import { SelectionMutationHandler } from "../src/rsi/l1-config/selection-handler.ts";
 import { RecalcitranceTracker } from "../src/rsi/l1-config/recalcitrance.ts";
 import { GoalMode, attachPopulationRecorder, type GoalConfig } from "../src/rsi/l1-config/goal-mode.ts";
+import { RsiRunAbortedError } from "../src/rsi/infra/run-eval.ts";
 
 const CFG: GenomeConfig = {
   promptTemplateId: 0,
@@ -123,6 +124,24 @@ describe("RSI Goal Mode", () => {
     expect(res.iterations).toBe(3);
   });
 
+  test("uses authoritative live USD spend instead of the boot-time price estimate", async () => {
+    const { gm } = buildEngine({
+      scores: [50],
+      config: {
+        goal: "x",
+        maxIterations: 100,
+        maxTotalTokens: 1e9,
+        maxTotalCostUsd: 0.5,
+        pricePer1kUsd: 0,
+        currentCostUsd: () => 0.5,
+      },
+    });
+    const res = await gm.run();
+    expect(res.reason).toBe("CostBudgetExhausted");
+    expect(res.iterations).toBe(0);
+    expect(res.totalCostUsd).toBe(0.5);
+  });
+
   test("stops with PlateauPersistent after N iterations without improvement", async () => {
     const { gm } = buildEngine({
       scores: [50], // flat: best never improves after the first eval
@@ -143,6 +162,42 @@ describe("RSI Goal Mode", () => {
     const res = await gm.run();
     expect(res.reason).toBe("UserStopped");
     expect(res.iterations).toBe(1);
+  });
+
+  test("stop aborts in-flight work without counting cancellation as an evaluation", async () => {
+    const bus = new EventBus();
+    const pop = new PopulationManager();
+    pop.add({ id: "seed", generation: 0, lineage: [], config: CFG });
+    attachPopulationRecorder(bus, pop);
+    const controller = new AbortController();
+    const started = Promise.withResolvers<void>();
+    const worker = new EvalWorker(bus, {
+      runEval: async () => new Promise((_, reject) => {
+        started.resolve();
+        controller.signal.addEventListener("abort", () => {
+          reject(new RsiRunAbortedError(controller.signal.reason));
+        }, { once: true });
+      }),
+      scoreGenome: async () => ({ score: 50 }),
+    });
+    const gm = new GoalMode(bus, pop, worker, {
+      goal: "x",
+      maxIterations: 10,
+      maxTotalTokens: 1e9,
+      signal: controller.signal,
+      abort: (reason) => controller.abort(reason),
+    });
+
+    const pending = gm.run();
+    await started.promise;
+    gm.stop();
+    const stoppedImmediately = controller.signal.aborted;
+    if (!stoppedImmediately) controller.abort("test cleanup");
+    const res = await pending;
+
+    expect(stoppedImmediately).toBe(true);
+    expect(res.reason).toBe("UserStopped");
+    expect(res.iterations).toBe(0);
   });
 
   // ── Concurrency ramp (follow-up to 7d) ──────────────────────────────────

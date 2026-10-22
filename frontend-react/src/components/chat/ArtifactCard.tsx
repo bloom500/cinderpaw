@@ -6,6 +6,7 @@ import type { ArtifactFact } from '@/hooks/useLiveToolActivity';
 import { googlePlan, peekArtifact, shownKind, useArtifacts, type ArtifactRow } from '@/stores/artifacts';
 import { ArtifactCover } from '@/components/artifacts/ArtifactCover';
 import { LiveFrame } from '@/components/artifacts/LiveFrame';
+import { ExternalLink } from '@/components/chat/ExternalLink';
 import { MIN_SECTIONS, digest, plainText, sectionsOf, statusOf, subtitleOf, summaryOf, type DocSection } from '@/lib/artifactSections';
 import { Markdown } from '@/lib/markdown';
 import { tauri } from '@/lib/tauri';
@@ -46,8 +47,9 @@ export function artifactLine(f: Pick<ArtifactFact, 'kind' | 'version'>): string 
 
 /** Kinds whose text the card can read and draw; the rest get their cover. */
 const READABLE = new Set(['document', 'markdown', 'app', 'html', 'table', 'code', 'json', 'board']);
-/** Kinds the sidecar turns into a PDF on export (mirrors CONVERTIBLE in the store). */
-const PDF_ABLE = new Set(['document', 'markdown', 'table', 'code', 'json', 'board']);
+/** Prose, whose one-tap download is a PDF. A table, a script or a JSON file
+ *  leaves as itself: "Download" on a CSV-like table used to hand over a PDF (6 Oct). */
+const PDF_ABLE = new Set(['document', 'markdown', 'board']);
 /** Section columns on the card; the rest are chips in the footer. */
 const COLUMNS = 4;
 const CHIPS = 4;
@@ -295,7 +297,10 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
   }
 
   const asPdf = PDF_ABLE.has(f.kind);
-  const canShare = googleOk && peek.state === 'ready' && googlePlan(shown) !== null;
+  // One tap from the chat: a Doc when it can be one, the file in Drive when not
+  // (a PDF). The panel's Google button offers all four places.
+  const shareTo = googlePlan(shown, 'docs', content) ? 'docs' : googlePlan(shown, 'drive', content) ? 'drive' : null;
+  const canShare = googleOk && peek.state === 'ready' && shareTo !== null;
   const iconButton = 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border-default bg-bg-elevated text-text-secondary transition-colors hover:bg-text-primary/5 hover:text-text-primary disabled:opacity-60';
 
   // A board draws its own header and footer (the 1 Oct boards); the card adds its buttons to that footer.
@@ -379,11 +384,13 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
           )}
           {shared && google && (
             <span className={cn('self-center text-2xs', google.error ? 'text-(--warning)' : 'text-text-muted')}>
-              {google.busy
+              {google.signingIn
+                ? <>{'Finish signing in to Google in your browser. Closed it? Click Share again. '}<button type="button" onClick={() => useArtifacts.getState().cancelGoogle()} className="underline hover:text-text-primary">Cancel</button></>
+                : google.busy
                 ? 'Sending to Google Drive…'
                 : google.error
                   ? google.error
-                  : google.link && <a href={google.link} target="_blank" rel="noreferrer" className="text-brand underline">Open in Google Drive</a>}
+                  : google.link && <ExternalLink href={google.link} className="text-brand underline">Open in Google Drive</ExternalLink>}
             </span>
           )}
         </div>
@@ -402,10 +409,10 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
             type="button"
             aria-label="Share"
             title="Share to Google Drive"
-            disabled={google?.busy === true}
+            disabled={google?.busy === true && !google.signingIn}
             onClick={() => {
               setShared(true);
-              void useArtifacts.getState().sendToGoogle({ title: f.title, kind: f.kind, content });
+              void useArtifacts.getState().sendToGoogle({ title: f.title, kind: f.kind, content }, shareTo ?? 'drive');
             }}
             className={iconButton}
           >

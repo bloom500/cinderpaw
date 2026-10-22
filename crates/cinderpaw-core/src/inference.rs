@@ -1113,9 +1113,13 @@ mod backend {
         let mut out: Vec<Vec<f32>> = vec![Vec::new(); texts.len()];
         let mut pending: Vec<(usize, Vec<LlamaToken>)> = Vec::with_capacity(texts.len());
         for (idx, text) in texts.iter().enumerate() {
+            // A NUL byte (pasted from a binary file or a web page) cannot cross
+            // into llama.cpp, and one such text failed the whole batch: on his
+            // machine the memory tree failed to build every five minutes from
+            // 11 Oct. It carries no meaning, so it becomes a space.
             let mut tokens = state
                 .model
-                .str_to_token(text, AddBos::Always)
+                .str_to_token(&text.replace('\0', " "), AddBos::Always)
                 .map_err(|e| anyhow!("embedding tokenize: {}", e))?;
             if tokens.is_empty() {
                 out[idx] = vec![0.0; n_embd]; // downstream cosine guards zeros

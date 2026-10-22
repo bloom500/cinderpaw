@@ -771,8 +771,12 @@ fn spawn_detached(app: &str) -> Result<LaunchResult, String> {
         // (working directory, arguments, elevation) the way a double-click does.
         let lower = app.to_lowercase();
         if lower.ends_with(".lnk") || (lower.contains("://") && !lower.starts_with("shell:")) {
+            use std::os::windows::process::CommandExt;
             let mut c = Command::new("cmd");
             c.args(["/c", "start", "", app]);
+            // cmd only hands the shortcut to the shell; its own console would
+            // flash up as a black window. The app it starts opens as usual.
+            c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
             c
         } else if std::path::Path::new(app).is_dir() || lower.starts_with("spotify:") {
             // A folder ("open Downloads") and Spotify's own search URI

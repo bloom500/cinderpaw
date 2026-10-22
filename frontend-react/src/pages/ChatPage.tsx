@@ -18,22 +18,22 @@ import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput';
 import { ArtifactsPanel } from '@/components/artifacts/ArtifactsPanel';
 import { useArtifacts } from '@/stores/artifacts';
 import { useBrowser } from '@/stores/browser';
+import { cn } from '@/lib/utils';
 import { BrowserPanel } from '@/components/browser/BrowserPanel';
 import { NewChatEmptyState } from '@/components/chat/EmptyStates';
 import { AgentOfflineBanner } from '@/components/chat/AgentOfflineBanner';
-import { StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
+import { HeadsUpCard } from '@/components/chat/HeadsUpCard';
+import { ProviderWaitNotice, StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
 import { WorkersCard } from '@/components/chat/WorkersCard';
 import { ComposerTip, TEACH_PROMPT } from '@/components/chat/ComposerTip';
 import { AgentsOnboarding } from '@/components/agents/onboarding/AgentsOnboarding';
-import { ONBOARDING_KEY } from '@/components/agents/agentUtils';
 import { useOnboarding } from '@/stores/onboarding';
-import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
 import { CoworkTranscriptPanel } from '@/components/chat/CoworkTranscriptPanel';
 import { CoworkerStrip } from '@/components/chat/CoworkerStrip';
 import { useCinderpawSendMessage } from '@/hooks/useCinderpaw';
 import { useCinderpawStore } from '@/stores/cinderpaw';
-import { readLocal } from '@/lib/utils';
 import { setChatDockHeight } from '@/lib/chatDock';
+import { localApiBase } from '@/lib/localApi';
 
 export function ChatPage() {
   const { id } = useParams();
@@ -44,11 +44,8 @@ export function ChatPage() {
   const isEmpty     = useChat((s) => s.messages.length === 0);
   const loadingConversation = useConversations((s) => s.loadingConversation);
 
-  const inputMode    = useUI((s) => s.inputMode);
-  const setInputMode = useUI((s) => s.setInputMode);
   const sessionId    = useChat((s) => s.sessionId);
   const cinderpawSend    = useCinderpawSendMessage(sessionId);
-  const isAgentMode  = inputMode === 'agent';
 
   // The composer is always live. Cinderpaw used to gate the whole screen on
   // `hasModel`, which meant a fresh install — the one machine that has no
@@ -67,13 +64,15 @@ export function ChatPage() {
     return () => window.removeEventListener('cinderpaw-focus-composer', focus);
   }, []);
   // Another screen (Settings > Team) can open a chat with words already in the
-  // box: `navigate('/chat', { state: { compose } })`. Read once, then dropped
-  // from the history entry so Back does not type it a second time.
+  // box: `navigate('/chat', { state: { compose } })`. Settings > Agent opens it
+  // on the agent-creation steps the same way: `{ newAgent: true }`. Read once,
+  // then dropped from the history entry so Back does not do it a second time.
   const location = useLocation();
   useEffect(() => {
-    const compose = (location.state as { compose?: string } | null)?.compose;
-    if (!compose) return;
-    chatInputRef.current?.setText(compose);
+    const state = location.state as { compose?: string; newAgent?: boolean } | null;
+    if (!state?.compose && !state?.newAgent) return;
+    if (state.compose) chatInputRef.current?.setText(state.compose);
+    if (state.newAgent) setShowAgentOnboarding(true);
     navigate(location.pathname, { replace: true, state: null });
   }, [location, navigate]);
   // Explorer's Send to > Cinderpaw: files the app was started with, and files
@@ -90,10 +89,28 @@ export function ChatPage() {
     return () => { cancelled = true; unlisten?.(); };
   }, []);
   const [dropping, setDropping] = useState(false);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
+  useLayoutEffect(() => {
+    const el = workspaceRef.current;
+    if (!el) return;
+    const measure = () => {
+      if (el.clientWidth > 0) setCompact(el.clientWidth < 820);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const panelOpen       = useArtifacts((s) => s.panelOpen);
   const togglePanel     = useArtifacts((s) => s.togglePanel);
   const browserOpen     = useBrowser((s) => s.panelOpen);
-  const browserWide     = useBrowser((s) => s.wide);
+  const artifactsOnly   = compact && panelOpen && !browserOpen;
+  // Words or files put into the composer from the panel: narrow, the composer
+  // is hidden behind the panel, so the panel steps aside to show them.
+  const backToChat = () => { if (artifactsOnly) togglePanel(); };
+  const preferredBrowserWide = useBrowser((s) => s.wide);
+  const browserWide = preferredBrowserWide || compact;
   const browserChatOpen = useBrowser((s) => s.chatOpen);
   // True from the moment the browser is closed until its slide-out has
   // finished. In wide mode the panel is `flex-1`, and putting the chat column
@@ -106,8 +123,9 @@ export function ChatPage() {
     wasBrowserOpen.current = browserOpen;
   }, [browserOpen]);
   const [translateY, setTranslateY] = useState(0);
-  // #17: agent-creation onboarding — shown in agent mode when no agent
-  // exists, but never while the first-run wizard is still on screen.
+  // #17: agent-creation onboarding. Only when asked for, from Settings > Agent:
+  // a new install meets the composer, not a second wizard after the first one
+  // (15 Oct 2026, Darius). Never while the first-run wizard is on screen.
   const [showAgentOnboarding, setShowAgentOnboarding] = useState(false);
   const wizardActive = useOnboarding((s) => s.active);
 
@@ -203,8 +221,8 @@ export function ChatPage() {
   const setSkillTip = useUI((s) => s.setSkillTip);
   useEffect(() => { setSkillTip(false); }, [id, setSkillTip]);
 
-  // Open conversation when route changes; auto-switch to agent mode
-  // if the conversation was created under a Cinderpaw Agent.
+  // Open conversation when route changes, and select the agent it was
+  // created under.
   useEffect(() => {
     if (!id) return;
     const targetId = id;
@@ -220,7 +238,6 @@ export function ChatPage() {
         useAgent.getState().setReopenSessionId(null);
         return;
       }
-      setInputMode('agent');
       await useAgent.getState().refresh();
       // Guard again after second await.
       if (useAgent.getState().reopenSessionId !== targetId) return;
@@ -230,7 +247,7 @@ export function ChatPage() {
     return () => {
       useAgent.getState().setReopenSessionId(null);
     };
-  }, [id, setInputMode]);
+  }, [id]);
 
   // Clear the reopen flag once the target conversation is active.
   const reopenSessionId = useAgent((s) => s.reopenSessionId);
@@ -240,25 +257,18 @@ export function ChatPage() {
     }
   }, [reopenSessionId, sessionId]);
 
-  // When the user switches to agent mode:
-  // 1. Ensure an agent is selected so cinderpawSend can tag conversations.
+  // 1. Ensure an agent is selected, when one exists, so cinderpawSend can tag
+  //    conversations. Sending works without one.
   // 2. Hot-swap the Cinderpaw sidecar to the currently loaded local model.
   //    The sidecar persists its own model config and may be pointing at
   //    an Ollama model name that doesn't match what's loaded in the
   //    Cinderpaw inference backend (port 11435). Without this sync, all
   //    sidecar requests fail silently.
   useEffect(() => {
-    if (inputMode !== 'agent') return;
-
     if (!useAgent.getState().current) {
       void useAgent.getState().refresh().then(() => {
         const first = useAgent.getState().list[0];
         if (first?.id) useAgent.getState().setCurrent(first.id);
-        // #17: no agent exists — offer the agent-creation onboarding. It was
-        // previously unreachable (the "New agent" button navigated here and
-        // nothing mounted it). Sequenced below so it never stacks on top of
-        // the first-run wizard. Skip if already dismissed/completed (survives CTRL+R).
-        else if (!readLocal(ONBOARDING_KEY)) setShowAgentOnboarding(true);
       });
     }
 
@@ -271,15 +281,15 @@ export function ChatPage() {
       const cfg = useCinderpawStore.getState().modelConfig;
       const onCloud = !!cfg && cfg.provider !== 'openai_compatible' && cfg.provider !== 'ollama';
       if (!onCloud) {
-        void useCinderpawStore.getState().setModel({
+        void localApiBase().then((baseUrl) => useCinderpawStore.getState().setModel({
           source: 'openai_compatible',
           model: loaded.name,
-          baseUrl: 'http://localhost:11435',
+          baseUrl,
           providerId: 'cinderpaw-local',
-        }).catch(console.error);
+        })).catch(console.error);
       }
     }
-  }, [inputMode, loaded]);
+  }, [loaded]);
 
   const handleSuggestion = (text: string) => {
     chatInputRef.current?.setText(text);
@@ -294,8 +304,10 @@ export function ChatPage() {
   // panels or, in the browser's wide mode, inside the panel's own drawer,
   // without two copies of it in the tree.
   const chatColumn = (
-    <div className="flex flex-col h-full min-w-[28rem] flex-1">
-      {isAgentMode && showAgentOnboarding && !wizardActive && (
+    // Narrow, the artifacts panel takes the whole row; the chat stays mounted
+    // (hidden) so its draft, queue and composer ref survive the switch.
+    <div className={cn('flex flex-col h-full flex-1', compact ? 'min-w-0' : 'min-w-[28rem]', artifactsOnly && 'hidden')}>
+      {showAgentOnboarding && !wizardActive && (
         <AgentsOnboarding
           onDone={() => setShowAgentOnboarding(false)}
           onSkip={() => setShowAgentOnboarding(false)}
@@ -303,8 +315,7 @@ export function ChatPage() {
       )}
       {!showAgentOnboarding && <ChatHeader />}
 
-      {isAgentMode && <CinderpawGlobalMount />}
-      {isAgentMode && <AgentOfflineBanner />}
+      <AgentOfflineBanner />
       {!showAgentOnboarding && <CoworkerStrip />}
 
       {/* Positioning context for absolute children */}
@@ -319,12 +330,9 @@ export function ChatPage() {
           <div className="absolute inset-x-0 top-0 h-0.5 bg-brand animate-pulse z-10" />
         )}
 
-        {/* Content: messages, no-model state, or empty overlay */}
-        {!isEmpty ? (
-          <MessageList onFollowUp={handleFollowUp} />
-        ) : (
-          <NewChatEmptyState isEmpty={isEmpty} />
-        )}
+        {/* Content: the messages. A new chat's notes live in the composer's
+            wrapper below, under the intent cards. */}
+        {!isEmpty && <MessageList onFollowUp={handleFollowUp} />}
 
         {/* Live agent-to-agent transcript (Agent Cowork). Self-hiding: with
             zero cowork traffic it renders nothing, so a fresh install sees
@@ -349,24 +357,40 @@ export function ChatPage() {
           // actually starts. It was clearing a hard-coded 88px, and this dock
           // is not 88px tall — it grows with a multi-line draft, the error
           // notice and the greeting.
+          // pointer-events-none on the wrapper: it spans the full width over
+          // the transcript, and its empty padding (pt-8 above, gaps between
+          // cards) used to swallow clicks meant for the scrollbar behind it —
+          // the pill could not be grabbed wherever the dock covered the track
+          // (4 Oct 2026). The inner box must not exist AS a box either: it is
+          // also full width while every control inside it is a centred
+          // max-w column, so its dead side bands sat over the scrollbar's
+          // bottom dockH pixels (z-20, above the viewport) and the pill stayed
+          // ungrabbable exactly where it sits in follow mode — only the rail
+          // above the dock answered, hence "it works only near chapter
+          // lines". `contents` (display: contents) removes the box while the
+          // children keep their own boxes and events, so the dead bands are
+          // gone and every control stays clickable with no child file
+          // touched.
           data-chat-input-dock=""
-          className="absolute inset-x-0 bottom-0 z-20 pt-8"
+          className="absolute inset-x-0 bottom-0 z-20 pt-8 pointer-events-none"
         >
+          <div className="contents pointer-events-auto">
           {isEmpty && !showAgentOnboarding && <HomeGreeting />}
           {/* Workers the agent spawned with rlm(). They run after the reply
               that started them, so the reply cannot show them. */}
           <WorkersCard />
           {/* #10: humanized inference errors with a fix-it action */}
           <StreamErrorNotice />
+          <ProviderWaitNotice />
+          {/* "Something you should know", found while the agent works. */}
+          <HeadsUpCard />
           <ComposerTip
             isEmpty={isEmpty}
-            // A new chat, in agent mode (create_skill is a tool, and only the
-            // agent has tools), with the request typed in and the caret after
-            // it. Not sent: sending is theirs, and it costs money.
+            // A new chat with the request typed in and the caret after it.
+            // Not sent: sending is theirs, and it costs money.
             onTry={() => {
               useConversations.getState().newChat();
               navigate('/chat');
-              setInputMode('agent');
               chatInputRef.current?.setText(TEACH_PROMPT);
               chatInputRef.current?.focus();
             }}
@@ -374,8 +398,7 @@ export function ChatPage() {
           <ChatInput
             ref={chatInputRef}
             isEmpty={isEmpty}
-            sendFn={isAgentMode ? cinderpawSend : undefined}
-            alwaysEnabled={isAgentMode}
+            sendFn={cinderpawSend}
           />
           {/* Inside the composer's wrapper, not floating near it: the wrapper
               is what gets centred, and its measured height is what the centring
@@ -383,6 +406,8 @@ export function ChatPage() {
               guessed a second time, and would drift the first time the field
               grew a line. */}
           {isEmpty && !showAgentOnboarding && <HomeIntents onPick={handleSuggestion} />}
+          <NewChatEmptyState isEmpty={isEmpty} />
+          </div>
         </div>
       </div>
     </div>
@@ -396,6 +421,7 @@ export function ChatPage() {
     // the composer: the page is the target people actually aim at. The
     // composer's own handler stops propagation by handling the drop first.
     <div
+      ref={workspaceRef}
       className="relative flex h-full"
       onDragOver={(e) => {
         if (!Array.from(e.dataTransfer.types).includes('Files')) return;
@@ -427,25 +453,29 @@ export function ChatPage() {
             working in it, an artifact it saves must not cover the page. The
             artifact is still one click away in the sidebar. */}
         {browserOpen && (
-          <BrowserPanel key="browser-panel" chat={chatColumn} onCompose={(text) => chatInputRef.current?.setText(text)} />
+          <BrowserPanel key="browser-panel" compact={compact} chat={chatColumn} onCompose={(text) => chatInputRef.current?.setText(text)} />
         )}
         {panelOpen && !browserOpen && (
           <ArtifactsPanel
             key="artifacts-panel"
+            compact={compact}
             onClose={togglePanel}
             // Not "send this to the agent": it fills the composer and leaves the
             // person holding the sentence, so they can say what they actually
             // want before spending a turn.
             onAsk={(row) => {
+              backToChat();
               chatInputRef.current?.setText(`About the artifact "${row.title}" (${row.id}): `);
-              chatInputRef.current?.focus();
+              setTimeout(() => chatInputRef.current?.focus());
             }}
             // Context's "Add": the same two gestures, words or files into the
             // composer, and they go with the next message.
-            onCompose={(text) => chatInputRef.current?.setText(text)}
+            onCompose={(text) => { backToChat(); chatInputRef.current?.setText(text); }}
             onAttach={() => {
               void openFileDialog({ multiple: true }).then((picked) => {
-                if (picked) chatInputRef.current?.attachPaths(Array.isArray(picked) ? picked : [picked]);
+                if (!picked) return;
+                backToChat();
+                chatInputRef.current?.attachPaths(Array.isArray(picked) ? picked : [picked]);
               });
             }}
           />

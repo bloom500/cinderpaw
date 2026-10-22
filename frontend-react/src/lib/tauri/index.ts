@@ -6,23 +6,19 @@
 import { invoke, Channel } from '@tauri-apps/api/core';
 export { Channel };
 import type {
-  TokenEvent,
-  StreamDoneEvent,
-  StreamErrorEvent,
-  StreamTruncatedEvent,
   DownloadProgressEvent,
   DownloadCompleteEvent,
   DownloadErrorEvent,
   ModelLoadProgressEvent,
   MemoryNotesLine,
+  UsageSummaryLine,
 } from './events';
 import { events as agentEvents } from './events';
 
 // ── Types (mirrors Rust structs exactly — snake_case, no rename_all) ──────────
-export type { TokenEvent, StreamDoneEvent, StreamErrorEvent, StreamTruncatedEvent };
 export type { DownloadProgressEvent, DownloadCompleteEvent, DownloadErrorEvent };
 export type { ModelLoadProgressEvent };
-export type { StreamProgressEvent, RsiEngineEventLine, FractalActivityLine, DreamCycleLine, MemoryNotesLine } from './events';
+export type { StreamProgressEvent, RateLimitedEvent, RsiEngineEventLine, FractalActivityLine, DreamCycleLine, MemoryNotesLine } from './events';
 
 /**
  * One row of the voice-engine picker — mirrors `cinderpaw_core::tts::TtsEngine`.
@@ -185,6 +181,9 @@ export interface ConnectorField { key: string; label: string; secret: boolean }
 
 /** A pairing in flight. Public values only — what to type and where. The
  *  device code is a credential and never crosses this boundary. */
+/** Ops of `cinderpaw_meta` (L6): the panel's four, plus the chat card's three. */
+export type MetaOp = 'status' | 'evolve' | 'rollback' | 'history' | 'proposal' | 'approve' | 'deny';
+
 export type ConnectorAuthState = {
   kind: 'waiting_for_user';
   user_code: string;
@@ -310,6 +309,8 @@ export interface SkillPreview {
   content: string;
 }
 
+export type PermissionMode = 'read_only' | 'workspace_write' | 'full_access';
+
 export interface Settings {
   models_dir: string;
   default_gpu_layers: number;
@@ -331,6 +332,12 @@ export interface Settings {
   /** MASTER opt-in for the dream cycle. Off by default: dreaming (local or
    *  cloud) never starts unless the user flipped this on. */
   dreams_enabled: boolean;
+  /** Opt-in daily usage summary. null = never asked (the home card asks once),
+   *  false = asked and said no. Optional: older hosts do not send it. */
+  usage_sharing?: boolean | null;
+  /** What the agent may do without asking (sidecar permission-mode.ts).
+   *  Absent/null = `workspace_write`, the sidecar's default. */
+  permission_mode?: PermissionMode | null;
   /** The chosen inference route: `"<provider>:<model>"` (cloud) or
    *  `"local:<file>"`. null = the bundled local default. */
   active_route: string | null;
@@ -587,7 +594,7 @@ export interface CodePatchResolvedPayload {
 export interface VoiceMeta { audio_path: string; duration_ms: number; transcript: string; peaks: number[] }
 /** Mirrors `conversations::ScratchStats` — churn in the agent's own workspace. */
 export interface ScratchStats        { edits: number; added: number; removed: number }
-export interface PersistedMessage    { role: string; content: string; thinking?: string; thinking_ms?: number | null; voice?: VoiceMeta | null; scratch?: ScratchStats | null; tools?: unknown; created_at?: number | null }
+export interface PersistedMessage    { role: string; content: string; thinking?: string; thinking_ms?: number | null; voice?: VoiceMeta | null; scratch?: ScratchStats | null; tools?: unknown; created_at?: number | null; ended?: unknown; memory_used?: unknown }
 export interface ConversationSummary {
   id: string; title: string; updated_at: string;
   /** Set when this conversation belongs to an agent (Agents tab); null for chat. */
@@ -777,6 +784,9 @@ export type CinderpawAgentEvent =
       sessionId: string;
       action: 'created' | 'updated' | 'deleted';
     }
+  // A document Cinderpaw is writing, piece by piece, while it writes it.
+  // `id` is the turn; its tool_done / done / error close the draft.
+  | { type: 'artifact_draft'; id: string; sessionId: string; draft: string; kind?: string; title?: string; append: string; editOf?: string; find?: string }
   | {
       type: 'artifact_result';
       id: string;
@@ -832,6 +842,19 @@ export type CinderpawModelSelection =
 // ── Raw invoke helpers ────────────────────────────────────────────────────────
 // Tauri returns T directly on Ok; throws a string on Err.
 // No Result wrapper needed — errors propagate as thrown exceptions.
+/** Another agent's setup found on this machine (`migrate::preview`). */
+export interface MigrateFound {
+  source: string;
+  root: string;
+  version: string | null;
+  plan: {
+    willImport: { what: string; target: string; note: string | null }[];
+    notImported: string[];
+    conflicts: string[];
+    backupDir: string;
+  };
+}
+
 const raw = {
   getModels:             ()    => invoke<ModelInfo[]>('get_models'),
   getLoadedModel:        ()    => invoke<LoadedModel | null>('get_loaded_model'),
@@ -839,9 +862,6 @@ const raw = {
   startModelLoad:        (path: string, maxContext?: number) => invoke<LoadedModel>('start_model_load', { path, maxContext }),
   unloadModel:           ()    => invoke<void>('unload_model'),
   deleteModel:           (path: string) => invoke<void>('delete_model', { path }),
-  chatStream:            (messages: Message[], params: InferParams, sessionId: string) =>
-    invoke<void>('chat_stream', { messages, params, sessionId }),
-  stopGeneration:        (sessionId: string) => invoke<void>('stop_generation', { sessionId }),
   downloadModel:         (repoId: string, filename: string) =>
     invoke<string>('download_model', { repoId, filename }),
   cancelDownload:        (modelId: string) =>
@@ -854,7 +874,9 @@ const raw = {
   bugReportLogPreview:   ()    => invoke<string>('bug_report_log_preview'),
   submitBugReport:       (description: string, includeLog: boolean) =>
     invoke<void>('submit_bug_report', { description, includeLog }),
-  countInstall:          (send: boolean) => invoke<void>('count_install', { send }),
+  countInstall:          (send: boolean, heard: string | null) => invoke<void>('count_install', { send, heard }),
+  setUsageSharing:       (on: boolean) => invoke<void>('set_usage_sharing', { on }),
+  setPermissionMode:     (mode: PermissionMode) => invoke<void>('set_permission_mode', { mode }),
   saveAgent:             (cfg: AgentConfig) => invoke<AgentConfig>('save_agent', { cfg }),
   getAgents:             ()    => invoke<AgentConfig[]>('get_agents'),
   deleteAgent:           (id: string) => invoke<void>('delete_agent', { id }),
@@ -913,12 +935,12 @@ const raw = {
   /** Memory page notes: list, or delete one. The reply is a `memory_notes_result` event. */
   memoryNotes:           (requestId: string, op: 'list' | 'delete', noteId?: number) =>
     invoke<void>('cinderpaw_memory_notes', { requestId, op, noteId: noteId ?? null }),
+  /** Usage stats; the reply is a `usage_summary_result` event. */
+  usageSummary:          (requestId: string) => invoke<void>('cinderpaw_usage_summary', { requestId }),
   jevDecide:             (state: Record<string, unknown>, questions: Record<string, unknown>) =>
     invoke<{ answers: Record<string, { type: string; choice?: string; confidence?: number; noul?: number }>; usage: unknown; ms: number }>('jev_decide', { state, questions }),
   testByokProvider:      (providerId: string, apiKey: string, baseUrl?: string | null) =>
     invoke<object>('test_byok_provider', { providerId, apiKey, baseUrl }),
-  chatCloudStream:       (providerId: string, model: string, messages: Message[], params: InferParams, sessionId: string) =>
-    invoke<void>('chat_cloud_stream', { providerId, model, messages, params, sessionId }),
   readFileAsText:        (path: string) => invoke<string>('read_file_as_text', { path }),
   listInstalledSkills:      () => invoke<SkillMeta[]>('list_installed_skills'),
   getInstalledSkillContent: (id: string) => invoke<string>('get_installed_skill_content', { id }),
@@ -974,6 +996,10 @@ const raw = {
   setupDetect:              () => invoke<SetupCandidate[]>('setup_detect'),
   setupVerify:              (candidate: SetupCandidate, apiKey: string | undefined, persist: boolean) =>
     invoke<SetupVerifyOutcome>('setup_verify', { candidate, apiKey: apiKey ?? null, persist }),
+  // Import from OpenClaw / Hermes Agent (cinderpaw-core `migrate`): what is on
+  // this machine and what an import would bring, then the import itself.
+  migratePreview:           () => invoke<MigrateFound[]>('migrate_preview'),
+  migrateApply:             (root: string) => invoke<string[]>('migrate_apply', { root }),
   connectorsList:           () => invoke<ConnectorView[]>('connectors_list'),
   connectorsSave:           (id: string, secrets: Record<string, string>, allowlist: string[], channels: string[], mode?: string, knowledgeBase?: string) =>
     invoke<ConnectorView>('connectors_save', { id, secrets, allowlist, channels, mode, knowledgeBase }),
@@ -987,6 +1013,7 @@ const raw = {
   connectorPairStart:       (id: string) => invoke<ConnectorAccount>('connector_pair_start', { id }),
   connectorPairPoll:        (id: string) => invoke<ConnectorAccount>('connector_pair_poll', { id }),
   getLocalApiToken:         () => invoke<string>('get_local_api_token'),
+  getLocalApiPort:          () => invoke<number>('get_local_api_port'),
   listOllamaModels:         (baseUrl: string) => invoke<string[]>('list_ollama_models', { baseUrl }),
   getMemoryGraph:           () => invoke<MemoryGraphSnapshot>('get_memory_graph'),
   addMemoryFacts:           (facts: MemoryFactInput[]) =>
@@ -997,8 +1024,6 @@ const raw = {
   // Returns `{ task, workspace_id, workspace_name, last_active_at }`; every
   // field is null on first launch.
   getLastTask:              () => invoke<LastTaskView>('get_last_task'),
-  chatCompleteLocal:        (messages: Message[], params: InferParams) =>
-    invoke<string>('chat_complete_local', { messages, params }),
   chatCloudComplete:        (providerId: string, model: string, messages: Message[], params: InferParams) =>
     invoke<string>('chat_cloud_complete', { providerId, model, messages, params }),
   // ── RSI (Fractal Memory) commands. Field names match Rust snake_case
@@ -1021,8 +1046,10 @@ const raw = {
   rsiDreamNow:        () => invoke<void>('cinderpaw_dream_now'),
   // Faza 6 (L6) Meta Evolution — fire-and-forget; the sidecar replies async
   // via a `meta_result` event (handled by `events.onMetaResult`).
-  cinderpawMeta:          (op: 'status' | 'evolve' | 'rollback' | 'history') =>
-    invoke<void>('cinderpaw_meta', { op }),
+  // `proposal` / `approve` / `deny` are the L6 chat card; approve and deny
+  // name the card they answer, so an out-of-date card changes nothing.
+  cinderpawMeta:          (op: MetaOp, proposalId?: string) =>
+    invoke<void>('cinderpaw_meta', { op, proposalId: proposalId ?? null }),
   // Slice A6 (L5 Governance) — fire-and-forget; the sidecar replies async
   // via a `governance_result` event (handled by `events.onGovernanceResult`).
   cinderpawGovernance:    (op: 'status' | 'verify' | 'approve' | 'reject', policyId?: string, reason?: string) =>
@@ -1066,8 +1093,8 @@ const raw = {
   googleStatus: () => invoke<boolean | null>('google_status'),
   googleConnect: () => invoke<void>('google_connect'),
   googleDisconnect: () => invoke<void>('google_disconnect'),
-  googleUpload: (name: string, mime: string, data: string, encoding: 'base64' | null, convert: boolean) =>
-    invoke<string>('google_upload', { name, mime, data, encoding, convert }),
+  googleUpload: (name: string, mime: string, data: string, encoding: 'base64' | null, convert: boolean, anyoneWithLink = false) =>
+    invoke<string>('google_upload', { name, mime, data, encoding, convert, anyoneWithLink }),
   browserUi: (op: string, params: Record<string, unknown> = {}) =>
     invoke<Record<string, unknown>>('browser_ui', { op, params }),
   /** The workspace panel's one door to the artifact store. The answer arrives
@@ -1204,7 +1231,7 @@ const raw = {
   // ships against builds compiled with different features, so it cannot know
   // from its own source whether the local path exists.
   sttLocalAvailable:    () => invoke<boolean>('stt_local_available'),
-  // Fractal Memory Search: fetch the bge-small embedding model (~130 MB) into
+  // Fractal Memory Search: fetch the bge-m3 embedding model (~630 MB) into
   // the models dir. Idempotent — a no-op if already present — so it is safe to
   // fire on startup. Progress streams over `cinderpaw://embedding-download-*`.
   downloadEmbeddingModel:   () =>
@@ -1214,14 +1241,6 @@ const raw = {
 // ── Public façade ─────────────────────────────────────────────────────────────
 export const tauri = {
   raw,
-
-  chat: {
-    stream:      async (messages: Message[], params: InferParams, sessionId: string) =>
-      raw.chatStream(messages, params, sessionId),
-    cloudStream: async (providerId: string, model: string, messages: Message[], params: InferParams, sessionId: string) =>
-      raw.chatCloudStream(providerId, model, messages, params, sessionId),
-    stop: async (sessionId: string) => raw.stopGeneration(sessionId),
-  },
 
   conversations: {
     list:     async () => raw.loadConversations(),
@@ -1258,6 +1277,7 @@ export const tauri = {
     setDesktopControlYolo: async (enabled: boolean) => raw.setDesktopControlYolo(enabled),
     setTokenBudget: async (budget: number | null) => raw.setTokenBudgetConversation(budget),
     setRsiBudget: async (budget: number | null) => raw.setRsiBudget(budget),
+    setPermissionMode: async (mode: PermissionMode) => raw.setPermissionMode(mode),
     setRsiAllowCloudDreams: async (enabled: boolean) => raw.setRsiAllowCloudDreams(enabled),
     setDreamsEnabled: async (enabled: boolean) => raw.setDreamsEnabled(enabled),
   },
@@ -1312,7 +1332,8 @@ export const tauri = {
     submitBugReport: async (description: string, includeLog: boolean) =>
       raw.submitBugReport(description, includeLog),
     /** Once, from the last step of onboarding, where the notice lives. */
-    countInstall: async (send: boolean) => raw.countInstall(send),
+    countInstall: async (send: boolean, heard: string | null = null) => raw.countInstall(send, heard),
+    setUsageSharing: async (on: boolean) => raw.setUsageSharing(on),
   },
 
   files: {
@@ -1397,8 +1418,8 @@ export const tauri = {
     dreamNow:        async () => raw.rsiDreamNow(),
     /** Faza 6 (L6) Meta Evolution — status / evolve / rollback / history.
      *  Reply arrives async via `events.onMetaResult`. */
-    meta:            async (op: 'status' | 'evolve' | 'rollback' | 'history') =>
-      raw.cinderpawMeta(op),
+    meta:            async (op: MetaOp, proposalId?: string) =>
+      raw.cinderpawMeta(op, proposalId),
     /** Slice A6 (L5 Governance) — safety-rules card + approval inbox.
      *  Reply arrives async via `events.onGovernanceResult`. */
     governance:      async (op: 'status' | 'verify' | 'approve' | 'reject', args?: { policyId?: string; reason?: string }) =>
@@ -1474,6 +1495,35 @@ export const tauri = {
       });
     },
   },
+  /** Usage stats (Leaderboard tab, consent screens). Same pairing as `memory.notes`. */
+  usage: {
+    summary: (): Promise<UsageSummaryLine> => {
+      const requestId = `us-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      return new Promise<UsageSummaryLine>((resolve, reject) => {
+        let unlisten: (() => void) | null = null;
+        const timer = setTimeout(() => {
+          unlisten?.();
+          reject(new Error('Cinderpaw did not answer. Is the agent running?'));
+        }, 10_000);
+        agentEvents.onUsageSummary
+          .listen((e) => {
+            if (e.id !== requestId) return;
+            clearTimeout(timer);
+            unlisten?.();
+            resolve(e);
+          })
+          .then((un) => {
+            unlisten = un;
+            return raw.usageSummary(requestId);
+          })
+          .catch((err: unknown) => {
+            clearTimeout(timer);
+            unlisten?.();
+            reject(err instanceof Error ? err : new Error(String(err)));
+          });
+      });
+    },
+  },
   /** The workspace panel. Every call is fire-and-forget: the answer comes back
    *  as an `artifact_result` event carrying the same `id`. */
   artifacts: {
@@ -1492,8 +1542,8 @@ export const tauri = {
     status: () => raw.googleStatus(),
     connect: () => raw.googleConnect(),
     disconnect: () => raw.googleDisconnect(),
-    upload: (name: string, mime: string, data: string, encoding: 'base64' | null, convert: boolean) =>
-      raw.googleUpload(name, mime, data, encoding, convert),
+    upload: (name: string, mime: string, data: string, encoding: 'base64' | null, convert: boolean, anyoneWithLink = false) =>
+      raw.googleUpload(name, mime, data, encoding, convert, anyoneWithLink),
   },
 };
 

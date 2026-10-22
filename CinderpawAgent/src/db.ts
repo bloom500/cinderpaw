@@ -518,6 +518,36 @@ function migrate(db: Database): void {
   // The provider's own USD figure (OpenRouter only). NULL = not reported,
   // never 0: a provider that says nothing about money is not a free one.
   addColumnIfMissing(db, "completion_cost", "cost_usd", "REAL");
+  // Usage telemetry (2026-10-08 spec): who served it, which task it belongs to,
+  // how many transient retries it cost. NULL task_id = a background call
+  // (summarizer, extractor) that belongs to no user turn.
+  addColumnIfMissing(db, "completion_cost", "provider", "TEXT");
+  addColumnIfMissing(db, "completion_cost", "served_model", "TEXT");
+  addColumnIfMissing(db, "completion_cost", "task_id", "TEXT");
+  addColumnIfMissing(db, "completion_cost", "retries", "INTEGER NOT NULL DEFAULT 0");
+  db.exec(`CREATE INDEX IF NOT EXISTS completion_cost_task ON completion_cost(task_id)`);
+  // One row per user turn (chat, connector or unattended run turn). task_id is
+  // the message id the UI rates with thumbs, so feedback joins with no mapping.
+  // attempted_* name the model a turn was ON when it ended, so a turn that
+  // failed before any completion is still attributed to someone.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS task_metrics (
+      task_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      duration_ms INTEGER,
+      outcome TEXT,
+      error_category TEXT,
+      tool_calls INTEGER NOT NULL DEFAULT 0,
+      fallbacks INTEGER NOT NULL DEFAULT 0,
+      brsi_on INTEGER NOT NULL,
+      memory_on INTEGER NOT NULL,
+      feedback INTEGER NOT NULL DEFAULT 0,
+      attempted_provider TEXT,
+      attempted_model TEXT
+    );
+    CREATE INDEX IF NOT EXISTS task_metrics_started ON task_metrics(started_at);
+  `);
 
   // Semantic memory: persistent key-value facts about the user, updated by the
   // agent as it learns preferences, context, and long-term patterns.
@@ -676,6 +706,22 @@ function migrate(db: Database): void {
   // Session-scoped reads ignore the flag, so the lead keeps their own thread.
   // Default 0 = every pre-existing row is the owner's, which it was.
   addColumnIfMissing(db, "episodic", "private", "INTEGER NOT NULL DEFAULT 0");
+
+  // `episodic.all()` reads `WHERE private = 0 ORDER BY timestamp DESC, id DESC
+  // LIMIT ?`, and neither existing index applies: `idx_episodic_session` is
+  // `(session_id, timestamp)` and `idx_episodic_workspace` is
+  // `(workspace_id, timestamp)`, and the query predicates on neither. So every
+  // call scanned the whole table and sorted it, then threw all but `limit` rows
+  // away. It is not called once: the fractal tree calls it once per extracted
+  // fact (5-10 times at the end of every turn), which is why the same
+  // conversation got slower the longer it got.
+  //
+  // `private` leads the key so the filter is a seek, and the DESC pair matches
+  // the inner ORDER BY exactly so SQLite walks the index and stops at the LIMIT.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_episodic_recent
+      ON episodic (private, timestamp DESC, id DESC);
+  `);
 
   // Observational memory (27 Sep 2026): dated notes the Observer writes after a
   // conversation, the Reflector's weekly digests of them, and the user card.

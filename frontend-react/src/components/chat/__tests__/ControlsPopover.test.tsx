@@ -3,32 +3,31 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ControlsPopover } from '@/components/chat/ControlsPopover';
 import { useModel } from '@/stores/model';
-import { useUI } from '@/stores/ui';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 
 vi.mock('@/stores/model', () => ({ useModel: vi.fn() }));
-vi.mock('@/stores/ui', () => ({ useUI: vi.fn() }));
 vi.mock('@/stores/cinderpaw', () => ({ useCinderpawStore: vi.fn() }));
 
 const mockUseModel = vi.mocked(useModel);
-const mockUseUI = vi.mocked(useUI);
 const mockUseCinderpaw = vi.mocked(useCinderpawStore);
 const mockSetModelContext = vi.fn().mockResolvedValue(undefined);
 
+const MINIMAX = { provider: 'minimax', model: 'MiniMax-M3', base_url: 'https://api.minimax.io/v1' };
+const LOCAL_ENGINE = { provider: 'cinderpaw-local', model: 'qwen', base_url: 'http://localhost:11435' };
+
 /**
  * @param loaded       the resident local GGUF (or null)
- * @param cloudModel   the selected cloud target (or null). When set, it is the
- *                     ACTIVE target even if a local GGUF is still resident.
+ * @param agentTarget  the agent's model config. A cloud target is the ACTIVE
+ *                     one even if a local GGUF is still resident.
  */
 function setup(
   loaded: unknown = null,
-  cloudModel: unknown = null,
+  agentTarget: unknown = null,
   contextByModel: Record<string, number> = {},
 ) {
   mockUseModel.mockImplementation((sel: any) =>
     sel({
       loaded,
-      cloudModel,
       isLoading: false,
       contextByModel,
       setModelContext: mockSetModelContext,
@@ -36,15 +35,14 @@ function setup(
       setInferParams: vi.fn(),
     }),
   );
-  mockUseUI.mockImplementation((sel: any) => sel({ inputMode: 'chat' }));
-  mockUseCinderpaw.mockImplementation((sel: any) => sel({ modelConfig: null }));
+  mockUseCinderpaw.mockImplementation((sel: any) => sel({ modelConfig: agentTarget }));
 }
 
 describe('ControlsPopover — context window', () => {
   beforeEach(() => { vi.clearAllMocks(); setup(); });
 
   it('cloud target: temperature only, no Top-P, no context slider', async () => {
-    setup(null, { providerId: 'minimax', providerName: 'MiniMax', modelId: 'MiniMax-M3' });
+    setup(null, MINIMAX);
     render(<ControlsPopover />);
     await userEvent.click(screen.getByRole('button'));
     // Only Temperature — Top-P (localOnly) and the context slider are gone.
@@ -59,7 +57,7 @@ describe('ControlsPopover — context window', () => {
     // slider that reloaded the local model at 1024k — freezing the machine.
     setup(
       { path: '/m/qwythos.gguf', name: 'qwythos', ctx_len: 17408, n_ctx_train: 1048576 },
-      { providerId: 'minimax', providerName: 'MiniMax', modelId: 'MiniMax-M3' },
+      MINIMAX,
     );
     render(<ControlsPopover />);
     await userEvent.click(screen.getByRole('button'));
@@ -69,7 +67,7 @@ describe('ControlsPopover — context window', () => {
   });
 
   it('local target: auto-detects the ceiling from the model n_ctx_train', async () => {
-    setup({ path: '/m/qwen.gguf', name: 'qwen', ctx_len: 8192, n_ctx_train: 65536 });
+    setup({ path: '/m/qwen.gguf', name: 'qwen', ctx_len: 8192, n_ctx_train: 65536 }, LOCAL_ENGINE);
     render(<ControlsPopover />);
     await userEvent.click(screen.getByRole('button'));
     const sliders = screen.getAllByRole('slider');
@@ -79,7 +77,7 @@ describe('ControlsPopover — context window', () => {
   });
 
   it('local target: Apply reloads the model at the chosen size', async () => {
-    setup({ path: '/m/qwen.gguf', name: 'qwen', ctx_len: 8192, n_ctx_train: 65536 });
+    setup({ path: '/m/qwen.gguf', name: 'qwen', ctx_len: 8192, n_ctx_train: 65536 }, LOCAL_ENGINE);
     render(<ControlsPopover />);
     await userEvent.click(screen.getByRole('button'));
     const sliders = screen.getAllByRole('slider');

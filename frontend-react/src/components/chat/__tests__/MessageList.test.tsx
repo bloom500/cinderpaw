@@ -32,7 +32,7 @@ vi.mock('../StreamingIndicator', () => ({ StreamingIndicator: () => <span>Thinki
 
 beforeEach(() => {
   vi.useFakeTimers();
-  useUI.setState({ inputMode: 'agent', language: 'en' });
+  useUI.setState({ language: 'en' });
   useChat.setState({ sessionId: 'chat', streamStatus: 'streaming', agentPhase: 'calling', agentTool: 'web_search', messages: [
     { id: 'reply', role: 'assistant', content: 'Let me check.', thinking: 'Checking sources', thinkingComplete: false, createdAt: Date.now() },
   ] });

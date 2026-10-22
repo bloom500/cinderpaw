@@ -570,13 +570,13 @@ var connectorDefs = map[string]ConnectorDef{
 var CloudProviders = []CloudProvider{
 	{ID: "openai", Name: "OpenAI", DefaultModel: "gpt-4o", BaseURL: ""},
 	{ID: "anthropic", Name: "Anthropic", DefaultModel: "claude-sonnet-4-20250514", BaseURL: ""},
-	{ID: "google", Name: "Google", DefaultModel: "gemini-2.0-flash", BaseURL: ""},
+	{ID: "google", Name: "Google", DefaultModel: "gemini-3.8-flash", BaseURL: ""},
 	{ID: "nvidia", Name: "NVIDIA NIM", DefaultModel: "stepfun-ai/step-3.7-flash", BaseURL: ""},
 	{ID: "minimax", Name: "MiniMax", DefaultModel: "MiniMax-M3", BaseURL: ""},
 	{ID: "groq", Name: "Groq", DefaultModel: "llama-3.1-70b-versatile", BaseURL: ""},
 	{ID: "mistral", Name: "Mistral AI", DefaultModel: "mistral-large-latest", BaseURL: ""},
 	{ID: "deepseek", Name: "DeepSeek", DefaultModel: "deepseek-chat", BaseURL: ""},
-	{ID: "openrouter", Name: "OpenRouter", DefaultModel: "z-ai/glm-5.3-flash", BaseURL: ""},
+	{ID: "openrouter", Name: "OpenRouter", DefaultModel: "openrouter/free", BaseURL: ""},
 	{ID: "kimi", Name: "Kimi (Moonshot AI)", DefaultModel: "moonshot-v1-8k", BaseURL: ""},
 	{ID: "glm", Name: "GLM (Zhipu)", DefaultModel: "glm-4-plus", BaseURL: ""},
 }

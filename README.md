@@ -3,6 +3,20 @@
 </p>
 
 <p align="center">
+  <a href="https://elevenlabs.io/startup-grants">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/elevenlabs-grants-on-dark.webp" />
+      <img src="docs/assets/elevenlabs-grants-on-light.webp" alt="ElevenLabs Grants" width="250" />
+    </picture>
+  </a>
+</p>
+
+<p align="center">
+  <b>Cinderpaw has received an <a href="https://elevenlabs.io/startup-grants">ElevenLabs Startup Grant</a>
+  and is a member of Anthropic's Claude Startups program.</b>
+</p>
+
+<p align="center">
   <a href="https://github.com/bloom500/cinderpaw/releases/latest"><img src="https://img.shields.io/github/v/release/bloom500/cinderpaw?style=for-the-badge&color=blue&label=version" alt="Version" /></a>
   <img src="https://img.shields.io/badge/license-Apache%202.0-green?style=for-the-badge" alt="License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=for-the-badge" alt="Platform" />
@@ -44,15 +58,15 @@ The little orange creature on the screen is Cubby, the face of your helper. Cubb
 shows you what is going on without a log to read: thinking, working, waiting for
 you, done. Playful on the outside, real work underneath.
 
-### Where it stands, 2 October 2026
+### Where it stands, 16 October 2026
 
-The newest build is the pre-release
-[**v2026.9.18-rc3**](https://github.com/bloom500/cinderpaw/releases/tag/v2026.9.18-rc3),
-and everything in [What's new](#whats-new) below is in it. The release marked
-*Latest* on GitHub, and so every download link and install command below that
-fetches "latest", is still **v2026.08.11**, from when the app was called Feral.
-The first full Cinderpaw release follows once the pre-release has been checked
-on real machines. If you want the new app today, take the rc3 installer by hand.
+[**v2026.10.16**](https://github.com/bloom500/cinderpaw/releases/tag/v2026.10.16)
+is the first full Cinderpaw release, and it is the one marked *Latest* on
+GitHub. Every download link and install command below gets it.
+
+Cinderpaw used to be called Feral. The Feral desktop app offers this update by
+itself, and your things come with you: what was in `~/.feral` is brought over
+to `~/.cinderpaw`, and your saved API keys move over too.
 
 ### Two honest things before you download
 
@@ -69,11 +83,14 @@ still thinking, and on a paid model that is your money, so it is OFF until you
 say yes. Flip it on in **Settings → Learning**, where you can also cap what it may
 spend. On a model running on your own machine it is free, so it just does it.
 
-**New here?** [What we promise](PROMISES.md) · [How to use it](docs/USER_GUIDE.md) · [Install it](#quick-install)
+**New here?** [Install it](#quick-install) · [How to use it](docs/USER_GUIDE.md) · [What we promise](PROMISES.md) · [Help build it](docs/CONTRIBUTING.md)
 
-<sub>One thing Cinderpaw sends about itself: at the end of setup it offers to
-count the install once — its version and your operating system, nothing else,
-and you can untick it right there. See [PROMISES.md](PROMISES.md#the-promises).</sub>
+<sub>What Cinderpaw sends about itself, and only with your yes: at the end of
+setup it offers to count the install once (its version, your operating system
+and, if you press one, where you heard about Cinderpaw), and you can untick
+that box right there. It can also
+send a daily usage summary, which is off until you turn it on. Neither one
+holds your messages, file names, links or keys. See [PROMISES.md](PROMISES.md#the-promises).</sub>
 
 ![Chat](frontend-react/public/READMEdemo1.png)
 
@@ -81,30 +98,49 @@ and you can untick it right there. See [PROMISES.md](PROMISES.md#the-promises).<
 
 ## Quick install
 
-**One command, any Linux or macOS — the installer detects your system:**
+Cinderpaw comes two ways. Pick one.
+
+**The desktop app** is a normal program with its own window. It is the one
+that can run models on your own computer. Download it from the
+[Releases page](https://github.com/bloom500/cinderpaw/releases/latest): `.exe`
+for Windows, `.dmg` for macOS, `.deb` or `.rpm` for Linux. First-launch notes
+for each system are in [Install](#install) below.
+
+> SmartScreen may warn on first run (the installer isn't code-signed yet). Click **More info → Run anyway**.
+
+**The Browser App** is one command. It puts Cinderpaw in one folder,
+`~/.cinderpaw`, and opens it in your web browser. It has no engine for running
+models on your computer, so it uses a cloud model with your key.
+
+Linux or macOS:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/bloom500/cinderpaw/main/scripts/install.sh | bash
 ```
 
-- **Linux with a display** → installs the latest desktop app (`.deb`/`.rpm`).
-- **Linux headless (VPS/server)** → builds the `cinderpaw` CLI + gateway from source (no GPU toolchain needed). Force a mode with `| bash -s -- --headless` or `--desktop`.
-- **macOS** → downloads the right `.dmg` for your chip, installs to /Applications, clears the quarantine flag.
-
-**Windows 10/11** — download the latest `.exe` from
-[Releases](https://github.com/bloom500/cinderpaw/releases/latest) and run it. Or, in
-PowerShell:
+Windows 10/11, in PowerShell:
 
 ```powershell
-$a = (irm https://api.github.com/repos/bloom500/cinderpaw/releases/latest).assets | ? name -like '*x64-setup.exe' | select -First 1
-iwr $a.browser_download_url -OutFile cinderpaw-setup.exe; .\cinderpaw-setup.exe
+irm https://raw.githubusercontent.com/bloom500/cinderpaw/main/scripts/install.ps1 | iex
 ```
 
-> SmartScreen may warn on first run (the installer isn't code-signed yet) — click **More info → Run anyway**.
+The command downloads Cinderpaw into `~/.cinderpaw/bin` and checks that the
+download is not damaged (SHA-256). Then it makes Cinderpaw start when you log
+in, adds `cinderpaw` to your PATH, adds a Cinderpaw shortcut, and opens your
+browser. It needs no admin rights. Run the same command again to update. To
+open the page later, run `cinderpaw open` or use the shortcut.
 
-Prefer to grab a file by hand? Every installer — Windows `.exe`, macOS `.dmg`,
-Linux `.deb`/`.rpm` — is on the
-[Releases page](https://github.com/bloom500/cinderpaw/releases/latest).
+It works on 64-bit Windows 10 or newer, macOS 12 or newer, and 64-bit (x86_64)
+Linux with glibc 2.35 or newer (Ubuntu 22.04, Debian 12 or newer). On anything
+else, like ARM Linux or Alpine, it says so and stops.
+
+The Linux/macOS script has two other modes (add them after `| bash -s --`):
+
+- `--desktop` installs the desktop app: `.deb`/`.rpm` on Linux, or the right
+  `.dmg` for your Mac's chip, copied to /Applications with the quarantine flag
+  cleared.
+- `--from-source` (or `--headless`) builds the CLI from source on Linux. See
+  the recipe below.
 
 ### Just the CLI (npm)
 
@@ -115,47 +151,66 @@ npm install -g cinderpaw-agent
 cinderpaw        # the command is `cinderpaw`; the package is `cinderpaw-agent`
 ```
 
+Had the old `feral-agent` package? Run `npm uninstall -g feral-agent` first, or
+npm stops with an `EEXIST` error. The new package brings the `feral` command
+along, so old scripts keep working.
+
 npm pulls only the binary for your platform (Windows, macOS Intel/Apple Silicon,
 or Linux x64). Then `cinderpaw setup` to configure, `cinderpaw chat` for the terminal
 UI, `cinderpaw gateway start` to run it as a service.
 
 `cinderpaw update` pulls the latest release and restarts the gateway, so a running
 connector (Discord, Slack, …) picks up the new build instead of staying on the
-old one until you notice. It knows how Cinderpaw got onto the machine — npm here,
-a `git pull` + rebuild on a from-source server — and does the right one.
+old one until you notice. It knows how Cinderpaw got onto the machine (npm, the
+one-command install, or `install.sh --from-source`) and does the right one.
 
-`cinderpaw uninstall` removes the binaries. **Your `~/.cinderpaw` stays**: settings,
-memory, API keys and downloaded models, so reinstalling resumes instead of
-starting over. `cinderpaw uninstall --purge` deletes that too (permanently).
+`cinderpaw uninstall` removes the programs. In an npm install it cannot remove
+itself, so it prints the command to run yourself: `npm uninstall -g cinderpaw-agent`. **Your `~/.cinderpaw`
+stays**: settings, memory and downloaded models, so reinstalling resumes instead
+of starting over. Saved API keys are usually in your system's keychain, not in that
+folder, and they stay too. `cinderpaw uninstall --purge` also deletes
+`~/.cinderpaw` (permanently). It clears the saved keys from the keychain only
+for the one-command install. After any other install, the keys stay in the
+keychain until you remove them yourself.
 
-> **Note:** the npm build is a **cloud/gateway CLI — it does not bundle the local
+> **Note:** the npm build is a **cloud/gateway CLI. It does not bundle the local
 > llama.cpp inference engine.** Point it at a cloud provider (BYOK via
 > `CINDERPAW_BASE_URL` / `CINDERPAW_API_KEY` / `CINDERPAW_MODEL`) or at a running desktop
-> Cinderpaw. For **local GGUF models on your own machine, install the desktop app**
-> above — that's the build with the inference engine.
+> Cinderpaw. The one-command Browser App is built the same way, without the engine.
+> For **local GGUF models on your own machine, install the desktop app**
+> above: that's the build with the inference engine.
 
 <details>
 <summary><b>Headless server / CLI from source</b> (no npm, build it yourself)</summary>
 
-Build the `cinderpaw` CLI + gateway from source — no GPU or llama.cpp compile needed.
-Requires [Rust](https://rustup.rs) + [Bun](https://bun.sh).
+Build the `cinderpaw` CLI + gateway from source, with no GPU or llama.cpp compile needed.
+Requires [Rust](https://rustup.rs), [Bun](https://bun.sh) and [Go](https://go.dev/dl/)
+1.26 or newer (for the terminal chat). `install.sh --from-source` does all of
+this for you on Linux.
 
 ```bash
 # Build deps (Debian/Ubuntu). libdbus-1-dev is needed by the keyring crate:
-sudo apt install -y build-essential pkg-config libssl-dev libdbus-1-dev cmake git curl
+sudo apt install -y build-essential pkg-config libssl-dev libdbus-1-dev cmake git curl unzip ca-certificates
 
 git clone --depth 1 https://github.com/bloom500/cinderpaw && cd cinderpaw
 ( cd CinderpawAgent && bun install --frozen-lockfile && bun run build )
 # --no-default-features skips the local llama.cpp engine (the CLI's default
-# `inference` feature) — on a server you point the gateway at a cloud
+# `inference` feature). On a server you point the gateway at a cloud
 # provider via CINDERPAW_BASE_URL/CINDERPAW_API_KEY/CINDERPAW_MODEL instead:
 cargo build --release -p cinderpaw-cli --no-default-features
-# The sidecar binary must sit NEXT TO the CLI:
+# The terminal chat (`cinderpaw chat` needs it):
+( cd tui && go build -o cinderpaw-tui . )
+# The sidecar and the TUI must sit NEXT TO the CLI:
 mkdir -p ~/.local/bin
 install target/release/cinderpaw-cli        ~/.local/bin/cinderpaw
 install CinderpawAgent/dist/cinderpaw-agent ~/.local/bin/cinderpaw-agent
+install tui/cinderpaw-tui                   ~/.local/bin/cinderpaw-tui
 cinderpaw doctor && cinderpaw gateway start
 ```
+
+`cinderpaw update` and `cinderpaw uninstall` do not recognise a build made by
+hand like this one. To update it, `git pull` and run the build steps again. To
+remove it, delete the three files from `~/.local/bin`.
 
 </details>
 
@@ -165,13 +220,29 @@ See [docs/HEADLESS.md](docs/HEADLESS.md) for running the gateway as a systemd se
 
 ## What's new
 
-*In the pre-release [v2026.9.18-rc3](https://github.com/bloom500/cinderpaw/releases/tag/v2026.9.18-rc3)
-(2 October 2026). We're looking for testers and contributors.
-[Start here](docs/CONTRIBUTING.md) if you want to help.*
+*In [v2026.10.16](https://github.com/bloom500/cinderpaw/releases/tag/v2026.10.16)
+(16 October 2026), the first full Cinderpaw release. We're looking for testers
+and contributors. [Start here](docs/CONTRIBUTING.md) if you want to help.*
 
 - 🧡 **A new look, and a face.** Warm light and dark themes, Geist and Young
-  Serif, and Cubby with 73 animations that follow what the agent is doing.
-  Background can be **Glass** (your desktop shows through) or **Solid**.
+  Serif, and Cubby, a small mascot that shows what the agent is doing. Press
+  **Listen** on any setup step to hear Cubby read it. Background can be
+  **Glass** (your desktop shows through) or **Solid**.
+- 🧳 **Bring over OpenClaw or Hermes** from the first screen: your persona and
+  your skills come with you.
+- 📦 **Install with one command** into one folder, `~/.cinderpaw`, then
+  `cinderpaw open`. See [Quick install](#quick-install).
+- 📁 **Projects** keep their own instructions and files for every chat inside
+  them.
+- 🟢 **One Google button** sends a file to Drive, Docs, Sheets or Gmail.
+- ✋ **Posting waits for you.** On a social network, the agent writes the post
+  and opens the page in its browser. You read it and press Post.
+- 👍 **A thumbs-up teaches the agent** a way of working (beta). The next similar
+  request gets the steps that worked.
+- 🖱️ **Desktop control on macOS and Linux too**, by voice and by the agent.
+- 📊 **A daily usage summary, only if you turn it on**, and a new
+  **Leaderboard** tab with everyone's totals. What it sends is in
+  [PROMISES.md](PROMISES.md#the-promises), promise 4.
 - 🔑 **Sign in with OpenRouter** instead of pasting a key: one button, your
   browser opens, and the key goes straight to the system keychain. On a computer
   with no model at all, that button is the home screen. 24 more providers in the
@@ -180,8 +251,9 @@ See [docs/HEADLESS.md](docs/HEADLESS.md) for running the gateway as a systemd se
   downloads and a wide mode. The agent uses it by itself, you watch it work, and
   a click of yours pauses it.
 - 📄 **Artifacts.** Documents, PDFs, Word and Excel files, charts and small
-  interactive apps the agent makes, kept in a panel after the conversation ends.
-  Edit, rename, export, send to Google Docs; fill in and sign PDFs yourself.
+  interactive apps the agent makes, shown as a card in the chat and kept in a
+  panel after the conversation ends. Edit, rename, export, send to Google Docs;
+  fill in and sign PDFs yourself.
 - 📞 **Call it.** Speech-to-speech with Gemini Live, OpenAI Realtime, or Jev,
   which acts on your computer while you are still talking: open apps and
   folders, play Spotify, copy, paste, screenshot. Park a call in a small **pill**
@@ -192,7 +264,8 @@ See [docs/HEADLESS.md](docs/HEADLESS.md) for running the gateway as a systemd se
 - 💬 **21 chat platforms.** Telegram, Discord, Slack, WhatsApp and more; files
   travel both ways where the platform allows.
 - 🧠 **Memory you can read.** Facts listed as sentences, each with **Forget**.
-  Procedures it learned show up in the skills menu with the evidence behind them.
+  A new chat already knows you and what you did recently. Procedures it learned
+  show up in the skills menu with the evidence behind them.
 - 🛡️ **A prompt-injection gate** checks tool calls before they run.
 - ⌨️ **Small things that add up.** Generated chat titles, Undo instead of "Are you
   sure?", the app reopens where you left, drop a file anywhere, **Send to >
@@ -211,13 +284,13 @@ language, by text or voice, works as before. Full details in the
 
 ## Install
 
-Grab the latest installer from [Releases](https://github.com/bloom500/cinderpaw/releases/latest). No admin rights required. The built-in updater keeps you current after that.
+Grab the latest installer from [Releases](https://github.com/bloom500/cinderpaw/releases/latest). On Windows it needs no admin rights. The built-in updater keeps you current after that.
 
 | Platform | Installer | Status |
 |---|---|---|
-| **Windows 10/11** (x64) | `.msi` / `.exe` | 🟢 Stable — primary target |
+| **Windows 10/11** (x64) | `.exe` | 🟢 Stable, primary target |
 | **macOS** (Apple Silicon, Intel) | `.dmg` | 🟡 Beta — CI-built, lightly tested on real hardware. [Report issues](https://github.com/bloom500/cinderpaw/issues). |
-| **Linux** (Ubuntu/Debian) | `.deb` / `.rpm` | 🟡 Beta — CI-built, lightly tested. [Report issues](https://github.com/bloom500/cinderpaw/issues). |
+| **Linux** (Ubuntu/Debian, Fedora/RHEL) | `.deb` / `.rpm` | 🟡 Beta: CI-built, lightly tested. [Report issues](https://github.com/bloom500/cinderpaw/issues). |
 
 > **Windows first launch:** the installer isn't code-signed yet (the free open-source signing programme at SignPath has not been applied to yet), so SmartScreen may show *"Windows protected your PC"*. Click **More info → Run anyway**. The installer is built by public GitHub Actions CI from this repository — you can audit exactly what went into it.
 
@@ -227,7 +300,7 @@ Grab the latest installer from [Releases](https://github.com/bloom500/cinderpaw/
 > ```
 > Then open Cinderpaw normally. This removes the quarantine flag macOS puts on downloaded apps — nothing is actually damaged.
 
-> **macOS after an update:** if you saved cloud API keys before updating, macOS may ask for your Mac login password to let the new version access an item stored in `ai.bloom.cinderpaw.byok`. That's your saved API keys in the macOS Keychain — the name still says `cinderpaw` on purpose, because that is where your existing keys are, and renaming the Keychain item without moving them would lose them — enter your Mac login password and click **Always Allow** (or just re-enter the key in Models → Cloud). This happens because Cinderpaw isn't Apple-notarized yet, so each update looks like a new app to the Keychain. It will go away once Cinderpaw ships with an Apple Developer certificate.
+> **macOS after an update:** if you saved cloud API keys before updating, macOS may ask for your Mac login password to let the new version access an item stored in `ai.bloom.cinderpaw.byok`. That's your saved API keys in the macOS Keychain. Keys saved by Feral sit under the old name, `ai.bloom.feral.byok`; Cinderpaw moves each one to the new name the first time it reads it, so after updating from Feral macOS may ask once about the old item. Enter your Mac login password and click **Always Allow** (or just re-enter the key in Models → Cloud). This happens because Cinderpaw isn't Apple-notarized yet, so each update looks like a new app to the Keychain. It will go away once Cinderpaw ships with an Apple Developer certificate.
 
 ### Hardware requirements
 
@@ -239,7 +312,7 @@ Cinderpaw itself is lightweight — the models are what need muscle. You can ski
 | **GPU** | None — CPU inference works | Any Vulkan-capable GPU; 6 GB+ VRAM keeps 7–8B models fully on-GPU |
 | **Disk** | ~500 MB app + 2–5 GB per model | SSD, 20 GB+ free if you like collecting models |
 
-Every model card shows a **0–100 fitness score** for *your* hardware before you download — Cinderpaw tells you up front if a model will make your machine cry.
+Before you download, every model in **Models → Hugging Face** says whether it fits *your* hardware: it fits, it may be slow, or it won't fit. Models already on your computer also get a **0–100 fitness score** under **Show details** on their card. Cinderpaw tells you up front if a model will make your machine cry.
 
 ## Quick start
 
@@ -247,7 +320,7 @@ Every model card shows a **0–100 fitness score** for *your* hardware before yo
 2. **Get a model** (either path works):
    - **Local:** open **Models → Hugging Face**, pick a model, and click download — Cinderpaw pre-selects the quantization that best fits your hardware. Already have GGUF files? Drop them in via **Models → Local**.
    - **Cloud (BYOK):** press **Sign in with OpenRouter**, or open **Models → Cloud** and paste an API key — OpenAI, Anthropic, Google Gemini, DeepSeek, Groq, Mistral, OpenRouter, Kimi, GLM, MiniMax and two dozen more, or any custom OpenAI-compatible endpoint. Keys are stored locally and never proxied through anyone's server.
-3. **Chat.** Or flip the composer toggle to **Agent mode** to unleash the sidecar: tool-use, persistent memory, file access, and web research.
+3. **Ask for something.** Every message goes to the agent: it can use tools, remember you, work with your files and research the web. There is no mode to switch. The [User guide](docs/USER_GUIDE.md) has three good first things to try.
 
 For deep research, ask the agent something like *"Research the current state of open-source LLMs"* — it calls `deep_research` on its own and comes back with a cited Markdown report.
 
@@ -269,7 +342,10 @@ terminal client and [docs/API.md](docs/API.md) for the local HTTP API.
 - **Cloud models (BYOK):** Cinderpaw calls provider APIs directly with your key. Configured background work, verification, and fallback routes can also make provider requests. The receiving provider's privacy policy applies.
 - **Web tools:** agent tools like `web_search`, `deep_research`, and `fetch_url` make outbound requests (DuckDuckGo or your own SearXNG instance, Jina Reader, or any public site the agent needs) when the agent uses them — through an egress proxy with SSRF protection, rate limiting, and an audit log.
 - **Update check:** the desktop can check GitHub Releases at launch. **Settings → General** disables that automatic check; it does not disable model/toolchain downloads or other network activity.
-- **The one thing Cinderpaw says about itself:** at the end of first-run setup it offers to count the install once — its version and your operating system, nothing else, never again, and untickable on that screen. `~/.cinderpaw/.install-counted` records exactly what happened, so you can check rather than take our word.
+- **What Cinderpaw says about itself, only with your yes:**
+  - **An install count.** At the end of first-run setup a ticked box offers to count the install once: its version and your operating system, plus where you heard about Cinderpaw if you press one of the buttons for it, nothing else, never again. Untick it and nothing is sent. `~/.cinderpaw/.install-counted` records exactly what happened, so you can check rather than take our word.
+  - **A daily usage summary, off unless you turn it on** (an unticked box on the last setup screen, a one-time question on the home screen, or **Settings → Privacy**). Once a day it sends the version, your operating system, and counts for each model: tasks, how they ended, time, tokens, cost, tool calls, and your thumbs up and down. Never your messages, file names, links, keys or exact times. It carries a random code that changes every month. Each summary is written to `~/.cinderpaw/telemetry-sent.jsonl` before it leaves, and Settings → Privacy shows that file. Turn it off and sending stops right away. Everyone's totals are on the **Leaderboard** tab.
+  - Bug reports are sent only when you write one and press the button.
 
 The full list of what we promise, what we deliberately do not promise, and how to check each one yourself is in [PROMISES.md](PROMISES.md).
 
@@ -284,7 +360,7 @@ The full list of what we promise, what we deliberately do not promise, and how t
 | Feature | Description |
 |---|---|
 | **Chat** | Persistent conversations with any local or cloud model. Projects keep related chats grouped and sane. |
-| **Agent Mode** | A full TypeScript sidecar agent with tool-use, 4-layer memory, and an agentic loop. It thinks. Sometimes too much. |
+| **The agent** | Every message goes to a TypeScript agent with tools, 4-layer memory and an agent loop. It thinks. Sometimes too much. |
 | **Memory** | See everything Cinderpaw remembers about you as plain sentences, each with **Forget**. Live self-improvement status and dream history in **Settings → Learning**. |
 | **RSI (Self-Improvement)** | Cinderpaw tunes its own parameters while you're away. Evolutionary algorithm tests configs, keeps what works. Early-stage, functional. |
 | **Connectors** | Talk to your agent from 21 chat platforms, among them Telegram, WhatsApp (QR pairing), Discord and Slack. Same brain, same memory, running on your machine, not a cloud. |
@@ -329,7 +405,6 @@ Cinderpaw has two runtime layers that talk to each other:
 ├─────────────────────────────────────────────────────────┤
 │  React + TypeScript frontend (Vite)                     │
 │  ├── Chat UI with streaming + thinking block rendering  │
-│  ├── Agent/Chat mode toggle                             │
 │  ├── Models page (local + HuggingFace browse)           │
 │  ├── Model fitness scoring (llmfit-adapted)             │
 │  └── SkillHub + Settings                                │
@@ -345,7 +420,7 @@ Cinderpaw has two runtime layers that talk to each other:
 
 ## Cinderpaw Agent — the agentic runtime
 
-When you flip the toggle to **Agent mode**, your messages go to a Bun/TypeScript sidecar process instead of the Rust backend directly. This sidecar is where all the interesting stuff happens.
+Every message you send goes to a Bun/TypeScript sidecar process, not to the Rust backend directly. This sidecar is where all the interesting stuff happens.
 
 ![Agent settings](frontend-react/public/READMEdemo6.png)
 
@@ -402,7 +477,7 @@ The philosophy is **capable by default, restrictable by choice**: the agent can 
 |---|---|---|
 | `web_search` | `network:outbound` | Keyless DuckDuckGo search, paced at one query per 5s (`CINDERPAW_DDG_MIN_INTERVAL_MS`); upstream rate limits can still apply. Set `CINDERPAW_SEARXNG_URL` to use [SearXNG](https://docs.searxng.org/) without this client's DDG pacing. SearXNG forwards queries to upstream engines; DuckDuckGo remains the fallback if it fails. |
 | `read_webpage` | `network:outbound` | Extracts clean Markdown from any URL via Jina Reader (`r.jina.ai`). No API key required. |
-| `deep_research` | `network:outbound` | DeepResearch-style iterative loop: plan → search (Jina Search) → select URLs → read pages → extract findings → repeat → synthesize cited Markdown report. 4–8 iterations. |
+| `deep_research` | `network:outbound` | DeepResearch-style iterative loop: plan → search (Jina Search with `CINDERPAW_JINA_API_KEY`, DuckDuckGo without) → select URLs → read pages → extract findings → repeat → synthesize cited Markdown report. 4–8 iterations. |
 | `read_file` | `fs:read` | Read files from the workspace. 64 KB cap. |
 | `write_file` | `fs:write` | Write files to the workspace. 1 MB cap. Creates intermediate directories. |
 | `list_directory` | `fs:read` | List directory contents. 200 entries max. |
@@ -439,7 +514,7 @@ question
 [Plan]    LLM decides: search for X  OR  synthesize (enough info)
     │
     ▼
-[Search]  Jina Search (s.jina.ai) → ranked results JSON
+[Search]  Jina Search (s.jina.ai) with a key, else DuckDuckGo → ranked results
     │
     ▼
 [Select]  LLM picks top 2–3 most relevant URLs
@@ -456,11 +531,11 @@ question
 [Synthesize] Final Markdown report with inline citations [1][2] + Sources section
 ```
 
-All requests go through the egress proxy (domain allowlist: `s.jina.ai`, `r.jina.ai`). Optional `CINDERPAW_JINA_API_KEY` env var for higher rate limits.
+All requests go through the egress proxy (domain allowlist: `s.jina.ai`, `r.jina.ai`, `duckduckgo.com`). Without a key, search uses keyless DuckDuckGo, because Jina Search refuses requests that have no key. Set `CINDERPAW_JINA_API_KEY` to search with Jina (DuckDuckGo stays the fallback when Jina finds nothing) and to raise Jina Reader rate limits.
 
 ### Model fitness scoring (llmfit-adapted)
 
-Every model card in the Local Models tab shows a 0–100 fitness score across 4 weighted dimensions:
+Every model in the Local Models tab gets a 0–100 fitness score across 4 weighted dimensions (open **Show details** on its card to see it):
 
 | Component | Weight | How it's calculated |
 |---|---|---|
@@ -469,9 +544,9 @@ Every model card in the Local Models tab shows a 0–100 fitness score across 4 
 | **Quality** | 20% | Quantization rank (F32=110 → Q1=8), normalized to 0–100. |
 | **Context** | 10% | Declared context window. ≥32K = 95 pts, ≥8K = 75 pts, ≥4K = 60 pts. |
 
-Fit levels: **🟢 Perfect** (≥50% utilization, comfortable) · **🔵 Good** (under-utilizing or slightly tight) · **🟡 Marginal** (80–100% utilization) · **🔴 Too large** (exceeds capacity).
+Fit levels: **🟢 Perfect** (≥50% utilization, comfortable) · **🔵 Good** (under-utilizing or slightly tight) · **🟡 Tight fit** (80–100% utilization) · **🔴 Too large** (exceeds capacity).
 
-Hover the score bar on any model card to see the 4-component breakdown, memory utilization percentage, estimated tok/s, and run mode (GPU / CPU offload / CPU).
+Press **Show details** on a local model card to see the score, the 4-component breakdown, memory utilization percentage, estimated tok/s, and where it runs (GPU / GPU + CPU / CPU). Models on the Hugging Face tab show a simpler label instead: it fits, it may be slow, or it won't fit.
 
 ---
 
@@ -496,7 +571,7 @@ When launched by the desktop app, the sidecar is pointed at Cinderpaw's **own bu
 
 | Variable | Default | Description |
 |---|---|---|
-| `CINDERPAW_DB` | `data/cinderpaw.db` | SQLite path (`:memory:` for ephemeral) |
+| `CINDERPAW_DB` | `<profile>/data/cinderpaw.db` | SQLite path (`:memory:` for ephemeral). `<profile>` is `~/.cinderpaw` unless `CINDERPAW_HOME` is set |
 | `CINDERPAW_WORKSPACE` | cwd + home | Path-list of filesystem roots. Unset = launch dir + your home dir; set it to RESTRICT |
 | `CINDERPAW_FS_DENY` | — | Extra paths file tools may never touch (on top of the built-in `~/.cinderpaw` + `~/.ssh` deny wall) |
 | `CINDERPAW_MODEL` | `qwen2.5:7b` | Model name (overridden to `cinderpaw-local` by the app) |
@@ -505,8 +580,8 @@ When launched by the desktop app, the sidecar is pointed at Cinderpaw's **own bu
 | `CINDERPAW_FALLBACK_BASE_URL` | `http://localhost:11434` | Fallback endpoint if the primary is unreachable (e.g. a local Ollama) |
 | `CINDERPAW_API_KEY` | — | Bearer token for the inference endpoint (app injects the local API token) |
 | `CINDERPAW_ENABLE_SHELL_EXEC` | `true` | Register the `shell_exec` tool. Set `false` to disable shell access entirely. |
-| `CINDERPAW_SHELL_WHITELIST` | `git,node,python,…` | Comma-separated binaries `shell_exec` may run |
-| `CINDERPAW_TOOL_GRAMMAR` | `false` | Grammar-constrain tool calls on the bundled engine (lazy GBNF) |
+| `CINDERPAW_SHELL_WHITELIST` | unset (any binary) | Comma-separated binaries `shell_exec` may run. Unset = any binary; set it to RESTRICT |
+| `CINDERPAW_TOOL_GRAMMAR` | on | Grammar-constrain tool calls on the bundled engine (lazy GBNF). On unless set to `false` |
 | `CINDERPAW_SEARXNG_URL` | — | Origin of a [SearXNG](https://docs.searxng.org/) instance for `web_search` (e.g. `http://127.0.0.1:8888`). Unset = keyless DuckDuckGo, paced |
 | `CINDERPAW_DDG_MIN_INTERVAL_MS` | `5000` | Minimum gap between keyless DuckDuckGo queries. Raise if you see `rate_limited`; ~3s is the floor |
 | `CINDERPAW_JINA_API_KEY` | — | Jina API key for higher rate limits on `read_webpage` + `deep_research` |
@@ -522,7 +597,7 @@ When launched by the desktop app, the sidecar is pointed at Cinderpaw's **own bu
 - [x] Chat with local models (bundled llama.cpp)
 - [x] HuggingFace model browser and downloader
 - [x] SkillHub — install, discover, and import agent skills
-- [x] BYOK cloud keys (10+ providers)
+- [x] BYOK cloud keys (35 providers)
 - [x] Live hardware monitor (GPU / VRAM / RAM)
 - [x] Auto-updater
 - [x] Projects and conversation history
@@ -532,7 +607,7 @@ When launched by the desktop app, the sidecar is pointed at Cinderpaw's **own bu
 - [x] Privacy tags — complete blocks stripped from agent-loop episodic text (not all storage paths)
 - [x] Tool health monitoring — ECC-style per-tool success rate tracking
 - [x] Workspace security scanner — detect secrets and code anti-patterns
-- [x] Local API server — 47 documented routes, OpenAI- and Ollama-compatible (see [docs/API.md](docs/API.md))
+- [x] Local API server, OpenAI- and Ollama-compatible (see [docs/API.md](docs/API.md))
 - [x] Sub-agents — the agent delegates self-contained tasks to parallel sub-agents (`delegate_task`)
 - [x] On-device LoRA training — fine-tune a personal adapter locally, A/B-eval gated
 - [x] Built-in browser with an ad blocker, driven by the agent
@@ -540,7 +615,7 @@ When launched by the desktop app, the sidecar is pointed at Cinderpaw's **own bu
 - [x] Voice calls — speech-to-speech, with tools
 - [x] Cowork teammates and 21 chat platforms
 - [x] Prompt-injection gate on tool calls
-- [ ] First full Cinderpaw release (pre-release rc3 is out)
+- [x] First full Cinderpaw release (v2026.10.16)
 - [ ] More than 70 interface languages
 - [ ] RAG on local documents — chat with your PDFs without sending them anywhere
 
@@ -560,12 +635,13 @@ Found a vulnerability? Please report it responsibly — see [SECURITY.md](SECURI
 
 Contributions are welcome — code, docs, bug reports, model recommendations, or just telling us what confused you.
 
-**[→ Start here: CONTRIBUTING.md](docs/CONTRIBUTING.md)** — five minutes to a running build, plus a ladder of genuinely scoped first tasks.
+**[→ Start here: CONTRIBUTING.md](docs/CONTRIBUTING.md)**: three commands to a running test suite, a list of first tasks checked against the code, and a map of where things live.
 
 You don't need the desktop app, a GPU, or a model to work on the agent:
 
 ```bash
-cd CinderpawAgent && bun install && bun test    # 4,600+ tests
+git clone https://github.com/bloom500/cinderpaw && cd cinderpaw/CinderpawAgent
+bun install && bun test    # the whole agent test suite
 ```
 
 That's the fastest loop in the repo and where most of the interesting work is. If you want real impact, the biggest open gap is **end-to-end tests against a live provider** — the entire suite currently mocks `fetch`, and that single gap is the main limit on Cinderpaw's release maturity.
@@ -595,7 +671,7 @@ Cinderpaw was previously source-available under BSL 1.1. It moved to Apache 2.0 
 </p>
 
 <p align="center">
-  <em>Built with 🖤🧡 by <a href="https://github.com/bloom500">Bloom Lab</a></em>
+  <em>Built with 🖤🧡 by <a href="https://github.com/bloom500">Bloom Media</a></em>
 </p>
 
-*Cinderpaw collects no telemetry. It counts an install once, if you leave that box ticked at the end of setup ([what it sends](PROMISES.md#the-promises)), and it has never once asked you to "sign up to unlock the full experience." That would be very un-Cinderpaw of it.*
+*Cinderpaw collects no telemetry you did not say yes to. It counts an install once, if you leave that box ticked at the end of setup, and shares a daily usage summary only if you turn it on ([what each sends](PROMISES.md#the-promises)), and it has never once asked you to "sign up to unlock the full experience." That would be very un-Cinderpaw of it.*

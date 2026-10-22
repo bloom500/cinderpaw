@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useChat } from '@/stores/chat';
-import { useUI } from '@/stores/ui';
 import { useModel } from '@/stores/model';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { activeContextWindow, estimateTokens, estimateRemaining } from '@/lib/contextWindow';
@@ -16,9 +15,7 @@ export function ContextRing() {
   const livePromptTokens    = useChat((s) => s.livePromptTokens);
   const liveCompletionTokens = useChat((s) => s.liveCompletionTokens);
   const isStreaming         = useChat((s) => s.streamStatus) === 'streaming';
-  const isAgentMode         = useUI((s) => s.inputMode) === 'agent';
   const loaded              = useModel((s) => s.loaded);
-  const cloudModel          = useModel((s) => s.cloudModel);
   const cinderpawConfig         = useCinderpawStore((s) => s.modelConfig);
 
   // Bumped when the published catalog lands, so the ring redraws with the real
@@ -26,12 +23,7 @@ export function ContextRing() {
   const [catalogAt, setCatalogAt] = useState(catalogFetchedAt);
 
   const { used, ctxWindow, pct, modelName, remaining, isLive } = useMemo(() => {
-    const { model, ctxWindow } = activeContextWindow({
-      isAgentMode,
-      cinderpawConfig,
-      cloudModel,
-      loaded,
-    });
+    const { model, ctxWindow } = activeContextWindow({ cinderpawConfig, loaded });
 
     // Real token usage: use live counts from backend when available.
     // For local models, livePromptTokens is the exact count from llama.cpp tokenization.
@@ -50,7 +42,7 @@ export function ContextRing() {
     const pct = ctxWindow && ctxWindow > 0 ? Math.min(1, used / ctxWindow) : 0;
     const remaining = estimateRemaining(ctxWindow ?? 0, used, messages.length);
     return { used, ctxWindow, pct, modelName: modelLabel(model) || 'Unknown', remaining, isLive };
-  }, [messages, livePromptTokens, liveCompletionTokens, isAgentMode, cinderpawConfig, cloudModel, loaded, catalogAt]);
+  }, [messages, livePromptTokens, liveCompletionTokens, cinderpawConfig, loaded, catalogAt]);
 
   // Only a cloud model whose window nobody here knows costs a request, and the
   // catalog is cached for a day: an offline or local-only install never calls out.

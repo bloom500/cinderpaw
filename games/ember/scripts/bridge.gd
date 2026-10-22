@@ -12,6 +12,7 @@ signal paused(on: bool)
 const KINDS: Array[String] = ["search", "read", "build", "other"]
 
 var _on_message_cb  # a JavaScriptObject; the browser drops a callback nobody holds
+var _window  # the page's window as a JavaScriptObject; null off the web
 ## Everything the game has said, in order: what the headless tests read.
 var sent: Array[Dictionary] = []
 
@@ -38,19 +39,22 @@ static func encode(msg: Dictionary) -> String:
 func _ready() -> void:
 	if not OS.has_feature("web"):
 		return
+	_window = JavaScriptBridge.get_interface("window")
 	_on_message_cb = JavaScriptBridge.create_callback(_on_message)
-	JavaScriptBridge.get_interface("window").addEventListener("message", _on_message_cb)
+	_window.addEventListener("message", _on_message_cb)
 	send({"type": "ready"})
 
+## Through the window object, never JavaScriptBridge.eval: the app's CSP has no
+## 'unsafe-eval', so an eval here never ran in the installed app and the game
+## sat on "Lighting the campfire" (15 Oct 2026).
 func send(msg: Dictionary) -> void:
 	sent.append(msg)
-	if OS.has_feature("web"):
-		# encode() gives JSON text; stringify it again to embed it as a JS string literal.
-		JavaScriptBridge.eval("window.parent.postMessage(%s, window.location.origin)" % JSON.stringify(encode(msg)))
+	if _window:
+		_window.parent.postMessage(encode(msg), _window.location.origin)
 
 func _on_message(args: Array) -> void:
 	var event = args[0]
-	if str(event.origin) != str(JavaScriptBridge.eval("window.location.origin")):
+	if str(event.origin) != str(_window.location.origin):
 		return
 	receive(str(event.data))
 

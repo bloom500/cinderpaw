@@ -19,7 +19,7 @@ import { describe, expect, test } from "bun:test";
 
 import { runContract } from "../src/rsi/infra/contract-runner.ts";
 import { makeInitialState, type ContractDeps, type ContractState } from "../src/rsi/infra/contract.ts";
-import { DEFAULT_BUDGET_CAPS } from "../src/rsi/infra/budget.ts";
+import { DEFAULT_BUDGET_CAPS, zeroSpend } from "../src/rsi/infra/budget.ts";
 import type { JournalEntry } from "../src/rsi/infra/journal.ts";
 
 /** Deps whose every stage passes, so the contract reaches a terminal row. */
@@ -34,7 +34,11 @@ function passingDeps(rows: JournalEntry[]): ContractDeps {
     regression: ok,
     deploy: ok,
     monitoring: ok,
+    // Every stage must now name an estimate before it may start (spend
+    // authority, I5); "unmetered" is the honest one for a stub that spends nothing.
+    estimateBudget: () => ({ unmetered: true }),
     assertBudget: () => ({ allow: true, breaches: [], reason: "" }),
+    measureSpend: () => zeroSpend(),
     evaluateConfidence: () => ({
       accept: true,
       reason: "stubbed",
@@ -63,8 +67,9 @@ describe("Journal budgetRemaining — honesty", () => {
     expect(rows).toHaveLength(1);
     const budget = rows[0]!.budgetRemaining;
     expect(budget.unmeasured).toBeDefined();
-    // Everything the contract does not track.
-    expect([...budget.unmeasured!].sort()).toEqual(["cpuPct", "diskMb", "ramMb", "tokens"]);
+    // Everything the contract does not track. Tokens left this list when the
+    // spend authority started measuring them per stage (measureSpend).
+    expect([...budget.unmeasured!].sort()).toEqual(["cpuPct", "diskMb", "ramMb"]);
   });
 
   test("wall clock is NOT flagged, because it really is measured", async () => {
