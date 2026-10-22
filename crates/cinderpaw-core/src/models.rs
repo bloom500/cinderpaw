@@ -145,8 +145,7 @@ pub fn delete_model(path: &Path) -> Result<()> {
             // A load llama.cpp refused can leave the GGUF open until the app
             // quits (seen 21 Oct: still locked an hour after the failed load),
             // so waiting longer does not help. Delete it at the next start.
-            let dir = path.parent().unwrap_or(path);
-            queue_delete_at(dir, path)?;
+            queue_delete_at(&delete_on_start_list(), path)?;
             return Err(anyhow!(
                 "Windows is still holding this file open, so it cannot be deleted right now. \
                  Cinderpaw will delete it the next time it starts. To free the space now, \
@@ -161,40 +160,42 @@ pub fn delete_model(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The list of models whose delete Windows refused, kept in the models dir.
-const DELETE_ON_START: &str = ".delete-on-start";
+/// The list of models whose delete Windows refused. One list in the Cinderpaw
+/// home, read at every start: a model can sit in a subfolder of the models dir,
+/// or in the folder chosen in Settings, and the start must still find it.
+fn delete_on_start_list() -> PathBuf {
+    paths::cinderpaw_dir().join(".delete-on-start")
+}
 
 fn is_sharing_violation(e: &anyhow::Error) -> bool {
     // os error 32 = ERROR_SHARING_VIOLATION on Windows
     e.downcast_ref::<std::io::Error>().and_then(|io| io.raw_os_error()) == Some(32)
 }
 
-fn queue_delete_at(dir: &Path, path: &Path) -> Result<()> {
+fn queue_delete_at(list: &Path, path: &Path) -> Result<()> {
     use std::io::Write;
-    let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join(DELETE_ON_START))?;
+    if let Some(dir) = list.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(list)?;
     writeln!(f, "{}", path.display())?;
     Ok(())
 }
 
 /// Deletes the models queued by `delete_model`, before anything loads one.
 pub fn delete_queued_at_startup() {
-    delete_queued_at(&paths::models_dir());
+    delete_queued_at(&delete_on_start_list());
 }
 
-/// Returns how many are still queued. Only plain files directly inside `dir`
-/// are touched, whatever the list says.
-fn delete_queued_at(dir: &Path) -> usize {
-    let list = dir.join(DELETE_ON_START);
-    let Ok(text) = std::fs::read_to_string(&list) else { return 0 };
-    // Compared canonical: the desktop delete queues a `\\?\C:\...` path.
-    let Ok(real_dir) = dir.canonicalize() else { return 0 };
+/// Returns how many are still queued. Only `.gguf` files are touched, whatever
+/// the list says: it only ever holds models the person chose to delete.
+fn delete_queued_at(list: &Path) -> usize {
+    let Ok(text) = std::fs::read_to_string(list) else { return 0 };
     let mut left = Vec::new();
     for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
-        let Ok(path) = Path::new(line).canonicalize() else { continue };
-        if path.parent() != Some(real_dir.as_path()) || !path.is_file() {
+        let path = Path::new(line);
+        let gguf = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("gguf"));
+        if !gguf || !path.is_file() {
             continue;
         }
         if std::fs::remove_file(&path).is_ok() {
@@ -204,9 +205,9 @@ fn delete_queued_at(dir: &Path) -> usize {
         }
     }
     if left.is_empty() {
-        let _ = std::fs::remove_file(&list);
+        let _ = std::fs::remove_file(list);
     } else {
-        let _ = std::fs::write(&list, left.join("\n") + "\n");
+        let _ = std::fs::write(list, left.join("\n") + "\n");
     }
     left.len()
 }
@@ -413,23 +414,27 @@ mod tests {
     }
 
     #[test]
-    fn queued_deletes_run_once_and_only_inside_the_models_dir() {
+    fn queued_deletes_run_once_wherever_the_model_sits_and_only_on_ggufs() {
         let dir = tempfile::tempdir().unwrap();
         let d = dir.path();
-        let model = d.join("m.Q4_K_M.gguf");
+        let list = d.join("home").join(".delete-on-start");
+        // A split model from Hugging Face sits in its own subfolder.
+        std::fs::create_dir_all(d.join("models").join("IQ4_XS")).unwrap();
+        let model = d.join("models").join("IQ4_XS").join("m-00001-of-00002.gguf");
         std::fs::write(&model, b"x").unwrap();
-        std::fs::write(d.join("m.Q4_K_M.cinderpaw"), b"{}").unwrap();
-        let outside = tempfile::NamedTempFile::new().unwrap();
-        queue_delete_at(d, &model).unwrap();
-        queue_delete_at(d, outside.path()).unwrap();
-        queue_delete_at(d, &d.join("already-gone.gguf")).unwrap();
+        std::fs::write(model.with_extension("cinderpaw"), b"{}").unwrap();
+        let not_a_model = d.join("notes.txt");
+        std::fs::write(&not_a_model, b"keep").unwrap();
+        queue_delete_at(&list, &model).unwrap();
+        queue_delete_at(&list, &not_a_model).unwrap();
+        queue_delete_at(&list, &d.join("already-gone.gguf")).unwrap();
 
-        assert_eq!(delete_queued_at(d), 0);
+        assert_eq!(delete_queued_at(&list), 0);
         assert!(!model.exists());
-        assert!(!d.join("m.Q4_K_M.cinderpaw").exists());
-        assert!(outside.path().exists(), "a path outside the models dir is never deleted");
-        assert!(!d.join(DELETE_ON_START).exists(), "the list goes once it is done");
-        assert_eq!(delete_queued_at(d), 0, "no list, nothing to do");
+        assert!(!model.with_extension("cinderpaw").exists());
+        assert!(not_a_model.exists(), "only a .gguf is ever deleted");
+        assert!(!list.exists(), "the list goes once it is done");
+        assert_eq!(delete_queued_at(&list), 0, "no list, nothing to do");
     }
 
     #[test]
