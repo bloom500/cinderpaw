@@ -1,7 +1,7 @@
 //! "Send to Google Docs": one Google login, then one click per document.
 //!
-//! The login is the standard OAuth flow for an installed app, run inside the
-//! built-in browser: Google's consent page opens in the Browser panel, and
+//! The login is the standard OAuth flow for an installed app, run in the
+//! person's own browser: Google's consent page opens there, and
 //! when the person approves, Google sends the browser to `127.0.0.1:<port>`,
 //! where this module is listening for that one request. The refresh token
 //! goes to the OS keychain under `google-docs`; nothing else is stored.
@@ -67,7 +67,7 @@ fn pkce_challenge(verifier: &str) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(verifier.as_bytes()))
 }
 
-/// Log the person in. Opens Google's consent page in the built-in browser and
+/// Log the person in. Opens Google's consent page in their own browser and
 /// waits (up to five minutes) for Google to send it back to us with a code.
 pub async fn connect(app: AppHandle) -> Result<(), String> {
     let c = client()?;
@@ -81,7 +81,16 @@ pub async fn connect(app: AppHandle) -> Result<(), String> {
         urlencoding::encode(&c.id), urlencoding::encode(&redirect), urlencoding::encode(SCOPE),
         state, pkce_challenge(&verifier),
     );
-    crate::browser::handle(app.clone(), "open", &json!({ "url": auth_url })).await?;
+    // The person's own browser, where they are already signed in to Google.
+    // The built-in one has no Google session, and Google refuses sign-in in
+    // embedded browsers, so the button ended on a "sign in" error (11 Oct).
+    // The redirect is a loopback port, which any browser can reach.
+    {
+        use tauri_plugin_shell::ShellExt;
+        #[allow(deprecated)]
+        let opened = app.shell().open(auth_url.as_str(), None);
+        opened.map_err(|e| format!("Could not open your browser: {e}"))?;
+    }
 
     let code = tokio::time::timeout(Duration::from_secs(300), async {
         loop {
@@ -136,23 +145,81 @@ async fn access_token() -> Result<String, String> {
         .form(&[("refresh_token", refresh.as_str()), ("client_id", c.id.as_str()), ("client_secret", c.secret.as_str()), ("grant_type", "refresh_token")])
         .send().await.map_err(|e| e.to_string())?
         .json().await.map_err(|e| e.to_string())?;
-    v.get("access_token").and_then(|t| t.as_str()).map(String::from)
-        .ok_or_else(|| "Google no longer accepts the saved login; connect again.".to_string())
+    match read_token_reply(&v) {
+        Ok(token) => Ok(token),
+        Err(Refusal::LoginGone) => {
+            // Kept, a dead login still counts as connected, so the button never
+            // offers sign-in again and every click fails the same way (12 Oct).
+            // Forgotten, the next try signs in from scratch.
+            disconnect()?;
+            Err("Your Google sign-in expired. Sign in again.".into())
+        }
+        Err(Refusal::Other(why)) => Err(format!("Google refused the saved sign-in: {why}")),
+    }
+}
+
+/// Why Google gave no access token for the saved login.
+enum Refusal {
+    /// The login itself is dead: the person removed Cinderpaw from their
+    /// Google account, it went unused for six months, or a client still in
+    /// Google's "Testing" mode passed its seven days. Signing in again fixes it.
+    LoginGone,
+    /// Anything else, in Google's own words: signing in again would not help.
+    Other(String),
+}
+
+fn read_token_reply(v: &Value) -> Result<String, Refusal> {
+    if let Some(token) = v.get("access_token").and_then(|t| t.as_str()) {
+        return Ok(token.to_string());
+    }
+    let code = v.get("error").and_then(|e| e.as_str()).unwrap_or("");
+    if code == "invalid_grant" {
+        return Err(Refusal::LoginGone);
+    }
+    let why = v.get("error_description").and_then(|e| e.as_str()).filter(|s| !s.is_empty());
+    Err(Refusal::Other(why.unwrap_or(if code.is_empty() { "no reason given" } else { code }).to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_dead_login_is_told_apart_from_other_refusals() {
+        assert!(matches!(read_token_reply(&json!({ "access_token": "ya29" })), Ok(t) if t == "ya29"));
+        assert!(matches!(
+            read_token_reply(&json!({ "error": "invalid_grant", "error_description": "Token has been expired or revoked." })),
+            Err(Refusal::LoginGone)
+        ));
+        assert!(matches!(
+            read_token_reply(&json!({ "error": "invalid_client", "error_description": "The OAuth client was not found." })),
+            Err(Refusal::Other(why)) if why == "The OAuth client was not found."
+        ));
+        assert!(matches!(read_token_reply(&json!({})), Err(Refusal::Other(why)) if why == "no reason given"));
+    }
 }
 
 /// Upload one file to the person's Drive. `convert` turns text or HTML into a
-/// Google Doc; a PDF is kept as it is (converting it goes through OCR and
-/// loses the layout). Returns the link to open it.
-pub async fn upload(name: &str, mime: &str, bytes: Vec<u8>, convert: bool) -> Result<String, String> {
+/// Google Doc and a CSV into a Google Sheet; a PDF is kept as it is
+/// (converting it goes through OCR and loses the layout). `anyone_with_link`
+/// lets whoever gets the link view it: the Gmail button sends the link to
+/// someone else, and a private file would only show them "request access".
+/// `drive.file` covers it, because the app made the file. Returns the link.
+pub async fn upload(name: &str, mime: &str, bytes: Vec<u8>, convert: bool, anyone_with_link: bool) -> Result<String, String> {
     let token = access_token().await?;
+    let sheet = convert && mime == "text/csv";
     let mut meta = json!({ "name": name });
-    if convert { meta["mimeType"] = json!("application/vnd.google-apps.document"); }
+    if convert {
+        // Drive imports a CSV as a Sheet and text or HTML as a Doc; asking for
+        // the other one fails the upload.
+        meta["mimeType"] = json!(if sheet { "application/vnd.google-apps.spreadsheet" } else { "application/vnd.google-apps.document" });
+    }
     let form = reqwest::multipart::Form::new()
         .part("metadata", reqwest::multipart::Part::text(meta.to_string()).mime_str("application/json; charset=UTF-8").map_err(|e| e.to_string())?)
         .part("file", reqwest::multipart::Part::bytes(bytes).mime_str(mime).map_err(|e| e.to_string())?);
     let res = reqwest::Client::new()
         .post("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,mimeType,webViewLink")
-        .bearer_auth(token)
+        .bearer_auth(&token)
         .multipart(form)
         .send().await.map_err(|e| e.to_string())?;
     let status = res.status();
@@ -161,7 +228,19 @@ pub async fn upload(name: &str, mime: &str, bytes: Vec<u8>, convert: bool) -> Re
         return Err(format!("Google refused the upload: {}", v["error"]["message"].as_str().unwrap_or("unknown error")));
     }
     let id = v["id"].as_str().unwrap_or_default();
-    Ok(v["webViewLink"].as_str().map(String::from).unwrap_or_else(|| {
-        if convert { format!("https://docs.google.com/document/d/{id}/edit") } else { format!("https://drive.google.com/file/d/{id}/view") }
+    if anyone_with_link {
+        let res = reqwest::Client::new()
+            .post(format!("https://www.googleapis.com/drive/v3/files/{id}/permissions"))
+            .bearer_auth(&token)
+            .json(&json!({ "role": "reader", "type": "anyone" }))
+            .send().await.map_err(|e| e.to_string())?;
+        if !res.status().is_success() {
+            return Err("The file is in your Drive, but Google would not let others open the link. Share it from Drive.".into());
+        }
+    }
+    Ok(v["webViewLink"].as_str().map(String::from).unwrap_or_else(|| match (convert, sheet) {
+        (true, true) => format!("https://docs.google.com/spreadsheets/d/{id}/edit"),
+        (true, false) => format!("https://docs.google.com/document/d/{id}/edit"),
+        _ => format!("https://drive.google.com/file/d/{id}/view"),
     }))
 }

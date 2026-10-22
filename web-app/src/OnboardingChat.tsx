@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { answerAsk, chatFailure, finishToolIn, saveSecret, stopChat, streamChat, whatsappQr, type ChatFailure, type SecretAsk } from "./chatStream";
+import { answerAsk, chatFailure, finishToolIn, saveSecret, stopChat, streamChat, whatsappQr, withPreview, type AskAnswer, type AskQuestion, type ChatFailure, type SecretAsk } from "./chatStream";
 import { CinderpawMascot, type MascotState } from "./brand";
 import { COPY } from "./copy";
 import { Reply } from "./Reply";
 import {
-  commonFirst, fetchApi, firstOffers, load, manualCandidate, save, tryCandidate, tryKey,
-  type Candidate, type KeyResult, type Provider, type Step,
+  commonFirst, fetchApi, firstOffers, importOffer, load, manualCandidate, save, tryCandidate, tryKey, whatWillCome,
+  type Candidate, type KeyResult, type MigrateFound, type Provider, type Step,
 } from "./onboarding";
 
 type Tool = { id: string; tool: string; ok?: boolean };
@@ -49,8 +49,10 @@ export function OnboardingChat() {
   const [showAll, setShowAll] = useState(false);
   const [answering, setAnswering] = useState(false);
   const [secretAsk, setSecretAsk] = useState<SecretAsk | null>(null);
-  const [plainAsk, setPlainAsk] = useState<{ requestId: string; question: string; options: string[] } | null>(null);
+  const [plainAsk, setPlainAsk] = useState<{ requestId: string; questions: AskQuestion[]; answers: AskAnswer[] } | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
   const [cheer, setCheer] = useState(false);
+  const [offer, setOffer] = useState<MigrateFound | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const stoppedRef = useRef(false);
 
@@ -131,8 +133,9 @@ export function OnboardingChat() {
         // The answer continues in a fresh bubble once the agent resumes.
         add({ who: "agent", text: "", tools: [] });
       } else if (e.type === "ask") {
-        add({ who: "agent", text: e.question });
-        setPlainAsk(e);
+        add({ who: "agent", text: withPreview(e.questions[0].question, e.questions[0].preview) });
+        setPlainAsk({ requestId: e.requestId, questions: e.questions, answers: [] });
+        setPicked([]);
         add({ who: "agent", text: "", tools: [] });
       } else if (e.type === "error") {
         failure = chatFailure(e.detail);
@@ -173,15 +176,27 @@ export function OnboardingChat() {
     if (!secretAsk) return;
     const ask = secretAsk;
     setSecretAsk(null);
-    await answerAsk((u, i) => fetch(u, i), ask.requestId, ask.question, "Cancel");
+    await answerAsk((u, i) => fetch(u, i), ask.requestId, [{ question: ask.question, selected: ["Cancel"] }]);
   }
 
-  async function pickAnswer(label: string) {
+  // One question at a time, in the chat; the agent gets every answer together
+  // after the last one (it waits for all of them).
+  async function answer(a: AskAnswer) {
     if (!plainAsk) return;
     const ask = plainAsk;
+    const answers = [...ask.answers, a];
+    const next = ask.questions[answers.length];
+    const said = [...a.selected, ...(a.customText ? [a.customText] : [])].join(", ");
+    setPicked([]);
+    setLines((ls) => [
+      ...ls.slice(0, -1),
+      { who: "person", text: said },
+      ...(next ? [{ who: "agent" as const, text: withPreview(next.question, next.preview) }] : []),
+      ls[ls.length - 1],
+    ]);
+    if (next) return setPlainAsk({ ...ask, answers });
     setPlainAsk(null);
-    setLines((ls) => [...ls.slice(0, -1), { who: "person", text: label }, ls[ls.length - 1]]);
-    await answerAsk((u, i) => fetch(u, i), ask.requestId, ask.question, label);
+    await answerAsk((u, i) => fetch(u, i), ask.requestId, answers);
   }
 
   function fail(r: KeyResult) {
@@ -213,7 +228,32 @@ export function OnboardingChat() {
     setName(n);
     add({ who: "person", text: n });
     await say(COPY.niceToMeet(n));
+    // Coming from OpenClaw or Hermes Agent: offer their setup before the key.
+    // Nothing is shown to anyone who has neither.
+    const found = await importOffer(api);
+    if (found) {
+      setOffer(found);
+      await say(COPY.importFound(found.source, whatWillCome(found)));
+      return go("import", n);
+    }
     askBrain(n);
+  }
+
+  async function answerImport(yes: boolean) {
+    const found = offer;
+    setOffer(null);
+    add({ who: "person", text: yes ? COPY.importYes : COPY.importNo });
+    if (yes && found) {
+      setBusy(true);
+      try {
+        const done = await api.migrateApply(found.root);
+        await say(COPY.imported(String(done.length)));
+      } catch {
+        await say(COPY.importFailed);
+      }
+      setBusy(false);
+    }
+    askBrain(name);
   }
 
   async function showMe() {
@@ -231,6 +271,24 @@ export function OnboardingChat() {
     } else {
       await say(COPY.offline);
       go("brain");
+    }
+  }
+
+  /**
+   * One click instead of five steps. The engine saves the key and sends the
+   * browser back here; this step is saved as "brain", so the reload finds the
+   * new key through the same "brain from before" check every visit runs.
+   */
+  async function signIn() {
+    add({ who: "person", text: COPY.signIn });
+    setBusy(true);
+    try {
+      const url = await api.openRouterSignIn(window.location.origin + window.location.pathname);
+      await say(COPY.signInGoing);
+      window.location.assign(url);
+    } catch {
+      setBusy(false);
+      await say(COPY.signInFailed);
     }
   }
 
@@ -278,6 +336,7 @@ export function OnboardingChat() {
 
   // The mascot follows the conversation: it waves hello, thinks while a key is
   // tried or the agent works, asks when a card waits, and cheers once it is awake.
+  const asking = plainAsk?.questions[plainAsk.answers.length];
   const mood: MascotState = cheer ? "celebrate" : busy || answering ? "thinking" : secretAsk || plainAsk ? "asking" : step === "done" ? "idle" : "wave";
 
   return (
@@ -346,9 +405,16 @@ export function OnboardingChat() {
       {!busy && (
         <div className="controls">
           {step === "name" && <TextForm placeholder={COPY.namePlaceholder} send={COPY.nameSend} onSend={submitName} />}
+          {step === "import" && offer && (
+            <div className="choices">
+              <button type="button" className="button big" onClick={() => answerImport(true)}>{COPY.importYes}</button>
+              <button type="button" className="button quiet" onClick={() => answerImport(false)}>{COPY.importNo}</button>
+            </div>
+          )}
           {step === "brain" && (
             <div className="choices">
-              <button type="button" className="button big" onClick={showMe}>{COPY.showMe}</button>
+              <button type="button" className="button big" onClick={signIn}>{COPY.signIn}</button>
+              <button type="button" className="button quiet" onClick={showMe}>{COPY.showMe}</button>
               <button type="button" className="button quiet" onClick={haveKey}>{COPY.haveKey}</button>
               {local && <button type="button" className="button quiet" onClick={useLocal}>{COPY.useLocal}</button>}
             </div>
@@ -371,11 +437,42 @@ export function OnboardingChat() {
               <button type="button" className="link" onClick={skipSecret}>{COPY.secretCancel}</button>
             </div>
           )}
-          {step === "done" && !secretAsk && plainAsk && (
-            <div className="choices wrap">
-              {plainAsk.options.map((o) => (
-                <button key={o} type="button" className="button quiet" onClick={() => pickAnswer(o)}>{o}</button>
-              ))}
+          {step === "done" && !secretAsk && asking && (
+            <div className="ask">
+              <div className="choices wrap">
+                {asking.options.map((o) => {
+                  const on = picked.includes(o.label);
+                  return (
+                    <button
+                      key={o.label}
+                      type="button"
+                      aria-pressed={asking.multiSelect ? on : undefined}
+                      className={`button quiet choice${on ? " on" : ""}`}
+                      onClick={() =>
+                        asking.multiSelect
+                          ? setPicked((p) => (on ? p.filter((x) => x !== o.label) : [...p, o.label]))
+                          : answer({ question: asking.question, selected: [o.label] })
+                      }
+                    >
+                      <span>
+                        {o.label}
+                        {o.recommended && <span className="tag">{COPY.askSuggested}</span>}
+                      </span>
+                      {o.description && <small>{o.description}</small>}
+                    </button>
+                  );
+                })}
+              </div>
+              {asking.multiSelect && (
+                <button type="button" className="button" disabled={!picked.length} onClick={() => answer({ question: asking.question, selected: picked })}>
+                  {COPY.askDone}
+                </button>
+              )}
+              <TextForm
+                placeholder={COPY.askOther}
+                send={COPY.send}
+                onSend={(v) => v.trim() && answer({ question: asking.question, selected: asking.multiSelect ? picked : [], customText: v.trim() })}
+              />
             </div>
           )}
           {step === "done" && !secretAsk && !plainAsk && (

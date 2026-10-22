@@ -48,6 +48,11 @@ describe("crossoverConfigs", () => {
     expect(child.retrievalStrategy).toBe("graph");
   });
 
+  test("reasoning effort comes from the fitter parent, and a default parent passes on the default", () => {
+    expect(crossoverConfigs({ ...fitter, reasoningEffort: "low" }, { ...other, reasoningEffort: "high" }).reasoningEffort).toBe("low");
+    expect("reasoningEffort" in crossoverConfigs(fitter, { ...other, reasoningEffort: "high" })).toBe(false);
+  });
+
   test("bounded reals are the arithmetic mean", () => {
     expect(child.temperature).toBeCloseTo(0.6, 10);
     expect(child.contextWindowUsage).toBeCloseTo(0.4, 10);

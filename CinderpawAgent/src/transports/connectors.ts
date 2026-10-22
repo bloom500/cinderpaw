@@ -1261,8 +1261,8 @@ export async function loadWhatsAppModule(): Promise<typeof import("@whiskeysocke
   const entry = whatsappEntry();
   if (!entry) {
     throw new Error(
-      "WhatsApp is an optional external dependency. Install @whiskeysockets/baileys@7.0.0-rc13 " +
-      "and set CINDERPAW_WHATSAPP_MODULE to the absolute bundled whatsapp.js path (see CinderpawAgent/README.md).",
+      "WhatsApp support is not downloaded yet. Ask Cinderpaw to connect WhatsApp and it downloads it first " +
+      "(or set CINDERPAW_WHATSAPP_MODULE to a whatsapp.js you built, see CinderpawAgent/README.md).",
     );
   }
   const url = pathToFileURL(entry).href;

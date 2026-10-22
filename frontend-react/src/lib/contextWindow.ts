@@ -62,11 +62,8 @@ export function isLocalBaseUrl(baseUrl: string | undefined): boolean {
 }
 
 export interface ActiveModelInputs {
-  isAgentMode: boolean;
-  /** Agent-mode target (provider + model + base_url). */
+  /** The agent's target (provider + model + base_url). */
   cinderpawConfig?: { model?: string; base_url?: string } | null;
-  /** Chat-mode cloud target. */
-  cloudModel?: { modelId: string } | null;
   /** The local GGUF currently in memory, if any. `ctx_len` is its real KV cache. */
   loaded?: { name?: string; ctx_len?: number } | null;
 }
@@ -81,19 +78,8 @@ export interface ActiveModelInputs {
  * pinned the ring to 8192 during cloud sessions.
  */
 export function activeContextWindow(i: ActiveModelInputs): { model: string | undefined; isLocal: boolean; ctxWindow: number | null } {
-  let model: string | undefined;
-  let isLocal: boolean;
-
-  if (i.isAgentMode) {
-    model = i.cinderpawConfig?.model;
-    isLocal = isLocalBaseUrl(i.cinderpawConfig?.base_url);
-  } else if (i.cloudModel) {
-    model = i.cloudModel.modelId;
-    isLocal = false;
-  } else {
-    model = i.loaded?.name;
-    isLocal = true;
-  }
+  const model = i.cinderpawConfig?.model;
+  const isLocal = isLocalBaseUrl(i.cinderpawConfig?.base_url);
 
   const ctxWindow = isLocal
     ? (i.loaded?.ctx_len ?? contextWindowFor(model, true))

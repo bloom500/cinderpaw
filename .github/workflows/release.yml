@@ -191,7 +191,11 @@ jobs:
         uses: jakoch/install-vulkan-sdk-action@v1
         with:
           install_runtime: true
-          cache: true
+          # No cache: a cache hit restores the SDK folder but skips the runtime
+          # installer, so System32\vulkan-1.dll (copied below) is missing and the
+          # Windows build fails. The second run of a tag hit it (v2026.10.16
+          # rebuilt, 16 Oct), since caches are kept per tag.
+          cache: false
 
       # Ship the Vulkan LOADER next to the exe. `inference-vulkan` links
       # vulkan-1.dll at load time, and a Windows with no GPU driver (a VM, a
@@ -304,7 +308,8 @@ jobs:
           # `## YYYY.MM.DD` (no `v`). Find the matching header, then capture
           # everything up to the next `## ` header (or EOF).
           $tag = "${{ github.ref_name }}"
-          $version = $tag.TrimStart('v')
+          # A beta (v2026.10.16-beta.1) shows the notes of the version it previews.
+          $version = $tag.TrimStart('v') -replace '-.*$', ''
           $content = Get-Content CHANGELOG.md -Raw
           $lines = $content -split "`r?`n"
           $start = -1
@@ -460,6 +465,19 @@ jobs:
           $msi = Get-ChildItem -Recurse -Path signpath-out -Include *.msi | Select-Object -First 1
           if ($msi) { gh release upload $tag "$($msi.FullName)" --clobber }
 
+  # Install the previous public release (and the last Feral), update it to the
+  # installer just published, and check the shortcuts and the app list. After
+  # every build, not only when someone remembers: see update-path.yml for the
+  # bug that made this a job. !cancelled(): a failed Mac build must not hide a
+  # broken Windows update.
+  update-path:
+    name: Update path
+    needs: release
+    if: ${{ !cancelled() && github.event_name == 'push' }}
+    uses: ./.github/workflows/update-path.yml
+    with:
+      tag: ${{ github.ref_name }}
+
   # ── NVIDIA / CUDA build (opt-in download, not the default) ──────────────────
   #
   # Why a SEPARATE job and a separate asset instead of another matrix entry:
@@ -482,13 +500,13 @@ jobs:
   cuda:
     name: NVIDIA CUDA build (${{ matrix.name }})
     needs: release            # the GitHub release must exist before we upload to it
-    # On a manual run the `release` job is skipped, and a skipped dependency
-    # would skip this one too — so accept that case explicitly.
+    # Manual runs only for now: the CUDA builds failed on rc3 (Windows: no
+    # bundle matched *-setup.exe; Linux: rust-lld -fPIC) and are not part of
+    # v2026.10.16. Put `|| needs.release.result == 'success'` back once a manual
+    # run is green. On a manual run the `release` job is skipped, and a skipped
+    # dependency would skip this one too, hence always().
     if: >-
-      always() && (
-        github.event_name == 'workflow_dispatch' ||
-        needs.release.result == 'success'
-      )
+      always() && github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false        # a CUDA failure must never sink the main release

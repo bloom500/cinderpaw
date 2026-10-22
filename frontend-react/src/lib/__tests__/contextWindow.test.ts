@@ -33,7 +33,6 @@ describe('activeContextWindow', () => {
   // resident as the offline fallback → the ring showed 8192.
   it('a resident local GGUF does not shrink the window of an active cloud model', () => {
     const { ctxWindow, isLocal } = activeContextWindow({
-      isAgentMode: true,
       cinderpawConfig: { model: 'MiniMax-M3', base_url: 'https://api.minimax.io/v1' },
       loaded: localGguf,
     });
@@ -43,7 +42,6 @@ describe('activeContextWindow', () => {
 
   it('uses the loaded engine real KV cache when the local model is the active one', () => {
     const { ctxWindow, isLocal } = activeContextWindow({
-      isAgentMode: true,
       cinderpawConfig: { model: 'Qwythos-9B.gguf', base_url: 'http://127.0.0.1:11435/v1' },
       loaded: localGguf,
     });
@@ -54,20 +52,10 @@ describe('activeContextWindow', () => {
 
   it('falls back to the local default when nothing is loaded', () => {
     const { ctxWindow } = activeContextWindow({
-      isAgentMode: true,
       cinderpawConfig: { model: 'mystery.gguf', base_url: 'http://localhost:11435/v1' },
       loaded: null,
     });
     expect(ctxWindow).toBe(LOCAL_DEFAULT_CONTEXT);
-  });
-
-  it('chat mode with a cloud model ignores the loaded GGUF too', () => {
-    const { ctxWindow } = activeContextWindow({
-      isAgentMode: false,
-      cloudModel: { modelId: 'claude-3-opus' },
-      loaded: localGguf,
-    });
-    expect(ctxWindow).toBe(200_000);
   });
 });
 

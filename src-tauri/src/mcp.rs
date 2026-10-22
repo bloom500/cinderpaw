@@ -895,7 +895,16 @@ fn view_of(cfg: &McpServerConfig, running: bool) -> McpServerView {
 #[tauri::command]
 #[specta::specta]
 pub fn mcp_catalog() -> Vec<McpCatalogEntry> {
-    catalog().into_iter().map(|d| d.entry).collect()
+    catalog().into_iter().map(|d| d.entry).filter(offered_here).collect()
+}
+
+/// Whether the store offers this entry on this computer. Not what Cinderpaw
+/// already has built in, and not what cannot run here: Capabilities listed
+/// "Long-term Memory" and "Web Browser" to install beside the built-in memory
+/// and browser, and Xcode Build on Windows (UX lab, 19 Oct, item 29). An
+/// installed one still resolves through `catalog()`.
+fn offered_here(e: &McpCatalogEntry) -> bool {
+    !matches!(e.id.as_str(), "memory" | "playwright") && (cfg!(target_os = "macos") || e.id != "xcodebuild")
 }
 
 /// Installed servers with live status (running state queried from the
@@ -1365,6 +1374,16 @@ mod cmd_denylist_tests {
 #[cfg(test)]
 mod catalog_pin_tests {
     use super::*;
+
+    #[test]
+    fn the_store_leaves_out_built_ins_and_other_platforms() {
+        let ids: Vec<String> = mcp_catalog().into_iter().map(|e| e.id).collect();
+        assert!(!ids.iter().any(|id| id == "memory" || id == "playwright"));
+        assert_eq!(ids.iter().any(|id| id == "xcodebuild"), cfg!(target_os = "macos"));
+        assert!(ids.iter().any(|id| id == "github"));
+        // Still known, so a server installed before stays readable.
+        assert!(catalog().iter().any(|d| d.entry.id == "memory"));
+    }
 
     /// A spec with an explicit floating dist-tag (`@latest`, `@next`, …) is
 /// a supply-chain hole: those tags resolve at install time to whatever

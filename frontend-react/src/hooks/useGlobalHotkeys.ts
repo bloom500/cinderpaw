@@ -22,8 +22,11 @@ export function useGlobalHotkeys() {
       // the address bar, where Esc means "leave this field".
       if (e.key === 'Escape' && !e.defaultPrevented && !e.metaKey && !e.ctrlKey && !e.altKey) {
         const el = e.target as HTMLElement | null;
+        // Not from inside the browser either: Esc on its toolbar hid the whole
+        // browser, where people expect it to leave a button (UX lab, item 23).
         const busy =
           el?.tagName === 'INPUT' ||
+          !!el?.closest?.('[data-browser-panel]') ||
           document.querySelector('[data-call-overlay], [role="dialog"], [role="menu"], [role="listbox"]') !== null;
         if (!busy) void closeSidePanel();
         return;

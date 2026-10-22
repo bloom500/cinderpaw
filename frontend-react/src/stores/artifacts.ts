@@ -2,8 +2,10 @@ import { create } from 'zustand';
 import { tauri } from '@/lib/tauri';
 import { useNotifications } from '@/stores/notifications';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
+import { open as openUrl } from '@tauri-apps/plugin-shell';
 import type { PdfEdit } from '@/lib/pdfEdits';
 import type { PdfFieldRow } from '@/components/artifacts/PdfEditor';
+import { OUT_MS, chunkRun, editRuns, liveUntil, streamRun, type Run } from '@/lib/emberLetters';
 
 /**
  * The workspace: everything the agent made that outlived its conversation.
@@ -48,6 +50,56 @@ export interface OpenArtifact {
   /** The version being shown, which is not always the newest one. */
   showing: number;
   versions: ArtifactVersionRow[];
+  /** Letters still arriving or leaving (live writing, see emberLetters.ts). */
+  live?: LiveArtifact;
+}
+
+/**
+ * A document while Cinderpaw writes or edits it. A draft is an `open` whose row
+ * has version 0 and the draft's key as its id, so the viewer shows it like any
+ * other document and the saved one can take its place without a jump.
+ */
+export interface LiveArtifact {
+  /** Which offsets arrived when: they animate in. */
+  runs: Run[];
+  /** An edit's old text, shown with its removed words going out until `until`. */
+  out?: { content: string; ranges: Array<[number, number]>; until: number };
+  /** Set while the model is still writing this draft. */
+  writing?: { turn: string; sessionId: string };
+  /** When the last piece of the writing arrived: the next one is paced over the gap. */
+  came?: number;
+  /** Why a draft was never saved, in a sentence for the person. */
+  stopped?: string;
+  /** A part Cinderpaw is writing over `base` in place of its placeholder:
+   *  `content` is `base` with `findLen` letters at `at` swapped for `replace`. */
+  edit?: LiveEdit;
+}
+
+export interface LiveEdit {
+  key: string;
+  base: string;
+  at: number;
+  findLen: number;
+  replace: string;
+}
+
+/** The document with the part written so far in place of what it replaces. */
+function spliceEdit(e: LiveEdit): string {
+  return e.base.slice(0, e.at) + e.replace + e.base.slice(e.at + e.findLen);
+}
+
+/** One `artifact_draft` event, plus whether its chat is the one on screen. */
+export interface DraftEvent {
+  id: string;
+  sessionId: string;
+  draft: string;
+  kind?: string;
+  title?: string;
+  append: string;
+  /** An edit of this artifact, writing `append` in place of `find`. */
+  editOf?: string;
+  find?: string;
+  onScreen: boolean;
 }
 
 type Pending =
@@ -105,13 +157,17 @@ interface ArtifactsStore {
   /** Set after an export, so the panel can say where the file went. */
   lastExport: { path: string; note: string } | null;
   /** After Send to Google Docs: the link, or what went wrong. */
-  google: { link?: string; error?: string; busy?: boolean } | null;
+  google: { link?: string; error?: string; note?: string; busy?: boolean; signingIn?: boolean; dest?: GoogleDest } | null;
+  /** Gives up waiting on a sign-in the person walked away from; the buttons work again at once. */
+  cancelGoogle: () => void;
+  /** Forgets the saved Google login, so the next send asks which account. */
+  signOutGoogle: () => Promise<void>;
   /**
    * Send the open artifact to the person's Google Drive: text and HTML become
    * a Google Doc, a PDF stays a PDF. First time, it logs them in through the
    * built-in browser and then finishes the send on its own.
    */
-  sendToGoogle: (target?: { title: string; kind: string; content: string }) => Promise<void>;
+  sendToGoogle: (target?: { title: string; kind: string; content: string }, dest?: GoogleDest) => Promise<void>;
   /** Non-null while the person is editing the open artifact. */
   editing: EditSession | null;
   /**
@@ -143,7 +199,7 @@ interface ArtifactsStore {
    * `as: 'pdf'` offers a PDF first (the chat card's "Download PDF"); `row` is
    * for a caller that knows the artifact when the list has not been loaded.
    */
-  exportArtifact: (id: string, opts?: { as?: 'pdf'; row?: { title: string; kind: string }; version?: number }) => Promise<void>;
+  exportArtifact: (id: string, opts?: { as?: 'pdf' | 'xlsx'; row?: { title: string; kind: string }; version?: number }) => Promise<void>;
   /** For good: rows and files. The panel confirms before calling it. */
   deleteArtifact: (id: string) => Promise<void>;
   renameArtifact: (id: string, title: string) => Promise<void>;
@@ -179,9 +235,33 @@ interface ArtifactsStore {
     versions?: ArtifactVersionRow[]; path?: string; note?: string; error?: string;
     conflict?: number; encoding?: 'base64'; fields?: PdfFieldRow[];
   }) => void;
+  /** A piece of a document Cinderpaw is writing (`artifact_draft`). */
+  onDraft: (e: DraftEvent) => void;
+  /**
+   * The turn `turn` saved its document (`artifactId`), or ended without
+   * saving it (`reason`, a sentence for the person).
+   */
+  endDraft: (turn: string, outcome: { artifactId?: string; reason?: string }) => void;
 }
 
 const pending = new Map<string, Pending>();
+const requestTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const REQUEST_TIMEOUT_MS = 30_000;
+
+function clearRequestTimer(id: string): void {
+  clearTimeout(requestTimers.get(id));
+  requestTimers.delete(id);
+}
+
+/** A disconnected engine cannot answer any of its outstanding requests. */
+export function failArtifactRequests(reason: string): void {
+  for (const id of [...pending.keys()]) {
+    useArtifacts.getState().onResult({
+      id, ok: false,
+      error: `${reason} If you made a change, reopen the document to check it before trying again.`,
+    });
+  }
+}
 /** The artifact the viewer wants open, or null after `close()`. A reply for
  *  anything else is stale: `close()` used to leave an in-flight `get` free to
  *  reopen the document a moment later (Astra, 19 Sep 2026, P2). */
@@ -189,7 +269,11 @@ let wanted: string | null = null;
 /** A `versions` reply that landed before its `get` (a PDF's `get` waits for
  *  field parsing; `versions` does not). Kept until the document opens. */
 let earlyVersions: { id: string; versions: ArtifactVersionRow[] } | null = null;
+/** A draft the person went back from: its later pieces must not reopen it. */
+let dismissed: string | null = null;
 let seq = 0;
+/** Which Send to Google is current; Cancel moves it on, so a late answer is dropped. */
+let googleRun = 0;
 const nextId = () => `artifact-${Date.now()}-${++seq}`;
 
 async function send(
@@ -199,12 +283,19 @@ async function send(
 ): Promise<void> {
   const id = nextId();
   pending.set(id, p);
+  requestTimers.set(id, setTimeout(() => {
+    useArtifacts.getState().onResult({
+      id, ok: false,
+      error: 'The engine did not answer. If you made a change, reopen the document to confirm it before trying again.',
+    });
+  }, REQUEST_TIMEOUT_MS));
   try {
     await tauri.artifacts.op(id, action, opts);
   } catch (e) {
     // The command itself failed, so no reply is ever coming and the entry
     // would sit in the map forever holding the panel busy.
     pending.delete(id);
+    clearRequestTimer(id);
     throw e;
   }
 }
@@ -222,29 +313,77 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   conflict: null,
   review: null,
   google: null,
+  cancelGoogle: () => {
+    googleRun++;
+    set({ google: null });
+  },
+  signOutGoogle: async () => {
+    googleRun++;
+    try {
+      await tauri.google.disconnect();
+      set({ google: { note: 'Signed out of Google. The next send asks which account to use.' } });
+    } catch (e) {
+      set({ google: { error: String(e) } });
+    }
+  },
   focus: null,
   clearFocus: () => set({ focus: null }),
 
-  sendToGoogle: async (target) => {
+  sendToGoogle: async (target, dest = 'docs') => {
     const open = get().open;
     const doc = target
       ? { row: { title: target.title, kind: target.kind }, content: target.content, encoding: undefined }
       : open;
     if (!doc) return;
-    const plan = googlePlan(shownKind(doc.row.kind, doc.content));
+    const plan = googlePlan(shownKind(doc.row.kind, doc.content), dest, doc.content, doc.row.title);
     if (!plan) return;
-    set({ google: { busy: true } });
+    // A sign-in waits up to 5 minutes for the browser. Cancel starts a new run,
+    // and whatever the old one brings back later is dropped, not shown.
+    const run = ++googleRun;
+    const show = (g: ArtifactsStore['google']) => {
+      if (run === googleRun) set({ google: g });
+    };
+    show({ busy: true, dest });
+    // Opens Google's consent page in the person's own browser and resolves
+    // once they have approved; the artifact stays open underneath.
+    const signIn = async () => {
+      show({ busy: true, signingIn: true, dest });
+      await tauri.google.connect();
+      if (run !== googleRun) throw new Error('cancelled');
+      show({ busy: true, dest });
+    };
     try {
+      let signedIn = false;
       if (!(await tauri.google.status())) {
-        // Opens Google's consent page in the Browser panel and resolves once
-        // the person has approved; the artifact stays open underneath.
-        await tauri.google.connect();
+        await signIn();
+        signedIn = true;
       }
-      const name = `${fileName(doc.row.title)}${plan.convert ? '' : extensionFor(doc.row.kind)}`;
-      const link = await tauri.google.upload(name, plan.mime, doc.content, doc.encoding === 'base64' ? 'base64' : null, plan.convert);
-      set({ google: { link } });
+      const name = plan.convert ? fileName(doc.row.title) : downloadName(doc.row.title, doc.row.kind);
+      const data = plan.content ?? doc.content;
+      const encoding = plan.content === undefined && doc.encoding === 'base64' ? 'base64' : null;
+      const upload = () => tauri.google.upload(name, plan.mime, data, encoding, plan.convert, dest === 'gmail');
+      let link: string;
+      try {
+        link = await upload();
+      } catch (e) {
+        // google.rs forgets a saved login Google stopped accepting. Sign in once
+        // more instead of failing the same way on every click (12 Oct).
+        if (signedIn || (await tauri.google.status()) !== false) throw e;
+        await signIn();
+        link = await upload();
+      }
+      // The file opens in the person's own browser, already signed in to Google.
+      const target = dest === 'gmail' ? gmailCompose(doc.row.title, link) : link;
+      // The file is in Google by now: a browser that will not open falls back
+      // to a new window, never to an error that says the send failed.
+      try {
+        await openUrl(target);
+      } catch {
+        window.open(target, '_blank', 'noopener,noreferrer');
+      }
+      show({ link, dest });
     } catch (e) {
-      set({ google: { error: String(e) } });
+      show({ error: String(e), dest });
     }
   },
 
@@ -305,19 +444,32 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     // The person picks where it goes, in the OS dialog, for every kind. Export
     // used to drop the file in the workspace root and print the path; a PDF
     // to sign usually wants to be on the desktop or in Downloads.
+    // A table leaves as a sheet unless asked otherwise: its own .json is a file
+    // nobody who asked for a table knows how to open (6 Oct, a CSV came out as a PDF).
+    const as = opts?.as ?? (row?.kind === 'table' ? 'xlsx' : undefined);
+    // Writing leaves as a PDF unless the person picks another type: "Save as"
+    // opened on MARKDOWN, with PDF and Word only inside the type list (UX lab,
+    // 19 Oct, item 24). Its own format stays in the list.
+    const prose = !as && !!row && PROSE.has(row.kind);
     let dest: string | undefined;
     try {
       const picked = await saveDialog({
-        defaultPath: row ? `${fileName(row.title)}${opts?.as === 'pdf' ? '.pdf' : extensionFor(row.kind)}` : undefined,
+        defaultPath: row ? downloadName(row.title, row.kind, as ?? (prose ? 'pdf' : undefined)) : undefined,
         // The native format first, then what the sidecar can convert a text
         // artifact into: it picks the conversion from the extension of the
         // path chosen here (export.ts `exportAs`), so a name ending in .docx
         // is a Word file, not the source bytes renamed.
         filters: row
-          ? opts?.as === 'pdf' && CONVERTIBLE.has(row.kind)
-            ? [{ name: 'PDF', extensions: ['pdf'] }]
+          ? as && CONVERTIBLE.has(row.kind)
+            ? [{ name: as === 'pdf' ? 'PDF' : 'Excel', extensions: [as] }]
+            : prose
+              ? [
+                  { name: 'PDF', extensions: ['pdf'] },
+                  { name: 'Word', extensions: ['docx'] },
+                  { name: KIND_NAMES[row.kind] ?? row.kind, extensions: [extensionFor(row.kind, row.title).slice(1)] },
+                ]
             : [
-                { name: row.kind.toUpperCase(), extensions: [extensionFor(row.kind).slice(1)] },
+                { name: KIND_NAMES[row.kind] ?? row.kind, extensions: [extensionFor(row.kind, row.title).slice(1)] },
                 ...(CONVERTIBLE.has(row.kind)
                   ? [
                       { name: 'PDF', extensions: ['pdf'] },
@@ -474,9 +626,11 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   },
 
   close: () => {
+    const open = get().open;
+    if (open?.live?.writing) dismissed = open.row.id;
     wanted = null;
     earlyVersions = null;
-    set({ open: null, lastExport: null, error: null, editing: null, conflict: null, review: null, google: null });
+    set({ open: null, busy: false, lastExport: null, error: null, editing: null, conflict: null, review: null, google: null });
   },
 
   onEvent: (e) => {
@@ -528,6 +682,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     // the current panel is showing.
     if (!p) return;
     pending.delete(e.id);
+    clearRequestTimer(e.id);
 
     if (p.kind === 'peek') {
       const row = e.items?.[0];
@@ -535,6 +690,10 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
       else p.reject(e.error ?? 'That artifact came back empty.');
       return;
     }
+
+    // A stale success or failure must not stop another document's spinner.
+    if ((p.kind === 'open' || p.kind === 'versions') && wanted !== p.id) return;
+    if (p.kind === 'list' && p.archived !== get().showingArchived) return;
 
     if (!e.ok) {
       // A refused save is a question for the person, not an error: the panel
@@ -544,6 +703,12 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
         return;
       }
       set({ busy: false, loaded: true, error: e.error ?? 'Something went wrong.' });
+      // A draft waiting for its saved version would otherwise say "Saving"
+      // for good.
+      const open = get().open;
+      if (p.kind === 'open' && open?.row.version === 0 && open.live) {
+        set({ open: { ...open, live: { ...open.live, stopped: e.error ?? 'The saved document could not be opened.' } } });
+      }
       return;
     }
 
@@ -578,6 +743,21 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
         const prev = get().open;
         const early = earlyVersions?.id === row.id ? earlyVersions.versions : null;
         earlyVersions = null;
+        // The save of the version a part is still being written over (the part
+        // before it): the part keeps going on top of it, nothing is replaced.
+        // Placed again by its placeholder: when the saved text is not letter for
+        // letter what was shown, keeping the old base threw the part away and
+        // started it over from the newest piece (20 Oct).
+        const writing = p.version === undefined && prev?.row.id === row.id && prev.live?.writing ? prev.live.edit : undefined;
+        const at = writing ? e.content.indexOf(writing.base.slice(writing.at, writing.at + writing.findLen)) : -1;
+        if (writing && prev?.live && at >= 0) {
+          const edit = { ...writing, base: e.content, at };
+          const shift = at - writing.at;
+          const runs = prev.live.runs.map((r) => (r.from >= writing.at ? { ...r, from: r.from + shift, to: r.to + shift } : r));
+          set({ busy: false, error: null, open: { ...prev, row, showing: row.version, content: spliceEdit(edit), live: { ...prev.live, runs, edit } } });
+          return;
+        }
+        const live = p.version === undefined && prev ? liveAfter(prev, row, e.content, e.encoding, !!get().editing) : undefined;
         set({
           busy: false,
           error: null,
@@ -591,6 +771,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
             // second. Keeping what we already have, or what arrived early,
             // means neither order loses.
             versions: prev && prev.row.id === row.id ? prev.versions : (early ?? []),
+            ...(live ? { live } : {}),
           },
         });
         return;
@@ -658,7 +839,146 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
       }
     }
   },
+
+  onDraft: (e) => {
+    const key = `${e.id}/${e.draft}`;
+    // Only the chat on screen, never over the person's own typing, and never
+    // back after they went back to the list from it.
+    if (!e.onScreen || get().editing || dismissed === key) return;
+    const now = Date.now();
+    const open = get().open;
+    if (e.editOf !== undefined) {
+      // A part written over its placeholder, in place, letter by letter (the
+      // Claude Docs way). Only on the newest saved version of that document,
+      // on screen; otherwise its words come in when the saved version arrives.
+      if (!open || open.row.id !== e.editOf || open.showing !== open.row.version) return;
+      if (open.live?.writing && !open.live.edit) return;
+      const cur = open.live?.edit?.key === key ? open.live.edit : null;
+      if (!cur) {
+        const at = e.find ? open.content.indexOf(e.find) : -1;
+        if (at < 0) return;
+        // The placeholder goes out first, then the part comes in where it was.
+        const until = now + OUT_MS;
+        const edit: LiveEdit = { key, base: open.content, at, findLen: e.find!.length, replace: e.append };
+        set({
+          open: {
+            ...open,
+            content: spliceEdit(edit),
+            live: {
+              runs: e.append ? [chunkRun(at, e.append, until)] : [],
+              out: { content: open.content, ranges: [[at, at + edit.findLen]], until },
+              writing: { turn: e.id, sessionId: e.sessionId },
+              came: now,
+              edit,
+            },
+          },
+        });
+        return;
+      }
+      const live = open.live!;
+      const runs = live.runs.filter((r) => liveUntil([r]) + 100 > now);
+      const last = live.runs[live.runs.length - 1];
+      if (e.append) runs.push(streamRun(last, cur.at + cur.replace.length, e.append, Math.max(now, live.out?.until ?? 0), now - (live.came ?? 0)));
+      const edit = { ...cur, replace: cur.replace + e.append };
+      set({ open: { ...open, content: spliceEdit(edit), live: { ...live, runs, edit, came: now } } });
+      return;
+    }
+    if (open?.row.id === key && open.live) {
+      const runs = open.live.runs.filter((r) => liveUntil([r]) + 100 > now);
+      const last = open.live.runs[open.live.runs.length - 1];
+      if (e.append) runs.push(streamRun(last, open.content.length, e.append, now, now - (open.live.came ?? 0)));
+      set({
+        open: {
+          ...open,
+          // Same row object unless it changed: the panel's chrome watches the
+          // row, and a new one per chunk redrew it for every few words (R8).
+          row: (e.kind ?? open.row.kind) === open.row.kind && (e.title ?? open.row.title) === open.row.title
+            ? open.row
+            : { ...open.row, kind: e.kind ?? open.row.kind, title: e.title ?? open.row.title },
+          content: open.content + e.append,
+          live: { ...open.live, runs, came: now },
+        },
+      });
+      return;
+    }
+    // A new document: whatever the panel was waiting to open is no longer wanted.
+    wanted = null;
+    earlyVersions = null;
+    set({
+      panelOpen: true,
+      panelTab: 'artifacts',
+      busy: false,
+      error: null,
+      lastExport: null,
+      review: null,
+      focus: null,
+      open: {
+        row: { id: key, kind: e.kind ?? 'markdown', title: e.title ?? '', version: 0, bytes: 0, updatedAt: now, modifiedBy: 'agent' },
+        content: e.append,
+        showing: 0,
+        versions: [],
+        live: { runs: e.append ? [chunkRun(0, e.append, now)] : [], writing: { turn: e.id, sessionId: e.sessionId }, came: now },
+      },
+    });
+  },
+
+  endDraft: (turn, outcome) => {
+    const open = get().open;
+    if (!open?.live?.writing || open.live.writing.turn !== turn) return;
+    if (open.live.edit) {
+      // A part that was saved stays (its saved version follows); one that was
+      // not goes back to the saved document, placeholder and all.
+      set({
+        open: outcome.artifactId
+          ? { ...open, live: { ...open.live, writing: undefined } }
+          : { ...open, content: open.live.edit.base, live: undefined },
+      });
+      return;
+    }
+    // Writing is over either way. Saved: the draft stays on screen until the
+    // saved version arrives to take its place, so there is never a blank.
+    set({
+      open: {
+        ...open,
+        live: { ...open.live, writing: undefined, ...(outcome.artifactId ? {} : { stopped: outcome.reason }) },
+      },
+    });
+    if (outcome.artifactId) void get().openArtifact(outcome.artifactId);
+  },
 }));
+
+/** Kinds shown as text, where letters can come and go. The rest are frames or editors. */
+const TEXT_SHOWN = new Set(['markdown', 'code', 'json', 'table', 'file']);
+
+/**
+ * What still moves once a document arrives in place of the one on screen.
+ * From a draft: the letters still arriving keep going (the same text, the same
+ * runs), and a draft that showed nothing gets the whole text at once. From an
+ * edit Cinderpaw made to the newest version on screen: its removed words go
+ * out, then the new ones come in at the same spot.
+ */
+function liveAfter(prev: OpenArtifact, row: ArtifactRow, content: string, encoding: 'base64' | undefined, editing: boolean): LiveArtifact | undefined {
+  if (encoding === 'base64' || prev.encoding === 'base64') return undefined;
+  if (prev.row.version === 0 && prev.live && !prev.live.stopped) {
+    if (prev.content === content) return { runs: prev.live.runs };
+    if (prev.content === '') return content ? { runs: [chunkRun(0, content, Date.now())] } : undefined;
+    // Saved with a little more than was written: the date and name the engine
+    // puts under the title come in like the rest of the writing.
+    const diff = editRuns(prev.content, content, Date.now());
+    return diff && diff.out.length === 0 ? { runs: diff.runs } : undefined;
+  }
+  // A part already written in place: the saved version is what is on screen.
+  if (prev.live?.edit && prev.row.id === row.id && prev.content === content) return { runs: prev.live.runs };
+  const isEdit = prev.row.id === row.id && row.version > prev.row.version && prev.showing === prev.row.version;
+  if (!isEdit || editing || !TEXT_SHOWN.has(shownKind(row.kind, content))) return undefined;
+  const diff = editRuns(prev.content, content, 0);
+  if (!diff) return undefined;
+  const start = Date.now() + (diff.out.length ? OUT_MS : 0);
+  return {
+    runs: diff.runs.map((r) => ({ ...r, at: start })),
+    ...(diff.out.length ? { out: { content: prev.content, ranges: diff.out, until: start } } : {}),
+  };
+}
 
 /**
  * The kind to show an artifact as. A 'document' is HTML, but models write
@@ -672,24 +992,96 @@ export function shownKind(kind: string, content: string): string {
   return kind === 'document' && !html.test(content) ? 'markdown' : kind;
 }
 
-/** What each kind becomes on Drive; null for kinds the button does not offer. */
-export function googlePlan(kind: string): { mime: string; convert: boolean } | null {
-  switch (kind) {
-    case 'document': case 'html': case 'app': return { mime: 'text/html', convert: true };
-    case 'markdown': case 'code': case 'json': case 'table': return { mime: 'text/plain', convert: true };
-    case 'pdf': return { mime: 'application/pdf', convert: false };
-    // A Word file's bytes are not in the panel (only its preview), and an
-    // image is not a document.
-    default: return null;
+/** The four places the Google button sends an artifact to. */
+export type GoogleDest = 'drive' | 'docs' | 'sheets' | 'gmail';
+export const GOOGLE_DESTS: GoogleDest[] = ['drive', 'docs', 'sheets', 'gmail'];
+
+/** The file as it is, for Drive and for the Gmail link. A Word file's bytes
+ *  are not in the panel (only its preview), and an image is not a document. */
+const FILE_MIME: Record<string, string> = {
+  document: 'text/html', html: 'text/html', app: 'text/html', markdown: 'text/markdown',
+  code: 'text/plain', json: 'application/json', table: 'application/json', pdf: 'application/pdf',
+};
+
+/**
+ * How one kind goes to one Google place, or null when it cannot: Docs takes
+ * text and HTML (a PDF would go through OCR and lose its layout), Sheets a
+ * table, turned into CSV here because that is what Google imports as a Sheet,
+ * or a CSV the agent wrote as a file, which is already that.
+ */
+export function googlePlan(kind: string, dest: GoogleDest = 'docs', content = '', title = ''): { mime: string; convert: boolean; content?: string } | null {
+  const csvFile = kind === 'file' && /\.csv$/i.test(title.trim());
+  switch (dest) {
+    case 'drive':
+    case 'gmail':
+      if (csvFile) return { mime: 'text/csv', convert: false };
+      return FILE_MIME[kind] ? { mime: FILE_MIME[kind]!, convert: false } : null;
+    case 'docs':
+      if (kind === 'document' || kind === 'html' || kind === 'app') return { mime: 'text/html', convert: true };
+      if (kind === 'markdown' || kind === 'code' || kind === 'json' || kind === 'table') return { mime: 'text/plain', convert: true };
+      return null;
+    case 'sheets': {
+      const csv = kind === 'table' ? tableCsv(content) : csvFile && content.trim() ? content : null;
+      return csv ? { mime: 'text/csv', convert: true, content: csv } : null;
+    }
   }
+}
+
+/** A table artifact (`{columns, rows}`, rows of arrays, or rows of objects:
+ *  the shapes the sidecar's `tableRows` reads) as CSV, or null. */
+export function tableCsv(content: string): string | null {
+  let parsed: unknown;
+  try { parsed = JSON.parse(content); } catch { return null; }
+  let header: string[] = [];
+  let rows: unknown[][] = [];
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const o = parsed as { columns?: unknown; rows?: unknown };
+    if (!Array.isArray(o.columns) || !Array.isArray(o.rows)) return null;
+    header = o.columns.map(String);
+    rows = o.rows.map((r) => (Array.isArray(r) ? r : Object.values(r as object)));
+  } else if (Array.isArray(parsed) && parsed.length > 0) {
+    if (Array.isArray(parsed[0])) [header, rows] = [(parsed[0] as unknown[]).map(String), parsed.slice(1) as unknown[][]];
+    else if (parsed[0] && typeof parsed[0] === 'object') {
+      header = Array.from(new Set(parsed.flatMap((r) => Object.keys(r as object))));
+      rows = parsed.map((r) => header.map((k) => (r as Record<string, unknown>)[k]));
+    } else return null;
+  } else return null;
+  const cell = (v: unknown) => {
+    const s = v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return [header, ...rows].map((r) => r.map(cell).join(',')).join('\r\n');
+}
+
+/** A new Gmail message with the link in it; the person adds who it goes to. */
+function gmailCompose(title: string, link: string): string {
+  const body = `${title}\n${link}\n\n(Anyone with this link can view it.)`;
+  return `https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
 }
 
 /** The text kinds the sidecar can turn into a PDF, a Word or an Excel file. */
 const CONVERTIBLE = new Set(['document', 'markdown', 'app', 'table', 'code', 'json', 'html', 'board']);
+/** Kinds that are writing, which most people send on as a PDF. */
+const PROSE = new Set(['document', 'markdown']);
+/** A kind's name in the save dialog's type list ("MARKDOWN" read as a code word). */
+const KIND_NAMES: Record<string, string> = {
+  document: 'Web page', html: 'Web page', app: 'Web page', markdown: 'Markdown text', code: 'Code',
+  json: 'JSON data', table: 'Data', board: 'Board', file: 'File', image: 'Image',
+};
 
-/** Mirrors `EXT` in the sidecar's artifacts/store.ts. */
-function extensionFor(kind: string): string {
+/** Mirrors `ArtifactStore.extensionOf` in the sidecar's artifacts/store.ts: a
+ *  file or code artifact keeps the type in its title (leads.csv), not .bin. */
+function extensionFor(kind: string, title = ''): string {
+  const own = (kind === 'file' || kind === 'code') && /\.(?=[a-z0-9]*[a-z])[a-z0-9]{1,8}$/i.exec(title.trim());
+  if (own) return own[0].toLowerCase();
   return ({ document: '.html', markdown: '.md', app: '.html', table: '.json', code: '.txt', json: '.json', html: '.html', pdf: '.pdf', docx: '.docx', image: '.png', board: '.board.json' } as Record<string, string>)[kind] ?? '.bin';
+}
+
+/** What the save dialog suggests: the title, plus the type it leaves as unless it already ends in it. */
+function downloadName(title: string, kind: string, as?: string): string {
+  const base = fileName(title);
+  const ext = as ? `.${as}` : extensionFor(kind, title);
+  return base.toLowerCase().endsWith(ext) ? base : `${base}${ext}`;
 }
 
 /** A title as a filename, same rules as the sidecar's safeFileName. */
@@ -740,8 +1132,10 @@ export async function peekArtifact(id: string, version: number): Promise<{ row: 
 
 /** Test seam: forget every in-flight request between cases. */
 export function resetArtifactRequests(): void {
+  for (const id of requestTimers.keys()) clearRequestTimer(id);
   pending.clear();
   peeked.clear();
   wanted = null;
   earlyVersions = null;
+  dismissed = null;
 }

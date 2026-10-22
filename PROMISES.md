@@ -26,13 +26,16 @@ can also call providers; requests are not limited to pressing Send. The
 September 6 audit found recipient-boundary gaps in fallback and redirect paths.
 An exclusive chosen-provider guarantee is not yet established across all paths.
 
-**4. Cinderpaw reports on itself exactly once, and shows you that first.**
+**4. Cinderpaw reports on itself only when you say yes, and shows you what first.**
 This promise used to read "no automatic analytics or crash-report uploads".
 That is no longer true, and pretending otherwise would be the worse thing to
 ship. On the last screen of first-run setup there is a ticked box explaining
 that Cinderpaw will send, once, its version number and your operating system —
 two short strings, with no identifier, no timestamp of yours, nothing about
-you and nothing about what you do here. Untick it and nothing is sent at all.
+you and nothing about what you do here. Below it you can press one button for
+where you heard about Cinderpaw (Reddit, YouTube, a friend...); if you press
+one, that one word goes with the same message, and if you press none, nothing
+is added. Untick the box and nothing is sent at all.
 Either way the file `~/.cinderpaw/.install-counted` is written with exactly
 what happened, so the claim on this page is checkable on your own disk.
 
@@ -41,7 +44,25 @@ v2026.08.11 read 519 downloads, of which 449 were the updater fetching
 `latest.json` from machines that already had Cinderpaw. We would rather count
 honestly once than quote a number we know is wrong.
 
-Nothing else reports on its own. Bug reports are sent only when you write one
+The second thing is a daily usage summary, and it is off unless you turn it on
+(a box on the last setup screen, unticked, or a one-time question on the home
+screen, or Settings, Privacy). If you say yes, once a day Cinderpaw sends its
+version number and your operating system. Then, for each model: which service
+ran it, how many tasks it did, how they ended, what kind of error stopped a
+task, how long they took in ranges, tokens and how many of them came from the
+cache, cost, tool calls, retries, how often it switched to a backup model,
+whether memory recall and self-improvement were on, and your thumbs up and down
+counts. A model on your own computer or your own server is sent as "local" or
+"custom", never by its address, and its name is sent only if it is a well-known
+model. Never your messages, file names, links, keys or exact times. It carries
+a random code that changes every month, so we can count installations without
+following anyone. Every summary is written to
+`~/.cinderpaw/telemetry-sent.jsonl` before it leaves, and Settings, Privacy
+shows that file. Days before you said yes are never sent. Turn it off and
+sending stops immediately and the code is deleted. The totals are public on the
+Leaderboard tab in Models and at cinderpaw.dev/leaderboard.
+
+Bug reports are sent only when you write one
 and press the button, and they show you the log lines first. Local logs and
 memory stay local. Public-journal publication requires explicit configuration
 and invocation. Online features make their own requests, as they always have,
@@ -64,8 +85,9 @@ usage; stopping the display is not proof that every remote request stopped.
 Remove the app and your settings, memory, keys and downloaded models stay
 where they are, so putting it back later picks up where you left off. When you
 want the profile directory removed, `cinderpaw uninstall --purge` removes it.
-It does not clear credentials from the OS key store or promise secure erasure
-of backups or previously deleted disk data.
+After the one-command install it also removes the saved AI keys from the OS
+key store; after any other install those stay until you remove them. It does
+not promise secure erasure of backups or previously deleted disk data.
 
 **8. Automatic update checks can be disabled.**
 The desktop's **Settings → General** switch controls its startup update check.
@@ -115,6 +137,8 @@ This half of the page matters as much as the other half.
 - **Read the log.** It records audited operations; write failures can leave gaps.
 - **Check what the install counter did**: `cat ~/.cinderpaw/.install-counted`.
   It says `declined`, or it says `sent` with the two values that were sent.
+- **Check what the usage summary sent**: `cat ~/.cinderpaw/telemetry-sent.jsonl`.
+  One line per day, exactly as it left. No file means nothing was ever sent.
 
 ## If we break one
 

@@ -107,6 +107,14 @@ export function AboutTab() {
           Join the Discord →
         </a>
       </div>
+
+      <p className="text-xs text-text-muted">
+        Cubby&apos;s voice is made with{' '}
+        <a href="https://elevenlabs.io" target="_blank" rel="noreferrer" className="text-info hover:underline">
+          ElevenLabs
+        </a>
+        .
+      </p>
     </div>
   );
 }

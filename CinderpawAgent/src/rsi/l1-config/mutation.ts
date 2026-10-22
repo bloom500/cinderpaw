@@ -7,7 +7,7 @@
  * every operator is deterministic and unit-testable.
  */
 
-import { RETRIEVAL_STRATEGIES, appliedDimensions, type GenomeConfig } from "./genome.ts";
+import { EFFORT_LEVELS, RETRIEVAL_STRATEGIES, appliedDimensions, type GenomeConfig } from "./genome.ts";
 
 /** Uniform RNG over [0, 1). */
 export type Rng = () => number;
@@ -207,6 +207,15 @@ export function mutateConfig(parent: GenomeConfig, g: MutationGrammar): Mutation
         rng: g.rng,
       });
       break;
+    case "reasoningEffort": {
+      // Index 0 is the provider default; back there means no key at all, so
+      // the child's live projection is the shipped agent's exactly.
+      const levels = [undefined, ...EFFORT_LEVELS];
+      const next = levels[resampleOther(levels.length, levels.indexOf(parent.reasoningEffort), g.rng)];
+      if (next === undefined) delete child.reasoningEffort;
+      else child.reasoningEffort = next;
+      break;
+    }
   }
 
   return { child, field, mutationType: "parametric" };

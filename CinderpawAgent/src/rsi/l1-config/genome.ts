@@ -11,6 +11,10 @@
 export const RETRIEVAL_STRATEGIES = ["episodic", "semantic", "graph", "hybrid"] as const;
 export type RetrievalStrategy = (typeof RETRIEVAL_STRATEGIES)[number];
 
+/** Reasoning effort a genome may ask for. Absent = the provider's default. */
+export const EFFORT_LEVELS = ["low", "medium", "high"] as const;
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
 export interface GenomeConfig {
   /** Index into the versioned prompt-template pool. */
   promptTemplateId: number;
@@ -25,6 +29,12 @@ export interface GenomeConfig {
   toolPreferenceWeights: number[];
   /** How many sub-tasks to spawn; {0,1,2,3}. */
   decompositionDepth: number;
+  /**
+   * How hard the model thinks before answering. Absent = the provider's
+   * default, i.e. the agent as shipped. Sent only where the API takes it
+   * (Claude models with an effort setting, OpenRouter, local servers).
+   */
+  reasoningEffort?: EffortLevel;
 }
 
 /**
@@ -52,6 +62,10 @@ export const LIVE_REACH: Readonly<Record<keyof GenomeConfig, "applied" | "droppe
   contextWindowUsage: "dropped",
   toolPreferenceWeights: "dropped",
   decompositionDepth: "dropped",
+  // 19 Oct 2026: current Claude models refuse temperature, so on Claude only
+  // the prompt style reached the agent. Effort they do take, and the L1 eval
+  // feels it on a one-shot answer as much as the live agent does.
+  reasoningEffort: "applied",
 };
 
 /** Dimensions eval varies and scores, that the live agent then ignores. */

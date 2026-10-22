@@ -1,6 +1,6 @@
 {
   "name": "cinderpaw-agent",
-  "version": "2026.9.18",
+  "version": "2026.10.19",
   "description": "Cinderpaw Agent — proactive, portable AI agent with a native security sandbox",
   "type": "module",
   "module": "src/index.ts",
@@ -76,7 +76,7 @@
     "@pdf-lib/fontkit": "1.1.1",
     "docx": "9.7.1",
     "exceljs": "4.4.0",
-    "fflate": "0.8.2",
+    "fflate": "0.8.3",
     "pdf-lib": "1.17.1",
     "zca-js": "2.1.2"
   }

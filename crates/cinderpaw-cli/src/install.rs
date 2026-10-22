@@ -89,9 +89,14 @@ pub fn detect() -> Kind {
     // install.sh copies the binaries to ~/.local/bin, so the checkout is NOT on
     // the exe path — look where the installer puts it, and for the scripts/
     // bundle it drops next to the self-sources for exactly this case.
-    let checkout = home()
-        .map(|h| h.join("src").join("feral"))
-        .filter(|p| p.join(".git").exists());
+    // install.sh clones to ~/src/cinderpaw; an install from before the
+    // rename still has ~/src/feral.
+    let checkout = home().and_then(|h| {
+        ["cinderpaw", "feral"]
+            .into_iter()
+            .map(|name| h.join("src").join(name))
+            .find(|p| p.join(".git").exists())
+    });
     let script = [
         checkout.as_ref().map(|c| c.join("scripts").join("install.sh")),
         // Both share dirs: the bundle moved to `share/cinderpaw` with the
@@ -505,7 +510,7 @@ fn ensure_engine(restart: bool) -> Result<(), String> {
     ))
 }
 
-fn launch_browser(url: &str) -> bool {
+pub(crate) fn launch_browser(url: &str) -> bool {
     use std::process::{Command, Stdio};
     if std::env::var_os("CINDERPAW_NO_BROWSER").is_some() {
         return false;

@@ -5,25 +5,37 @@
 //! they carry across without interpretation. Everything with a schema waits for
 //! a later increment.
 //!
-//! All three land in `cinderpaw_dir()` because that is where the sidecar's
+//! They land in `cinderpaw_dir()` because that is where the sidecar's
 //! `soul-loader` looks for user overrides (`SOUL.md`, `IDENTITY.md`,
 //! `AGENTS.md`, per-file, bundled default when absent). An import into any
 //! other directory would copy files nothing reads.
+//!
+//! `AGENTS.md` is NOT imported (6 Oct 2026). The loader treats it as a full
+//! replacement for Cinderpaw's own working manual, and the source tool's copy is
+//! that tool's manual: OpenClaw's tells the agent to follow BOOTSTRAP.md, keep
+//! `memory/YYYY-MM-DD.md` files and watch HEARTBEAT.md, none of which Cinderpaw
+//! has. Imported, it made Cinderpaw follow another program's instructions.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use serde::Serialize;
 
 use super::{Found, Source};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PlanItem {
     pub what: String,
     pub target: String,
     pub note: Option<String>,
+    /// The file or folder copied to `target`. Apply copies exactly these
+    /// pairs, so it cannot drift from the plan that was shown.
+    #[serde(skip)]
+    pub source: PathBuf,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Plan {
     pub will_import: Vec<PlanItem>,
     pub not_imported: Vec<String>,
@@ -35,12 +47,8 @@ pub struct Plan {
 /// `(source-relative path, target file name)` for one source tool.
 fn persona_files(source: Source) -> &'static [(&'static str, &'static str)] {
     match source {
-        Source::OpenClaw => &[
-            ("workspace/SOUL.md", "SOUL.md"),
-            ("workspace/AGENTS.md", "AGENTS.md"),
-            ("workspace/IDENTITY.md", "IDENTITY.md"),
-        ],
-        Source::Hermes => &[("SOUL.md", "SOUL.md"), ("AGENTS.md", "AGENTS.md")],
+        Source::OpenClaw => &[("workspace/SOUL.md", "SOUL.md"), ("workspace/IDENTITY.md", "IDENTITY.md")],
+        Source::Hermes => &[("SOUL.md", "SOUL.md")],
     }
 }
 
@@ -50,10 +58,18 @@ fn persona_files(source: Source) -> &'static [(&'static str, &'static str)] {
 /// prevent.
 fn deferred_files(source: Source) -> &'static [(&'static str, &'static str)] {
     match source {
-        Source::OpenClaw => &[],
+        Source::OpenClaw => &[
+            ("workspace/AGENTS.md", "OpenClaw's working manual; Cinderpaw keeps its own"),
+            ("workspace/USER.md", "notes about you; tell Cinderpaw in chat, memory import comes later"),
+            ("workspace/MEMORY.md", "memory import comes later"),
+            ("workspace/TOOLS.md", "notes about OpenClaw's tools"),
+            ("workspace/HEARTBEAT.md", "OpenClaw's check-in schedule; use Cinderpaw's schedules instead"),
+            ("workspace/BOOTSTRAP.md", "OpenClaw's first-run script"),
+        ],
         Source::Hermes => &[
-            ("memories/MEMORY.md", "memory arrives in a later increment"),
-            ("memories/USER.md", "memory arrives in a later increment"),
+            ("AGENTS.md", "Hermes Agent's working manual; Cinderpaw keeps its own"),
+            ("memories/MEMORY.md", "memory import comes later"),
+            ("memories/USER.md", "notes about you; tell Cinderpaw in chat, memory import comes later"),
         ],
     }
 }
@@ -93,6 +109,7 @@ pub fn plan_persona_into(found: &Found, cinderpaw_dir: &Path, overwrite: bool) -
             what: (*name).to_string(),
             target: dst.display().to_string(),
             note: dst.exists().then(|| "overwrites existing".to_string()),
+            source: src,
         });
     }
 
@@ -105,35 +122,46 @@ pub fn plan_persona_into(found: &Found, cinderpaw_dir: &Path, overwrite: bool) -
     Plan { will_import, not_imported, conflicts, backup_dir }
 }
 
-pub fn apply_persona(found: &Found, plan: &Plan) -> Result<Vec<String>> {
-    apply_persona_into(found, plan, &crate::paths::cinderpaw_dir())
-}
-
-/// Copies exactly what `plan.will_import` listed and nothing else — the plan the
-/// user approved is the only input to the decision, so apply cannot drift from
-/// what was printed.
-pub fn apply_persona_into(found: &Found, plan: &Plan, cinderpaw_dir: &Path) -> Result<Vec<String>> {
+pub fn apply(plan: &Plan) -> Result<Vec<String>> {
     let mut done = Vec::new();
-    for (rel, name) in persona_files(found.source) {
-        if !plan.will_import.iter().any(|i| i.what == *name) {
-            continue;
-        }
-        let src = found.root.join(rel);
-        let dst = cinderpaw_dir.join(name);
+    for item in &plan.will_import {
+        let dst = Path::new(&item.target);
         if dst.exists() {
             std::fs::create_dir_all(&plan.backup_dir)
                 .with_context(|| format!("creating {}", plan.backup_dir.display()))?;
-            std::fs::copy(&dst, plan.backup_dir.join(name))
-                .with_context(|| format!("backing up {}", dst.display()))?;
+            let name = dst.file_name().unwrap_or_default();
+            copy_all(dst, &plan.backup_dir.join(name)).with_context(|| format!("backing up {}", dst.display()))?;
+            if dst.is_dir() {
+                std::fs::remove_dir_all(dst)?;
+            }
         }
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::copy(&src, &dst)
-            .with_context(|| format!("copying {} to {}", src.display(), dst.display()))?;
-        done.push((*name).to_string());
+        copy_all(&item.source, dst)
+            .with_context(|| format!("copying {} to {}", item.source.display(), dst.display()))?;
+        done.push(item.what.clone());
     }
     Ok(done)
+}
+
+/// A file, or a folder and everything in it. Symlinks are skipped: a link in
+/// someone's skills folder can point anywhere on their disk.
+fn copy_all(src: &Path, dst: &Path) -> Result<()> {
+    let meta = std::fs::symlink_metadata(src)?;
+    if meta.file_type().is_symlink() {
+        return Ok(());
+    }
+    if meta.is_file() {
+        std::fs::copy(src, dst)?;
+        return Ok(());
+    }
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        copy_all(&entry.path(), &dst.join(entry.file_name()))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -207,7 +235,7 @@ mod tests {
         fs::write(home.path().join("SOUL.md"), "# mine\n").unwrap();
 
         let plan = plan_persona_into(&found, home.path(), true);
-        let done = apply_persona_into(&found, &plan, home.path()).unwrap();
+        let done = apply(&plan).unwrap();
 
         assert_eq!(done.len(), 1);
         assert_eq!(fs::read_to_string(home.path().join("SOUL.md")).unwrap(), "# theirs\n");
@@ -225,7 +253,7 @@ mod tests {
         fs::write(home.path().join("SOUL.md"), "# mine\n").unwrap();
 
         let plan = plan_persona_into(&found, home.path(), false);
-        let done = apply_persona_into(&found, &plan, home.path()).unwrap();
+        let done = apply(&plan).unwrap();
 
         assert!(done.is_empty());
         assert_eq!(fs::read_to_string(home.path().join("SOUL.md")).unwrap(), "# mine\n");
@@ -239,10 +267,25 @@ mod tests {
         let before = fs::read_to_string(found.root.join("workspace").join("SOUL.md")).unwrap();
 
         let plan = plan_persona_into(&found, home.path(), true);
-        apply_persona_into(&found, &plan, home.path()).unwrap();
+        apply(&plan).unwrap();
 
         let after = fs::read_to_string(found.root.join("workspace").join("SOUL.md")).unwrap();
         assert_eq!(before, after);
+    }
+
+    /// The source tool's working manual would replace Cinderpaw's own (the
+    /// loader treats a user AGENTS.md as a full override), so it is reported,
+    /// never copied.
+    #[test]
+    fn the_other_tools_working_manual_is_reported_not_imported() {
+        let (_tmp, found) = openclaw_with_soul("# theirs\n");
+        fs::write(found.root.join("workspace").join("AGENTS.md"), "follow BOOTSTRAP.md\n").unwrap();
+        let home = tempdir().unwrap();
+        let plan = plan_persona_into(&found, home.path(), true);
+        assert!(plan.will_import.iter().all(|i| i.what != "AGENTS.md"));
+        assert!(plan.not_imported.iter().any(|l| l.starts_with("workspace/AGENTS.md — ")));
+        apply(&plan).unwrap();
+        assert!(!home.path().join("AGENTS.md").exists());
     }
 
     /// Hermes memory markdown is out of scope for this increment, so it has to

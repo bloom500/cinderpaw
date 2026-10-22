@@ -199,6 +199,15 @@ describe("RSI champion → live agent", () => {
       const opts = (lastBody as { options?: { temperature?: number } }).options;
       expect(opts?.temperature).toBe(0.42);
 
+      // Effort reaches the request too, so a provider that takes it (Claude,
+      // OpenRouter) gets it; this local one simply ignores the field.
+      let lastReq: { reasoningEffort?: string } | undefined;
+      const complete = router.complete.bind(router);
+      router.complete = (req) => ((lastReq = req), complete(req));
+      agent.applyChampionParams({ reasoningEffort: "low" });
+      await agent.handle("s2", "hi", "m2", () => {});
+      expect(lastReq?.reasoningEffort).toBe("low");
+
       db.close();
     } finally {
       globalThis.fetch = originalFetch;

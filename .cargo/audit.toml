@@ -40,6 +40,33 @@
 #  Delete this entry when: `rust_decimal` ships a release depending on
 #  rkyv >= 0.8.17 (then `cargo update -p rust_decimal` closes it), or
 #  `tauri-plugin-log` drops `byte-unit`. Recheck by 2026-10-01.
+#
+#  ── RUSTSEC-2026-0367 / -0368 / -0369 — zip 0.5.13 and zip 4.6.1 ───────────
+#
+#  Advisories: `ZipArchive::extract` keeps SUID/SGID bits, creates symlinks that
+#  point outside the destination, and applies Unix permissions through symlinks.
+#  Fixed in zip >= 9.0.0. All three live in `extract` and nowhere else.
+#
+#  Cinderpaw's own zip (livekit server download, toolchain download, attachment
+#  and extension reading) is on zip 9 since 2026-10-21, so these IDs no longer
+#  match our code. Two copies remain, and neither can be handed a hostile zip:
+#
+#    - zip 0.5.13: grapheme_to_phoneme -> ndarray-npy -> zip (kokoro feature).
+#      It reads `model.npz`, which is `include_bytes!` inside the crate, entry by
+#      entry with NpzReader. It never calls `extract` and never sees outside input.
+#    - zip 4.6.1: tauri-plugin-updater 2.10.1, Windows only. It calls `extract`
+#      on an update only after `verify_signature` against our minisign key, and
+#      our bundles are `createUpdaterArtifacts: true` (signed .exe/.msi, no zip).
+#      A hostile archive needs our signing key. SUID and Unix permissions do not
+#      exist on the Windows path at all.
+#
+#  The waiver is by advisory ID, so it would also hide a NEW zip < 9 that calls
+#  `extract` on outside input. Check `cargo tree -i zip@<v>` before adding one.
+#
+#  Delete these when: tauri-plugin-updater 2.x ships on zip >= 9 (then
+#  `cargo update -p tauri-plugin-updater`), AND grapheme_to_phoneme drops
+#  an ndarray-npy on zip >= 9, or the kokoro feature drops grapheme_to_phoneme.
+#  Recheck by 2026-12-01.
 
 [advisories]
-ignore = ["RUSTSEC-2026-0235"]
+ignore = ["RUSTSEC-2026-0235", "RUSTSEC-2026-0367", "RUSTSEC-2026-0368", "RUSTSEC-2026-0369"]

@@ -34,7 +34,7 @@ export interface ConfigEntry {
 export const CONFIG_SCHEMA: ConfigEntry[] = [
   // ---- Security group (read this first) ----------------------------------
   { name: "CINDERPAW_WHATSAPP_MODULE", type: "path", default: null,
-    description: "Absolute path to a trusted external whatsapp.js bundle built from @whiskeysockets/baileys@7.0.0-rc13. Loaded as executable code only when WhatsApp connects or pairs. Unset = WhatsApp unavailable; the default executable does not embed the WhatsApp library. See CinderpawAgent/README.md for installation.", security: true },
+    description: "Absolute path to a trusted external whatsapp.js bundle built from @whiskeysockets/baileys@7.0.0-rc13. Loaded as executable code only when WhatsApp connects or pairs. Unset = the copy downloaded into ~/.cinderpaw/whatsapp/ when the person asks to connect WhatsApp; the default executable does not embed the WhatsApp library (part of it is GPL-3.0). See CinderpawAgent/README.md.", security: true },
   { name: "CINDERPAW_DB_KEY", type: "string", default: null,
     description: "32-byte base64 key for at-rest encryption of sensitive DB columns. Anyone who can read this can read the DB.", security: true },
   { name: "CINDERPAW_WORKSPACE", type: "list", default: null,
@@ -157,6 +157,8 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
       + "raise CINDERPAW_BUDGET_CONVERSATION instead.", security: false },
   { name: "CINDERPAW_RSI_MAX_COST_USD", type: "string", default: null,
     description: "RSI background USD cap (float). Unset = local-only.", security: false },
+  { name: "CINDERPAW_AUTONOMOUS_PRICING_JSON", type: "string", default: null,
+    description: "JSON array of exact provider/model/baseUrl price records for autonomous cloud inference, with inputPerMillionUsd/outputPerMillionUsd and optional cacheReadPerMillionUsd/cacheWritePerMillionUsd. Unknown or malformed routes fail closed.", security: false },
   { name: "CINDERPAW_CLOUD_TRANSCRIPT_BUDGET", type: "int", default: 200_000,
     description: "Cloud-specific transcript-size budget (AgentLoop.CLOUD_TRANSCRIPT_BUDGET fallback).", security: false },
 

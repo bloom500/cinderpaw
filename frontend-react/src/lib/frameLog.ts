@@ -36,3 +36,67 @@ export function startFrameLog(): void {
     }
   }).observe({ type: 'long-animation-frame', buffered: false });
 }
+
+// The log above is for incidents: 150 ms frames, one line per 2 s. It cannot
+// say whether a gesture felt smooth, where 20-100 ms frames are what people
+// notice (audit R10, 20 Oct). This meter is for the UX lab: inert until a
+// driver calls `window.__cinderpawFrames.start()` over the debug port, then it
+// keeps every frame interval in memory until `stop()` returns the summary.
+// Nothing is written or sent anywhere.
+export interface FrameStats {
+  frames: number;
+  p50: number;
+  p95: number;
+  longest: number;
+  /** Share of intervals at or under one 60 Hz frame (16.7 ms). */
+  smooth: number;
+  /** Long animation frames of 50 ms or more (WebView2 only; 0 elsewhere). */
+  blocked50: number;
+}
+
+export function frameStats(intervals: number[], blocked50 = 0): FrameStats {
+  const sorted = [...intervals].sort((a, b) => a - b);
+  const at = (q: number) => sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]! : 0;
+  const round = (n: number) => Math.round(n * 10) / 10;
+  return {
+    frames: sorted.length,
+    p50: round(at(0.5)),
+    p95: round(at(0.95)),
+    longest: round(sorted[sorted.length - 1] ?? 0),
+    smooth: sorted.length ? round((sorted.filter((d) => d <= 16.7).length / sorted.length) * 100) : 0,
+    blocked50,
+  };
+}
+
+interface MeterRun { intervals: number[]; blocked: number; raf: number; obs?: PerformanceObserver }
+
+export function installFrameMeter(): void {
+  let run: MeterRun | null = null;
+  const start = () => {
+    if (run) return;
+    const r: MeterRun = { intervals: [], blocked: 0, raf: 0 };
+    let prev = performance.now();
+    const tick = (now: number) => {
+      r.intervals.push(now - prev);
+      prev = now;
+      r.raf = requestAnimationFrame(tick);
+    };
+    r.raf = requestAnimationFrame((now) => { prev = now; r.raf = requestAnimationFrame(tick); });
+    if (PerformanceObserver.supportedEntryTypes?.includes('long-animation-frame')) {
+      r.obs = new PerformanceObserver((list) => {
+        for (const e of list.getEntries()) if (e.duration >= 50) r.blocked++;
+      });
+      r.obs.observe({ type: 'long-animation-frame', buffered: false });
+    }
+    run = r;
+  };
+  const stop = (): FrameStats | null => {
+    if (!run) return null;
+    cancelAnimationFrame(run.raf);
+    run.obs?.disconnect();
+    const stats = frameStats(run.intervals, run.blocked);
+    run = null;
+    return stats;
+  };
+  (window as unknown as { __cinderpawFrames: unknown }).__cinderpawFrames = { start, stop };
+}

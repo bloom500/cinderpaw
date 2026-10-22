@@ -77,9 +77,9 @@ export interface GovernanceApprovals {
   l2LoraPromote: boolean;
   /** Always true in v1 (L4 spec §6) — the loader forces it. */
   l4ModulePromote: boolean;
-  /** Read by nobody today: `governanceCheck("l6_evolve")` has no caller, and
-   *  L6 runs only when a human runs `cinderpaw meta evolve`. Wire it before
-   *  anything schedules L6 (see `docs/brsi-spec.md` §5). */
+  /** Read by `MetaEvolution.evolve()`: true means a call must name the
+   *  person who started it. `cinderpaw meta evolve` does (dispatch.ts
+   *  passes "operator"); anything scheduled does not, so it is refused. */
   l6Evolve: boolean;
 }
 
@@ -151,8 +151,8 @@ export function builtinFailClosedPolicy(now: number = Date.now()): GovernancePol
 
 /** The genesis policy a FRESH install activates (spec §2.1 example):
  *  codifies the pre-L5 hardcoded behavior — same gates, same walls,
- *  nothing frozen, L6 autonomous. Activating it changes nothing until
- *  a later policy tightens something. */
+ *  nothing frozen — with one tightening: L6 evolves only when a person
+ *  starts it (spec S0.2). Installs that already have a policy keep theirs. */
 export function defaultGenesisPolicy(now: number = Date.now()): GovernancePolicy {
   return {
     ...builtinFailClosedPolicy(now),
@@ -166,7 +166,8 @@ export function defaultGenesisPolicy(now: number = Date.now()): GovernancePolicy
       l3CodePatchApply: true,
       l2LoraPromote: true,
       l4ModulePromote: true,
-      l6Evolve: false,
+      // A fresh install never lets L6 evolve itself unasked (spec S0.2).
+      l6Evolve: true,
     },
   };
 }

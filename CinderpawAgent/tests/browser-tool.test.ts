@@ -86,3 +86,132 @@ describe("a download during a click", () => {
     expect(res.content.startsWith("Downloaded: cerere.pdf")).toBe(true);
   });
 });
+
+describe("publishing on a social network waits for the person", () => {
+  const xPage = { ok: true, url: "https://x.com/compose/post", title: "X", elements: [
+    { ref: "1", tag: "a", name: "Home" },
+    { ref: "2", tag: "button", name: "Post" },
+  ] };
+  function social(answer?: string) {
+    const asked: string[] = [];
+    const calls: string[] = [];
+    const ctx = {
+      sessionId: "s1",
+      askUser: answer === undefined ? undefined : {
+        ask: async (qs: Array<{ question: string; forceEscalate?: boolean }>) => {
+          asked.push(`${qs[0].forceEscalate}:${qs[0].question}`);
+          return [{ selected: [answer] }];
+        },
+      },
+      desktopControl: {
+        request: async (action: string) => { calls.push(action); return action === "browser.snapshot" ? xPage : { ok: true, url: "https://x.com/" }; },
+      },
+    } as never;
+    return { tool: createBrowserTool(), ctx, asked, calls };
+  }
+
+  test("nobody there: pressing Post on X is refused and never reaches the page", async () => {
+    const t = social();
+    await t.tool.execute({ action: "snapshot" }, t.ctx);
+    const res = await t.tool.execute({ action: "click", ref: "2" }, t.ctx);
+    expect(res).toMatchObject({ ok: false, error: "publish_needs_approval" });
+    expect(t.calls).toEqual(["browser.snapshot"]);
+  });
+
+  test("the person says yes: the click goes through; no: it does not", async () => {
+    const yes = social("Yes, post it");
+    await yes.tool.execute({ action: "snapshot" }, yes.ctx);
+    expect((await yes.tool.execute({ action: "click", ref: "2" }, yes.ctx)).ok).toBe(true);
+    expect(yes.asked[0]).toStartWith('true:Cinderpaw wants to press "Post" on x.com');
+    const no = social("No, don't post");
+    await no.tool.execute({ action: "snapshot" }, no.ctx);
+    expect(await no.tool.execute({ action: "click", ref: "2" }, no.ctx)).toMatchObject({ ok: false, error: "publish_declined" });
+    expect(no.calls).toEqual(["browser.snapshot"]);
+  });
+
+  test("the Publish card shows the text Cinderpaw typed on that site", async () => {
+    const previews: Array<string | undefined> = [];
+    const ctx = {
+      sessionId: "s2",
+      askUser: {
+        ask: async (qs: Array<{ preview?: string }>) => { previews.push(qs[0].preview); return [{ selected: ["Yes, post it"] }]; },
+      },
+      desktopControl: {
+        request: async (action: string) => (action === "browser.snapshot" ? xPage : { ok: true, url: "https://x.com/compose/post" }),
+      },
+    } as never;
+    const tool = createBrowserTool();
+    await tool.execute({ action: "snapshot" }, ctx);
+    await tool.execute({ action: "type", ref: "1", text: "Cinderpaw is live today." }, ctx);
+    await tool.execute({ action: "snapshot" }, ctx);
+    expect((await tool.execute({ action: "click", ref: "2" }, ctx)).ok).toBe(true);
+    expect(previews[0]).toBe("Text Cinderpaw put on this page:\n\nCinderpaw is live today.");
+
+    // Posted: the next Publish card starts empty instead of repeating old words.
+    await tool.execute({ action: "snapshot" }, ctx);
+    await tool.execute({ action: "click", ref: "2" }, ctx);
+    expect(previews[1]).toBeUndefined();
+  });
+
+  function publishCard() {
+    const previews: Array<string | undefined> = [];
+    const ctx = {
+      sessionId: "s3",
+      askUser: {
+        ask: async (qs: Array<{ preview?: string }>) => { previews.push(qs[0].preview); return [{ selected: ["Yes, post it"] }]; },
+      },
+      desktopControl: {
+        request: async (action: string) => (action === "browser.snapshot" ? xPage : { ok: true, url: "https://x.com/compose/post" }),
+      },
+    } as never;
+    return { tool: createBrowserTool(), ctx, previews };
+  }
+
+  test("a post filled by a compose link shows its text on the Publish card", async () => {
+    const t = publishCard();
+    await t.tool.execute({ action: "open", url: "https://x.com/intent/post?text=Hello%20from%20Cinderpaw" }, t.ctx);
+    await t.tool.execute({ action: "snapshot" }, t.ctx);
+    await t.tool.execute({ action: "click", ref: "2" }, t.ctx);
+    expect(t.previews[0]).toBe("Text Cinderpaw put on this page:\n\nHello from Cinderpaw");
+  });
+
+  test("typing into the same field again shows only the newest text", async () => {
+    const t = publishCard();
+    await t.tool.execute({ action: "snapshot" }, t.ctx);
+    await t.tool.execute({ action: "type", ref: "1", text: "first draft" }, t.ctx);
+    await t.tool.execute({ action: "type", ref: "1", text: "final words" }, t.ctx);
+    await t.tool.execute({ action: "snapshot" }, t.ctx);
+    await t.tool.execute({ action: "click", ref: "2" }, t.ctx);
+    expect(t.previews[0]).toBe("Text Cinderpaw put on this page:\n\nfinal words");
+  });
+
+  test("ordinary clicks on X, and Post buttons elsewhere, are not asked about", async () => {
+    const t = social();
+    await t.tool.execute({ action: "snapshot" }, t.ctx);
+    expect((await t.tool.execute({ action: "click", ref: "1" }, t.ctx)).ok).toBe(true);
+    const blog = setup((a) => (a === "browser.snapshot" ? { ...xPage, url: "https://example.ro/" } : { ok: true }));
+    await blog.tool.execute({ action: "snapshot" }, blog.ctx);
+    expect((await blog.tool.execute({ action: "click", ref: "2" }, blog.ctx)).ok).toBe(true);
+  });
+
+  test("a site in Romanian, German, French or Spanish is asked about too", async () => {
+    for (const name of ["Postează", "Publică", "Trimiteți", "Răspunde", "Posten", "Teilen", "Publier", "Répondre", "Publicar", "Compartir"]) {
+      const page = { ...xPage, elements: [xPage.elements[0], { ref: "2", tag: "button", name }] };
+      const calls: string[] = [];
+      const ctx = { sessionId: "s1", desktopControl: { request: async (a: string) => { calls.push(a); return a === "browser.snapshot" ? page : { ok: true }; } } } as never;
+      const tool = createBrowserTool();
+      await tool.execute({ action: "snapshot" }, ctx);
+      expect({ name, res: await tool.execute({ action: "click", ref: "2" }, ctx) }).toMatchObject({ name, res: { error: "publish_needs_approval" } });
+      expect(calls).toEqual(["browser.snapshot"]);
+    }
+  });
+
+  test("an unknown control on a social site, or a submitted form, is asked about too", async () => {
+    const t = social();
+    await t.tool.execute({ action: "open", url: "x.com" }, t.ctx);
+    expect((await t.tool.execute({ action: "click", ref: "2" }, t.ctx)).ok).toBe(false);
+    await t.tool.execute({ action: "snapshot" }, t.ctx);
+    expect((await t.tool.execute({ action: "type", ref: "1", text: "hi", submit: true }, t.ctx)).ok).toBe(false);
+    expect((await t.tool.execute({ action: "type", ref: "1", text: "hi" }, t.ctx)).ok).toBe(true);
+  });
+});

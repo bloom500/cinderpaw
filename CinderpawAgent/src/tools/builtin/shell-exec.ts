@@ -451,8 +451,8 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
               // Irreversible and outside the snapshot: never auto-answered.
               forceEscalate: true,
               options: [
-                { label: "No, skip it", description: `Refuse: ${call.detail}.` },
                 { label: "Yes, delete it", description: "Allow this one command to run." },
+                { label: "No, skip it", description: `Refuse: ${call.detail}.` },
               ],
             }],
             ctx.sessionId,
@@ -560,8 +560,8 @@ export async function askBeforeInstall(ctx: ToolContext, command: string): Promi
       multiSelect: false,
       forceEscalate: true,
       options: [
-        { label: "No, don't install", description: "Nothing is installed." },
         { label: "Yes, install it", description: "Run this one command." },
+        { label: "No, don't install", description: "Nothing is installed." },
       ],
     }],
     ctx.sessionId,

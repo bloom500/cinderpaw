@@ -104,6 +104,31 @@ fn resolve_clear_result(keychain_result: anyhow::Result<()>, file_ok: bool) -> a
     keychain_result
 }
 
+/// Move a value that an older build kept under `legacy_service` (the app was
+/// called Feral until September 2026) to `service`, and return it. Without
+/// this, a Feral install that updates finds none of its saved keys.
+///
+/// Keychain only: the file store kept its path when `~/.feral` moved to
+/// `~/.cinderpaw`. Asked once per entry per process, because a refused read
+/// (macOS asks the person, the old item belongs to the old app) must not ask
+/// again on every key lookup. The old entry is deleted only after the new one
+/// is written, so a failed write loses nothing.
+pub fn move_legacy(legacy_service: &str, service: &str, entry: &str) -> Option<String> {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+    static ASKED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let asked = ASKED.get_or_init(|| Mutex::new(HashSet::new()));
+    if !asked.lock().ok()?.insert(format!("{legacy_service}\n{entry}")) {
+        return None;
+    }
+    let old = keyring::Entry::new(legacy_service, entry).ok()?;
+    let value = old.get_password().ok().filter(|v| !v.is_empty())?;
+    if keyring::Entry::new(service, entry).and_then(|e| e.set_password(&value)).is_ok() {
+        let _ = old.delete_credential();
+    }
+    Some(value)
+}
+
 /// Store `value` under `service`/`entry`. The file-store fallback key is
 /// namespaced by service (`"{service}:{entry}"`) so two services can use the
 /// same entry name without colliding on disk.
@@ -168,6 +193,25 @@ mod tests {
             clear(service, entry).expect("clear");
             assert_eq!(get(service, entry), None);
         });
+    }
+
+    /// An update from Feral: the key sits under the old service name. The
+    /// first read moves it, the old entry is gone, and a second ask returns
+    /// nothing (it is now read from the new name by the caller).
+    #[test]
+    fn a_key_under_the_old_name_moves_to_the_new_one() {
+        let (old, new, entry) = ("ai.bloom.feral.test", "ai.bloom.cinderpaw.test", "move-legacy");
+        let Ok(e) = keyring::Entry::new(old, entry) else { return };
+        if e.set_password("sk-from-feral").is_err() {
+            eprintln!("no keychain available; skipping");
+            return;
+        }
+        assert_eq!(move_legacy(old, new, entry).as_deref(), Some("sk-from-feral"));
+        let moved = keyring::Entry::new(new, entry).unwrap();
+        assert_eq!(moved.get_password().ok().as_deref(), Some("sk-from-feral"));
+        assert!(matches!(e.get_password(), Err(keyring::Error::NoEntry)));
+        assert_eq!(move_legacy(old, new, entry), None);
+        let _ = moved.delete_credential();
     }
 
     /// Pins the fix for a review finding: a file-store clear failure must

@@ -414,6 +414,9 @@ async fn code_execute(args: Value) -> Result<String> {
         cmd.env("PATH", p);
     }
     cmd.env("PYTHONIOENCODING", "utf-8");
+    // No black terminal window flashing up on Windows for every run.
+    #[cfg(windows)]
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     #[cfg(windows)]
     {
         // Windows' python needs these to locate its runtime / DLLs.

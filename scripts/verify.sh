@@ -3,6 +3,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Linking many Rust test binaries at once exhausted a 16 GB dev machine.
+# Keep every check, but bound compilation; an explicit environment value wins.
+export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
+printf 'Rust compilation jobs: %s (override with CARGO_BUILD_JOBS)\n' "$CARGO_BUILD_JOBS"
+# Test binaries otherwise run one thread per core (16 here) beside the open app.
+export RUST_TEST_THREADS="${RUST_TEST_THREADS:-2}"
+
 run() {
   local label="$1"
   shift
@@ -12,6 +19,7 @@ run() {
 
 run "CinderpawAgent tests" bash -c "cd \"$ROOT/CinderpawAgent\" && bun test --timeout 20000"
 run "CinderpawAgent typecheck" bash -c "cd \"$ROOT/CinderpawAgent\" && bunx tsc --noEmit"
+run "Worker tests" bash -c "cd \"$ROOT/workers/bug-report\" && bun test"
 # The pool lives in frontend-react/vitest.config.ts now, so it is one answer
 # rather than a flag every caller has to remember - CI runs `npm test -- --run`
 # and had no such flag, which is how it would have met the forks-worker timeout.
@@ -27,6 +35,14 @@ if [ -n "$GODOT" ]; then
   run "Campfire game tests" bash -c "\"$GODOT\" --headless --path \"$ROOT/games/ember\" --import >/dev/null && \"$GODOT\" --headless --path \"$ROOT/games/ember\" -s res://tests/run_tests.gd"
 else
   echo "== Campfire game tests: skipped, Godot is not installed (python scripts/fetch-godot.py, then set CINDERPAW_GODOT)"
+fi
+# Below-normal priority from here on, inherited by every Rust step: compiling and
+# linking is what froze the open app, and now it only takes idle CPU. Not set for
+# the steps above: vitest's worker start times out when starved (9 Oct).
+if [ -r "/proc/$$/winpid" ] && command -v powershell.exe >/dev/null; then
+  powershell.exe -NoProfile -Command "(Get-Process -Id $(cat /proc/$$/winpid)).PriorityClass = 'BelowNormal'" || true
+else
+  renice -n 10 -p $$ >/dev/null 2>&1 || true
 fi
 run "Rust check" bash -c "cd \"$ROOT\" && cargo check"
 run "Rust tests (host)" bash -c "cd \"$ROOT\" && cargo test -p cinderpaw"

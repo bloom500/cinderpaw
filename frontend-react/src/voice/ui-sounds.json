@@ -1,0 +1,67 @@
+[
+  {
+    "id": "tap",
+    "durationMs": 30,
+    "sha256": "222cf73b57cfbc368f3d24f001b0ec7fdfa59eb57a9aeed8dc135645cd4e943f"
+  },
+  {
+    "id": "toggle-on",
+    "durationMs": 60,
+    "sha256": "07fb6f870104bbfa1ff6949895c361879632c976ea5c8153e5e69f6c0c541af7"
+  },
+  {
+    "id": "toggle-off",
+    "durationMs": 60,
+    "sha256": "34eb735f6b7e501c47a562884ab233f6cd5ca1986e1aa1c2d8b8522d15d653b8"
+  },
+  {
+    "id": "panel-open",
+    "durationMs": 422,
+    "sha256": "1fdb5a163af352890bf7fa6a15eb2a5ada58ef236ba8f229c1bcc1402d39a5cc"
+  },
+  {
+    "id": "panel-close",
+    "durationMs": 383,
+    "sha256": "49c8dba893c7f81f85a4c818f6773edb6ba452e89e4b4d96e2e8f3c51bbabd13"
+  },
+  {
+    "id": "message-send",
+    "durationMs": 381,
+    "sha256": "a3a9b59461342fdfc165fae3b7e070177156be0e2ef36ec1e22acf6aaadc4b93"
+  },
+  {
+    "id": "tool-approved",
+    "durationMs": 793,
+    "sha256": "153917bb321754a3cca342de1f65047c190c7d90dad50e2ecf60b8f8f04e442d"
+  },
+  {
+    "id": "task-done",
+    "durationMs": 1473,
+    "sha256": "b318662f7c5665680cd6de2810c743e94bdbf402bd7ac3de1b31f1cd332b097f"
+  },
+  {
+    "id": "error",
+    "durationMs": 723,
+    "sha256": "b1c9eaabcc3ec0440a976ab0d9079580129b00cbf4efa757a8c3a5d37ba7d525"
+  },
+  {
+    "id": "notification",
+    "durationMs": 1944,
+    "sha256": "7490f7f79717f759fb6a01bf29802bdf1ca664e53be43395b9157f80c2e241f0"
+  },
+  {
+    "id": "cubby-wake",
+    "durationMs": 686,
+    "sha256": "973a8ad5812894a331093e1118d65891890bff68e29dead6e264d588bc6ef1a8"
+  },
+  {
+    "id": "cubby-sleep",
+    "durationMs": 3193,
+    "sha256": "8ef7cf4140c67db08169ea68921471b320bf9e42ba4b0e704b3a2fc9336958d4"
+  },
+  {
+    "id": "audio-logo",
+    "durationMs": 3113,
+    "sha256": "90a7336ba5240aeb076b78b86c3ae6ffbcf41782fc711af18aa8a0486e44a154"
+  }
+]

@@ -39,6 +39,11 @@ describe("product_info", () => {
     // (suggest_skill / create_skill) is a real new capability, and the file is
     // loaded only when a product question is detected, so the cost is paid
     // rarely. Next time, cut before raising.
-    expect(content.length).toBeLessThan(20 * 1024);
+    // 100 KiB, not 20 (2026-10-11, Darius's call): the app does far more than
+    // 20 KiB can describe, and the cap was making us cut true facts. The cost
+    // that remains: one load stays in the conversation, and 100 KiB is ~25k
+    // tokens, most of a small local model's 32k. Past ~40 KiB, make
+    // product_info return the asked-for section instead of the whole file.
+    expect(content.length).toBeLessThan(100 * 1024);
   });
 });

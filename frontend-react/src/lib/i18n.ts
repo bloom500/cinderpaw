@@ -9,20 +9,13 @@
 
 const en = {
   // Chat input
-  'chat.placeholder': 'Ask anything…',
   'chat.placeholder.agent': 'Ask Cinderpaw…',
   'chat.placeholder.noModel': 'Load a model or add a cloud key to start chatting',
   'chat.noModelHint': 'No model loaded. Open Models to download one, or add a cloud key in Models, Cloud tab.',
-  // Spoken by the product, not the model — there is no model to speak. See
-  // ChatInput.noModelReply.
-  'chat.noModel.reply':
-    "I need a model before I can do that. I can run a small one locally on this machine, which works offline, or use an API key if you already have one.",
-  'chat.noModel.download': 'Download a model',
   // Model picker trigger when nothing is pinned. Choosing by hand is an
   // override now, not a prerequisite — Brain routes per turn.
   'model.automatic': 'Automatic',
   'model.add': 'Add a model',
-  'chat.noModel.addKey': 'Add a key',
   // Shown when automatic model selection failed and the default was used.
   // A fallback is allowed; a hidden one is not.
   'chat.routed.fallback': 'I used your default model. Automatic model choice was unavailable.',
@@ -46,7 +39,8 @@ const en = {
   'home.afternoon': 'Good afternoon',
   'home.evening': 'Good evening',
   'home.night.1': 'Hello, night owl',
-  'home.night.2': 'Staying up late again, night owl?',
+  // Not "again": it said that to people on their very first night (UX lab, item 12).
+  'home.night.2': 'Up late tonight, night owl?',
   'home.ask': 'What can I help you with?',
   // The four intents. A statement about what the product is, so they are fixed
   // and in this order — they are not suggestions and they are not shuffled.
@@ -91,14 +85,17 @@ const en = {
   // Voice call
   'call.aria': 'Start a voice call',
   'call.title': 'Voice call',
+  // 14 Oct, beta.1: Gemini calls dropped and cut last words (Google-side);
+  // OpenAI ran clean. Said before the microphone opens, for Gemini only, so a
+  // drop is a known problem with a way round it, not a broken app.
+  'call.beta': 'Gemini calls are in beta: a call can stop on its own, or cut off its last word. For the steadiest call, pick OpenAI Realtime.',
+  'call.recommended': 'Recommended',
   'call.disclosure': 'Before the microphone opens, this is what will handle the call:',
   // These name the ENGINE, not the hardware. "Your voice → Groq" read as if Groq
   // were the microphone; the direction of the conversion is what makes it clear.
   'call.stt': 'Speech → text',
   'call.tts': 'Text → speech',
   'call.mic': 'Microphone',
-  'call.tools': 'Tools',
-  'call.toolsOff': 'none in this call, it answers from what it knows',
   'call.micDefault': 'System default',
   'call.onDevice': 'on device',
   'call.leavesDevice': 'leaves device',

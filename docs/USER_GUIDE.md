@@ -3,27 +3,33 @@
 A short, practical guide. For installation and hardware requirements see the
 [README](../README.md).
 
-## Chat vs Agent — which toggle do I want?
+## Start here
 
-The switch at the right of the typing bar changes who answers you.
+Everything you type goes to the agent. It reads what you asked, works out what
+it needs (a file, a web search, a command), does it, and answers. There is no
+mode to pick.
 
-| | **Chat** | **Agent** |
-|---|---|---|
-| What it is | A direct line to the model | An autonomous assistant wrapped around the model |
-| Can read/write files | No | Yes (workspace roots default to launch dir + home + scratch; protected-path checks apply) |
-| Can search the web | No | Yes (`web_search`, `deep_research`, `read_webpage`, `fetch_url`) |
-| Can run commands | No | Yes (`shell_exec`; disable with `CINDERPAW_ENABLE_SHELL_EXEC=false`) |
-| Remembers across sessions | No (per-conversation history only) | Yes — 4-layer persistent memory |
-| Speed | Fastest (one completion per message) | Slower (may loop through several tool calls) |
-| Best for | Quick questions, drafting, brainstorming | Tasks: "summarize this folder", "research X and write a report" |
+**First, give it a brain.** The agent thinks with a model, and it needs one
+before it can answer:
 
-Rule of thumb: if your request contains a verb that touches the outside world
-(read, write, search, run, check), use **Agent**. If it's all in the model's
-head, use **Chat**.
+- **Easiest:** press **Sign in with OpenRouter** on the home screen. Your
+  browser opens, you log in, and that is it.
+- **Already have a key?** Open **Models → Cloud** and paste it (OpenAI,
+  Anthropic, Google and about 30 more).
+- **Want it free and offline?** Open **Models → Hugging Face** and pick a model
+  the app says fits your computer. Small models make more mistakes.
 
-Both modes work with a local GGUF model or a cloud key (BYOK). The agent can
-run on a different model than chat — pick it from the model selector while in
-Agent mode.
+**Three things to try first:**
+
+1. "What is in my Downloads folder? Group it by type." It reads your files.
+2. "Find three reviews of the Framework 13 laptop and sum them up." It searches
+   the web.
+3. "Make me a one-page PDF with my plan for this week: ..." It makes a file you
+   can open, edit and send.
+
+Every step it takes shows up in a card on its reply, so you can see what it
+did. It asks you first before anything you cannot take back: deleting outside
+your folders, installing software, posting online, or sending a file to a chat.
 
 ## What the agent can do (built-in tools)
 
@@ -40,8 +46,9 @@ Agent mode.
 | `scan_workspace` | Finds hardcoded secrets / risky patterns in your code | never prints the secret values |
 | `shell_exec` | Run shell commands | **on by default**; disable with `CINDERPAW_ENABLE_SHELL_EXEC=false` |
 
-While the agent works, tool calls appear as small bubbles next to the mascot —
-click a finished bubble to see exactly what the tool returned.
+While the agent works, each tool it uses shows up as a step in a card on its
+reply. The card folds away once the answer is done. Click the card to open it
+again, and click a step to see more about it.
 
 Sometimes the agent asks *you* something mid-task (a question card appears in
 the chat). Answer it and the agent continues. After the default 5-minute timeout,
@@ -59,8 +66,8 @@ the app.
 
 Skills are instruction packs that teach the agent new workflows.
 
-- **Install:** sidebar → Skills → browse the catalog → Install. New skills are
-  available to the agent on your very next message — no restart.
+- **Install:** Settings → Capabilities → Skills → Discover → Install. New skills
+  are ready for the agent on your very next message. No restart needed.
 - **What happens under the hood:** the agent sees a one-line menu of your
   installed skills and loads a skill's full instructions only when relevant.
 - **Create your own:** drop a folder into `~/.cinderpaw/skills/<my-skill>/` with a
@@ -73,7 +80,7 @@ Skills are instruction packs that teach the agent new workflows.
 Your agent can answer you from your messaging apps — same brain, same memory,
 still running on your machine.
 
-- **Set up:** sidebar → Connectors, or just ask the agent in chat ("connect
+- **Set up:** Settings → Accounts, or ask the agent in chat ("connect
   yourself to Discord"). WhatsApp pairs by scanning a QR code; Discord and
   Slack take a bot token.
 - **Only allowlisted people** can talk to your agent — you choose who when
@@ -93,9 +100,9 @@ still running on your machine.
 
 | Symptom | Likely cause / fix |
 |---|---|
-| Chat input disabled | No model loaded and no cloud key — Models → download/load, or Settings → Cloud Keys |
+| Cinderpaw answers "I need a model before I can do that" | No model loaded and no cloud key. Use the buttons under that answer, or open Models to download one, or add a key in Models → Cloud tab |
 | "Agent offline" banner | The agent process crashed; it restarts automatically. If the banner says restarts were suspended, restart the app |
 | First reply takes minutes | Normal on CPU for the first message (model load + prompt processing) — the indicator under the message explains what's happening |
 | "The model stopped responding…" | Model/provider hung; retry, or switch to a smaller/faster model |
-| Key rejected (401) | Settings → Cloud Keys — re-paste the key, check it's active with the provider |
-| Empty answer from a thinking model | The model spent its whole budget thinking — raise max tokens in the controls popover, or use a larger model |
+| Key rejected (401) | Models → Cloud tab. Paste the key again, and check with the provider that it is still active |
+| Empty answer from a thinking model | The model used its whole budget thinking. Use a larger model, or one that does not think first |

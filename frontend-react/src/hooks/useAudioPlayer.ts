@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { holdUiSounds } from '@/lib/uiSounds';
 
 /**
  * Web Audio playback for recorded voice (Blob) or on-disk audio (URL).
@@ -19,6 +20,7 @@ export function useAudioPlayer(source: Blob | string) {
   const ctxRef = useRef<AudioContext | null>(null);
   const bufferRef = useRef<AudioBuffer | null>(null);
   const nodeRef = useRef<AudioBufferSourceNode | null>(null);
+  const releaseUiSounds = useRef<(() => void) | null>(null);
   const startedAtRef = useRef(0); // ctx.currentTime when the current node started
   const offsetRef = useRef(0); // seconds into the buffer where playback resumes
   const rafRef = useRef<number | null>(null);
@@ -60,6 +62,8 @@ export function useAudioPlayer(source: Blob | string) {
   };
 
   const stopNode = useCallback(() => {
+    releaseUiSounds.current?.();
+    releaseUiSounds.current = null;
     if (nodeRef.current) {
       nodeRef.current.onended = null; // suppress the natural-end handler on manual stop
       try { nodeRef.current.stop(); } catch { /* already stopped */ }
@@ -93,16 +97,21 @@ export function useAudioPlayer(source: Blob | string) {
     node.buffer = buf;
     node.connect(ctx.destination);
     node.onended = () => {
+      releaseUiSounds.current?.();
+      releaseUiSounds.current = null;
       setPlaying(false);
       offsetRef.current = 0;
       setProgress(0);
       clearRaf();
     };
+      releaseUiSounds.current = holdUiSounds();
       node.start(0, startOffset);
       nodeRef.current = node;
       setPlaying(true);
       rafRef.current = requestAnimationFrame(tick);
     } catch (err) {
+      releaseUiSounds.current?.();
+      releaseUiSounds.current = null;
       // `ensureBuffer` creates the AudioContext BEFORE it decodes, so a failed
       // decode — a corrupt blob, a codec the browser will not take — left a
       // context allocated with nothing playing. Chrome allows six per page, so

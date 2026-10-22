@@ -177,6 +177,9 @@ pub struct ProviderConfig {
 }
 
 
+/// The id the Custom Endpoint card saves under (frontend `ByokTab.tsx`).
+pub const CUSTOM_PROVIDER_ID: &str = "custom";
+
 /// BYOK settings — stored in settings.json
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ByokSettings {
@@ -187,7 +190,7 @@ impl ByokSettings {
     /// Get a list of all supported providers with their current config
     pub fn get_all_providers(&self) -> Vec<ProviderInfo> {
         let defaults = Self::default_provider_configs();
-        defaults.into_iter().map(|(id, name, provider)| {
+        let mut all: Vec<ProviderInfo> = defaults.into_iter().map(|(id, name, provider)| {
             let config = self.providers.get(&id).cloned().unwrap_or_default();
             ProviderInfo {
                 id: id.clone(),
@@ -198,7 +201,24 @@ impl ByokSettings {
                 base_url: config.base_url.or(Some(default_base_url_for(&id))),
                 default_model: config.default_model,
             }
-        }).collect()
+        }).collect();
+        // The Custom Endpoint card saves under "custom", which the catalogue
+        // does not list, so a saved endpoint (LM Studio, vLLM, a rented box)
+        // never reached Roles, the model pill or routing (UX lab, 19 Oct, item
+        // 4). Only "custom": voice engines keep records in this file too, and
+        // they are not chat providers.
+        if let Some(config) = self.providers.get(CUSTOM_PROVIDER_ID) {
+            all.push(ProviderInfo {
+                id: CUSTOM_PROVIDER_ID.into(),
+                name: "Custom Endpoint".into(),
+                provider: Provider::Custom,
+                enabled: config.enabled,
+                has_api_key: !config.api_key.is_empty(),
+                base_url: config.base_url.clone(),
+                default_model: config.default_model.clone(),
+            });
+        }
+        all
     }
 
     /// Get default configurations for all known providers.
@@ -390,21 +410,30 @@ pub fn provider_catalog() -> Vec<ProviderCatalogEntry> {
             name: "Google Gemini".into(),
             provider: Provider::Google,
             default_base_url: Provider::Google.default_base_url().to_string(),
-            default_model: "gemini-2.0-flash".into(),
+            // Onboarding sells this row as free, so the default must be on
+            // Google's free tier. gemini-2.0-flash was shut down 1 Jun 2026 and
+            // every stranger's first message failed. gemini-3.8-flash is "Free of
+            // charge" on ai.google.dev/gemini-api/docs/pricing (checked 6 Oct
+            // 2026). Google no longer publishes free-tier numbers (they live in
+            // AI Studio), so the note promises none.
+            default_model: "gemini-3.8-flash".into(),
             console_url: Some("https://aistudio.google.com/apikey".into()),
             key_format: None,
             key_format_hint: None,
-            free_tier_note: Some("Free tier: 15 req/min, 1500 req/day.".into()),
+            free_tier_note: Some("Free tier, no credit card needed.".into()),
             supports_custom_base_url: true,
             auth_style: Bearer,
         },
         ProviderCatalogEntry {
+            // Two rows for one company: a Kimi Code subscription key works only
+            // at api.kimi.com/coding, a Moonshot platform key only at
+            // api.moonshot.ai. The names say which key goes where (20 Oct).
             id: "kimi".into(),
-            name: "Kimi (Moonshot AI)".into(),
+            name: "Kimi Code (subscription)".into(),
             provider: Provider::Kimi,
             default_base_url: Provider::Kimi.default_base_url().to_string(),
-            default_model: "moonshot-v1-8k".into(),
-            console_url: Some("https://platform.moonshot.ai/console/api-keys".into()),
+            default_model: "kimi-for-coding".into(),
+            console_url: Some("https://www.kimi.com/code/console".into()),
             key_format: None,
             key_format_hint: None,
             free_tier_note: None,
@@ -481,13 +510,17 @@ pub fn provider_catalog() -> Vec<ProviderCatalogEntry> {
             name: "OpenRouter".into(),
             provider: Provider::Openrouter,
             default_base_url: Provider::Openrouter.default_base_url().to_string(),
-            // Cheap and proven with our tool loop. gpt-4o spent a $1 key in a few
-            // dozen messages (~16k tokens of prompt + tools each; seen 26 Sep).
-            default_model: "z-ai/glm-5.3-flash".into(),
+            // Onboarding sells this row as free, no card, so a fresh key with $0
+            // on it must get an answer. z-ai/glm-5.3-flash is paid ($0.15/$0.50
+            // per M) and failed exactly that person. `openrouter/free` is
+            // OpenRouter's Free Models Router: $0, declares tool support (model
+            // list, 6 Oct 2026). Limits from openrouter.ai/docs/api/reference/limits.
+            // Pinned by `the_openrouter_default_is_free`.
+            default_model: "openrouter/free".into(),
             console_url: Some("https://openrouter.ai/keys".into()),
             key_format: Some("sk-or-".into()),
             key_format_hint: Some("Begins with sk-or-…".into()),
-            free_tier_note: Some("Free credits on signup; per-model pay-as-you-go.".into()),
+            free_tier_note: Some("Free models, no card: 50 requests/day (1,000/day after buying $10 of credit).".into()),
             supports_custom_base_url: true,
             auth_style: Bearer,
         },
@@ -668,11 +701,11 @@ pub fn provider_catalog() -> Vec<ProviderCatalogEntry> {
         },
         ProviderCatalogEntry {
             id: "moonshot".into(),
-            name: "Moonshot AI".into(),
+            name: "Kimi API (Moonshot, pay per use)".into(),
             provider: Provider::Custom,
             default_base_url: "https://api.moonshot.ai/v1".into(),
             default_model: "kimi-k3".into(),
-            console_url: None,
+            console_url: Some("https://platform.moonshot.ai/console/api-keys".into()),
             key_format: None,
             key_format_hint: None,
             free_tier_note: None,
@@ -857,6 +890,13 @@ pub struct TestProviderResponse {
     pub models: Vec<String>,
 }
 
+/// False for ids a picker must not offer. OpenRouter lists `…:batch` models
+/// that only run through its async Batch API: picked for chat, every message
+/// comes back as a 400 the person cannot explain.
+pub fn can_chat(model_id: &str) -> bool {
+    !model_id.ends_with(":batch")
+}
+
 /// Probe a provider with an API key and return whether the key is accepted.
 /// Lifted out of `src-tauri/src/lib.rs::test_byok_provider` so the headless
 /// gateway can also serve it (Sprint 2 / audit C-2). Same shape: OpenAI-
@@ -939,6 +979,7 @@ pub async fn test_provider(
                         .filter_map(|v| {
                             v.get("id")
                                 .and_then(|id| id.as_str())
+                                .filter(|id| can_chat(id))
                                 .map(String::from)
                         })
                         .collect()
@@ -1036,6 +1077,10 @@ fn url_join(base: &str, path: &str) -> String {
 /// to Cinderpaw so it never collides with other apps' credentials.
 const KEYCHAIN_SERVICE: &str = "ai.bloom.cinderpaw.byok";
 
+/// Where Feral, this app's name until September 2026, kept the keys. Read
+/// on a miss and moved: see [`crate::secret_store::move_legacy`].
+const LEGACY_KEYCHAIN_SERVICE: &str = "ai.bloom.feral.byok";
+
 /// Human label for a keychain-probe error, so callers (e.g. `cinderpaw doctor`)
 /// can report the kind without depending on the `keyring` crate themselves.
 pub fn keychain_error_kind(err: &keyring::Error) -> &'static str {
@@ -1111,12 +1156,16 @@ pub fn byok_set(provider_id: &str, key: &str) -> anyhow::Result<()> {
 /// caller treats absent key the same as unreadable key.
 pub fn byok_get(provider_id: &str) -> Option<String> {
     crate::secret_store::get_with_file_key(KEYCHAIN_SERVICE, provider_id, provider_id)
+        .or_else(|| crate::secret_store::move_legacy(LEGACY_KEYCHAIN_SERVICE, KEYCHAIN_SERVICE, provider_id))
 }
 
 /// Remove a provider's API key from BOTH stores. The keychain and the
 /// file fallback are siblings, not primary/replica: clearing must clear
 /// both so a later write can't resurrect a key from the other side.
 fn clear_key(provider_id: &str) -> anyhow::Result<()> {
+    // A key the move could not write is still under the old name; a removed
+    // key must not come back from there.
+    let _ = keyring::Entry::new(LEGACY_KEYCHAIN_SERVICE, provider_id).and_then(|e| e.delete_credential());
     crate::secret_store::clear_with_file_key(KEYCHAIN_SERVICE, provider_id, provider_id)
 }
 
@@ -1281,6 +1330,13 @@ fn write_metadata(settings: &ByokSettings) -> anyhow::Result<()> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn batch_only_models_are_not_offered_for_chat() {
+        assert!(!can_chat("deepseek/deepseek-v4:batch"));
+        assert!(can_chat("deepseek/deepseek-v4"));
+        assert!(can_chat("meta-llama/llama-4:free"));
+    }
+
     /// The regression: one provider migrating used to authorise deleting the
     /// file that held another provider's un-migrated key.
     #[test]
@@ -1297,6 +1353,28 @@ mod tests {
         assert!(!may_remove_legacy_file(false, &["openai".to_string()]));
     }
 
+    /// A saved Custom Endpoint is a provider like the others; a voice engine's
+    /// record in the same file is not.
+    #[test]
+    fn a_saved_custom_endpoint_is_listed_and_a_voice_record_is_not() {
+        let mut settings = ByokSettings::default();
+        assert!(!settings.get_all_providers().iter().any(|p| p.id == "custom"));
+        settings.update_provider(
+            "custom",
+            ProviderConfig { enabled: true, api_key: "lm-studio".into(), base_url: Some("http://127.0.0.1:1234/v1".into()), default_model: Some("qwen3".into()) },
+        );
+        settings.update_provider(
+            "kokoro",
+            ProviderConfig { enabled: true, api_key: String::new(), base_url: None, default_model: None },
+        );
+        let all = settings.get_all_providers();
+        let custom = all.iter().find(|p| p.id == "custom").expect("custom is listed");
+        assert_eq!(custom.base_url.as_deref(), Some("http://127.0.0.1:1234/v1"));
+        assert_eq!(custom.default_model.as_deref(), Some("qwen3"));
+        assert!(custom.enabled && custom.has_api_key);
+        assert!(!all.iter().any(|p| p.id == "kokoro"));
+    }
+
     /// A key saved from the wizard with no model must still be a provider
     /// the chat can use. Astra, 19 Sep 2026: `defaultModel: null` was stored
     /// as-is, and the first message after onboarding got "no model".
@@ -1307,7 +1385,7 @@ mod tests {
             "openrouter",
             ProviderConfig { enabled: true, api_key: "sk-or-x".into(), base_url: None, default_model: None },
         );
-        assert_eq!(settings.get_provider("openrouter").unwrap().default_model.as_deref(), Some("z-ai/glm-5.3-flash"));
+        assert_eq!(settings.get_provider("openrouter").unwrap().default_model.as_deref(), Some("openrouter/free"));
 
         // A model the person chose is kept, whitespace and all trimmed.
         settings.update_provider(
@@ -1322,6 +1400,15 @@ mod tests {
             ProviderConfig { enabled: true, api_key: String::new(), base_url: None, default_model: None },
         );
         assert_eq!(settings.get_provider("openrouter").unwrap().default_model.as_deref(), Some("z-ai/glm-5"));
+    }
+
+    /// Onboarding tells a stranger OpenRouter works with no card. A paid default
+    /// turns that into a failed first message on a $0 key (6 Oct 2026). Any
+    /// future default must be the free router or a `:free` id.
+    #[test]
+    fn the_openrouter_default_is_free() {
+        let m = provider_catalog().into_iter().find(|e| e.id == "openrouter").unwrap().default_model;
+        assert!(m == "openrouter/free" || m.ends_with(":free"), "OpenRouter default {m} is not a free model");
     }
 
     #[test]

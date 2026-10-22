@@ -2,11 +2,11 @@ import { act, cleanup, render, screen, fireEvent, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ArtifactsPanel } from '../ArtifactsPanel';
 import { summaryOf } from '@/lib/artifactSections';
-import { useArtifacts, resetArtifactRequests, googlePlan, shownKind, type ArtifactRow } from '@/stores/artifacts';
+import { useArtifacts, resetArtifactRequests, googlePlan, shownKind, tableCsv, type ArtifactRow } from '@/stores/artifacts';
+import userEvent from '@testing-library/user-event';
 import { APP_IFRAME_SANDBOX } from '@/lib/artifactSandbox';
 import { tauri } from '@/lib/tauri';
 import { useChat, type ChatMessage } from '@/stores/chat';
-import { useUI } from '@/stores/ui';
 import { useNotifications } from '@/stores/notifications';
 import { useConversations } from '@/stores/conversations';
 import { useProjects } from '@/stores/projects';
@@ -29,6 +29,9 @@ vi.mock('@/lib/tauri', async (orig) => {
 // The done toast's Open goes to the chat through the app router, which imports
 // every page; the test only needs to know it was asked.
 const navigate = vi.fn();
+// The Gmail button opens a link through the shell plugin; there is no shell here.
+const shellOpen = vi.hoisted(() => vi.fn());
+vi.mock('@tauri-apps/plugin-shell', () => ({ open: shellOpen }));
 vi.mock('@/router', () => ({ router: { state: { location: { pathname: '/settings' } }, navigate } }));
 
 const op = tauri.artifacts.op as unknown as ReturnType<typeof vi.fn>;
@@ -227,6 +230,29 @@ describe('resizing and the live frame', () => {
     expect(Number(edge.getAttribute('aria-valuenow'))).toBe(1200 - 448);
     for (let i = 0; i < 100; i++) fireEvent.keyDown(edge, { key: 'ArrowRight' });
     expect(Number(edge.getAttribute('aria-valuenow'))).toBe(320);
+  });
+
+  it('a drag ends at the last place the pointer was, even between frames', () => {
+    const { container } = render(<div><ArtifactsPanel onClose={() => {}} /></div>);
+    Object.defineProperty(container.firstElementChild!, 'clientWidth', { value: 1200, configurable: true });
+    const edge = screen.getByRole('separator', { name: 'Resize artifacts panel' });
+    edge.setPointerCapture = () => {};
+    const start = Number(edge.getAttribute('aria-valuenow'));
+    fireEvent.pointerDown(edge, { clientX: 500, pointerId: 1 });
+    for (const x of [490, 480, 470, 460]) fireEvent.pointerMove(edge, { clientX: x, pointerId: 1 });
+    fireEvent.pointerUp(edge, { pointerId: 1 });
+    expect(Number(edge.getAttribute('aria-valuenow'))).toBe(start + 40);
+    expect(localStorage.getItem('cinderpaw.artifactsPanelWidth')).toBe(String(start + 40));
+  });
+
+  it('a narrow row: the panel takes all of it, with no edge and no fixed width', () => {
+    // 900 px window, sidebar open: ~604 px left, chat 448 + panel 320 cannot sit side by side.
+    const { container } = render(<ArtifactsPanel compact onClose={() => {}} />);
+    expect(screen.queryByRole('separator', { name: 'Resize artifacts panel' })).toBeNull();
+    const aside = container.querySelector('aside')!;
+    expect(aside.style.width).toBe('');
+    expect(aside.className).toContain('flex-1');
+    expect(aside.className).not.toContain('min-w-[320px]');
   });
 });
 
@@ -545,16 +571,29 @@ describe('rename, archive and delete in the list', () => {
     await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'archive')).toBe(true));
   });
 
-  it('delete asks first, and only a yes sends it', async () => {
+  it('delete is at once with Undo, like a chat, and Undo keeps it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     render(<ArtifactsPanel onClose={() => {}} />);
     op.mockClear();
     fireEvent.click(await screen.findByLabelText('Delete'));
-    expect(screen.getByText(/for good\?/)).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Cancel'));
+    expect(screen.queryByText('Q3 report')).toBeNull();
+    const toast = useNotifications.getState().toasts.at(-1)!;
+    expect(toast.title).toBe('Artifact deleted');
+    toast.action!.run();
+    vi.advanceTimersByTime(6000);
     expect(op.mock.calls.some((c) => c[1] === 'delete')).toBe(false);
-    fireEvent.click(screen.getByLabelText('Delete'));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    vi.useRealTimers();
+  });
+
+  it('a delete nobody undoes is sent when the toast ends', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    op.mockClear();
+    fireEvent.click(await screen.findByLabelText('Delete'));
+    expect(op.mock.calls.some((c) => c[1] === 'delete')).toBe(false);
+    vi.advanceTimersByTime(6000);
     await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'delete')).toBe(true));
+    vi.useRealTimers();
   });
 
   it('the archive is its own list, asked for by name', async () => {
@@ -565,43 +604,129 @@ describe('rename, archive and delete in the list', () => {
   });
 });
 
-describe('Send to Google Docs', () => {
-  it('logs in first when not connected, then uploads a document as a Google Doc', async () => {
+describe('the Google button', () => {
+  // Each test reads the link it opened, not one an earlier test opened.
+  beforeEach(() => { shellOpen.mockReset(); shellOpen.mockResolvedValue(undefined); });
+  const docOpen = () => useArtifacts.setState({
+    loaded: true, editing: null, google: null,
+    open: { row: row({ kind: 'document', title: 'Q3: report' }), content: '<p>hi</p>', showing: 2, versions: [] },
+  });
+
+  it('logs in first when not connected, then sends a document to Google Docs', async () => {
+    const user = userEvent.setup();
     const { tauri: t } = await import('@/lib/tauri');
     const g = t.google as unknown as Record<string, ReturnType<typeof vi.fn>>;
     g.status = vi.fn().mockResolvedValue(false);
     g.connect = vi.fn().mockResolvedValue(undefined);
     g.upload = vi.fn().mockResolvedValue('https://docs.google.com/document/d/abc/edit');
-    useArtifacts.setState({
-      loaded: true, editing: null, google: null,
-      open: { row: row({ kind: 'document', title: 'Q3: report' }), content: '<p>hi</p>', showing: 2, versions: [] },
-    });
+    docOpen();
     render(<ArtifactsPanel onClose={() => {}} />);
-    fireEvent.click(await screen.findByLabelText('Send to Google Docs'));
+    await user.click(await screen.findByLabelText('Send to Google'));
+    await user.click(await screen.findByText('Google Docs'));
     await waitFor(() => expect(g.upload).toHaveBeenCalled());
     expect(g.connect).toHaveBeenCalledTimes(1);
-    expect(g.upload).toHaveBeenCalledWith('Q3- report', 'text/html', '<p>hi</p>', null, true);
+    expect(g.upload).toHaveBeenCalledWith('Q3- report', 'text/html', '<p>hi</p>', null, true, false);
     expect(await screen.findByText('open it')).toHaveAttribute('href', 'https://docs.google.com/document/d/abc/edit');
+    // 12 Oct: the Doc opens in the person's own browser, where they are signed in.
+    expect(shellOpen).toHaveBeenCalledWith('https://docs.google.com/document/d/abc/edit');
+  });
+
+  // 14 Oct, beta.1: he closed Google's sign-in tab and the button stayed grey.
+  it('a sign-in page closed without finishing leaves the button working: Google again starts over', async () => {
+    const user = userEvent.setup();
+    const { tauri: t } = await import('@/lib/tauri');
+    const g = t.google as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    g.status = vi.fn().mockResolvedValue(false);
+    g.connect = vi.fn(() => new Promise<void>(() => {})); // the page was closed: Google never answers
+    docOpen();
+    render(<ArtifactsPanel onClose={() => {}} />);
+    await user.click(await screen.findByLabelText('Send to Google'));
+    await user.click(await screen.findByText('Google Docs'));
+    expect(await screen.findByText(/Closed that page\? Pick Google again/)).toBeTruthy();
+    expect(screen.getByLabelText('Send to Google')).toBeEnabled();
+    await user.click(screen.getByLabelText('Send to Google'));
+    await user.click(await screen.findByText('Google Docs'));
+    await waitFor(() => expect(g.connect).toHaveBeenCalledTimes(2));
+  });
+
+  it('lists all four places, and greys Sheets for a document with the reason', async () => {
+    const user = userEvent.setup();
+    const { tauri: t } = await import('@/lib/tauri');
+    (t.google as unknown as Record<string, ReturnType<typeof vi.fn>>).status = vi.fn().mockResolvedValue(true);
+    docOpen();
+    render(<ArtifactsPanel onClose={() => {}} />);
+    await user.click(await screen.findByLabelText('Send to Google'));
+    for (const name of ['Google Drive', 'Google Docs', 'Google Sheets', 'Gmail']) expect(await screen.findByText(name)).toBeTruthy();
+    expect(screen.getByText('Only a table or a CSV can become a Sheet')).toBeTruthy();
+    expect(screen.getByText('Google Sheets').closest('[role="menuitem"]')).toHaveAttribute('data-disabled');
+  });
+
+  it('Gmail: the file is shared by link and a new email with the link opens', async () => {
+    const user = userEvent.setup();
+    const opened = shellOpen.mockResolvedValue(undefined);
+    const { tauri: t } = await import('@/lib/tauri');
+    const g = t.google as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    g.status = vi.fn().mockResolvedValue(true);
+    g.upload = vi.fn().mockResolvedValue('https://drive.google.com/file/d/xyz/view');
+    docOpen();
+    render(<ArtifactsPanel onClose={() => {}} />);
+    await user.click(await screen.findByLabelText('Send to Google'));
+    await user.click(await screen.findByText('Gmail'));
+    await waitFor(() => expect(opened).toHaveBeenCalled());
+    expect(g.upload).toHaveBeenCalledWith('Q3- report.html', 'text/html', '<p>hi</p>', null, false, true);
+    const url = String(opened.mock.calls[0]![0]);
+    expect(url.startsWith('https://mail.google.com/mail/?view=cm')).toBe(true);
+    expect(decodeURIComponent(url)).toContain('https://drive.google.com/file/d/xyz/view');
+  });
+
+  // 6 Oct, the job-application video: scrape -> CSV the agent made -> Sheets.
+  it('a CSV the agent made as a file opens in Google Sheets, under its own name', async () => {
+    const user = userEvent.setup();
+    const { tauri: t } = await import('@/lib/tauri');
+    const g = t.google as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    g.status = vi.fn().mockResolvedValue(true);
+    g.upload = vi.fn().mockResolvedValue('https://docs.google.com/spreadsheets/d/s1/edit');
+    const csv = 'title,phone\nDM Roofing,+44 7792 703612\n';
+    useArtifacts.setState({
+      loaded: true, editing: null, google: null,
+      open: { row: row({ kind: 'file', title: 'roofers-manchester.csv' }), content: csv, showing: 2, versions: [] },
+    });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    await user.click(await screen.findByLabelText('Send to Google'));
+    await user.click(await screen.findByText('Google Sheets'));
+    await waitFor(() => expect(g.upload).toHaveBeenCalled());
+    expect(g.upload).toHaveBeenCalledWith('roofers-manchester.csv', 'text/csv', csv, null, true, false);
+    expect(await screen.findByText('open it')).toHaveAttribute('href', 'https://docs.google.com/spreadsheets/d/s1/edit');
   });
 
   it('a build not registered with Google shows no button at all', async () => {
     const { tauri: t } = await import('@/lib/tauri');
     const g = t.google as unknown as Record<string, ReturnType<typeof vi.fn>>;
     g.status = vi.fn().mockResolvedValue(null);
-    useArtifacts.setState({
-      loaded: true, editing: null, google: null,
-      open: { row: row({ kind: 'document', title: 'Q3: report' }), content: '<p>hi</p>', showing: 2, versions: [] },
-    });
+    docOpen();
     render(<ArtifactsPanel onClose={() => {}} />);
     await waitFor(() => expect(g.status).toHaveBeenCalled());
     // Let the answer land: before it, the button is hidden whatever it says.
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
-    expect(screen.queryByLabelText('Send to Google Docs')).toBeNull();
+    expect(screen.queryByLabelText('Send to Google')).toBeNull();
   });
 
-  it('a PDF goes as a PDF, and a Word file has no button', () => {
-    expect(googlePlan('pdf')).toEqual({ mime: 'application/pdf', convert: false });
-    expect(googlePlan('docx')).toBeNull();
+  it('where each kind can go', () => {
+    expect(googlePlan('pdf', 'drive')).toEqual({ mime: 'application/pdf', convert: false });
+    expect(googlePlan('pdf', 'docs')).toBeNull();
+    expect(googlePlan('docx', 'drive')).toBeNull();
+    expect(googlePlan('document', 'sheets', '<p>hi</p>')).toBeNull();
+    expect(googlePlan('table', 'sheets', '{"columns":["a"],"rows":[[1]]}')).toEqual({ mime: 'text/csv', convert: true, content: 'a\r\n1' });
+    expect(googlePlan('file', 'drive', 'a\n1', 'leads.csv')).toEqual({ mime: 'text/csv', convert: false });
+    expect(googlePlan('file', 'sheets', 'a\n1', 'notes.txt')).toBeNull();
+  });
+
+  it('a table becomes CSV that keeps commas, quotes and line breaks inside cells', () => {
+    expect(tableCsv('{"columns":["name","note"],"rows":[["Ana","says \\"hi\\", twice"],["Ion","two\\nlines"]]}'))
+      .toBe('name,note\r\nAna,"says ""hi"", twice"\r\nIon,"two\nlines"');
+    expect(tableCsv('[{"a":1,"b":2},{"a":3}]')).toBe('a,b\r\n1,2\r\n3,');
+    expect(tableCsv('[["x","y"],[1,2]]')).toBe('x,y\r\n1,2');
+    expect(tableCsv('not json')).toBeNull();
   });
 });
 
@@ -639,24 +764,21 @@ describe('the Artifact Dock', () => {
 });
 
 describe('the Context tab', () => {
-  it('says what will show up in a new chat, and lists the Chat mode tools as switches', async () => {
-    useUI.setState({ inputMode: 'chat', enabledTools: [] });
+  it('says what will show up in a new chat, and has no tool switches', () => {
     // Opened from the chat's Context button; the panel has no tab strip.
     useArtifacts.setState({ panelTab: 'context' });
     render(<ArtifactsPanel onClose={() => {}} />);
     expect(screen.getByText(/Nothing here yet. Files you add/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('switch', { name: /Web search/ }));
-    expect(useUI.getState().enabledTools).toContain('web_search');
+    expect(screen.queryByRole('switch', { name: /Web search/ })).toBeNull();
   });
 
-  it("lists the chat's files, and says Agent mode picks its own tools", () => {
-    useUI.setState({ inputMode: 'agent' });
+  it("lists the chat's files, and says Cinderpaw picks its own tools", () => {
     useChat.setState({ messages: [{ id: 'u', role: 'user', content: '[Image attached: cat.png]\n\nhi', createdAt: 0 }] });
     useArtifacts.setState({ panelTab: 'context' });
     render(<ArtifactsPanel onClose={() => {}} />);
     expect(screen.getByRole('region', { name: 'Files' })).toHaveTextContent('cat.png');
     expect(screen.queryByText(/Nothing here yet/)).toBeNull();
-    expect(screen.getByText(/In Agent mode Cinderpaw picks/)).toBeInTheDocument();
+    expect(screen.getByText(/Cinderpaw picks the tools it needs/)).toBeInTheDocument();
   });
 
   it('says what the chat is about, folds each kind of context, and Add fills the composer', () => {
@@ -804,5 +926,55 @@ describe('the artifact overview', () => {
   it('summaryOf reads the words of a page, not its tags or its title', () => {
     expect(summaryOf('document', '<h1>Q3</h1><p>Up <b>12%</b>.</p>')).toBe('Up 12% .');
     expect(summaryOf('markdown', '# T\n\ntext')).toBe('');
+  });
+});
+
+describe('live writing', () => {
+  const draft = (append: string, title = 'Launch plan') =>
+    act(() => useArtifacts.getState().onDraft({ id: 'turn-1', sessionId: 's1', draft: '0:0', title, append, onScreen: true }));
+
+  it('shows the document as it is written, with its title, and nothing to edit yet', () => {
+    useArtifacts.setState({ loaded: true });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    draft('# Launch plan\n\nSeven days.');
+    expect(screen.getByText(/Cinderpaw is writing “Launch plan”/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Launch plan' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Overview/ })).toBeNull();
+  });
+
+  it('becomes the saved version in place: same document on screen, now with its Overview', async () => {
+    useArtifacts.setState({ loaded: true });
+    const { container } = render(<ArtifactsPanel onClose={() => {}} />);
+    draft('# Launch plan\n\nSeven days.');
+    const doc = container.querySelector('.prose');
+    expect(doc).not.toBeNull();
+    act(() => useArtifacts.getState().endDraft('turn-1', { artifactId: 'a1' }));
+    await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'get')).toBe(true));
+    act(() => {
+      useArtifacts.getState().onResult({ id: idOfAction('get'), ok: true, items: [row({ id: 'a1', version: 1, title: 'Launch plan' })], content: '# Launch plan\n\nSeven days.' });
+    });
+    expect(screen.getByRole('button', { name: /Overview/ })).toBeInTheDocument();
+    // Not swapped for a new one: React kept the same document element.
+    expect(container.querySelector('.prose')).toBe(doc);
+    expect(screen.queryByText(/Cinderpaw is writing/)).toBeNull();
+  });
+
+  it('says why when the document was never saved, and keeps what was written', () => {
+    useArtifacts.setState({ loaded: true });
+    const { container } = render(<ArtifactsPanel onClose={() => {}} />);
+    draft('Seven days.');
+    act(() => useArtifacts.getState().endDraft('turn-1', { reason: 'Cinderpaw stopped before saving this.' }));
+    expect(screen.getByText('Cinderpaw stopped before saving this.')).toBeInTheDocument();
+    expect(container.querySelector('.prose')?.textContent).toBe('Seven days.');
+  });
+
+  it('shows an app as its source while it is written', () => {
+    useArtifacts.setState({ loaded: true });
+    const { container } = render(<ArtifactsPanel onClose={() => {}} />);
+    act(() => useArtifacts.getState().onDraft({ id: 'turn-1', sessionId: 's1', draft: '0:0', kind: 'app', title: 'Timer', append: '<div>Hi</div>', onScreen: true }));
+    expect(container.querySelector('iframe')).toBeNull();
+    expect(container.querySelector('pre')?.textContent).toBe('<div>Hi</div>');
   });
 });

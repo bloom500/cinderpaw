@@ -146,7 +146,10 @@ export async function artifactFile(
       note: a.kind === "table" || rows.length > 0 ? "" : " No table was found in it, so the sheet holds the text as one cell.",
     };
   }
-  const name = `${safeFileName(a.title)}${ArtifactStore.extensionFor(a.kind)}`;
+  const ext = ArtifactStore.extensionOf(a);
+  const base = safeFileName(a.title);
+  // A title that already ends in it ("leads.csv", "notes.md") does not get it twice.
+  const name = base.toLowerCase().endsWith(ext) ? base : `${base}${ext}`;
   // Everything but an app goes out byte for byte: identical for text, and the
   // only correct way for a PDF, which read as UTF-8 arrives as a file no reader
   // can open.

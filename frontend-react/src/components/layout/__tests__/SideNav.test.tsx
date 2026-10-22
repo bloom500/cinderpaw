@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { SideNav } from '../SideNav';
 import { useUI } from '@/stores/ui';
 import { useConversations } from '@/stores/conversations';
+import { useAskUser } from '@/stores/askUser';
 
 const navigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -21,7 +22,8 @@ const mount = () => render(<MemoryRouter><SideNav /></MemoryRouter>);
 beforeEach(() => {
   navigate.mockReset();
   useUI.setState({ navCollapsed: false, searchOpen: false, starredChats: [] } as never);
-  useConversations.setState({ list: [], currentId: null, streamingIds: {} } as never);
+  useConversations.setState({ list: [], currentId: null, streamingIds: {}, unreadIds: {} } as never);
+  useAskUser.setState({ pending: null, waiting: [] } as never);
 });
 
 describe('SideNav', () => {
@@ -115,6 +117,21 @@ describe('SideNav', () => {
     // inside it. What the user sees is unchanged — the whole row lights up.
     const row = screen.getByText('a').closest('button')?.parentElement;
     expect(row?.className).toContain('bg-bg-active');
+  });
+
+  it('marks a chat that waits for your answer, and one that finished while you were away', () => {
+    useConversations.setState({
+      loaded: true,
+      list: [conv('a', 1), conv('b', 2), conv('c', 3)] as never,
+      currentId: 'a',
+      streamingIds: { b: true } as never,
+      unreadIds: { c: true } as never,
+    });
+    useAskUser.setState({ pending: { id: 'q', sessionId: 'b', questions: [], resolve: () => {}, reject: () => {}, createdAt: 0 } } as never);
+    mount();
+    expect(screen.getByLabelText('Waiting for your answer')).toBeTruthy();
+    expect(screen.queryByLabelText('Generating')).toBeNull();
+    expect(screen.getByLabelText('New reply')).toBeTruthy();
   });
 
   it('a fresh install explains the empty list instead of showing a blank strip', () => {

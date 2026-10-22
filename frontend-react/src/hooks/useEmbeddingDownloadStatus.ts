@@ -1,5 +1,5 @@
 /**
- * Cold-start guard for the Fractal Memory Search embedding model (~130 MB).
+ * Cold-start guard for the Fractal Memory Search embedding model (bge-m3 Q8_0, ~630 MB).
  *
  * The `tauri.raw.downloadEmbeddingModel()` command is idempotent — it
  * returns immediately when the file already exists on disk, downloads in

@@ -174,6 +174,8 @@ docs/superpowers/
 docs/review-prompts/
 docs/ui/2026-*.md
 docs/specs/2026-*.md
+docs/checkpoints/
+docs/astra-prompt-*.md
 
 # Windows: a botched `> nul` redirect creates a real 16MB file.
 nul

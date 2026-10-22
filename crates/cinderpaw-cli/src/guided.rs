@@ -62,6 +62,8 @@ pub fn run(accept_risk: bool) -> i32 {
         let _ = block_on(post_json_with_body(&token, "/runtime/setup/ack", json!({})));
     }
 
+    offer_import();
+
     let candidates: Vec<Value> = detect
         .get("candidates")
         .and_then(|c| c.as_array())
@@ -381,6 +383,39 @@ fn paste_key_flow(token: &str) -> Option<(Value, Value)> {
 }
 
 // ── Tiny prompt helpers ──────────────────────────────────────────────────────
+
+/// Coming from OpenClaw or Hermes Agent: offer their personality and skills
+/// before the model step, from the same plan `cinderpaw migrate` prints.
+/// Silent for anyone who has neither.
+fn offer_import() {
+    let Palette { accent: ACCENT, meta: META, ok: OK, warn: WARN, reset: RESET, .. } = palette();
+    for found in cinderpaw_core::migrate::detect(None) {
+        let plan = cinderpaw_core::migrate::plan(&found, false);
+        if plan.will_import.is_empty() {
+            continue;
+        }
+        let skills = plan.will_import.iter().filter(|i| i.what.starts_with("skill: ")).count();
+        let what = match (plan.will_import.len() > skills, skills) {
+            (true, 0) => "its personality".to_string(),
+            (true, n) => format!("its personality and {n} skill(s)"),
+            (false, n) => format!("{n} skill(s)"),
+        };
+        println!("\n  {ACCENT}Found {}{RESET} at {}", found.source.label(), found.root.display());
+        println!("  {META}I can bring over {what}. The full list: cinderpaw migrate --dry-run{RESET}");
+        if !confirm("Bring it over?", true) {
+            continue;
+        }
+        match cinderpaw_core::migrate::apply(&plan) {
+            Ok(done) => println!(
+                "  {OK}✓{RESET} brought over {} item(s). Your {} setup was only read.",
+                done.len(),
+                found.source.label()
+            ),
+            Err(e) => println!("  {WARN}could not bring it over: {e:#}{RESET}"),
+        }
+        return; // one import is enough for a first run
+    }
+}
 
 pub(crate) fn ask(prompt: &str) -> String {
     // A crashed/killed TUI can leave the console raw (no echo, no line

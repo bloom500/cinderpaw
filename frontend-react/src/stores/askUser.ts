@@ -39,6 +39,8 @@ export interface AskUserQuestion {
    * A connector's secret, or the key of a service added by its link.
    */
   secret?: { connector: string; field: string } | { extensionUrl: string; extensionName?: string };
+  /** Text to read before answering (a skill a link would install), in a scrolling box. */
+  preview?: string;
 }
 
 export interface AskUserAnswer {

@@ -5,22 +5,84 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
-## Unreleased
+## 2026.10.19
 
-> Version numbers in the build now read `2026.09.18`. The release itself is cut
-> by pushing a `v*` tag, which has not happened: the last published release is
-> still **v2026.08.11**. The two sections below it, `2026.08.15` and
-> `2026.08.21`, were written but never tagged, so their entries have not
-> reached anybody either — whoever updates next receives all three at once.
+> A small update with fixes. If you have 2026.10.16, it updates by itself.
+
+### Fixed
+
+- **Claude keys work again.** An Anthropic key now works with every current
+  Claude model. Before, Cinderpaw sent a setting these models refuse, so the
+  agent never answered. Keys that belong to more than one workspace work too.
+- **Long chats no longer lag.** Typing, scrolling and new replies stay smooth in
+  a chat with hundreds of messages. Cubby is now drawn as a picture, so its
+  animation no longer slows down the whole page.
+- **The notes in a new chat are easy to read.** They sit under the suggestion
+  cards on a solid background, instead of sliding under them.
+- **What's new stays open until you close it.** A click next to the card no
+  longer closes it by accident.
+
+### Changed
+
+- **Approval cards show more before you say yes.** A new tool shows its code and
+  the sites it may reach. Running a tool says where it may reach. Before you
+  publish on a social site, the card shows the text Cinderpaw typed on that page.
+
+## 2026.10.16
+
+> The last release was **v2026.08.11**, when the app was still called Feral.
+> If you have it, it updates to this one by itself.
+>
+> **Feral is now Cinderpaw.** Your chats, settings, connectors, models and saved
+> API keys come with you. On the first start, `~/.feral` is copied to
+> `~/.cinderpaw` and the old folder is left where it was. On a Mac, the system may
+> ask once whether Cinderpaw can read a key that Feral saved: say yes. The update
+> removes Feral and leaves one app, Cinderpaw. On Windows it goes in your Start
+> menu (and on your desktop, if Feral was there). On a Mac it stays where Feral
+> was, so Finder may still call it Feral. Everything you had comes with you. The command is now
+> `cinderpaw`. The full story is in the `2026.08.15` and `2026.08.21`
+> sections of the [changelog](https://github.com/bloom500/cinderpaw/blob/main/CHANGELOG.md),
+> which were written but never released on their own.
 
 ### Added
+
+**New since the pre-releases**
+- **Cubby, and a new look**: a warm, light design, and a small mascot,
+  Cubby. Press **Listen** on any setup step to hear Cubby read it.
+- **Finished work shows up in the chat**: a document, table or chart the agent
+  makes is a card you can open, and boards draw charts, diagrams and photos.
+- **Posting waits for you**: on a social network, the agent writes the post
+  and opens the page in its browser. You read it and press Post.
+- **Bring over OpenClaw or Hermes** from the first screen: your persona and
+  your skills come with you.
+- **A thumbs-up teaches the agent** a way of working (beta). The next similar
+  request gets the steps that worked.
+- **Projects** keep their own instructions and files for every chat inside them.
+- **One Google button** sends a file to Drive, Docs, Sheets or Gmail.
+- A new conversation already knows you and what you did recently. The Memory
+  page shows what it knows, and Forget really forgets.
+- Control your desktop by voice and by the agent on **macOS and Linux** too.
+- A small **campfire game** to play while a long task runs (turn it off in
+  Settings).
+- **Install with one command** into one folder, `~/.cinderpaw`, then
+  `cinderpaw open`. The everyday CLI commands use the names OpenClaw users
+  already know.
+- **Install a skill from a link**: paste a GitHub link to a skill in the chat.
+  Cinderpaw fetches it, checks it for dangerous instructions, shows you every
+  line, and installs it only after your yes.
+- **The agent can build a small tool of its own** when none of its tools fits
+  the job. It shows you the code and runs it only after your yes; a tool that
+  uses the internet names the sites it may reach.
+- **Sounds**: soft sounds when you send, when a reply finishes and when a
+  switch flips, on by default at 35%. Settings has the switch and the volume.
 
 **Getting started**
 - **Sign in with OpenRouter** instead of pasting a key: one button, your browser
   opens, and the key goes straight to the system keychain. On a computer with no
   model at all, the home screen is this button, not a text box nothing can answer.
 - On a small machine, setup recommends a cloud model first, and says why.
-- 24 more providers in Cloud Keys.
+- 24 more cloud providers, now in **Models → Cloud** next to the models on
+  your computer.
 
 **The chat**
 - A built-in **browser** beside the chat, with tabs, an ad blocker (Brave's
@@ -36,6 +98,14 @@
   name you choose is kept.
 - Delete a chat with **Undo** instead of "Are you sure?".
 - The app **reopens the conversation you left**.
+- Star the chats you come back to. Long conversations get a chapter rail and a
+  scrollbar you can grab.
+- A long paste becomes a small "Pasted text" card, and a pasted link shows the
+  site's icon and name.
+- Under a reply, "N memories used" shows what it remembered for that answer,
+  and answers list the sources they used.
+- When work finishes while you are looking somewhere else, a notification
+  tells you.
 - Drop a file anywhere on the chat page. On Windows, **Send to > Cinderpaw**
   from Explorer attaches it.
 - **Alt+Space** brings Cinderpaw up from anywhere, with the cursor in the
@@ -65,23 +135,64 @@
 
 **Look and feel**
 - Appearance -> Background: **Glass** (your desktop shows through) or **Solid**.
-- The v2 mascot, with 73 animations, reacts to what the agent is doing.
+- Cubby reacts to what the agent is doing.
+
+### Known problems
+
+- **Voice calls with Gemini are in beta.** A Gemini call can stop on its own
+  partway through, and the agent can cut off the last word of a sentence: both
+  come from Google's side, and other apps report them too. When a call stops,
+  the screen says why, and a call that had already started reconnects by itself.
+  **OpenAI Realtime is the recommended voice** and the first one offered.
 
 ### Security
 
 - A prompt-injection gate checks tool calls before they run.
+- When someone new writes to your helper on a chat app, Cinderpaw asks you "Is
+  that you?" before it answers them.
+- When a connector needs a password or token, the agent asks for it in a
+  secure field, never in the chat.
+
+### Fixed
+
+The ones you would notice, from the last weeks before this release:
+
+- **Sign in with Google** happens in your own browser, can be cancelled, and
+  Google can be signed out; an expired login asks again.
+- Google Sheets loads in the built-in browser.
+- On Windows, voice calls no longer open black terminal windows.
+- The window fits screens smaller than 1280×800.
+- A tool the agent built that uses the internet no longer stops the agent from
+  starting.
+- A second skill added from a link no longer replaces the first.
+- On a chat app, a message with only a picture or a file no longer answers
+  "Allow" to a question that was waiting.
+- Approval boxes always show **Allow** or **Yes** on top, and **Deny** or
+  **No** below.
 
 ### Changed
 
+- **Chat mode is gone.** Every message now goes to the agent, which can still
+  just talk when that is all you need. The Agent/Chat switch and the Tools menu
+  under the message box are gone with it. Your conversations stay.
 - The interface is English only for this release, and the language setting is
   gone. More than 70 languages are planned for the next one. Talking to
   Cinderpaw in your own language, by text or voice, works as before.
+- **A daily usage summary, only if you turn it on.** It is off unless you say
+  yes (on the last setup screen, once on the home screen, or in Settings,
+  Privacy). It sends counts per model: tasks, how they ended, time, tokens,
+  cost, thumbs up and down. Never your messages, files, links or keys. Each
+  summary is saved on your computer before it leaves, and Settings shows it.
+  Everyone's totals are on the new **Leaderboard** tab. The full list is in
+  [PROMISES.md](https://github.com/bloom500/cinderpaw/blob/main/PROMISES.md), promise 4.
+
 - **Cinderpaw counts installs now, once, and says so before it does.** Promise 4
   used to read "no automatic analytics or crash-report uploads". It no longer
   does, and the honest thing is to say that in the same release rather than
   quietly stop being true. On the last screen of first-run setup there is a
   ticked box: Cinderpaw sends one message containing its version number and
-  your operating system. No identifier, no timestamp of yours, nothing about
+  your operating system, and, if you press one of the buttons below it, where
+  you heard about Cinderpaw. No identifier, no timestamp of yours, nothing about
   you and nothing about what you do. Untick it and nothing is sent. Either way
   `~/.cinderpaw/.install-counted` is written with exactly what happened, so the
   claim is checkable on your own disk.
@@ -140,9 +251,9 @@
   like a fresh install.
 
   The old names keep working where they can. `feral` stays as a second name for
-  the command, every `CINDERPAW_*` environment variable is still read (the
+  the command, every `FERAL_*` environment variable is still read (the
   `CINDERPAW_*` one wins, and the old one warns once), and a `~/.local/share/feral`
-  bundle from before the rename is still found. See RENAME-PLAN.md.
+  bundle from before the rename is still found.
 
 ### Added
 

@@ -9,7 +9,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useModel } from '@/stores/model';
-import { useUI } from '@/stores/ui';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { useNotifications } from '@/stores/notifications';
 import { useT } from '@/lib/i18n';
@@ -22,11 +21,11 @@ import { BackendBadge } from '@/components/BackendBadge';
 import { ROLES, resolveRole, roleModelName, sameModel, type RoleModel } from '@/lib/modelRoles';
 import { cn } from '@/lib/utils';
 import logoUrl from '@/assets/logo.svg';
+import { isLocalEngineUrl, localApiBase } from '@/lib/localApi';
 
 // Cinderpaw's own model engine exposes an OpenAI-compatible API here. In agent mode
 // a local pick must target THIS (not external Ollama on 11434) so the agent uses
 // the model loaded in the Models tab.
-const CINDERPAW_API_BASE = 'http://localhost:11435';
 const LOCAL_PROVIDER_ID = 'cinderpaw-local';
 
 function formatBytes(n: number): string {
@@ -40,13 +39,8 @@ export function ModelPickerPopover() {
   const isLoading     = useModel((s) => s.isLoading);
   const progress      = useModel((s) => s.loadProgress);
   const load          = useModel((s) => s.load);
-  const cloudModel    = useModel((s) => s.cloudModel);
-  const setCloudModel = useModel((s) => s.setCloudModel);
 
-  // Agent mode targets the Cinderpaw sidecar (its own model config), not the
-  // in-process chat model. The pill stays visually identical; only the
-  // selection action + label source change.
-  const isAgentMode   = useUI((s) => s.inputMode) === 'agent';
+  // The picker targets the Cinderpaw sidecar's own model config.
   const cinderpawConfig   = useCinderpawStore((s) => s.modelConfig);
   const cinderpawSwitching = useCinderpawStore((s) => s.switching);
   const cinderpawSetModel = useCinderpawStore((s) => s.setModel);
@@ -118,12 +112,11 @@ export function ModelPickerPopover() {
     // No default model to route to: the row now renders the "set one in Settings"
     // hint, so leave the menu open on it rather than closing on a no-op.
     if (!modelId) return;
-    if (isAgentMode) await selectCloudAgent(p.id, modelId);
-    else setCloudModel({ providerId: p.id, providerName: p.name, modelId });
+    await selectCloudAgent(p.id, modelId);
     setOpen(false);
   };
 
-  // In agent mode, selecting a local model must LOAD it into Cinderpaw's engine
+  // Selecting a local model must LOAD it into Cinderpaw's engine
   // (so /v1/chat/completions has it resident) then point the sidecar at it.
   // Goes through the model store's load() so isLoading/loadProgress are
   // populated — the ModelPill renders a progress bar off those.
@@ -134,7 +127,7 @@ export function ModelPickerPopover() {
       await cinderpawSetModel({
         source: 'openai_compatible',
         model: m.name,
-        baseUrl: CINDERPAW_API_BASE,
+        baseUrl: await localApiBase(),
         providerId: LOCAL_PROVIDER_ID,
       });
     } catch (err) {
@@ -145,7 +138,7 @@ export function ModelPickerPopover() {
 
   const t = useT();
 
-  // Agent-mode cloud switches go through the sidecar and can fail (sidecar
+  // Cloud switches go through the sidecar and can fail (sidecar
   // offline, provider disabled, missing key…). A discarded promise meant the
   // user clicked a model and nothing visibly happened — surface the error.
   const selectCloudAgent = async (providerId: string, modelId: string) => {
@@ -173,52 +166,35 @@ export function ModelPickerPopover() {
    */
   const unpinnedLabel = hasLocal || hasCloud ? t('model.automatic') : t('model.add');
 
-  let label: string;
   // The model shown with its maker's mark, and the route only in the tooltip.
   // It read "openrouter · meta/muse-spark-1.3-contributor": two ids and a dot.
   let shown: { modelId: string; provider: string } | null = null;
-  if (isAgentMode) {
-    if (!cinderpawSwitching && !isLoading && cinderpawConfig?.model) {
-      shown = { modelId: cinderpawConfig.model, provider: cinderpawConfig.provider };
-    }
-    label = cinderpawSwitching
-      ? 'Switching…'
-      : isLoading
-        ? `Loading ${progress?.percentage.toFixed(0) ?? 0}%`
-        : shown
-          ? modelDisplayName(shown.modelId)
-          : loaded?.name ?? unpinnedLabel;
-  } else if (isLoading) {
-    label = `Loading ${progress?.percentage.toFixed(0) ?? 0}%`;
-  } else if (cloudModel) {
-    shown = { modelId: cloudModel.modelId, provider: cloudModel.providerId };
-    label = modelDisplayName(cloudModel.modelId);
-  } else {
-    // A loaded local model: its file name, with the Hugging Face mark.
-    if (loaded?.name) shown = { modelId: loaded.name, provider: 'local' };
-    label = loaded?.name ?? unpinnedLabel;
+  if (!cinderpawSwitching && !isLoading && cinderpawConfig?.model) {
+    shown = { modelId: cinderpawConfig.model, provider: cinderpawConfig.provider };
   }
+  const label = cinderpawSwitching
+    ? 'Switching…'
+    : isLoading
+      ? `Loading ${progress?.percentage.toFixed(0) ?? 0}%`
+      : shown
+        ? modelDisplayName(shown.modelId)
+        : loaded?.name ?? unpinnedLabel;
   const route = shown ? providerName(shown.provider) : '';
 
   const roles = useModel((s) => s.roles);
   const [showAll, setShowAll] = useState(false);
   // The model answering now, in the roles' terms: the check mark, and
   // Primary's default until one is chosen (lib/modelRoles.ts).
-  const active: RoleModel | null = isAgentMode
-    ? cinderpawConfig?.model
-      ? cinderpawConfig.provider === LOCAL_PROVIDER_ID || cinderpawConfig.base_url?.startsWith(CINDERPAW_API_BASE)
-        ? { kind: 'local', path: '', name: cinderpawConfig.model }
-        : { kind: 'cloud', providerId: cinderpawConfig.provider, providerName: providerName(cinderpawConfig.provider), modelId: cinderpawConfig.model }
-      : null
-    : cloudModel
-      ? { kind: 'cloud', ...cloudModel }
-      : loaded?.name ? { kind: 'local', path: loaded.path ?? '', name: loaded.name } : null;
+  const active: RoleModel | null = cinderpawConfig?.model
+    ? cinderpawConfig.provider === LOCAL_PROVIDER_ID || isLocalEngineUrl(cinderpawConfig.base_url)
+      ? { kind: 'local', path: '', name: cinderpawConfig.model }
+      : { kind: 'cloud', providerId: cinderpawConfig.provider, providerName: providerName(cinderpawConfig.provider), modelId: cinderpawConfig.model }
+    : null;
   const firstLocal: RoleModel | null = localModels[0] ? { kind: 'local', path: localModels[0].path, name: localModels[0].name } : null;
   /** Switch to a role's model, the same way picking it from the list does. */
   const pick = (m: RoleModel) => {
     if (m.kind === 'cloud') {
-      if (isAgentMode) void selectCloudAgent(m.providerId, m.modelId);
-      else setCloudModel({ providerId: m.providerId, providerName: m.providerName, modelId: m.modelId });
+      void selectCloudAgent(m.providerId, m.modelId);
       return;
     }
     const info = localModels.find((x) => x.path === m.path || x.name === m.name);
@@ -226,8 +202,7 @@ export function ModelPickerPopover() {
       useNotifications.getState().push('error', 'That model is not on this computer any more', `${m.name} was chosen for a role. Pick another one in Models.`);
       return;
     }
-    if (isAgentMode) void selectLocalAgent(info);
-    else { setCloudModel(null); void load(info.path); }
+    void selectLocalAgent(info);
   };
   // Every model, as the picker listed them before roles: behind "All models".
   const allModels = (
@@ -240,11 +215,7 @@ export function ModelPickerPopover() {
             {localModels.map((m) => (
               <DropdownMenuItem
                 key={m.path}
-                onClick={() =>
-                  isAgentMode
-                    ? void selectLocalAgent(m)
-                    : (setCloudModel(null), void load(m.path))
-                }
+                onClick={() => void selectLocalAgent(m)}
                 className="flex flex-col items-start gap-0.5"
               >
                 <span className="text-text-primary">{m.name}</span>
@@ -302,11 +273,7 @@ export function ModelPickerPopover() {
                   onSelect={(e) => { if (!modelId) e.preventDefault(); }}
                   onClick={() => {
                     if (!modelId) return;
-                    if (isAgentMode) {
-                      void selectCloudAgent(p.id, modelId);
-                    } else {
-                      setCloudModel({ providerId: p.id, providerName: p.name, modelId });
-                    }
+                    void selectCloudAgent(p.id, modelId);
                   }}
                   className="flex flex-col items-start gap-0.5"
                 >
@@ -344,9 +311,10 @@ export function ModelPickerPopover() {
         >
           {shown && <ModelLogo modelId={shown.modelId} provider={shown.provider} />}
           <span className="truncate max-w-[150px]">{label}</span>
-          {/* Only meaningful for a local model — BackendBadge renders nothing
-              when none is loaded, so a cloud route stays clean. */}
-          {!cloudModel && !isLoading && <BackendBadge />}
+          {/* Only meaningful when the agent answers on the local engine; a
+              GGUF left resident behind a cloud model is not where the answer
+              comes from. */}
+          {active?.kind === 'local' && !isLoading && <BackendBadge />}
           <ChevronDown size={12} className="shrink-0 opacity-50" />
         </button>
       </DropdownMenuTrigger>

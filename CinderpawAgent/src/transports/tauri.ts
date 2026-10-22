@@ -70,10 +70,16 @@ export class TauriTransport implements Transport {
 
     process.stdin.on("end", () => {
       // Flush any trailing line without a terminator, then exit once all
-      // in-flight handlers have settled so no response is dropped.
+      // in-flight handlers have settled AND their responses are written, so
+      // no response is dropped. Waiting for the handlers alone lost lines on
+      // Linux and macOS, where a large write is still queued when they settle.
       const last = this.#buffer.trim();
       if (last) this.#dispatch(last);
-      void Promise.allSettled([...this.#pending]).then(() => process.exit(0));
+      // A host that died never reads, so its pipe never drains: give up after
+      // 5 s rather than linger holding the memory database's writer lock.
+      void Promise.allSettled([...this.#pending])
+        .then(() => Promise.race([this.#writeChain, new Promise((r) => setTimeout(r, 5000))]))
+        .then(() => process.exit(0));
     });
 
     // Signal readiness on the next tick so callers can finish wiring handlers.
