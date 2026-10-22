@@ -108,6 +108,8 @@ export function createExtensionConnectTool(deps: ExtensionConnectDeps): Tool {
       }
       return {
         ok: true,
+        // The desktop announces the connection from this ("Notion is connected").
+        data: { connected: true, name: entry.name, tools: res.tools },
         content: JSON.stringify({
           connected: true,
           tools: res.tools,

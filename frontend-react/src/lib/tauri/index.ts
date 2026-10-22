@@ -249,6 +249,8 @@ export interface ConnectorView {
   channels: string[];
   mode: string;            // "owner" | "public" (WhatsApp)
   knowledgeBase: string;   // inline KB text for public mode
+  live?: boolean;          // came online, per the engine; absent before its first report
+  liveError?: string;      // why not, beside live:false
 }
 export interface WhatsappQr {
   qr: string;     // raw pairing payload

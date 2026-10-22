@@ -155,6 +155,13 @@ pub struct ConnectorView {
     /// can be pre-filled). Empty when unset.
     #[serde(rename = "knowledgeBase")]
     pub knowledge_base: String,
+    /// Whether it actually came online, from the sidecar's health report;
+    /// absent before the first report. Saving a token proves nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live: Option<bool>,
+    /// Why it is not online, beside `live: false`.
+    #[serde(rename = "liveError", skip_serializing_if = "Option::is_none")]
+    pub live_error: Option<String>,
 }
 
 fn view_of(cfg: &ConnectorConfig) -> ConnectorView {
@@ -169,6 +176,7 @@ fn view_of(cfg: &ConnectorConfig) -> ConnectorView {
         auth_kind: "token".into(),
         coming_soon: false,
     });
+    let health = cinderpaw_core::connectors::redact_for_frontend(cfg);
     let filled = entry
         .fields
         .iter()
@@ -191,6 +199,8 @@ fn view_of(cfg: &ConnectorConfig) -> ConnectorView {
         channels: cfg.channels.clone(),
         mode: cfg.mode.clone().unwrap_or_else(|| "owner".into()),
         knowledge_base: cfg.knowledge_base.clone().unwrap_or_default(),
+        live: health.live,
+        live_error: health.live_error,
     }
 }
 

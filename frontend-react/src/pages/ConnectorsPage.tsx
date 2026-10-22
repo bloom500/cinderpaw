@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { BrandLogo } from '@/lib/brandLogos';
 import { ConnectorAccounts } from '@/components/connectors/ConnectorAccounts';
 import { IS_MAC } from '@/components/ui/kbd';
+import { announceWhenLive, useConnected } from '@/stores/connected';
 
 export function ConnectorsPage() {
   const [catalog, setCatalog] = useState<ConnectorCatalogEntry[]>([]);
@@ -167,6 +168,21 @@ export function ConnectorCard({
   const [setupOpen, setSetupOpen] = useState(configured || startOpen);
   const isQr = entry.auth_kind === 'qr';
   const linked = state?.linked ?? false;
+  // A phone that links while this card is open gets its moment.
+  const wasLinked = useRef(linked);
+  useEffect(() => {
+    if (linked && !wasLinked.current) {
+      useConnected.getState().show({ name: entry.name, body: `Your phone is linked. Message Cinderpaw on ${entry.name} to try it.` });
+    }
+    wasLinked.current = linked;
+  }, [linked, entry.name]);
+  /** Announce once the engine says it is online; if it never is, say why on the card. */
+  const announce = () => {
+    void announceWhenLive(entry.id).then((why) => {
+      if (why) setErr(`${entry.name} did not come online: ${why}`);
+      onChanged();
+    });
+  };
   const [waQr, setWaQr] = useState<WhatsappQr | null>(null);
   const [stuckPolls, setStuckPolls] = useState(0); // consecutive polls with no QR on disk
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -231,6 +247,8 @@ export function ConnectorCard({
     try {
       // Only send fields the user actually typed; empty = keep what's saved.
       const payload: Record<string, string> = {};
+      // A save of a bot that is already online is not a new connection.
+      const wasLive = state?.live === true;
       for (const f of entry.fields) {
         const v = (secrets[f.key] ?? '').trim();
         if (v) payload[f.key] = v;
@@ -245,6 +263,7 @@ export function ConnectorCard({
       );
       setSecrets({});
       onChanged();
+      if (enabled && ready && !isQr && !wasLive) announce();
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 2500);
     } catch (e) {
@@ -260,6 +279,7 @@ export function ConnectorCard({
     try {
       await tauri.connectors.setEnabled(entry.id, !enabled);
       onChanged();
+      if (!enabled && ready && !isQr) announce();
     } catch (e) {
       setErr(String(e));
     } finally {
