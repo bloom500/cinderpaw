@@ -5,6 +5,48 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
+## 2026.10.22
+
+> Calmer, and it asks first. If you have 2026.10.19, it updates by itself.
+
+### New
+
+- **You choose what it may do.** Under the box where you type, pick **Look
+  only**, **Can edit files** or **Full access**. Look only reads files and the
+  web and changes nothing on your computer.
+- **It asks before it changes how it practises.** After its Dreams, Cinderpaw
+  shows the one change it wants to make, before and after, and nothing changes
+  until you say yes. Dreams stay off until you turn them on in
+  **Settings → Learning**.
+- **"Something you should know."** When Cinderpaw finds something important
+  while it works, a small bar above the box where you type tells you, and it
+  keeps working. Press **I already knew this** and it flags less of the obvious.
+- **One notice at a time.** What's new, the update card and the usage question
+  now take turns, in the same card, in the same top-right corner.
+- **What's new shows a picture of each change.**
+- **Kimi has two choices:** Kimi Code (subscription) and Kimi API (Moonshot,
+  pay per use), each with the right place to get its key.
+
+### Fixed
+
+- **Your first answer comes sooner.** The memory download (630 MB) waits until
+  your first reply has finished.
+- **Chats stay where you left them.** Switching chats quickly no longer shows
+  the wrong one, and messages you queued are still there when you come back.
+- **Long writing keeps up.** Documents appear in parts as they are written, and
+  the panel no longer falls behind.
+- **A narrow window shows the chat or the side panel,** not both squeezed.
+- **The command card shows the result** and says why a command failed. Its
+  prompt looks like your own computer's: Windows, Mac or Linux.
+- **Leaving a fullscreen video is faster:** about 0.8 seconds instead of 2.2 on
+  Windows. On a Mac the video now fills the screen.
+- **Models:** Hugging Face cards stay in place when one opens, and the
+  Downloads and compatibility popups are no longer see-through.
+- **Deleting a model Windows keeps locked works now.** Cinderpaw deletes it the
+  next time it starts, before any model loads.
+- **Security:** updated parts with known security problems (zip, webpki,
+  follow-redirects, vite).
+
 ## 2026.10.19
 
 > A small update with fixes. If you have 2026.10.16, it updates by itself.
