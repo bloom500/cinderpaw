@@ -428,7 +428,7 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
       // point snapshots it and can put it back.
       const outside = destructiveOutsideRoots(argv, allowedPaths);
       if (outside) {
-        const call = decideOutsideWorkspace(outside, mode);
+        const call = decideOutsideWorkspace(outside);
         if (call.kind === "warn") {
           // A human decides. With nobody there this refuses rather than
           // auto-approving — an agent that can approve its own irreversible

@@ -21,6 +21,7 @@ export function createListDirectoryTool(allowedPaths: string[]): Tool {
     permissions: ["fs:read"],
     networkAccess: false,
     allowedPaths,
+    fullAccessReach: true,
   };
 
   return {

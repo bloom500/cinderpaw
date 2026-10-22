@@ -46,6 +46,7 @@ export function createFileSearchTool(allowedPaths: string[]): Tool {
     permissions: ["fs:read"],
     networkAccess: false,
     allowedPaths,
+    fullAccessReach: true,
   };
 
   return {

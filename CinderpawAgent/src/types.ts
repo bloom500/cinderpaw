@@ -76,6 +76,13 @@ export interface ToolManifest {
    */
   allowAnyCwd?: boolean;
   /**
+   * The general file tools (read, write, edit, list, search, grep): in
+   * `full_access` mode a path outside `allowedPaths` is accepted. The deny
+   * wall (~/.cinderpaw, ~/.ssh) still applies. Tools with their own folder
+   * (skills, artifacts, leads) never set it.
+   */
+  fullAccessReach?: boolean;
+  /**
    * Optional retry policy for transient failures. The registry retries the
    * tool up to `attempts` times after the initial call (so total calls =
    * 1 + attempts). Retries happen with linear backoff (250ms × attempt).

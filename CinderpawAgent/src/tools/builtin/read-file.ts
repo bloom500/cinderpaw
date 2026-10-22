@@ -103,11 +103,12 @@ export function createReadFileTool(allowedPaths: string[]): Tool {
       "one instead of trying to decode its bytes. " +
       (allowedPaths.length > 0
         ? `Reads are allowed ONLY inside these directories: ${allowedPaths.join(", ")}. ` +
-          "A path outside them is refused — never guess a directory; use one of these roots."
+          "A path outside them is refused, unless the person chose Full access (then any folder works except Cinderpaw's own keys) — never guess a directory; use one of these roots."
         : "No readable directories are configured, so every read will be refused."),
     permissions: ["fs:read"],
     networkAccess: false,
     allowedPaths,
+    fullAccessReach: true,
   };
 
   return {
