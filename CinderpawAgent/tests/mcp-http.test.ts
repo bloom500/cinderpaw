@@ -6,7 +6,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-import { MCPClient } from "../src/egress/mcp-client.ts";
+import { MCPClient, fetchSameSite } from "../src/egress/mcp-client.ts";
 
 const noAudit = () => {};
 const TOOLS = { tools: [{ name: "post_now", description: "Post", inputSchema: { type: "object", properties: { text: { type: "string" } } } }] };
@@ -104,5 +104,25 @@ describe("MCPClient over HTTP", () => {
   test("a refused key fails with the status and the server's own words", async () => {
     const c = new MCPClient({ command: "", url: refusing.url.href, headers: { Authorization: "Bearer bad" } }, noAudit);
     await expect(c.connect()).rejects.toThrow(/HTTP 403 Upgrade to Pro/);
+  });
+
+  test("a redirect to another site is refused, so a key header never follows it", async () => {
+    let leaked: string | null = null;
+    const other = Bun.serve({ port: 0, fetch: (req) => { leaked = req.headers.get("x-api-key"); return Response.json({}); } });
+    const mover = Bun.serve({
+      port: 0,
+      fetch: (req) => new URL(req.url).pathname === "/old"
+        ? new Response(null, { status: 307, headers: { location: "/mcp" } })
+        : new Response(null, { status: 307, headers: { location: `http://127.0.0.1:${other.port}/mcp` } }),
+    });
+    try {
+      // /old hops to /mcp on the same site (followed); /mcp points away (refused).
+      await expect(fetchSameSite(new URL("/old", mover.url).href, { method: "POST", body: "{}" })).rejects.toThrow(/another site/);
+      await expect(fetchSameSite(mover.url.href, { method: "POST", headers: { "X-API-Key": "sk_1" }, body: "{}" })).rejects.toThrow(/another site/);
+      expect(leaked).toBeNull();
+    } finally {
+      other.stop(true);
+      mover.stop(true);
+    }
   });
 });
