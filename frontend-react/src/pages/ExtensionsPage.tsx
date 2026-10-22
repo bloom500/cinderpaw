@@ -457,11 +457,20 @@ export function CatalogCard({
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-2 text-sm text-text-secondary">
-            <p>
-              This extension runs third-party software made by its publisher on your
-              computer to do its job. It runs with your account’s access, outside
-              Cinderpaw’s protected area.
-            </p>
+            {/* A sign-in service runs on its publisher's servers: Cinderpaw only
+                talks to it over the web (mcp-oauth.ts), nothing is installed. */}
+            {entry.browser_login ? (
+              <p>
+                {entry.name} runs on its publisher’s servers. Cinderpaw sends it what you
+                ask it to do there, with your account’s access.
+              </p>
+            ) : (
+              <p>
+                This extension runs third-party software made by its publisher on your
+                computer to do its job. It runs with your account’s access, outside
+                Cinderpaw’s protected area.
+              </p>
+            )}
             {/* Said BEFORE the install starts, not after. A browser window
                 opening by itself looks like something went wrong, and the
                 install cannot finish until the user goes and completes the

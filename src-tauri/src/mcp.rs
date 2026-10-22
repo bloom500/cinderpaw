@@ -995,15 +995,19 @@ pub async fn mcp_install(
         env.insert((*k).to_string(), (*v).to_string());
     }
 
+    // A hosted service behind `mcp-remote` (Linear, Jira, Intercom): the sidecar
+    // now reaches its link and signs in through the browser itself
+    // (mcp-oauth.ts), so the card works on a machine without Node.
+    let hosted = hosted_link(&args);
     let server = McpServerConfig {
         id: def.entry.id.clone(),
         name: def.entry.name.clone(),
         description: def.entry.description.clone(),
         category: def.entry.category.clone(),
-        command: def.command.to_string(),
-        args,
+        command: if hosted.is_some() { String::new() } else { def.command.to_string() },
+        args: if hosted.is_some() { Vec::new() } else { args },
         env,
-        url: None,
+        url: hosted,
         headers: HashMap::new(),
         enabled: true,
     };
@@ -1015,6 +1019,11 @@ pub async fn mcp_install(
         RELOAD_TIMEOUT
     };
     commit_and_start(&state, server, budget).await
+}
+
+/// The link of a hosted service a catalog card bridges with `mcp-remote`.
+fn hosted_link(args: &[String]) -> Option<String> {
+    args.iter().position(|a| a.starts_with("mcp-remote")).and_then(|i| args.get(i + 1).cloned())
 }
 
 /// "Add your own": a service's link for AI assistants, and its key if it has
@@ -1263,6 +1272,18 @@ pub async fn mcp_call_tool(
 #[cfg(test)]
 mod custom_server_tests {
     use super::*;
+
+    #[test]
+    fn every_sign_in_card_installs_as_a_link_without_node() {
+        for def in catalog() {
+            let args: Vec<String> = def.args.iter().map(|a| a.to_string()).collect();
+            let link = hosted_link(&args);
+            assert_eq!(link.is_some(), def.entry.browser_login, "{}", def.entry.id);
+            if let Some(link) = link {
+                assert!(link.starts_with("https://"), "{}: {link}", def.entry.id);
+            }
+        }
+    }
 
     #[test]
     fn a_link_and_key_become_a_web_extension_with_a_bearer_header() {

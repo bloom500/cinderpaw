@@ -30,7 +30,9 @@
 - **Notion, Linear and other services that use a sign-in connect too.** Paste
   the link and press Connect: your browser opens their sign-in page, you press
   Allow, and they connect. Nothing to set up on their side, nothing else to
-  install. Cinderpaw keeps the sign-in fresh by itself.
+  install. Cinderpaw keeps the sign-in fresh by itself. The Linear, Jira &
+  Confluence and Intercom cards in Capabilities connect this way now too, so
+  they no longer need Node.js on your computer.
 - **"Something you should know."** When Cinderpaw finds something important
   while it works, a small bar above the box where you type tells you, and it
   keeps working. Press **I already knew this** and it flags less of the obvious.
