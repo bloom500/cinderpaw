@@ -1067,6 +1067,7 @@ dependencies = [
  "webview2-com",
  "windows 0.58.0",
  "windows-core 0.61.2",
+ "wry",
  "zbus 5.19.0",
  "zip 9.0.5",
 ]

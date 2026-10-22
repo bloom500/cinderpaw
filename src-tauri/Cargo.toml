@@ -205,6 +205,17 @@ windows = { version = "0.58", features = [
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 zbus = "5"
 
+# A video's fullscreen button on a Mac: wry's `fullscreen` feature sets WebKit's
+# `fullScreenEnabled`, so the video gets WebKit's own fullscreen window, as in
+# Safari. Without it the video filled only the browser panel (21 Oct). Asked for
+# here alone, not through Tauri's `macos-private-api`, which would also make the
+# main window's configured transparency take effect: an untested change of look
+# (see call_pill.rs). Cargo unifies features, so Tauri's own wry gets it.
+# ponytail: a private WebKit key, which the Mac App Store refuses; Cinderpaw ships
+# as a DMG.
+[target.'cfg(target_os = "macos")'.dependencies]
+wry = { version = "0.55", default-features = false, features = ["fullscreen"] }
+
 [dev-dependencies]
 tempfile = "3"
 
