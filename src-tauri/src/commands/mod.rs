@@ -147,7 +147,9 @@ mod command_count_test {
     // merged from fix/brsi-real-rsi on 20 Oct).
     // 198 -> 199 = + mcp::mcp_install_custom (an extension added by its link
     // and key, 21 Oct 2026).
-    const EXPECTED_COMMAND_COUNT: usize = 199;
+    // 199 -> 200 = + connectors::connectors_save_secret (the desktop's password
+    // field saves a connector's or a web extension's key, 21 Oct 2026).
+    const EXPECTED_COMMAND_COUNT: usize = 200;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts
