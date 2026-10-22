@@ -566,7 +566,7 @@ export function AddYourOwnCard({ onInstalled }: { onInstalled: () => void }) {
           </label>
           <label className="block">
             <span className="text-2xs text-text-secondary">
-              Key <span className="text-text-muted">(if the service gave you one)</span>
+              Key <span className="text-text-muted">(if the service gave you one; if not, it may ask you to sign in)</span>
             </span>
             <input type="password" value={key} onChange={(e) => setKey(e.target.value)} className={inputClass} />
           </label>
@@ -591,6 +591,7 @@ export function AddYourOwnCard({ onInstalled }: { onInstalled: () => void }) {
             {busy && <Loader2 size={12} className="animate-spin" />}
             {busy ? 'Connecting…' : 'Connect'}
           </button>
+          {busy && <p className="text-2xs text-text-muted">If a browser tab opens, sign in there to finish.</p>}
         </div>
       )}
     </div>

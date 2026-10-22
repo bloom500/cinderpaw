@@ -30,10 +30,11 @@
  * review.
  */
 
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { MCPClient } from "./mcp-client.ts";
+import { accessToken, pruneTokens, signIn as signInWithBrowser } from "./mcp-oauth.ts";
 import type { AuditLogger } from "../types.ts";
 import type { ToolRegistry } from "../tools/registry.ts";
 import { cinderpawHome } from "../config.ts";
@@ -193,6 +194,8 @@ export class McpManager {
   /** Serializes reconcile() calls — a reload poke arriving while a slow
    *  server is still connecting must not double-spawn it. */
   #reconciling: Promise<void> = Promise.resolve();
+  /** The boot reconcile never opens a browser; one a person caused (Connect, a toggle) may. */
+  #booted = false;
 
   constructor(registry: ToolRegistry, audit: AuditLogger, configPath?: string) {
     this.#registry = registry;
@@ -202,7 +205,9 @@ export class McpManager {
 
   /** Diff config against live connections; spawn / tear down / register. */
   reconcile(): Promise<void> {
-    this.#reconciling = this.#reconciling.then(() => this.#reconcileOnce());
+    const signIn = this.#booted;
+    this.#booted = true;
+    this.#reconciling = this.#reconciling.then(() => this.#reconcileOnce(signIn));
     return this.#reconciling;
   }
 
@@ -222,7 +227,7 @@ export class McpManager {
       const servers = loadMcpConfig(this.#configPath).filter((s) => s.id !== entry.id);
       writeMcpConfig(this.#configPath, JSON.stringify({ servers: [...servers, entry] }, null, 2));
       await this.#stop(entry.id); // same id, new link or key: reconnect
-      await this.#reconcileOnce();
+      await this.#reconcileOnce(true);
       const running = this.#running.get(entry.id);
       if (running) return { ok: true as const, tools: running.toolNames };
       const error = this.#errors.get(entry.id) ?? "it did not start";
@@ -260,8 +265,10 @@ export class McpManager {
     if (timer) clearTimeout(timer);
   }
 
-  async #reconcileOnce(): Promise<void> {
+  async #reconcileOnce(signIn = false): Promise<void> {
     const servers = loadMcpConfig(this.#configPath);
+    // An empty list may be a torn or broken file: never sign everyone out over it.
+    if (servers.length > 0 || !existsSync(this.#configPath)) pruneTokens(new Set(servers.map((s) => s.id)));
     const wanted = new Map(servers.filter((s) => s.enabled).map((s) => [s.id, s]));
 
     // Tear down anything running that is no longer wanted.
@@ -272,13 +279,29 @@ export class McpManager {
     // Spawn anything wanted that is not running.
     for (const [id, server] of wanted) {
       if (this.#running.has(id)) continue;
-      await this.#start(server);
+      await this.#start(server, signIn);
     }
   }
 
-  async #start(server: McpServerConfig): Promise<void> {
+  async #start(server: McpServerConfig, signIn = false): Promise<void> {
     if (server.url) {
-      return this.#connect(server, new MCPClient({ command: "", url: server.url, headers: server.headers ?? {} }, this.#audit));
+      const web = () =>
+        new MCPClient(
+          { command: "", url: server.url, headers: server.headers ?? {}, bearer: () => accessToken(server.id) },
+          this.#audit,
+        );
+      const client = web();
+      await this.#connect(server, client);
+      // Notion, Linear: the service asked for a sign-in in the browser. Only
+      // when a person just asked for this (never at boot), and once.
+      if (!signIn || this.#running.has(server.id) || !client.signInHint) return;
+      try {
+        await signInWithBrowser(server.id, server.url, client.signInHint);
+      } catch (err) {
+        this.#errors.set(server.id, String(err));
+        return;
+      }
+      return this.#connect(server, web());
     }
     if (
       process.platform === "win32" &&

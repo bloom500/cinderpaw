@@ -137,6 +137,8 @@ export interface MCPClientConfig {
   callTimeoutMs?: number;
   /** Manifest permission hints for wrapped tools; empty by default. */
   permissions?: MCPServerPermissions;
+  /** A web extension signed in through the browser: the access token for each request (mcp-oauth.ts). */
+  bearer?: () => Promise<string | null>;
 }
 
 const BLOCKED_ENV_PREFIXES = ["LD_", "DYLD_", "NODE_", "PYTHONPATH"];
@@ -168,6 +170,8 @@ export class MCPClient {
   #abort = new AbortController();
   /** The Streamable HTTP initialize was turned away the way old servers do. */
   #legacyWanted = false;
+  /** WWW-Authenticate of a 401 that asked for a sign-in in the browser. */
+  #signInHint = "";
 
   constructor(config: MCPClientConfig, audit: AuditLogger) {
     this.#audit = audit;
@@ -180,11 +184,31 @@ export class MCPClient {
       initTimeoutMs: config.initTimeoutMs ?? 90_000,
       callTimeoutMs: config.callTimeoutMs ?? 10 * 60_000,
       permissions: config.permissions ?? {},
+      bearer: config.bearer ?? (async () => null),
     };
   }
 
   get connected(): boolean {
     return this.#connected;
+  }
+
+  /** Set when the service answered "sign in in the browser"; mcp-oauth.ts reads where. */
+  get signInHint(): string {
+    return this.#signInHint;
+  }
+
+  /**
+   * A 401 that points at an OAuth resource (Notion, Linear: `WWW-Authenticate:
+   * Bearer resource_metadata=...`) wants a sign-in in the browser, not a key.
+   * Its own words, so nobody is told to re-copy a key they never had.
+   */
+  #httpError(res: Response): Error {
+    const asked = res.headers.get("www-authenticate") ?? "";
+    if (res.status === 401 && /resource_metadata|oauth/i.test(asked)) {
+      this.#signInHint = asked;
+      return new Error("HTTP 401 browser-sign-in");
+    }
+    return new Error(`HTTP ${res.status}`);
   }
 
   /**
@@ -554,10 +578,12 @@ export class MCPClient {
       pending?.reject(e);
     };
     try {
+      const token = await this.#config.bearer();
       const res = await fetchSameSite(this.#postUrl, {
         method: "POST",
         headers: {
           ...this.#config.headers,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
           "Content-Type": "application/json",
           Accept: "application/json, text/event-stream",
           ...(this.#sessionId ? { "Mcp-Session-Id": this.#sessionId } : {}),
@@ -576,7 +602,7 @@ export class MCPClient {
         if (this.#http === "streamable" && msg.method === "initialize" && [400, 404, 405].includes(res.status)) {
           this.#legacyWanted = true;
         }
-        fail(new Error(`HTTP ${res.status}`));
+        fail(this.#httpError(res));
         return;
       }
       // Old SSE servers answer on the event stream, never on the POST.
@@ -595,13 +621,14 @@ export class MCPClient {
   /** The pre-2025 transport: a GET event stream that names where to POST. */
   async #openLegacySse(): Promise<void> {
     this.#http = "sse";
+    const token = await this.#config.bearer();
     const res = await fetchSameSite(this.#config.url, {
-      headers: { ...this.#config.headers, Accept: "text/event-stream" },
+      headers: { ...this.#config.headers, ...(token ? { Authorization: `Bearer ${token}` } : {}), Accept: "text/event-stream" },
       signal: this.#abort.signal,
     });
     if (!res.ok) {
       this.#stderrTail = `HTTP ${res.status} ${(await res.text().catch(() => "")).slice(0, 500)}`.trim();
-      throw new Error(`HTTP ${res.status}`);
+      throw this.#httpError(res);
     }
     const origin = new URL(this.#config.url).origin;
     await new Promise<void>((resolve, reject) => {

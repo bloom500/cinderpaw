@@ -25,8 +25,14 @@ const CONNECT = "Connect";
 /** What to tell the person, from the status the service answered with. */
 function nextStep(error: string): string {
   const e = error.toLowerCase();
+  if (e.includes("only lets apps it already knows")) {
+    return "This service only lets apps it already knows sign in, so it cannot be connected by its link. Tell the person plainly.";
+  }
+  if (e.includes("sign-in:") || e.includes("browser-sign-in")) {
+    return "Signing in did not finish. Ask the person to try again and finish in the browser tab that opens.";
+  }
   if (e.includes("http 401") || e.includes("http 403")) {
-    return "The service refused the key. Ask the person to check it is complete, and that their plan with the service includes connecting AI assistants.";
+    return "The service wants a key, or refused the key it was given. Ask the person for the key, or to check it is complete and that their plan with the service includes connecting AI assistants.";
   }
   if (e.includes("http 404") || e.includes("http 405")) {
     return "Nothing at that link answers AI assistants. Ask for the link the service's docs give for connecting one (it often ends in /mcp or /sse).";
@@ -40,7 +46,9 @@ export function createExtensionConnectTool(deps: ExtensionConnectDeps): Tool {
       name: "extension_connect",
       description:
         "Connect a service the person asks for (Publora, Zapier, Notion...) by its link for AI assistants " +
-        "(an MCP server link, from the service's docs or the person) and its key if it has one. The person " +
+        "(an MCP server link, from the service's docs or the person) and its key if it has one. A service " +
+        "without a key (Notion, Linear) opens a sign-in page in the person's browser after Connect: tell them " +
+        "to finish there. The person " +
         "confirms on a card; then the service's abilities are your mcp_ tools. If the person already put the " +
         "key in the chat, pass it as key. If not, and request_secret with extension_url is available, use that " +
         "instead so the key never enters the chat; otherwise ask for it. Returns { connected, tools } or the reason.",
@@ -49,6 +57,9 @@ export function createExtensionConnectTool(deps: ExtensionConnectDeps): Tool {
       // does for Capabilities. `true` also needs network:outbound and domains,
       // and a manifest the registry refuses stops the whole engine at start.
       networkAccess: false,
+      // A sign-in service (Notion, Linear) waits for the person in the browser,
+      // up to 9.5 min (mcp-oauth.ts); the registry's 60 s default cut it off.
+      timeoutMs: 10 * 60_000,
     },
     parameters: {
       url: { type: "string", description: "The service's link for AI assistants, https://...", required: true },

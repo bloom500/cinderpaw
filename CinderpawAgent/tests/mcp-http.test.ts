@@ -65,6 +65,15 @@ const refusing = Bun.serve({
   fetch: () => new Response("Upgrade to Pro to use MCP", { status: 403 }),
 });
 
+// Notion and Linear answer this way: no key will do, the person signs in in a browser.
+const oauthOnly = Bun.serve({
+  port: 0,
+  fetch: () => new Response("", {
+    status: 401,
+    headers: { "www-authenticate": 'Bearer realm="OAuth", resource_metadata="https://x.test/.well-known/oauth-protected-resource/mcp"' },
+  }),
+});
+
 // Other files swap the global fetch for stubs; on macOS one was still in place
 // when this file ran and every call hung. The client uses the global fetch,
 // so give it the real one here, as redirect-credentials.test.ts does.
@@ -79,6 +88,7 @@ afterAll(() => {
   streamable.stop(true);
   legacy.stop(true);
   refusing.stop(true);
+  oauthOnly.stop(true);
 });
 
 describe("MCPClient over HTTP", () => {
@@ -106,6 +116,11 @@ describe("MCPClient over HTTP", () => {
   test("a refused key fails with the status and the server's own words", async () => {
     const c = new MCPClient({ command: "", url: refusing.url.href, headers: { Authorization: "Bearer bad" } }, noAudit);
     await expect(c.connect()).rejects.toThrow(/HTTP 403 Upgrade to Pro/);
+  });
+
+  test("a service that wants a browser sign-in says so, instead of blaming a key", async () => {
+    const c = new MCPClient({ command: "", url: oauthOnly.url.href }, noAudit);
+    await expect(c.connect()).rejects.toThrow(/browser-sign-in/);
   });
 
   test("a redirect to another site is refused, so a key header never follows it", async () => {

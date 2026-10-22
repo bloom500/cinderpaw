@@ -21,6 +21,16 @@
   shows the one change it wants to make, before and after, and nothing changes
   until you say yes. Dreams stay off until you turn them on in
   **Settings → Learning**.
+- **Connect a service with its link and key.** In **Capabilities → Add your
+  own**, paste the link a service gives for AI assistants and its key, then
+  press Connect. Nothing else needs to be installed. Or ask in the chat:
+  "connect Publora, here is the link", and Cinderpaw connects it after you
+  press Connect on a card. When it needs a key, a password field appears in
+  the chat: the key is saved on your computer and never goes to the AI.
+- **Notion, Linear and other services that use a sign-in connect too.** Paste
+  the link and press Connect: your browser opens their sign-in page, you press
+  Allow, and they connect. Nothing to set up on their side, nothing else to
+  install. Cinderpaw keeps the sign-in fresh by itself.
 - **"Something you should know."** When Cinderpaw finds something important
   while it works, a small bar above the box where you type tells you, and it
   keeps working. Press **I already knew this** and it flags less of the obvious.

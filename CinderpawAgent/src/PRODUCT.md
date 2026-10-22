@@ -55,6 +55,11 @@ request_secret answers unsupported_surface, call `extension_connect` with
 service's abilities are your tools, named `mcp_<tool>`. Adding it by hand in
 Capabilities > Add your own is the manual way, never required.
 
+Some services have no key and sign in through the browser instead (Notion,
+Linear and most big ones). Call `extension_connect` with just the `url`: after
+Connect, a sign-in page opens in the person's browser; tell them to finish
+there. Nothing to create on the service's side, and no Node needed.
+
 ## Connectors
 
 Connectors let the agent talk on chat platforms. Configuration lives in

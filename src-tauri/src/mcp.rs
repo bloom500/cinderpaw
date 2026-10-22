@@ -819,8 +819,17 @@ fn humanize(raw: &str) -> String {
     let lower = raw.to_lowercase();
     // A service added by link answers in HTTP; its status says which of three
     // things went wrong, and each has a different fix.
+    if lower.contains("only lets apps it already knows") {
+        return "This service only lets apps it already knows sign in, so it cannot be added by its link.".into();
+    }
+    if lower.contains("sign-in:") {
+        return "Signing in did not finish. Press Connect again, and finish in the browser tab that opens.".into();
+    }
+    if lower.contains("browser-sign-in") {
+        return "This service needs you to sign in again. Turn it off and on here, and finish in the browser tab that opens.".into();
+    }
     if lower.contains("http 401") || lower.contains("http 403") {
-        return "That service did not accept the key. Check that you copied all of it, and that your plan with them includes connecting AI assistants.".into();
+        return "That service wants a key, or did not accept the one you gave. Check that you copied all of it, and that your plan with them includes connecting AI assistants.".into();
     }
     if lower.contains("http 404") || lower.contains("http 405") {
         return "Nothing at that link answers AI assistants. Check the link the service gives for connecting one (it often ends in /mcp or /sse).".into();
@@ -1019,7 +1028,9 @@ pub async fn mcp_install_custom(
     key: String,
 ) -> Result<McpServerView, String> {
     let server = custom_server(&name, &url, &key)?;
-    commit_and_start(&state, server, RELOAD_TIMEOUT).await
+    // A service may answer "sign in in the browser" (Notion, Linear): the
+    // sidecar opens it and waits for the person, so this waits as long.
+    commit_and_start(&state, server, BROWSER_LOGIN_TIMEOUT).await
 }
 
 fn custom_server(name: &str, url: &str, key: &str) -> Result<McpServerConfig, String> {
