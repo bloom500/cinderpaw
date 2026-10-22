@@ -5,7 +5,7 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
-## 2026.10.22
+## 2026.10.23
 
 > Calmer, and it asks first. If you have 2026.10.19, it updates by itself.
 
