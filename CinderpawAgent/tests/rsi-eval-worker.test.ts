@@ -15,6 +15,7 @@
 import { describe, expect, test } from "bun:test";
 import { EventBus, type RsiEvent } from "../src/rsi/infra/event-bus.ts";
 import { EvalWorker, type EvalOutcome } from "../src/rsi/infra/eval-worker.ts";
+import { RsiRunAbortedError } from "../src/rsi/infra/run-eval.ts";
 
 const GENOME = { id: "g1", generation: 0, lineage: [] };
 
@@ -77,5 +78,19 @@ describe("RSI eval worker", () => {
     expect(done.score).toBe(0); // a crashed eval scores 0, never the scorer's value
     expect(done.error).toContain("agent crashed");
     expect(done.behavioralFingerprint).toEqual([]);
+  });
+
+  test("a deliberately aborted run does not emit a fake zero-score EvalComplete", async () => {
+    const bus = new EventBus();
+    const events: RsiEvent[] = [];
+    bus.on("EvalStarted", (e) => events.push(e));
+    bus.on("EvalComplete", (e) => events.push(e));
+    const worker = new EvalWorker(bus, {
+      runEval: async () => { throw new RsiRunAbortedError("UserStopped"); },
+      scoreGenome: async () => ({ score: 99 }),
+    });
+
+    await expect(worker.run(GENOME)).rejects.toBeInstanceOf(RsiRunAbortedError);
+    expect(events.map((e) => e.type)).toEqual(["EvalStarted"]);
   });
 });

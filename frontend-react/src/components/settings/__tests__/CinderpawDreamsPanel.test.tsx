@@ -42,12 +42,12 @@ const SUMMARY: DreamTelemetrySummary = {
 };
 
 /** Minimal Settings row — only the fields the panel reads matter. */
-function withSettings(route: string | null, allowCloudDreams: boolean) {
+function withSettings(route: string | null, allowCloudDreams: boolean, budget = 5) {
   useSettings.setState({
     settings: {
       models_dir: '', default_gpu_layers: -1, api_server_enabled: false, api_port: 11435,
       version: 'test', desktop_control_enabled: false, desktop_control_yolo: false,
-      token_budget_conversation: null, rsi_max_cost_usd: 5,
+      token_budget_conversation: null, rsi_max_cost_usd: budget,
       rsi_allow_cloud_dreams: allowCloudDreams, dreams_enabled: true, active_route: route, cloud_fallback_enabled: false,
     },
   });
@@ -90,6 +90,21 @@ describe('CinderpawDreamsPanel — the cloud gate is on screen, not in a log', (
     const optedIn = render(<CinderpawDreamsPanel />);
     expect(await optedIn.findByText(/No dreams yet/)).toBeInTheDocument();
     expect(optedIn.queryByText(/isn't dreaming/i)).toBeNull();
+  });
+
+  // Allowed on a cloud model, limit $0: the engine refuses every dream before
+  // it spends, and that used to read as an ordinary "no dreams yet".
+  it('says a $0 limit is why a cloud model with dreaming allowed never dreams', async () => {
+    stubListener();
+    withSettings('anthropic:claude-haiku-5-5', true, 0);
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue({ ...SUMMARY, episodes: 0, ratchets: 0, last: [] });
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+
+    render(<CinderpawDreamsPanel />);
+
+    expect(await screen.findByText(/isn't dreaming/i)).toBeInTheDocument();
+    expect(screen.getByText(/spending limit is \$0, so it won't spend/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Dream now/i })).toBeDisabled();
   });
 });
 
@@ -354,7 +369,7 @@ describe('CinderpawDreamsPanel — Pending patches (Slice 5)', () => {
     expect(screen.getByText('live apply OK')).toBeInTheDocument();
   });
 
-  it('renders the manual window header while the first-10 window is open', async () => {
+  it('says every change waits for a yes during the first 10', async () => {
     stubListener();
     const fire = capturePatchesListener();
     vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
@@ -364,10 +379,10 @@ describe('CinderpawDreamsPanel — Pending patches (Slice 5)', () => {
     render(<CinderpawDreamsPanel />);
     fire(PATCHES_PAYLOAD({ manualWindowOpen: true, appliedCount: 3 }));
 
-    expect(await screen.findByText(/3 of 10 approved/)).toBeInTheDocument();
+    expect(await screen.findByText(/3 approved so far\. Nothing goes in without your yes/)).toBeInTheDocument();
   });
 
-  it('hides the manual window header after auto-apply unlocks', async () => {
+  it('still says it after 10, because nothing auto-approves', async () => {
     stubListener();
     const fire = capturePatchesListener();
     vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
@@ -377,8 +392,8 @@ describe('CinderpawDreamsPanel — Pending patches (Slice 5)', () => {
     render(<CinderpawDreamsPanel />);
     fire(PATCHES_PAYLOAD({ manualWindowOpen: false, appliedCount: 12 }));
 
-    await screen.findByText('Code changes Cinderpaw wrote');
-    expect(screen.queryByText(/of 10 approved/)).not.toBeInTheDocument();
+    expect(await screen.findByText(/12 approved so far\. Nothing goes in without your yes/)).toBeInTheDocument();
+    expect(screen.queryByText(/go in by themselves/)).not.toBeInTheDocument();
   });
 
   it('renders the empty state when the sidecar sends zero patches', async () => {

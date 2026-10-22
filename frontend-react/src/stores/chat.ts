@@ -5,6 +5,24 @@ import type { ToolActivity } from '@/hooks/useLiveToolActivity';
 export type StreamStatus = 'idle' | 'streaming' | 'done' | 'error' | 'stopped';
 export type AgentPhase = 'thinking' | 'calling' | 'processing'
   | 'reading' | 'searching' | 'building' | 'writing' | null;
+export type TurnEnd = { kind: 'stopped' } | { kind: 'error'; raw: string };
+
+/** Saved memories, or undefined for anything that is not a list of them. */
+export function memoryUsedFrom(v: unknown): MemoryUsedItem[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const items = v.filter((m): m is MemoryUsedItem =>
+    !!m && typeof m === 'object' && typeof (m as MemoryUsedItem).text === 'string'
+    && ['fact', 'past', 'learned'].includes((m as MemoryUsedItem).kind));
+  return items.length > 0 ? items : undefined;
+}
+
+/** A saved `ended`, or undefined for anything that is not one (older files, hand edits). */
+export function turnEndFrom(v: unknown): TurnEnd | undefined {
+  const o = v as { kind?: unknown; raw?: unknown } | null | undefined;
+  if (o?.kind === 'stopped') return { kind: 'stopped' };
+  if (o?.kind === 'error' && typeof o.raw === 'string') return { kind: 'error', raw: o.raw };
+  return undefined;
+}
 
 /**
  * One memory the agent was given for a turn (the sidecar's `memory_used`): a
@@ -12,7 +30,8 @@ export type AgentPhase = 'thinking' | 'calling' | 'processing'
  * `memory_forget` takes; a past chat has none.
  */
 export interface MemoryUsedItem {
-  kind: 'fact' | 'past';
+  /** `learned`: a learned way, steps a 👍 taught (sidecar core/learned-ways.ts). */
+  kind: 'fact' | 'past' | 'learned';
   text: string;
   forget?: { from: string; to: string; relation: string };
   ts?: number;
@@ -30,6 +49,9 @@ export interface ChatMessage {
   images?: string[];
   /** The memories put into this reply's context (Memory Peek). Not persisted. */
   memoryUsed?: MemoryUsedItem[];
+  /** The engine's id for this reply, which a thumbs vote must name for the
+   *  engine to know the turn. Not persisted; neither are the votes. */
+  agentMessageId?: string;
   thinking?: string;
   thinkingStartAt?: number;
   thinkingDurationMs?: number;
@@ -48,6 +70,13 @@ export interface ChatMessage {
   truncated?: boolean;
   /** Why the response was truncated (e.g. "length"). */
   truncatedReason?: string;
+  /**
+   * How the turn ended when it did not end by itself: the person stopped it,
+   * or it failed (the raw error, worded on screen by humanizeError). Saved
+   * with the chat, so the line and the error card are still there after you
+   * switch chats and come back.
+   */
+  ended?: TurnEnd;
   /**
    * What the agent wrote in its OWN scratchpad (`~/.cinderpaw/workspace`) during
    * this turn. Absent when it wrote nothing there — the common case, and an
@@ -331,7 +360,8 @@ export const useChat = create<ChatStore>((set, get) => ({
       // Forward every explicit click to the audit log (a re-click that toggles
       // the UI still tells the runtime the user's latest intent). Fire-and-
       // forget — the vote UI must not block on the sidecar.
-      void tauri.raw.cinderpawSubmitFeedback(s.sessionId, messageId, value).catch(() => {});
+      const engineId = s.messages.find((m) => m.id === messageId)?.agentMessageId ?? messageId;
+      void tauri.raw.cinderpawSubmitFeedback(s.sessionId, engineId, value).catch(() => {});
       return { feedback: next };
     }),
 

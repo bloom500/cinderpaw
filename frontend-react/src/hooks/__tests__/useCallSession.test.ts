@@ -10,12 +10,6 @@ const speech = vi.hoisted(() => ({
 }));
 
 const stopActiveStream = vi.hoisted(() => vi.fn(async () => {}));
-const chat = vi.hoisted(() => ({
-  stream: vi.fn(async () => {}),
-  cloudStream: vi.fn(async () => {}),
-  stop: vi.fn(async () => {}),
-}));
-const listen = vi.hoisted(() => vi.fn(async () => () => {}));
 const transcribeVoiceBlob = vi.hoisted(() => vi.fn(async () => 'voice turn'));
 let analyserLevel = 0;
 
@@ -29,20 +23,10 @@ vi.mock('@/lib/streamControl', () => ({ stopActiveStream }));
 vi.mock('@/lib/tauri', () => ({
   tauri: {
     raw: { uiLog: vi.fn(async () => {}) },
-    chat,
-  },
-  events: {
-    tokenEvent: { listen },
-    streamDoneEvent: { listen },
-    streamErrorEvent: { listen },
-    streamTruncatedEvent: { listen },
-    streamStartEvent: { listen },
-    streamUsageEvent: { listen },
   },
 }));
 
 import { useCallSession } from '../useCallSession';
-import { requestStreamStop, startChatStream } from '@/lib/chatStream';
 import { useChat } from '@/stores/chat';
 
 class FakeRecorder {
@@ -134,29 +118,6 @@ beforeEach(() => {
     value: { getUserMedia: vi.fn() },
   });
   useChat.setState({ messages: [], sessionId: 'call-test', streamStatus: 'idle' });
-});
-
-describe('chat stream stop requested before registration', () => {
-  it('consumes the stop instead of starting the stale generation', async () => {
-    await requestStreamStop('not-registered-yet');
-    const handlers = {
-      onToken: vi.fn(),
-      onDone: vi.fn(),
-      onError: vi.fn(),
-      onStopped: vi.fn(),
-    };
-
-    await startChatStream(
-      'not-registered-yet',
-      [],
-      { temperature: 0.7, top_p: 0.9, repeat_penalty: 1.1, max_tokens: 100 },
-      null,
-      handlers,
-    );
-
-    expect(handlers.onStopped).toHaveBeenCalledOnce();
-    expect(chat.stream).not.toHaveBeenCalled();
-  });
 });
 
 describe('useCallSession turn generation', () => {

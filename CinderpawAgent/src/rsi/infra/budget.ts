@@ -22,13 +22,10 @@
  *   Wall-clock, tokens, energy, and disk are CUMULATIVE (sum across
  *   phases). The distinction matters for `applySpend`.
  *
- * Discipline: pure logic, no IO. The caller (contract stages) calls
- * `assertCanSpend(caps, spent, phase, estimate)` BEFORE starting a
- * phase. When the estimator returns `null` (no data yet for a phase),
- * the assert is permissive — `allow: true` — so we don't block on
- * missing data. That's a deliberate fail-open; the journal should
- * record the "no estimate" outcome so the operator knows to wire in
- * an estimator.
+ * Discipline: pure logic, no IO. The Contract runner rejects null/empty
+ * estimates before calling the gate. `CycleBudgetLedger` owns one cycle's
+ * committed spend plus concurrent reservations; raw `assertCanSpend` retains
+ * its legacy null behavior only for callers outside the Contract.
  *
  * Defaults mirror BRSI §2.5. SandboxBounds should hold the user's
  * overrides so the agent cannot widen its own budget — this module
@@ -74,17 +71,112 @@ export interface BudgetSpend {
   diskMb: number;
 }
 
-/** Estimate of what a phase WOULD consume. Optional fields mean "no
- *  estimator available for this resource yet" — see the fail-open
- *  contract in the module header. When the WHOLE phase is unmappable
- *  (no estimator at all), pass `null` instead of an empty object. */
+/** Estimate of what a phase WOULD consume. Optional fields mean the estimator
+ * does not consume that resource. Evidence-only work must say
+ * `unmetered:true`; an empty object is rejected by the cycle ledger. */
 export interface PhaseEstimate {
+  /** Explicit declaration that this stage only classifies existing evidence. */
+  unmetered?: boolean;
   wallClockMin?: number;
   cpuPct?: number;
   ramMb?: number;
   tokens?: number;
   energyKwh?: number;
   diskMb?: number;
+}
+
+export interface BudgetReservation {
+  settle(actual: BudgetSpend): void;
+  release(): void;
+}
+
+/**
+ * One live, concurrency-safe ledger for an entire evolution cycle. Estimates
+ * are reserved synchronously before work starts and actual deltas replace the
+ * reservation afterward, so parallel candidates cannot each spend the same
+ * remaining budget.
+ */
+export class CycleBudgetLedger {
+  readonly #caps: BudgetCaps;
+  #spent: BudgetSpend;
+  readonly #reservations = new Map<number, BudgetSpend>();
+  #nextReservation = 1;
+
+  constructor(caps: BudgetCaps, initialSpend: BudgetSpend = zeroSpend()) {
+    this.#caps = { ...caps };
+    this.#spent = { ...initialSpend };
+  }
+
+  get spent(): BudgetSpend {
+    return { ...this.#spent };
+  }
+
+  get caps(): BudgetCaps {
+    return { ...this.#caps };
+  }
+
+  /** Actual cost already incurred before the contract stages (e.g. eval). */
+  charge(actual: BudgetSpend): void {
+    this.#spent = applySpend(this.#spent, actual);
+  }
+
+  projectedSpend(): BudgetSpend {
+    let projected = this.#spent;
+    for (const reservation of this.#reservations.values()) {
+      projected = applySpend(projected, reservation);
+    }
+    return { ...projected };
+  }
+
+  reserve(phase: CyclePhase, estimate: PhaseEstimate): {
+    decision: BudgetDecision;
+    reservation?: BudgetReservation;
+  } {
+    if (!meaningfulEstimate(estimate)) {
+      return {
+        decision: {
+          allow: false,
+          breaches: [],
+          reason: `phase ${phase}: empty budget estimate (fail-closed)`,
+        },
+      };
+    }
+    const delta = ALL_RESOURCES.some((resource) => estimate[resource] !== undefined)
+      ? estimateToSpend(estimate)
+      : zeroSpend();
+    const decision = assertCanSpend(this.#caps, this.projectedSpend(), phase, estimate);
+    if (!decision.allow) return { decision };
+
+    const id = this.#nextReservation++;
+    this.#reservations.set(id, delta);
+    let open = true;
+    const release = (): void => {
+      if (!open) return;
+      open = false;
+      this.#reservations.delete(id);
+    };
+    return {
+      decision,
+      reservation: {
+        release,
+        settle: (actual) => {
+          if (!open) return;
+          release();
+          this.charge(actual);
+        },
+      },
+    };
+  }
+}
+
+function meaningfulEstimate(estimate: PhaseEstimate): boolean {
+  return estimate.unmetered === true || ALL_RESOURCES.some((resource) => estimate[resource] !== undefined);
+}
+
+function estimateToSpend(estimate: PhaseEstimate): BudgetSpend {
+  const spend = zeroSpend();
+  for (const resource of ALL_RESOURCES) spend[resource] = Math.max(0, estimate[resource] ?? 0);
+  return spend;
 }
 
 /** What the gate decides. */
@@ -120,8 +212,8 @@ const ALL_RESOURCES: ReadonlyArray<keyof BudgetCaps> = [
 /** Decide whether a phase may begin given the cycle's caps, what has
  *  been spent so far, and the phase's own cost estimate.
  *
- *  Returns `{allow: true}` when the phase is within budget OR when no
- *  estimate was provided (fail-open contract — see module header).
+ *  Returns `{allow: true}` when the phase is within budget. The low-level null
+ *  branch is retained for compatibility; the Contract rejects null first.
  *
  *  Returns `{allow: false, breaches: [...]}` listing every resource
  *  that would breach. `reason` is fit for the Evolution Journal. */
@@ -143,12 +235,15 @@ export function assertCanSpend(
   const breaches: BudgetBreach[] = [];
   for (const resource of ALL_RESOURCES) {
     const est = estimate[resource];
-    if (est === undefined) continue; // estimator didn't opine on this resource
     const cap = caps[resource];
     const spendSoFar = spent[resource];
-    const projected = spendSoFar + est;
+    if (est === undefined && spendSoFar <= cap) continue;
+    const estimated = est ?? 0;
+    const projected = resource === "cpuPct" || resource === "ramMb"
+      ? Math.max(spendSoFar, estimated)
+      : spendSoFar + estimated;
     if (projected > cap) {
-      breaches.push({ resource, cap, spend: spendSoFar, estimate: est });
+      breaches.push({ resource, cap, spend: spendSoFar, estimate: estimated });
     }
   }
 

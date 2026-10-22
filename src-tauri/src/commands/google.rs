@@ -29,6 +29,8 @@ pub(crate) async fn google_upload(
     data: String,
     encoding: Option<String>,
     convert: bool,
+    // Absent from an older page: private, as before.
+    anyone_with_link: Option<bool>,
 ) -> Result<String, String> {
     use base64::Engine as _;
     let bytes = if encoding.as_deref() == Some("base64") {
@@ -36,5 +38,5 @@ pub(crate) async fn google_upload(
     } else {
         data.into_bytes()
     };
-    crate::google::upload(&name, &mime, bytes, convert).await
+    crate::google::upload(&name, &mime, bytes, convert, anyone_with_link.unwrap_or(false)).await
 }

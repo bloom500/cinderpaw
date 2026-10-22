@@ -33,6 +33,7 @@
 import type {
   BudgetDecision,
   BudgetSpend,
+  CycleBudgetLedger,
   CyclePhase,
   PhaseEstimate,
 } from "./budget.ts";
@@ -129,6 +130,8 @@ export interface ContractState {
   startedAt: number;
   /** Budget accumulated across all stages so far (BRSI §2.5). */
   budgetSpent: BudgetSpend;
+  /** Immutable cap snapshot supplied by the host for this candidate. */
+  budgetCaps: import("./budget.ts").BudgetCaps;
   /** Benchmark stage output: the 6-component fitness vector. */
   fitnessVector?: FitnessVector;
   /** Aggregate of the fitness vector (the scalar the ratchet compares). */
@@ -167,10 +170,19 @@ export interface ContractDeps {
   regression: StageFn;
   deploy: StageFn;
   monitoring: StageFn;
-  /** Budget assertion, called BEFORE each stage. Fail-open on null
-   *  estimate (per `budget.ts` fail-open contract); explicit-estimate
-   *  breach → HALT (INVARIANT I5). */
-  assertBudget: (phase: CyclePhase, estimate: PhaseEstimate | null) => BudgetDecision;
+  /** Required pre-stage estimate. null is a fail-closed halt (I5). */
+  estimateBudget: (stage: ContractStage, state: ContractState) => PhaseEstimate | null;
+  /** Budget assertion against the accumulated ledger, called before stage. */
+  assertBudget: (phase: CyclePhase, spent: BudgetSpend, estimate: PhaseEstimate) => BudgetDecision;
+  /** Shared across every candidate carrying the same cycleId. */
+  budgetLedger?: CycleBudgetLedger;
+  /** Actual resource delta recorded after the stage returns. */
+  measureSpend: (
+    stage: ContractStage,
+    state: ContractState,
+    result: StageResult,
+    elapsedMs: number,
+  ) => BudgetSpend;
   /** Confidence gate, called AFTER regression, BEFORE deploy. If the
    *  gate rejects, the cycle halts (INVARIANT I6). */
   evaluateConfidence: (samples: readonly PairedSample[]) => GateDecision;
@@ -193,6 +205,7 @@ export function makeInitialState(args: {
   candidateId: string;
   layer: ContractState["layer"];
   budgetCaps: import("./budget.ts").BudgetCaps;
+  initialSpend?: BudgetSpend;
   rollbackTarget?: string;
   now?: number;
 }): ContractState {
@@ -203,7 +216,8 @@ export function makeInitialState(args: {
     currentStage: "candidate_proposed",
     history: [],
     startedAt: args.now ?? Date.now(),
-    budgetSpent: {
+    budgetCaps: { ...args.budgetCaps },
+    budgetSpent: args.initialSpend ? { ...args.initialSpend } : {
       wallClockMin: 0,
       cpuPct: 0,
       ramMb: 0,

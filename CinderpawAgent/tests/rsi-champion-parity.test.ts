@@ -39,7 +39,9 @@ const record = (c: GenomeConfig, id = "g1", score = 1): ChampionRecord => ({
 
 describe("live reach", () => {
   test("every genome dimension is classified", () => {
-    const keys = Object.keys(config()).sort();
+    // reasoningEffort is optional (absent = the provider's default), so the
+    // sample config leaves it out; it is still a dimension and must be classified.
+    const keys = [...Object.keys(config()), "reasoningEffort"].sort();
     expect(Object.keys(LIVE_REACH).sort()).toEqual(keys);
   });
 
@@ -87,7 +89,7 @@ describe("writeChampion stamps parity", () => {
   test("the first champion on a fresh install carries the stamp", () => {
     withTmp((path) => {
       const stamped = writeChampion(path, record(config()));
-      expect(stamped.parity?.applied).toEqual(["systemPromptId", "temperature"]);
+      expect(stamped.parity?.applied).toEqual(["reasoningEffort", "systemPromptId", "temperature"]);
       expect(stamped.parity?.dropped).toHaveLength(5);
       // Nothing preceded it, so it is not "the same as before".
       expect(stamped.parity?.sameAppliedAsPrevious).toBe(false);

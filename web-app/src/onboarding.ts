@@ -5,7 +5,7 @@
 
 import { COPY } from "./copy";
 
-export type Step = "name" | "brain" | "show-me" | "pick-provider" | "key" | "done";
+export type Step = "name" | "import" | "brain" | "show-me" | "pick-provider" | "key" | "done";
 export type Candidate = {
   kind: string;
   id: string;
@@ -19,12 +19,23 @@ export type Provider = { id: string; name: string; default_model: string; defaul
 export type Outcome = { ok: boolean; status: string; message: string };
 export type Saved = { step: Step; name: string; providerId?: string };
 export type KeyResult = { ok: true; mask: string } | { ok: false; line: string; details?: string };
+/** Another agent's setup on this machine (engine `GET /runtime/migrate/preview`). */
+export type MigrateFound = {
+  source: string;
+  root: string;
+  plan: { willImport: { what: string }[]; notImported: string[]; conflicts: string[] };
+};
 
 export interface Api {
   detect(): Promise<Candidate[]>;
   catalog(): Promise<Provider[]>;
   verify(c: Candidate, key?: string): Promise<Outcome>;
   activate(c: Candidate): Promise<void>;
+  migratePreview(): Promise<MigrateFound[]>;
+  migrateApply(root: string): Promise<string[]>;
+  /** OpenRouter's one-click sign-in: the URL to open. The engine saves the key
+   *  and sends the browser back to `returnTo`. */
+  openRouterSignIn(returnTo: string): Promise<string>;
 }
 
 /** The real API: same origin, the session cookie rides along. */
@@ -49,7 +60,29 @@ export function fetchApi(f: typeof fetch = fetch): Api {
       if (c.kind === "local_gguf" || !c.provider_id || !c.model) return;
       await post("/runtime/model", { id: `${c.provider_id}:${c.model}` });
     },
+    migratePreview: async () => json(await f("/runtime/migrate/preview")),
+    migrateApply: async (root) => (await json(await post("/runtime/migrate/apply", { root }))).imported ?? [],
+    openRouterSignIn: async (returnTo) => (await json(await post("/runtime/openrouter/sign-in", { return_to: returnTo }))).url,
   };
+}
+
+/** An OpenClaw or Hermes Agent setup worth offering, or null. Never throws:
+ *  an engine without the route is a person with nothing to import. */
+export async function importOffer(api: Api): Promise<MigrateFound | null> {
+  try {
+    return (await api.migratePreview()).find((f) => f.plan.willImport.length > 0) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** "its personality and 12 skills", from what the import would bring. */
+export function whatWillCome(f: MigrateFound): string {
+  const skills = f.plan.willImport.filter((i) => i.what.startsWith("skill: ")).length;
+  const persona = f.plan.willImport.length > skills;
+  return [persona && "its personality", skills > 0 && (skills === 1 ? "1 skill" : `${skills} skills`)]
+    .filter(Boolean)
+    .join(" and ");
 }
 
 /** The few most people have; the rest sit behind "Show me more". */

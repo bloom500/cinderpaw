@@ -104,6 +104,10 @@ export function CinderpawDreamsPanel() {
   const onCloudModel = route !== null && !route.startsWith('local:');
   const dreamsAsleep = onCloudModel && settings?.rsi_allow_cloud_dreams !== true;
   const budget = settings?.rsi_max_cost_usd ?? 0;
+  // Allowed on a cloud model but the limit is $0: the engine refuses every
+  // dream before it spends a cent, which used to look exactly like "no dreams
+  // yet". Say it here, not only in the log.
+  const dreamsNoBudget = onCloudModel && !dreamsAsleep && budget <= 0;
 
   // BRSI §2.8 `user` Wake trigger: ask the Dream Cycle to run one episode now
   // instead of waiting for the idle gate. Best-effort — a failure (sidecar not
@@ -443,11 +447,13 @@ export function CinderpawDreamsPanel() {
         <button
           type="button"
           onClick={dreamNow}
-          disabled={requested || dreaming || dreamsAsleep}
+          disabled={requested || dreaming || dreamsAsleep || dreamsNoBudget}
           title={
             dreamsAsleep
               ? 'Asleep. Turn on dreaming for cloud models first'
-              : 'Dream once now, without waiting for you to step away'
+              : dreamsNoBudget
+                ? 'Your spending limit is $0. Pick a limit above first'
+                : 'Dream once now, without waiting for you to step away'
           }
           className="ml-auto rounded border border-border-subtle px-2 py-0.5 text-2xs text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
         >
@@ -521,6 +527,17 @@ export function CinderpawDreamsPanel() {
         </div>
       )}
 
+      {dreamsNoBudget && (
+        <div className="flex items-start gap-2 rounded border border-warning/30 bg-warning/5 px-2.5 py-2">
+          <AlertTriangle size={12} className="mt-0.5 shrink-0 text-warning" />
+          <p className="text-2xs text-text-secondary">
+            <span className="font-medium text-text-primary">Cinderpaw isn&apos;t dreaming.</span>{' '}
+            Your spending limit is $0, so it won&apos;t spend anything on your cloud model.
+            Pick a limit in Spending limit above, and it stops there.
+          </p>
+        </div>
+      )}
+
       {dreaming && (
         <div className="flex items-center gap-2 rounded border border-brand/30 bg-brand/5 px-2.5 py-1.5">
           <Moon size={12} className="shrink-0 animate-pulse text-brand" />
@@ -536,7 +553,9 @@ export function CinderpawDreamsPanel() {
         <p className="text-2xs text-text-muted">
           {dreamsAsleep
             ? 'No dreams yet. Dreaming is off for cloud models, see above.'
-            : 'No dreams yet. Cinderpaw dreams when you step away for a while.'}
+            : dreamsNoBudget
+              ? 'No dreams yet. The spending limit is $0, see above.'
+              : 'No dreams yet. Cinderpaw dreams when you step away for a while.'}
         </p>
       ) : (
         <>
@@ -1328,7 +1347,6 @@ function PendingPatches({
   // No state until the sidecar has answered once — avoid a flash of "no
   // pending patches" during the cold-start fetch.
   if (payload === null) return null;
-  const showWindow = payload.manualWindowOpen;
   return (
     <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
       <div className="flex items-center gap-2">
@@ -1337,11 +1355,11 @@ function PendingPatches({
           Code changes Cinderpaw wrote
         </span>
         <span className="text-text-muted text-2xs">({patches.filter((x) => x.status === 'pending').length} waiting for you)</span>
-        {showWindow && (
-          <span className="ml-auto text-2xs text-text-muted tabular-nums">
-            {payload.appliedCount} of 10 approved. After 10, changes you approve go in by themselves
-          </span>
-        )}
+        {/* applyPatchLive refuses anything not approved, at any count: no
+            auto-approval exists, so the line holds after 10 too. */}
+        <span className="ml-auto text-2xs text-text-muted tabular-nums">
+          {payload.appliedCount} approved so far. Nothing goes in without your yes
+        </span>
       </div>
       {/* Why the queue is empty matters as much as that it is. A round the
           walls refused, or one that could not run because there is no

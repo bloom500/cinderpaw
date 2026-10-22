@@ -5,7 +5,7 @@ read that first for the 60-second version. This guide covers the architecture in
 depth, how the three runtimes talk to each other, how to run every test suite,
 and how builds and releases work.
 
-> **For the layer model (L0–L6), Faza ↔ L-layer translation, file map
+> **For the layer model (L0–L6), Phase ↔ L-layer translation, file map
 > and glossary, see [ARCHITECTURE.md](../ARCHITECTURE.md). For every
 > `CINDERPAW_*` env var, see [CONFIGURATION.md](./CONFIGURATION.md). For the
 > Go terminal client (user guide + build instructions), see [TUI.md](./TUI.md).**
@@ -25,8 +25,8 @@ Cinderpaw is one repo, three runtimes, three languages:
 │                         Cinderpaw (Tauri 2.x app)                        │
 │                                                                      │
 │  ┌──────────────────────────┐      ┌──────────────────────────────┐  │
-│  │ frontend-react/          │      │ src-tauri/                   │  │
-│  │ React 18 + TS + Vite     │◄────►│ Rust host                    │  │
+│  │ frontend-react/          │      │ src-tauri/ + cinderpaw-core  │  │
+│  │ React 19 + TS + Vite     │◄────►│ Rust host                    │  │
 │  │ Tailwind + Zustand       │ IPC  │  lib.rs        commands      │  │
 │  │                          │      │  inference.rs  llama.cpp     │  │
 │  │  invoke() ───────────────┼──────┼─► #[tauri::command]          │  │
@@ -54,12 +54,11 @@ Cinderpaw is one repo, three runtimes, three languages:
 
 ### frontend-react/ — the UI
 
-- **Stack:** React 18, TypeScript, Vite, Tailwind, Zustand, framer-motion.
+- **Stack:** React 19, TypeScript, Vite, Tailwind, Zustand, framer-motion.
 - **State:** one Zustand store per domain in `src/stores/` (chat, model,
   conversations, agent, cinderpaw, settings, ui, …). Stores are module-global —
   they survive page/tab switches; components subscribe to slices.
-- **Streaming:** two parallel paths with deliberately identical semantics:
-  - `src/lib/chatStream.ts` — local llama.cpp / cloud BYOK chat
+- **Streaming:** every message goes to the agent, on one path:
   - `src/lib/cinderpawAgentStream.ts` — Cinderpaw Agent sidecar (persistent global
     listener; streams survive navigation; `src/lib/cinderpawLiveSession.ts`
     mirrors in-flight state so re-entering a chat rehydrates it)
@@ -74,20 +73,28 @@ Cinderpaw is one repo, three runtimes, three languages:
   state names in `frames.ts`, idle choreography in `MascotPerch.tsx`. The old
   pixel sheet (`sheet.png`, the frame lists in `frames.ts`) is no longer drawn.
 
-### src-tauri/ — the Rust host
+### src-tauri/ and crates/cinderpaw-core/: the Rust host
 
-- **`lib.rs`** — all `#[tauri::command]` handlers (chat, models, conversations,
-  BYOK, skills, agents, cinderpaw_* sidecar bridge). Commands are registered in the
-  `collect_commands![]` block near the bottom; events in `collect_events![]`.
-- **`inference.rs`** — llama.cpp engine: GGUF load, context pool, KV-cache
-  reuse. GPU builds use `--features inference-vulkan` (default is CPU).
-- **`api.rs`** — loopback OpenAI/Ollama-compatible HTTP API on `:11435`,
-  gated by a per-launch bearer token. This is how the sidecar does local
-  inference — the sidecar never touches the GGUF directly.
-- **`cinderpaw_agent.rs`** — sidecar lifecycle: spawn, supervise (respawn with
-  backoff, `cinderpaw://agent-exit` on death), stdio bridge. Outbound messages go
-  through `state.cinderpaw_agent_tx`; sidecar stdout lines are re-emitted as
-  `cinderpaw://agent-output` events.
+The desktop shell is `src-tauri/`. The engine it runs lives in
+`crates/cinderpaw-core/`, which the headless CLI (`crates/cinderpaw-cli/`)
+shares, so the same code serves both.
+
+- **`src-tauri/src/lib.rs`**: app setup. Every command is registered in the
+  `collect_commands![]` block; events in `collect_events![]`. The
+  `#[tauri::command]` handlers themselves live in `src-tauri/src/commands/`
+  (chat, models, conversations, BYOK, settings, agents, cinderpaw_* sidecar
+  bridge) and in a few feature modules (`skills.rs`, `connectors.rs`,
+  `rsi/commands.rs`, …).
+- **`crates/cinderpaw-core/src/inference.rs`**: llama.cpp engine: GGUF load,
+  context pool, KV-cache reuse. GPU builds use `--features inference-vulkan`
+  (default is CPU).
+- **`crates/cinderpaw-core/src/api.rs`**: loopback OpenAI/Ollama-compatible
+  HTTP API on `:11435`, gated by a per-launch bearer token. This is how the
+  sidecar does local inference; the sidecar never touches the GGUF directly.
+- **`crates/cinderpaw-core/src/cinderpaw_agent.rs`**: sidecar lifecycle: spawn,
+  supervise (respawn with backoff, `cinderpaw://agent-exit` on death), stdio
+  bridge. Outbound messages go through `runtime.cinderpaw_agent_tx`; sidecar
+  stdout lines are re-emitted as `cinderpaw://agent-output` events.
 
 ### CinderpawAgent/ — the agent sidecar
 
@@ -160,7 +167,8 @@ forwarding to the sidecar.
 | Node | 20+ | `node --version` |
 | Bun | 1.x | `bun --version` |
 | Tauri CLI | 2.x | `cargo tauri --version`, install with `cargo install tauri-cli --version "^2"` |
-| LLVM/Clang | any recent | `clang --version` — **Windows only, required for the `whisper` feature** (bindgen needs a native clang for MSVC-compatible bindings). Default install path is `C:\Program Files\LLVM\bin`; if yours differs, set `LIBCLANG_PATH` before building. |
+| CMake | any recent | `cmake --version`. The llama.cpp bindings (`llama-cpp-sys-2`) build llama.cpp with it. |
+| LLVM/Clang | any recent | `clang --version`. **Needed by the default build on every OS:** bindgen, which generates the llama.cpp bindings, loads libclang (Linux: `libclang-dev`; macOS: `brew install llvm`). `src-tauri/.cargo/config.toml` points `LIBCLANG_PATH` at the default Windows install, `C:\Program Files\LLVM\bin`; if yours is elsewhere, set `LIBCLANG_PATH` before building. The optional `whisper` feature cannot be linked together with the default `inference` feature (see `src-tauri/Cargo.toml`). |
 
 ### First run
 
@@ -227,14 +235,16 @@ node src-tauri/scripts/build-sidecar.mjs
 
 # 2. Full bundle (frontend production build + Rust release + installers)
 cargo tauri build
-# Output: src-tauri/target/release/bundle/
+# Output: target/release/bundle/ (the workspace target dir, at the repo root)
 #   Windows: .msi + NSIS setup .exe
 ```
 
 ### Signing & updater
 
-Releases are signed with `TAURI_SIGNING_PRIVATE_KEY` (empty-password key; see
-`docs/UPDATER_KEY_MIGRATION.md` for the 0.1.x → 0.2.0 key transition). The
+Releases are signed with `TAURI_SIGNING_PRIVATE_KEY` and its password,
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (both repository secrets). The
+signing key was replaced in v0.2.0; `docs/UPDATER_KEY_MIGRATION.md` is the
+historical record of that change. The
 auto-updater requires every release to ship `latest.json` + `.sig` files.
 Secrets live in GitHub Secrets, never in the repo.
 
@@ -248,11 +258,11 @@ CI in `.github/workflows/` builds the installer matrix.
   (A2, P0-3, #18, …) where one exists.
 - **Errors must reach the user.** No silent `catch {}` on user-facing paths;
   humanize via `lib/humanizeError.ts`, surface as toasts/stream errors.
-- **Two streaming paths, one semantics.** Stop/retry/interrupt behaviour stays
-  identical between chat and agent paths; UI calls
+- **One way to stop.** UI code stops an answer through
   `streamControl.stopActiveStream()` only.
 - **No raw `invoke()` in components** — add typed wrappers in `lib/tauri/`.
-- **User-facing strings** go through `lib/i18n.ts` (EN + RO).
+- **User-facing strings:** the UI is English only for now. `lib/i18n.ts` holds
+  the existing keys; new text can be plain English and does not need a key.
 - **Sidecar security:** filesystem / network / child-process access goes
   through the sandbox layers; new tools declare manifest permissions.
 - **Non-technical first.** Cinderpaw's primary audience includes people who have

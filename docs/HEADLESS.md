@@ -6,9 +6,6 @@ API and from the terminal. This is the "One Brain, Many Faces" runtime — the
 desktop app, the connectors (Discord/Slack/…), and the CLI are all just faces on
 the one process.
 
-> Scope: Faza 4.5. macOS service install is a later phase; Windows and Linux are
-> covered here.
-
 ## Quick start
 
 ```sh
@@ -32,7 +29,13 @@ refuses to start a second host, and vice-versa.
 | `cinderpaw gateway start` | Start in the **background**; logs to `~/.cinderpaw/gateway.log`. |
 | `cinderpaw gateway stop` | Graceful drain (finishes in-flight work, then exits). |
 | `cinderpaw gateway restart` | Stop then start. |
+| `cinderpaw stop` | Stop Cinderpaw running in the background. |
 | `cinderpaw gateway status` / `cinderpaw status` | Model, LoRA, backend, sidecar liveness. |
+| `cinderpaw open` (alias `dashboard`) | Open Cinderpaw in your browser. |
+| `cinderpaw ask "<question>"` | Ask one question and get the answer right here. |
+| `cinderpaw sessions` (alias `transcripts`) | See your past chats, or read one. |
+| `cinderpaw skills` | See the skills Cinderpaw knows, read one, or remove one. |
+| `cinderpaw providers` (alias `provider`) | See your AI providers, pick one, or add a key. |
 | `cinderpaw model` | List installed local models. |
 | `cinderpaw doctor` | Diagnose: port, token, models, sidecar binary, GPU, connectors. |
 | `cinderpaw logs [-f]` | Print (or follow) the gateway log. |
@@ -41,6 +44,9 @@ refuses to start a second host, and vice-versa.
 | `cinderpaw config get [key]` / `set <key> <value>` | Read/write `settings.json`. |
 | `cinderpaw chat` (alias `tui`) | Interactive terminal chat over `/runtime/chat`. |
 | `cinderpaw completion <shell>` | Print a shell-completion script (bash/zsh/fish/powershell/elvish). |
+| `cinderpaw update` | Get the newest Cinderpaw. |
+| `cinderpaw uninstall [--purge]` | Remove Cinderpaw. Your chats, memory, keys and models stay unless you add `--purge`. |
+| `cinderpaw migrate` | Bring your setup over from OpenClaw or Hermes Agent. |
 
 Global flags: `--json` (machine-readable output on the read commands),
 `--no-color` (also auto-off when piped or `NO_COLOR` is set), `-V`/`--version`.
@@ -93,14 +99,26 @@ curl -sN -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
 
 So Discord (and the rest) answer after a reboot with nothing open.
 
-**Windows** — a logon Task Scheduler task (native, no extra tooling):
+**The one-line install already does this.** `install.sh` and `install.ps1`
+finish by running `cinderpaw self-install`, which makes Cinderpaw start when
+you log in:
 
-```powershell
-schtasks /create /tn "Cinderpaw Gateway" /sc onlogon /rl highest ^
-  /tr "\"%LOCALAPPDATA%\Programs\Cinderpaw\cinderpaw.exe\" gateway"
+- **Windows:** a shortcut in your Startup folder that runs `cinderpaw gateway start`.
+- **macOS:** a LaunchAgent at `~/Library/LaunchAgents/dev.cinderpaw.engine.plist`.
+- **Linux:** a systemd user unit at `~/.config/systemd/user/cinderpaw.service`.
+  If systemd is not there, an entry in `~/.config/autostart/` instead.
+
+`cinderpaw uninstall` takes these away again.
+
+On Linux, a user unit stops when you log out. To keep it running:
+
+```sh
+loginctl enable-linger "$USER"
 ```
 
-**Linux** — a systemd **user** unit at `~/.config/systemd/user/cinderpaw.service`:
+**Installed with `install.sh --from-source`?** That path puts the CLI in
+`~/.local/bin` and does not set up autostart. Add a systemd **user** unit at
+`~/.config/systemd/user/cinderpaw.service` yourself:
 
 ```ini
 [Unit]
@@ -120,6 +138,3 @@ systemctl --user daemon-reload
 systemctl --user enable --now cinderpaw
 loginctl enable-linger "$USER"   # keep it running when you're logged out
 ```
-
-> `cinderpaw service install` will wrap these steps in a future update; for now the
-> snippets above are the supported path.

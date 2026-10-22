@@ -17,8 +17,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createToolForgeTool, registerPersistedCustomTools } from "../src/tools/builtin/tool-forge.ts";
-import { saveCustomTool, transpileToolCode, type CustomToolRecord } from "../src/tools/custom-tools.ts";
+import { createCustomTool, saveCustomTool, transpileToolCode, type CustomToolRecord } from "../src/tools/custom-tools.ts";
 import { TOOL_DOMAINS_ENV } from "../src/tools/custom-tool-runner.ts";
+import { validateManifest } from "../src/egress/tool-permissions.ts";
 import type { AskUserQuestion, Tool, ToolContext } from "../src/types.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "cinderpaw-forge-skip-"));
@@ -335,4 +336,43 @@ test("a parameterless tool is not probed twice", async () => {
     test_args: {},
   });
   expect(f.spawns).toHaveLength(1); // the smoke run already WAS the no-args case
+});
+
+// ------------------------------- a forged network tool must not stop the agent
+
+// 16 Oct 2026, beta.5: the agent had forged a tool that reads api.github.com,
+// and every start after that died with `tool "rea_info": networkAccess must
+// match the "network:outbound" permission`, five times, then "Agent mode
+// stopped". The fake registry above never runs validateManifest; the real one
+// does, on every boot, so these two tests run it.
+test("a forged tool that uses the network passes the real manifest check", () => {
+  const now = Date.now();
+  const record: CustomToolRecord = {
+    version: 1, name: "github_release_check", description: "d", parameters: {}, code: CODE,
+    allowedDomains: ["api.github.com"], createdAt: now, updatedAt: now,
+  };
+  const tool = createCustomTool(record, dir, [dir], FAKE_RUNTIME);
+  expect(() => validateManifest(tool.manifest)).not.toThrow();
+  expect(tool.manifest.permissions).toContain("network:outbound");
+  const offline = createCustomTool({ ...record, name: "offline_tool", allowedDomains: [] }, dir, [dir], FAKE_RUNTIME);
+  expect(() => validateManifest(offline.manifest)).not.toThrow();
+  expect(offline.manifest.permissions).not.toContain("network:outbound");
+});
+
+test("one saved tool the registry refuses is skipped; the others still load and boot goes on", () => {
+  persist("refused_on_boot", 0);
+  persist("loads_on_boot", 0);
+  const base = makeRegistry();
+  const registry = Object.assign(Object.create(base), {
+    register: (t: Tool) => {
+      if (t.manifest.name === "refused_on_boot") throw new Error("bad manifest");
+      base.register(t);
+    },
+  }) as typeof base;
+  let registered: string[] = [];
+  expect(() => {
+    registered = registerPersistedCustomTools({ registry, workspaceRoots: [dir], dir, runtime: FAKE_RUNTIME });
+  }).not.toThrow();
+  expect(registered).toContain("loads_on_boot");
+  expect(registered).not.toContain("refused_on_boot");
 });

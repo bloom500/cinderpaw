@@ -12,7 +12,7 @@
 > - [docs/brsi-spec.md](docs/brsi-spec.md) — Bounded RSI, conceptual foundation.
 
 This document is the *map*: layer responsibilities, file locations, the
-Faza ↔ L-layer translation, the poetic-term glossary, and the "where
+Phase ↔ L-layer translation, the poetic-term glossary, and the "where
 do I add X" cheat sheet.
 
 ---
@@ -21,7 +21,7 @@ do I add X" cheat sheet.
 
 | # | Runtime | Stack | Path | Owns |
 |---|---|---|---|---|
-| 1 | **Desktop UI** | React 18 + Vite + Zustand | `frontend-react/` | Rendering, chat surfaces, mascot, settings UX. |
+| 1 | **Desktop UI** | React 19 + Vite + Zustand | `frontend-react/` | Rendering, chat surfaces, mascot, settings UX. |
 | 2a | **Rust host** (desktop) | Tauri 2 + llama.cpp | `src-tauri/` + `crates/cinderpaw-core/` | IPC, file system, GGUF inference, `127.0.0.1:11435` HTTP API, sidecar supervision. |
 | 2b | **Rust host** (headless gateway) | Rust | `crates/cinderpaw-cli/` | Same `cinderpaw-core`, no UI. Exposes `cinderpaw` subcommands and the HTTP API for terminal + automation. |
 | 3 | **Sidecar** | Bun + TypeScript (compiled to one `.exe`) | `CinderpawAgent/` | Agent loop, BRSI engine, memory, tools, sandboxed inference router. |
@@ -52,13 +52,13 @@ layers**.
 
 | Layer | Mandate | May | May not | TS code (selection) | Rust code (selection) |
 |---|---|---|---|---|---|
-| **L0 — substrate** | Git-backed journal; bounded-ratchet boundary; integrity | Persist all evolution artefacts as git commits; reject non-monotonic advances | Touch user-visible runtime paths | `rsi/infra/journal.ts`, `rsi/repo.ts` (TS proxy), `rsi/infra/hash-chain.ts` | `crates/cinderpaw-core/src/rsi/repo.rs` (`ratchet_attempt`), `src-tauri/src/rsi/repo.rs` |
-| **L1 — config evolution** | Mutate the 7-field `GenomeConfig`; bounded by schema | Mutate genomes within schema; emit `EvalStarted`/`EvalComplete` | Touch code, LoRA weights, source files | `rsi/l1-config/genome.ts`, `rsi/l1-config/mutation.ts`, `rsi/l1-config/selection-handler.ts`, `rsi/l1-config/crossover*`, `rsi/l1-config/population-manager.ts`, `rsi/l1-config/champion*.ts`, `rsi/l1-config/taste*.ts`, `rsi/l1-config/escape-time*`, `rsi/l1-config/recalcitrance.ts`, `rsi/l1-config/birth-policy.ts`, `rsi/l1-config/extinction-handler.ts`, `rsi/l1-config/dream-*.ts`, `rsi/l1-config/pbt-*`, `rsi/l1-config/fractal.ts`, `rsi/l1-config/goal-mode.ts`, `rsi/l1-config/strategy-seeds.ts` | `crates/cinderpaw-core/src/rsi/scorer.rs` |
-| **L2 — continual personal adaptation** | LoRA over user signal | Train / promote LoRAs; manage dataset | Mutate base weights; bypass `personal-fitness.ts` | `rsi/l2-adapt/lora-*`, `rsi/l2-adapt/trainers/`, `rsi/l2-adapt/dataset-builder.ts`, `rsi/l2-adapt/personal-fitness.ts` | `crates/cinderpaw-core/src/rsi/plan.rs` |
-| **L3 — code-RSI** | Patches over existing CinderpawAgent source | Compose unified diffs; live-apply through worktree | Skip the worktree; touch host or TUI; promote without human approval (first N) | `rsi/l3-code/code-*`, `rsi/l3-code/pending-patches.ts`, `rsi/l3-code/code-sandbox.ts` (the contract FSM itself — `rsi/infra/contract*.ts` — lives in `infra/`; it's shared with L1/L4) | `src-tauri/src/rsi/` (full file set; `code_patch.rs` in `cinderpaw-core`), `crates/cinderpaw-core/src/rsi/repo.rs::watchdog_branch` |
-| **L4 — architecture evolution** | Subsystem hot-plug via `seam_runtime` against two v1 seams (`retrieval_strategy`, `planner`) | Promote new modules via `seam-adapter`/`module-host`; registry re-point on strike | Write into `CinderpawAgent/src/`; ship a third seam in v1 | `rsi/l4-modules/module-*`, `rsi/l4-modules/seam-*` | `crates/cinderpaw-core/src/rsi/` (instrumentation) |
-| **L5 — governance evolution** | Tunes parameters inside `SandboxBounds`; reversible | Update `policy.json`; emit audit events | Bypass tier-0; ignore an `EvalHalted` | `rsi/l5-gov/governance*` | `crates/cinderpaw-core/src/rsi/sandbox_bounds.rs`, `crates/cinderpaw-core/src/rsi/audit.rs` |
-| **L6 — meta evolution** | Tunes the algorithm that produces parameters | Modify selection pressure, score weights, mutation distributions | Skip human gate; never reversible on its own | `rsi/l6-meta/meta-evolution.ts` (694 lines: `MetaEvolution`, `mutateMetaGenome`, `metaFitness`) | (rust half not implemented — the TS half is what runs) |
+| **L0: substrate** | Git-backed journal; bounded-ratchet boundary; integrity | Persist all evolution artefacts as git commits; reject non-monotonic advances | Touch user-visible runtime paths | `rsi/infra/journal.ts`, `rsi/infra/hash-chain.ts` | `crates/cinderpaw-core/src/rsi/repo.rs` (`ratchet_attempt`) |
+| **L1: config evolution** | Mutate the 7-field `GenomeConfig`; bounded by schema | Mutate genomes within schema; emit `EvalStarted`/`EvalComplete` | Touch code, LoRA weights, source files | `rsi/l1-config/genome.ts`, `rsi/l1-config/mutation.ts`, `rsi/l1-config/selection-handler.ts`, `rsi/l1-config/crossover*`, `rsi/l1-config/population-manager.ts`, `rsi/l1-config/champion*.ts`, `rsi/l1-config/taste*.ts`, `rsi/l1-config/escape-time*`, `rsi/l1-config/recalcitrance.ts`, `rsi/l1-config/birth-policy.ts`, `rsi/l1-config/extinction-handler.ts`, `rsi/l1-config/dream-*.ts`, `rsi/l1-config/pbt-*`, `rsi/l1-config/fractal.ts`, `rsi/l1-config/goal-mode.ts`, `rsi/l1-config/strategy-seeds.ts` | `crates/cinderpaw-core/src/rsi/scorer.rs` |
+| **L2: continual personal adaptation** | LoRA over user signal | Train / promote LoRAs; manage dataset | Mutate base weights; bypass `personal-fitness.ts` | `rsi/l2-adapt/lora-*`, `rsi/l2-adapt/trainers/`, `rsi/l2-adapt/dataset-builder.ts`, `rsi/l2-adapt/personal-fitness.ts` | `crates/cinderpaw-core/src/rsi/plan.rs` |
+| **L3: code-RSI** | Patches over existing CinderpawAgent source | Compose unified diffs; live-apply through worktree | Skip the worktree; touch host or TUI; promote without human approval (first N) | `rsi/l3-code/code-*`, `rsi/l3-code/pending-patches.ts`, `rsi/l3-code/code-sandbox.ts` (the contract FSM itself, `rsi/infra/contract*.ts`, lives in `infra/`; it's shared with L1/L4) | `src-tauri/src/rsi/commands.rs` (Tauri commands), `crates/cinderpaw-core/src/rsi/code_patch.rs`, `crates/cinderpaw-core/src/rsi/watchdog.rs` |
+| **L4: architecture evolution** | Subsystem hot-plug via `seam_runtime` against two v1 seams (`retrieval_strategy`, `planner`) | Promote new modules via `seam-adapter`/`module-host`; registry re-point on strike | Write into `CinderpawAgent/src/`; ship a third seam in v1 | `rsi/l4-modules/module-*`, `rsi/l4-modules/seam-*` | `crates/cinderpaw-core/src/rsi/` (instrumentation) |
+| **L5: governance evolution** | Tunes parameters inside `SandboxBounds`; reversible | Update `policy.json`; emit audit events | Bypass tier-0; ignore an `EvalHalted` | `rsi/l5-gov/governance*` | `crates/cinderpaw-core/src/rsi/sandbox_bounds.rs`, `crates/cinderpaw-core/src/rsi/audit.rs` |
+| **L6: meta evolution** | Tunes the algorithm that produces parameters | Modify selection pressure, score weights, mutation distributions | Skip human gate; never reversible on its own | `rsi/l6-meta/meta-evolution.ts` (`MetaEvolution`, `mutateMetaGenome`, `metaFitness`) | (rust half not implemented; the TS half is what runs) |
 | **infra (cross-layer)** | State + transport primitives used by every layer above | Bus events, envelopes, budget, paths, the contract FSM, confidence gate, eval-spec loading | Couple to a specific L-layer's evolution contracts | `rsi/infra/event-bus.ts`, `rsi/infra/hash-chain.ts`, `rsi/infra/instance-paths.ts`, `rsi/infra/provenance.ts`, `rsi/infra/envelope-store.ts`, `rsi/infra/budget.ts`, `rsi/infra/rsi-cost.ts`, `rsi/infra/resource-monitor.ts`, `rsi/infra/adapters.ts`, `rsi/infra/bridge.ts`, `rsi/infra/contract*.ts`, `rsi/infra/confidence.ts`, `rsi/infra/eval-spec.ts` | (paths only — `crates/cinderpaw-core/src/rsi/paths.rs`) |
 
 The orchestrators live at the root of `rsi/`: `rsi/sidecar.ts`,
@@ -66,32 +66,32 @@ The orchestrators live at the root of `rsi/`: `rsi/sidecar.ts`,
 them; orchestrators know about every layer, but layers do not import
 each other directly. Full per-file layer map: `CinderpawAgent/src/rsi/README.md`.
 
-## 4. Faza ↔ L-layer ↔ spec ↔ code
+## 4. Phase ↔ L-layer ↔ spec ↔ code
 
-> **Verified by `git log --grep="Faza"` on this branch at commit
-> `feat/l5-governance`.** Faza numbers are historical (when the work
-> shipped); L-layer numbers are architectural (where the work
-> belongs). They overlap but don't coincide exactly.
+> Phase numbers are historical (when the work shipped); L-layer
+> numbers are architectural (where the work belongs). They overlap but
+> don't coincide exactly. Older commit messages and code comments say
+> "Faza" (Romanian for phase), so `git log --grep="Faza"` finds them.
 
-| Faza | L-layer | Title | Spec | Code (headline) |
+| Phase | L-layer | Title | Spec | Code (headline) |
 |---|---|---|---|---|
-| Faza 0 | L0 substrate | Keystone as delivered | `docs/brsi-spec.md` §0 | `rsi/infra/journal.ts`, `crates/cinderpaw-core/src/rsi/repo.rs` |
-| Faza 1 | L1 mechanics | Event bus → mutation → ratchet | `docs/rsi-evolution-spec.md` | `rsi/infra/event-bus.ts`, `rsi/l1-config/mutation.ts`, `rsi/l1-config/ratchet-handler.ts`, `rsi/l1-config/population-manager.ts` |
-| Faza 1 | sidecar/Rust bridge | (a) bridge client | (same) | `rsi/infra/bridge.ts`, `crates/cinderpaw-core/src/cinderpaw_agent.rs` |
-| Faza 2 | L3 | Code-RSI | `docs/code-rsi-*.md`, `docs/2026-07-04-l4-architecture-evolution-spec.md` | `rsi/l3-code/code-*`, `src-tauri/src/rsi/` |
-| Faza 2/3 reproduction | L1/L3 | Wire reproduction into births | — | `rsi/l1-config/crossover*`, `rsi/l1-config/extinction-handler.ts` |
-| Faza 3 | L3 stabilisation | Watchdog / revert / rebuild | `docs/2026-07-09-l4-b7-smoke.md` | `src-tauri/src/rsi/watchdog.rs`, `src-tauri/scripts/build-sidecar.mjs` |
-| Faza 3.5 | (L1/L2 hybrid) | PBT (strategy-genomes) | `docs/rsi-evolution-spec.md` | `rsi/l1-config/pbt-*` |
-| Faza 4 | L2 | LoRA loop (eval runner + LoRA substrate) | `docs/brsi-spec.md` §4.7 + per-slice docs | `rsi/l2-adapt/lora-*`, `rsi/l2-adapt/dataset-builder.ts`, `rsi/l2-adapt/personal-fitness.ts` |
-| Faza 4.5 | (infra) | Host-agnostic runtime | `docs/2026-07-03-faza4-5-headless-design.md` | `crates/cinderpaw-core/src/boot.rs`, `cinderpaw-cli` |
-| Faza 4.6 | (infra) | Brain Stack (capability routing) | `docs/2026-07-03-brain-stack-minimax-brief.md` | `CinderpawAgent/src/brain/`, `src-tauri/src/brain*` |
-| Faza 5 (shipped) | L5 governance | Policy lifecycle | `docs/2026-07-04-l5-governance-evolution-spec.md` | `rsi/l5-gov/governance*`, `crates/cinderpaw-core/src/rsi/sandbox_bounds.rs` |
-| Faza 6 (shipped) | L6 meta | Tunes the tuner | `docs/2026-07-04-l6-meta-evolution-audit.md` | `rsi/l6-meta/meta-evolution.ts`, instantiated in `boot.ts` and live via `metaParams` |
+| Phase 0 | L0 substrate | Keystone as delivered | `docs/brsi-spec.md` §0 | `rsi/infra/journal.ts`, `crates/cinderpaw-core/src/rsi/repo.rs` |
+| Phase 1 | L1 mechanics | Event bus → mutation → ratchet | `docs/rsi-evolution-spec.md` | `rsi/infra/event-bus.ts`, `rsi/l1-config/mutation.ts`, `rsi/l1-config/ratchet-handler.ts`, `rsi/l1-config/population-manager.ts` |
+| Phase 1 | sidecar/Rust bridge | (a) bridge client | (same) | `rsi/infra/bridge.ts`, `crates/cinderpaw-core/src/cinderpaw_agent.rs` |
+| Phase 2 | L3 | Code-RSI | `docs/brsi-spec.md` §5 | `rsi/l3-code/code-*`, `crates/cinderpaw-core/src/rsi/code_patch.rs`, `src-tauri/src/rsi/` |
+| Phase 2/3 reproduction | L1/L3 | Wire reproduction into births | none | `rsi/l1-config/crossover*`, `rsi/l1-config/extinction-handler.ts` |
+| Phase 3 | L3 stabilisation | Watchdog / revert / rebuild | none | `crates/cinderpaw-core/src/rsi/watchdog.rs`, `src-tauri/scripts/build-sidecar.mjs` |
+| Phase 3.5 | (L1/L2 hybrid) | PBT (strategy-genomes) | `docs/rsi-evolution-spec.md` | `rsi/l1-config/pbt-*` |
+| Phase 4 | L2 | LoRA loop (eval runner + LoRA substrate) | `docs/brsi-spec.md` §5 | `rsi/l2-adapt/lora-*`, `rsi/l2-adapt/dataset-builder.ts`, `rsi/l2-adapt/personal-fitness.ts` |
+| Phase 4.5 | (infra) | Host-agnostic runtime | `docs/HEADLESS.md` | `crates/cinderpaw-core/src/boot.rs`, `cinderpaw-cli` |
+| Phase 4.6 | (infra) | Brain Stack (capability routing) | none | `CinderpawAgent/src/brain/` |
+| Phase 5 (shipped) | L5 governance | Policy lifecycle | `docs/brsi-spec.md` §5 | `rsi/l5-gov/governance*`, `crates/cinderpaw-core/src/rsi/sandbox_bounds.rs` |
+| Phase 6 (shipped) | L6 meta | Tunes the tuner | `docs/brsi-spec.md` §5 | `rsi/l6-meta/meta-evolution.ts`, instantiated in `boot.ts` and live via `metaParams` |
 
 **Things that are NOT in the BRSI layer model** (deliberately
-out-of-scope per spec §Out-of-scope):
-- Brain Stack (Faza 4.6) — capability routing, not evolution.
-- Headless CLI (Faza 4.5 slice 2) — host extraction, not a new layer.
+out of scope):
+- Brain Stack (Phase 4.6): capability routing, not evolution.
+- Headless CLI (Phase 4.5): host extraction, not a new layer.
 - FMS / fractal memory — substrate used by L1/L2 retrievers, not
   evolution.
 
@@ -115,7 +115,7 @@ definition plus the file that "owns" it.
 | **Recalcitrance** | Empirical signal that a niche resists current operators — RSI pauses and tries harder mutations. | `rsi/l1-config/recalcitrance.ts` |
 | **Birth / birth policy** | Spawning a new candidate within population dynamics. | `rsi/l1-config/birth-policy.ts` |
 | **Extinction / extinction handler** | Removing a stale niche or catastrophic niche (monoculture, Hall-of-Fame retention). | `rsi/l1-config/extinction-handler.ts` |
-| **Ratchet** | The strict-greater advance: `candidate > prior` or no advance. Source of truth for `repo.rs:344`. | `rsi/l1-config/ratchet-handler.ts`, `crates/cinderpaw-core/src/rsi/repo.rs` |
+| **Ratchet** | The strict-greater advance: `candidate > prior` or no advance. Source of truth for `repo.rs::ratchet_attempt`. | `rsi/l1-config/ratchet-handler.ts`, `crates/cinderpaw-core/src/rsi/repo.rs` |
 | **PBT** | Population-Based Training: strategy-genomes steer Level-1 in lockstep with model training. | `rsi/l1-config/pbt-controller.ts`, `rsi/l1-config/pbt-handler.ts` |
 | **Dream / dream cycle** | The 8-stage orchestration loop that decides "what to try next". | `rsi/l1-config/dream-cycle.ts`, `rsi/l1-config/dream-scheduler.ts`, `rsi/l1-config/dream-config.ts` |
 | **FMS / fractal memory** | Fractal Memory Search — the memory substrate; tier-by-tier summary tree over SQLite leaves. | `CinderpawAgent/src/memory/fractal/` |
@@ -141,7 +141,7 @@ Four places, in this order:
    the existing OpenAI-compat adapter routes you automatically.
 3. **`CinderpawAgent/src/brain/capability-registry.ts`** — a capability
    vector is auto-seeded from the catalog; confirm it matches.
-4. **`Settings → Cloud Keys` UI** — wires automatically via
+4. **Models → Cloud tab** (`ByokTab`): wires automatically via
    `useCatalog()` (R4 fix). Confirm with a smoke test.
 
 ### "I'm adding a new built-in tool."
@@ -189,4 +189,4 @@ Pick the L-layer first:
 *Maintainers' note: this document is the primary *map*. If you add a
 new file in `CinderpawAgent/src/rsi/`, update the L-layer table in §3,
 the glossary in §5, and `CinderpawAgent/src/rsi/README.md`. Drift here is
-a real bug — the next agent will believe the wrong thing.*
+a real bug: the next person who reads this map will believe the wrong thing.*

@@ -11,42 +11,6 @@ use tauri_specta::Event;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
 #[serde(rename_all = "camelCase")]
-pub struct TokenEvent {
-    pub session_id: String,
-    pub text: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
-#[serde(rename_all = "camelCase")]
-pub struct StreamDoneEvent {
-    pub session_id: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
-#[serde(rename_all = "camelCase")]
-pub struct StreamErrorEvent {
-    pub session_id: String,
-    pub error: String,
-}
-
-/// Emitted by `chat_cloud_stream` when the OpenAI-compatible provider reports
-/// `finish_reason: "length"` — the model hit its server-side token cap before
-/// producing a natural stop. The frontend keeps the partial response visible
-/// but marks the message as truncated so the user can see *why* it cut off.
-///
-/// For the local llama.cpp backend we still emit `stream-done` and
-/// `finish_reason` is unknown to the frontend; the truncation only applies
-/// to the cloud streaming path.
-#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
-#[serde(rename_all = "camelCase")]
-pub struct StreamTruncatedEvent {
-    pub session_id: String,
-    /// The raw `finish_reason` from the provider, typically "length".
-    pub reason: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
-#[serde(rename_all = "camelCase")]
 pub struct DownloadProgressEvent {
     pub repo_id: String,
     pub filename: String,
@@ -75,27 +39,6 @@ pub struct DownloadErrorEvent {
 pub struct ModelLoadProgressEvent {
     pub percentage: f64,
     pub status_text: String,
-}
-
-/// Emitted right after the prompt is tokenized, before any new tokens are generated.
-/// Carries the exact prompt token count so the frontend can show real usage immediately.
-#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
-#[serde(rename_all = "camelCase")]
-pub struct StreamStartEvent {
-    pub session_id: String,
-    /// Real token count of the full prompt (all history + system prompt), from llama.cpp.
-    pub prompt_tokens: u32,
-}
-
-/// Emitted at the end of a cloud (OpenAI-compatible) stream when the provider
-/// returns usage stats in the final SSE chunk. Carries the real prompt and
-/// completion token counts so the frontend can show accurate usage.
-#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
-#[serde(rename_all = "camelCase")]
-pub struct StreamUsageEvent {
-    pub session_id: String,
-    pub prompt_tokens: u32,
-    pub completion_tokens: u32,
 }
 
 /// One chunk of synthesised speech, base64-encoded raw PCM.
@@ -165,26 +108,3 @@ pub struct AgentStreamEvent {
     pub data: String,
 }
 
-/// Heartbeat for in-flight inference — emitted on a ~750 ms cadence so the
-/// UI can show live progress ("prefill", then "generating • 12.3 tok/s")
-/// instead of a static "Thinking…" black box. The watchdog in `chat_stream`
-/// emits this; the sidecar's `stream_progress` OutboundEvent is the
-/// equivalent for the agent path and is forwarded through the existing
-/// `cinderpaw://agent-output` channel (not a separate channel — the sidecar
-/// emits structured JSON lines and React filters by `type`).
-///
-/// All timing fields are milliseconds since the inference call's start.
-/// `prompt_tokens` is set once `on_start` fires; `tokens_generated` and
-/// `tokens_per_sec` populate only after the first sampled token.
-#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
-#[serde(rename_all = "camelCase")]
-pub struct StreamProgressEvent {
-    pub session_id: String,
-    pub phase: String, // "prefill" | "generating"
-    pub elapsed_ms: u32,
-    pub prompt_tokens: u32,
-    pub tokens_generated: u32,
-    /// Rolling tok/s, updated on each heartbeat after the first token.
-    /// Zero during prefill and before the first token lands.
-    pub tokens_per_sec: f32,
-}

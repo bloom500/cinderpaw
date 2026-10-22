@@ -161,7 +161,7 @@ export function clearTaint(sessionId: string): void {
 const CONSEQUENTIAL = new Set([
   'shell_exec', 'write_file', 'edit_file', 'artifact_send', 'artifact_export',
   'http_request', 'fetch_url', 'read_webpage', 'web_search',
-  'cinderpaw_admin', 'delegate_task', 'install_capability', 'tool_forge', 'computer_use',
+  'cinderpaw_admin', 'delegate_task', 'install_capability', 'install_skill_from_link', 'tool_forge', 'computer_use',
   'git_commit', 'git_branch', 'remember', 'create_skill', 'delete_skill', 'connectors_manage',
 ]);
 

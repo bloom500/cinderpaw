@@ -1,9 +1,6 @@
 import { useCallback } from 'react';
 import { useChat } from '@/stores/chat';
-import { useUI } from '@/stores/ui';
-import { useSendMessage } from '@/hooks/useSendMessage';
 import { useCinderpawSendMessage } from '@/hooks/useCinderpaw';
-import type { AttachedFile } from '@/components/chat/AttachedFileChip';
 
 /** `[Image attached: name]` note lines, which the send path regenerates itself. */
 const IMAGE_NOTE_RE = /^\[Image attached: ([^\]]*)\]\s*$/gm;
@@ -13,13 +10,11 @@ const IMAGE_NOTE_RE = /^\[Image attached: ([^\]]*)\]\s*$/gm;
  * message. Everything from that turn onwards is dropped first, because the
  * answers below it were answers to the old question.
  *
- * It routes the same way the composer does. The retry inside StreamErrorNotice
- * only ever called the chat path, so pressing Retry in agent mode sent the turn
- * past the agent to the local model; that notice now comes through here too, so
- * there is one resend in the app instead of one per button.
+ * It routes the same way the composer does, to the agent. StreamErrorNotice's
+ * retry comes through here too, so there is one resend in the app instead of
+ * one per button.
  */
 export function useResendTurn() {
-  const sendChat = useSendMessage();
   const sessionId = useChat((s) => s.sessionId);
   const sendAgent = useCinderpawSendMessage(sessionId);
 
@@ -50,23 +45,8 @@ export function useResendTurn() {
         streamError: null,
       });
 
-      if (useUI.getState().inputMode === 'agent') {
-        await sendAgent(text, images.length > 0 ? images : undefined);
-        return;
-      }
-
-      // The chat path takes files, not data URLs; the names live in the note
-      // lines that were just stripped out of the text.
-      const names = [...user.content.matchAll(IMAGE_NOTE_RE)].map((m) => m[1]);
-      const files: AttachedFile[] = images.map((dataUrl, n) => ({
-        name: names[n] ?? `image-${n + 1}.png`,
-        path: `resend://${n}`,
-        content: null,
-        kind: 'image',
-        dataUrl,
-      }));
-      await sendChat(text, files);
+      await sendAgent(text, images.length > 0 ? images : undefined);
     },
-    [sendAgent, sendChat],
+    [sendAgent],
   );
 }

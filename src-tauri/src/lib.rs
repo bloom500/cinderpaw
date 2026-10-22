@@ -63,7 +63,6 @@ impl cinderpaw_core::host::HostEvents for TauriEvents {
 use crate::agents::AgentConfig;
 use crate::inference::{InferParams, Message};
 use crate::models::ModelInfo;
-use crate::perf_policy::{deadline_message, perf_policy, DeadlineReason, PerfPolicy};
 use crate::settings::Settings;
 use crate::sysinfo_mod::SystemInfo;
 
@@ -282,6 +281,19 @@ pub(crate) fn file_args(args: &[String]) -> Vec<String> {
         .filter(|a| !a.contains("://") && std::path::Path::new(a.as_str()).is_file())
         .cloned()
         .collect()
+}
+
+/// The main window on a screen too small for its 1280x800: shrunk to the
+/// screen's free area (taskbar and dock left out) and centered in it. `None`
+/// when it already fits.
+fn fit_into(window: (u32, u32), area: &tauri::PhysicalRect<i32, u32>) -> Option<(u32, u32, i32, i32)> {
+    let (w, h) = (window.0.min(area.size.width), window.1.min(area.size.height));
+    if (w, h) == window {
+        return None;
+    }
+    let x = area.position.x + ((area.size.width - w) / 2) as i32;
+    let y = area.position.y + ((area.size.height - h) / 2) as i32;
+    Some((w, h, x, y))
 }
 
 /// Appearance -> Background: Solid. Read from settings once at startup and
@@ -568,14 +580,14 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             unload_model,
             set_lora_adapter,
             delete_model,
-            chat_stream,
-            stop_generation,
             get_system_info,
             disk_encryption::disk_encryption_status,
             artifact_frame::artifact_frame_put,
             bug_report_log_preview,
             submit_bug_report,
             count_install,
+            set_usage_sharing,
+            set_permission_mode,
             save_agent,
             get_agents,
             delete_agent,
@@ -640,6 +652,8 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             provider_catalog,
             setup_detect,
             setup_verify,
+            migrate_preview,
+            migrate_apply,
             save_byok_provider,
             remove_byok_provider,
             byok_has_key,
@@ -654,12 +668,11 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             downloads_card::downloads_card_open,
             downloads_card::downloads_card_close,
             test_byok_provider,
-            chat_cloud_stream,
-            chat_complete_local,
             chat_cloud_complete,
             read_file_as_text,
             read_file_as_data_url,
             extract_file_text,
+            stage_pasted_file,
             skills::list_installed_skills,
             skills::get_installed_skill_content,
             skills::fetch_remote_skills,
@@ -694,10 +707,13 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             cinderpaw_lora_train,
             cinderpaw_fractal_cluster_leaves,
             cinderpaw_memory_notes,
+            cinderpaw_usage_summary,
             cinderpaw_set_model,
             cinderpaw_get_model_config,
             get_local_api_token,
+            get_local_api_port,
             cinderpaw_ask_user_response,
+            cinderpaw_heads_up_answer,
             cinderpaw_ask_user_cancel,
             get_onboarding_record,
             set_onboarding_record,
@@ -755,11 +771,6 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             rsi::commands::rsi_champion_tree,
         ])
         .events(tauri_specta::collect_events![
-            crate::events::TokenEvent,
-            crate::events::StreamDoneEvent,
-            crate::events::StreamErrorEvent,
-            crate::events::StreamTruncatedEvent,
-            crate::events::StreamProgressEvent,
             crate::events::DownloadProgressEvent,
             crate::events::DownloadCompleteEvent,
             crate::events::DownloadErrorEvent,
@@ -973,6 +984,20 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             WINDOW_SOLID.store(settings::load().window_solid, std::sync::atomic::Ordering::Relaxed);
             if let Ok(mut pending) = LAUNCH_FILES.lock() {
                 *pending = file_args(&std::env::args().collect::<Vec<_>>());
+            }
+
+            // tauri.conf.json opens the window at 1280x800. On a smaller screen
+            // (a 1366x768 laptop, any laptop at 125%) it hung past the edges and
+            // the first screen's Get started sat under the taskbar: the beta.1
+            // install smoke on a 1024x768 Mac showed the welcome cut off (14 Oct).
+            #[cfg(desktop)]
+            if let Some(w) = app.get_window("main") {
+                if let (Ok(Some(m)), Ok(size)) = (w.current_monitor(), w.inner_size()) {
+                    if let Some((width, height, x, y)) = fit_into((size.width, size.height), m.work_area()) {
+                        let _ = w.set_size(tauri::PhysicalSize::new(width, height));
+                        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+                    }
+                }
             }
 
             // Alt+Space from anywhere brings Cinderpaw to the front with the
@@ -1200,6 +1225,17 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn a_window_bigger_than_the_screen_is_shrunk_and_centered() {
+        let rect = |x, y, w, h| tauri::PhysicalRect { position: tauri::PhysicalPosition::new(x, y), size: tauri::PhysicalSize::new(w, h) };
+        // A big screen: left alone.
+        assert_eq!(fit_into((1280, 800), &rect(0, 0, 1920, 1040)), None);
+        // 1366x768 with a 48 px taskbar: too tall only, so full height, centered across.
+        assert_eq!(fit_into((1280, 800), &rect(0, 0, 1366, 720)), Some((1280, 720, 43, 0)));
+        // A second monitor to the right, under a menu bar.
+        assert_eq!(fit_into((1280, 800), &rect(1920, 25, 1024, 743)), Some((1024, 743, 1920, 25)));
+    }
 
     #[test]
     fn download_key_format() {

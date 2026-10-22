@@ -27,6 +27,10 @@ import { AgentLoop } from "../src/core/agent-loop.ts";
 import type { Recaller } from "../src/core/agent-loop.ts";
 import type { RecallResult } from "../src/memory/recall.ts";
 import type { InferenceConfig } from "../src/types.ts";
+import { LearnedWays } from "../src/core/learned-ways.ts";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const BASE_URL = "http://localhost:11434";
 
@@ -86,7 +90,7 @@ function buildAgent(recall: Recaller | null) {
   const router = new InferenceRouter(config, audit.logger, db.raw);
   const episodic = new EpisodicMemory(db.raw, audit.logger);
   const agent = new AgentLoop(router, registry, episodic, {}, recall);
-  return { agent, db };
+  return { agent, db, audit };
 }
 
 /** Set an env var for one test and restore it afterwards. */
@@ -219,3 +223,37 @@ describe("memory_used, for the app's Memory Peek", () => {
   });
 });
 
+describe("learned ways (learning, beta)", () => {
+  /** A 👍 on a reply that used one tool, then the same kind of request again. */
+  async function teachThenAsk(recallOn: boolean) {
+    withEnv("CINDERPAW_RECALL_INJECTION", recallOn ? undefined : "false");
+    const { bodies } = installCapturingFetch();
+    const { agent, db, audit } = buildAgent(new SpyRecaller(""));
+    agent.setLearnedWays(new LearnedWays(db.raw, path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ways-")), "w.jsonl")));
+    const events: Array<{ type: string; items?: Array<{ kind: string; text: string }> }> = [];
+
+    await agent.handle("s1", "make a PDF report about the September sales", "m1", () => {});
+    audit.log({ actionType: "tool_call", sessionId: "s1", toolName: "export_pdf", result: "success" });
+    expect(agent.rateReply("m1", "up")).toBe("learned");
+
+    await agent.handle("s1", "make a PDF report about the October sales", "m2", (e) => events.push(e as never));
+    await agent.handle("s1", "what is the weather tomorrow", "m3", () => {});
+    return { bodies, events, db };
+  }
+
+  for (const recallOn of [true, false]) {
+    test(`a thumbs up reaches the next similar request and the screen, recall ${recallOn ? "on" : "off"}`, async () => {
+      const { bodies, events, db } = await teachThenAsk(recallOn);
+      // The hint rides the last user message (the dynamic block), so read that.
+      const lastUser = (b: string) =>
+        (JSON.parse(b).messages as Array<{ role: string; content: string }>).filter((m) => m.role === "user").at(-1)?.content ?? "";
+      const second = bodies.map(lastUser).find((c) => c.includes("October")) ?? "";
+      expect(second).toContain("A way that worked before");
+      expect(second).toContain("export_pdf");
+      expect(events.find((e) => e.type === "memory_used")?.items?.[0]?.kind).toBe("learned");
+      // Not carried into an unrelated turn.
+      expect(lastUser(bodies.at(-1)!)).not.toContain("A way that worked before");
+      db.close();
+    });
+  }
+});

@@ -7,17 +7,6 @@
 import { listen, type UnlistenFn, type EventCallback } from '@tauri-apps/api/event';
 
 // Payload types — mirrors events.rs structs (camelCase due to serde rename_all)
-export interface TokenEvent        { sessionId: string; text: string }
-export interface StreamDoneEvent   { sessionId: string }
-export interface StreamErrorEvent  { sessionId: string; error: string }
-/**
- * Emitted when an OpenAI-compatible provider reports `finish_reason: "length"`
- * — the model hit its server-side max_tokens cap before producing a natural
- * stop. The frontend surfaces this as a small "truncated" hint on the message
- * bubble so the user knows the response was cut off by the provider, not by
- * Cinderpaw.
- */
-export interface StreamTruncatedEvent { sessionId: string; reason: string }
 export interface DownloadProgressEvent { repoId: string; filename: string; progress: number }
 export interface DownloadCompleteEvent { repoId: string; filename: string; path: string }
 export interface DownloadErrorEvent    { repoId: string; filename: string; error: string; cancelled: boolean }
@@ -75,16 +64,10 @@ export interface LiveKitAgentEvent {
   ok?: boolean;
 }
 
-/** Emitted right before generation starts with the real prompt token count (local models only). */
-export interface StreamStartEvent  { sessionId: string; promptTokens: number }
-/** Emitted at the end of a cloud stream when the provider returns usage stats. */
-export interface StreamUsageEvent  { sessionId: string; promptTokens: number; completionTokens: number }
 /**
- * Heartbeat for in-flight inference — emitted by the local Rust watchdog on
- * `cinderpaw://stream-progress` and by the sidecar (agent path) as a
- * `stream_progress` line on `cinderpaw://agent-output`. The React
- * `streamProgressEvent` (raw Rust) + `onStreamProgress` (filtered sidecar)
- * listeners fan this into the `streamProgress` zustand store.
+ * Heartbeat for in-flight inference — emitted by the sidecar as a
+ * `stream_progress` line on `cinderpaw://agent-output`, and read through
+ * `onStreamProgress`.
  */
 export interface StreamProgressEvent {
   sessionId: string;
@@ -93,6 +76,16 @@ export interface StreamProgressEvent {
   promptTokens: number;
   tokensGenerated: number;
   tokensPerSec: number;
+}
+
+/**
+ * The agent is waiting before it asks the model again: the provider said
+ * "too many requests" (429) or the local pace gate is full. The sidecar's
+ * `rate_limited` line (agent-loop.ts), one per wait.
+ */
+export interface RateLimitedEvent {
+  sessionId: string;
+  waitMs: number;
 }
 
 /**
@@ -184,6 +177,46 @@ export interface MemoryNotesLine {
   categories?: Record<string, string>;
 }
 
+/** One provider+model's day or month of usage. Mirrors CinderpawAgent/src/telemetry/usage-rollup.ts. */
+export interface UsageGroup {
+  provider: string;
+  model: string;
+  tasks_part: number;
+  tasks_main: number;
+  outcomes: Record<string, number>;
+  errors: Record<string, number>;
+  thumbs_up: number;
+  thumbs_down: number;
+  tokens_in: number;
+  tokens_out: number;
+  cache_read: number | null;
+  cache_write: number | null;
+  cost_reported_usd: number;
+  cost_estimated_usd: number;
+  duration_buckets: number[];
+  tool_calls: number;
+  fallbacks: number;
+  retries: number;
+  by_flags: Record<string, { tasks: number; completed: number; up: number; down: number }>;
+}
+
+/** Exactly what one daily send carries. Mirrors telemetry/usage-sender.ts. */
+export interface UsagePayload { v: 1; code: string; day: string; app: string; os: string; groups: UsageGroup[] }
+
+/** The sidecar's answer to `usage.summary()`: Your numbers, the preview, the sent log. */
+export interface UsageSummaryLine {
+  type: 'usage_summary_result';
+  id: string;
+  ok: boolean;
+  error?: string;
+  month: string;
+  groups: UsageGroup[];
+  preview: UsagePayload | null;
+  /** Raw JSON lines of telemetry-sent.jsonl, newest last. */
+  sent: string[];
+  sharing: boolean | null;
+}
+
 /**
  * Dream Cycle lifecycle pulse — emitted when an evolutionary episode starts
  * (`phase:"started"`) and ends (`phase:"ended"`). Drives the dream toast and
@@ -265,9 +298,11 @@ export interface CodePatchResolvedLine {
 export interface MetaResultLine {
   type: 'meta_result';
   id: string;
-  op: 'status' | 'evolve' | 'rollback' | 'history';
+  op: 'status' | 'evolve' | 'rollback' | 'history' | 'approve' | 'deny';
   ok: boolean;
   reason?: string;
+  /** approve/deny: the card was out of date, so nothing changed. */
+  stale?: boolean;
   generation?: number;
   genome?: Record<string, number>;
   pendingCandidate?: boolean;
@@ -281,6 +316,30 @@ export interface MetaResultLine {
     reason: string;
     timestamp: number;
   }>;
+}
+
+/** One L6 change waiting for a person in chat. Mirrors `MetaProposal` in
+ *  `CinderpawAgent/src/rsi/l6-meta/meta-evolution.ts`. */
+export interface MetaProposal {
+  id: string;
+  kind: 'change' | 'undo';
+  field: 'mutation_rate' | 'exploration' | 'confidence_gate' | 'dream_batch' | 'selection_pressure';
+  from: number;
+  to: number;
+  settled: 'accepted' | 'rejected' | 'bootstrap';
+  score: number;
+  baselineScore: number | null;
+  cycles: number;
+  generation: number;
+  seed: number;
+  createdAt: number;
+}
+
+/** The L6 chat card's state: sent after a dream that made one, on request,
+ *  and after every answer. `proposal: null` means no card. */
+export interface MetaProposalLine {
+  type: 'meta_proposal';
+  proposal: MetaProposal | null;
 }
 
 /** Slice A6 (L5 Governance) reply. `op` says which request it answers;
@@ -400,19 +459,6 @@ function wrap<T>(channel: string) {
 }
 
 export const events = {
-  tokenEvent:             wrap<TokenEvent>('cinderpaw://token'),
-  streamDoneEvent:        wrap<StreamDoneEvent>('cinderpaw://stream-done'),
-  streamErrorEvent:       wrap<StreamErrorEvent>('cinderpaw://stream-error'),
-  streamTruncatedEvent:   wrap<StreamTruncatedEvent>('cinderpaw://stream-truncated'),
-  streamStartEvent:       wrap<StreamStartEvent>('cinderpaw://stream-start'),
-  streamUsageEvent:       wrap<StreamUsageEvent>('cinderpaw://stream-usage'),
-  /**
-   * Live progress heartbeat for the local Rust inference path — emitted on
-   * `cinderpaw://stream-progress` by the watchdog in `chat_stream`. The
-   * sidecar's equivalent (`stream_progress` OutboundEvent) arrives on
-   * `cinderpaw://agent-output` and is filtered by `onStreamProgress` below.
-   */
-  streamProgressEvent:    wrap<StreamProgressEvent>('cinderpaw://stream-progress'),
   downloadProgressEvent:  wrap<DownloadProgressEvent>('cinderpaw://download-progress'),
   downloadCompleteEvent:  wrap<DownloadCompleteEvent>('cinderpaw://download-complete'),
   downloadErrorEvent:     wrap<DownloadErrorEvent>('cinderpaw://download-error'),
@@ -561,6 +607,25 @@ export const events = {
       }),
   },
 
+  /** The sidecar's `usage_summary_result`, paired by `id` with a `usage.summary` call. */
+  onUsageSummary: {
+    listen: (cb: (e: UsageSummaryLine) => void): Promise<UnlistenFn> =>
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'usage_summary_result'
+          ) {
+            cb(parsed as UsageSummaryLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
 /**
  * Dream Cycle lifecycle (`started` / `ended`), filtered out of the raw
  * sidecar line stream. Drives the dream toast + mascot pose. Same
@@ -637,6 +702,25 @@ export const events = {
       }),
   },
 
+  /** The L6 chat card (`meta_proposal`): request it with `tauri.rsi.meta('proposal')`. */
+  onMetaProposal: {
+    listen: (cb: (e: MetaProposalLine) => void): Promise<UnlistenFn> =>
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'meta_proposal'
+          ) {
+            cb(parsed as MetaProposalLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
 /**
    * Slice A6 (L5 Governance) replies (`governance_result`): status / verify /
    * approve / reject payloads, requested via `tauri.rsi.governance(op)`.
@@ -699,6 +783,20 @@ export const events = {
   liveKitEvent: {
     listen: (cb: (e: LiveKitAgentEvent) => void): Promise<UnlistenFn> =>
       listen<LiveKitAgentEvent>('cinderpaw://livekit-event', (raw) => cb(raw.payload)),
+  },
+
+  onRateLimited: {
+    listen: (cb: (e: RateLimitedEvent) => void): Promise<UnlistenFn> =>
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
+        try {
+          const parsed = JSON.parse(raw.payload.data) as Record<string, unknown> | null;
+          if (parsed?.type === 'rate_limited' && typeof parsed.waitMs === 'number' && typeof parsed.sessionId === 'string') {
+            cb({ sessionId: parsed.sessionId, waitMs: parsed.waitMs });
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
   },
 
   onStreamProgress: {

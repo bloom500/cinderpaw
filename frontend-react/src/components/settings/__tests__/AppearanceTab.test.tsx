@@ -95,3 +95,29 @@ describe('AppearanceTab: campfire game', () => {
     expect(useUI.getState().emberGameEnabled).toBe(!before);
   });
 });
+
+describe('AppearanceTab: glass effects', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    get.mockResolvedValue({});
+    useUI.setState({ glassEffects: false });
+    document.documentElement.removeAttribute('data-glass');
+  });
+
+  test('a fresh install shows the switch off (solid)', async () => {
+    render(<AppearanceTab />);
+    const sw = await screen.findByRole('switch', { name: /glass effects/i });
+    expect(sw).toHaveAttribute('aria-checked', 'false');
+  });
+
+  test('flipping the switch stores the choice and stamps the document', async () => {
+    render(<AppearanceTab />);
+    const sw = await screen.findByRole('switch', { name: /glass effects/i });
+    await userEvent.click(sw);
+    expect(useUI.getState().glassEffects).toBe(true);
+    expect(document.documentElement.getAttribute('data-glass')).toBe('on');
+    await userEvent.click(sw);
+    expect(useUI.getState().glassEffects).toBe(false);
+    expect(document.documentElement.getAttribute('data-glass')).toBe('off');
+  });
+});

@@ -18,6 +18,7 @@
 
 import type { Tool, ToolManifest, ToolResult } from "../../types.ts";
 import { guardWebText } from "../../security/injection.ts";
+import { canAskAHuman } from "../../core/permission-mode.ts";
 
 const ACTIONS = ["open", "snapshot", "click", "type", "scroll", "back", "forward", "reload", "extract"] as const;
 type Action = (typeof ACTIONS)[number];
@@ -77,7 +78,29 @@ function fail(content: string, error = "browser_error"): ToolResult {
   return { ok: false, error, content };
 }
 
+// Publishing in the person's name is theirs to decide. The logins in this
+// browser persist, so without this one click posts to the world. A false alarm
+// (a "Share" that only opens a menu) costs one question; a missed one costs a
+// public post, so unknown controls on these sites are asked about too.
+const SOCIAL_HOST = /(^|\.)(x\.com|twitter\.com|instagram\.com|facebook\.com|threads\.(net|com)|linkedin\.com|tiktok\.com|youtube\.com|reddit\.com|bsky\.app|pinterest\.com|tumblr\.com|mastodon\.social)$/i;
+// Word STARTS, so a site in another language is caught too: "Postează", "Publică",
+// "Posten", "Teilen", "Publier", "Publicar", "Répondre". `\b` without the `u` flag
+// treats "ă" as a non-letter, so the old whole-word list never matched Romanian.
+// ponytail: stems, not a dictionary; a language missing here falls back to asking
+// only when the control is unread. Add its stem when one turns up.
+const PUBLISH_WORD = /(?<!\p{L})(post|tweet|repl|repost|retweet|share|publi|send|upload|comment|koment|coment|trimi|distribui|răspun|teil|antwort|veröffentl|partag|compart|envo|envi|répon|respon)/iu;
+
+function hostOf(url?: string): string | null {
+  try { return url ? new URL(url).hostname : null; } catch { return null; }
+}
+
 export function createBrowserTool(): Tool {
+  const lastPage = new Map<string, { url?: string; elements: PageElement[] }>();
+  // What the agent put on the social site it is on, per session, so the
+  // Publish card shows the words being approved, not only the button: the
+  // `text` of a compose link it opened, and what it typed, one value per field
+  // (typing into a field replaces what was there).
+  const typedOn = new Map<string, { host: string; byField: Map<string, string> }>();
   const manifest: ToolManifest = {
     name: "browser",
     description:
@@ -85,9 +108,12 @@ export function createBrowserTool(): Tool {
       "names the browser or wants to watch, and whenever a web page has to be USED " +
       "rather than read: a form, a login, a search on a site, a download, or a page " +
       "fetch_url returned empty. Do it without being asked. To only LOOK SOMETHING UP, " +
-      "web_search and fetch_url are faster and do not take over the screen. The panel is " +
-      "shared with the user: `snapshot` reads whatever tab is on screen, including a page " +
-      "THEY opened, so when asked what they are looking at, take a snapshot. `open` a url " +
+      "web_search and fetch_url are faster and do not take over the screen. `open` always " +
+      "opens a NEW tab of your own and never replaces a page the user has open; when they " +
+      "are on a page of their own (a video, say), yours opens behind it, so tell them where " +
+      "it is. Every other action works in your tab. When they ask about the page THEY have " +
+      "in front (\"this page\", \"what am I looking at\", \"summarize this\"), pass " +
+      "tab: \"user\". `open` a url " +
       "(or search words), `snapshot` to read the page and its numbered controls, " +
       "then `click` or `type` by number (`ref`). `extract` returns the page's article as " +
       "clean text (title, byline, body; Mozilla's Readability, the Firefox reader), the " +
@@ -96,7 +122,16 @@ export function createBrowserTool(): Tool {
       "anything on the web. If a site ignores a click, computer_use can press the " +
       "same control, because the page is inside Cinderpaw's window. If the user clicks or " +
       "types in the page themselves, the next action is refused: they took over. Ask them " +
-      "before acting again.",
+      "before acting again. To post on social media for the user: write the post, show it " +
+      "in chat, then `open` the network's compose page already filled in (X: " +
+      "https://x.com/intent/post?text=<url-encoded>, Threads: " +
+      "https://www.threads.net/intent/post?text=<url-encoded>, LinkedIn: " +
+      "https://www.linkedin.com/feed/?shareActive=true&text=<url-encoded>; Instagram and " +
+      "TikTok have none, so hand over the caption and image) and tell them it is ready to " +
+      "post. Keep under the network's limit or Post stays greyed out: X 280 characters " +
+      "(a link counts as 23) unless they say they have Premium, Threads 500, LinkedIn 3000. " +
+      "Count before you open the page. The user presses Post. Pressing it yourself, or any publish control on a " +
+      "social site, asks them first, and is refused when nobody is there.",
     permissions: [],
     // The requests are the page's, made by the webview in the host, not by this
     // process; there is nothing for the egress proxy to see or to allow.
@@ -116,6 +151,7 @@ export function createBrowserTool(): Tool {
       text: { type: "string", description: "type: what to enter (replaces the field's content).", required: false },
       submit: { type: "boolean", description: "type: submit the form afterwards.", required: false },
       dy: { type: "number", description: "scroll: pixels down (negative scrolls up), default 600.", required: false },
+      tab: { type: "string", description: "Every action but open: \"user\" for the page the user has in front. Leave it out to work in your own tab.", required: false },
     },
     async execute(args, ctx) {
       const action = args.action as Action;
@@ -144,6 +180,42 @@ export function createBrowserTool(): Tool {
         params.submit = args.submit === true;
       }
       if (action === "scroll" && typeof args.dy === "number") params.dy = args.dy;
+      if (action !== "open" && args.tab === "user") params.tab = "user";
+
+      const sid = ctx.sessionId ?? "";
+      const page = lastPage.get(sid);
+      const host = hostOf(page?.url);
+      const social = Boolean(host && SOCIAL_HOST.test(host));
+      let publishing = false;
+      if ((action === "click" || action === "type") && host && social) {
+        const control = page!.elements.find((e) => e.ref === params.ref);
+        publishing = action === "click" ? !control || PUBLISH_WORD.test(control.name) : params.submit === true;
+        if (publishing) {
+          const what = action === "type" ? "submit the form" : `press "${control?.name ?? "a control it has not read"}"`;
+          if (!canAskAHuman(Boolean(ctx.askUser))) {
+            return fail(`browser: refused. This would ${what} on ${host}, which may publish for everyone to see, and nobody is here to approve it. Leave it for the user.`, "publish_needs_approval");
+          }
+          const prior = typedOn.get(sid);
+          const fields = new Map(prior?.host === host ? prior.byField : []);
+          if (action === "type") fields.set(String(params.ref), String(params.text));
+          const shown = [...new Set([...fields.values()].filter((t) => t.trim()))].join("\n\n");
+          const [answer] = await ctx.askUser!.ask([{
+            question: `Cinderpaw wants to ${what} on ${host}. This may publish in your name, for everyone to see. Allow it?`,
+            header: "Publish",
+            ...(shown ? { preview: `Text Cinderpaw put on this page:\n\n${shown.length > 4000 ? `${shown.slice(0, 4000)}\n…` : shown}` } : {}),
+            multiSelect: false,
+            // In the person's name and public: never auto-answered.
+            forceEscalate: true,
+            options: [
+              { label: "Yes, post it", description: "Allow this one action." },
+              { label: "No, don't post", description: "Nothing is published." },
+            ],
+          }], ctx.sessionId);
+          if (!(answer?.selected?.[0]?.toLowerCase().startsWith("yes") ?? false)) {
+            return fail(`browser: the user declined publishing on ${host}. Do not try again; tell them it is ready for them to post.`, "publish_declined");
+          }
+        }
+      }
 
       let data: unknown;
       try {
@@ -153,6 +225,25 @@ export function createBrowserTool(): Tool {
       }
       const result = (data ?? {}) as Snapshot & { loading?: boolean };
       if (result.ok === false) return fail(`browser: ${result.error ?? "the page refused that action"}`);
+      if (action === "open") {
+        // A compose link carries the post in `text` (x.com/intent/post?text=…):
+        // nothing is typed, so remember it from the link itself.
+        const to = hostOf(result.url ?? String(params.url));
+        let linkText: string | null = null;
+        try { linkText = new URL(String(params.url)).searchParams.get("text"); } catch { /* not a URL */ }
+        if (to && SOCIAL_HOST.test(to) && linkText) typedOn.set(sid, { host: to, byField: new Map([["link", linkText]]) });
+        else if (to !== host) typedOn.delete(sid);
+      } else if (publishing || (result.url && hostOf(result.url) !== host)) typedOn.delete(sid);
+      else if (action === "type" && social && host) {
+        const prior = typedOn.get(sid);
+        const byField = new Map(prior?.host === host ? prior.byField : []);
+        byField.set(String(params.ref), String(params.text));
+        typedOn.set(sid, { host, byField });
+      }
+      // What the agent last saw is what its next ref means. A new address
+      // forgets the controls, so a blind click there counts as unknown.
+      if (action === "snapshot") lastPage.set(ctx.sessionId ?? "", { url: result.url, elements: result.elements ?? [] });
+      else if (result.url) lastPage.set(ctx.sessionId ?? "", { url: result.url, elements: [] });
 
       if (action === "snapshot") {
         // Controls and text are the page's: framed, scanned, and the session
@@ -171,7 +262,7 @@ export function createBrowserTool(): Tool {
       if (action === "open") {
         return {
           ok: true,
-          content: `Opened ${result.url ?? String(params.url)}${result.loading ? " (still loading)" : ""}. Take a snapshot to read it.`,
+          content: `Opened ${result.url ?? String(params.url)} in a new tab of yours${(result as { background?: boolean }).background ? ", behind the page the user is on (tell them it is there)" : ""}${result.loading ? " (still loading)" : ""}. Take a snapshot to read it.`,
           data: { url: result.url },
         };
       }

@@ -90,9 +90,9 @@ Every tool call passes a security layer before execution:
 
 - Releases are signed (tauri-plugin-updater / minisign) and verified against
   the public key embedded in the installed app.
-- The 0.1.x signing key was exposed in git history and has been **rotated**;
-  see `docs/UPDATER_KEY_MIGRATION.md` for the migration plan and its
-  transition-window risk analysis.
+- The 0.1.x signing key was exposed in git history and was **rotated** in
+  v0.2.0. `docs/UPDATER_KEY_MIGRATION.md` is the historical record of that
+  change and its risk analysis.
 
 ### Privacy
 
@@ -101,10 +101,15 @@ Every tool call passes a security layer before execution:
 - Complete `<private>…</private>` blocks are stripped from the agent loop's
   episodic text, not every memory or transcript writer. The model sees the input.
 - One automatic message in the runtime's life: an install count sent at the
-  end of first-run setup, carrying the version and the OS and nothing else,
+  end of first-run setup, carrying the version, the OS and, only if the person
+  pressed one, a fixed word for where they heard about Cinderpaw, nothing else,
   refusable on the screen that describes it, recorded in
-  `~/.cinderpaw/.install-counted`. No other automatic analytics; crash and bug
-  reports are sent only when a person writes and submits one.
+  `~/.cinderpaw/.install-counted`.
+- An opt-in daily usage summary (per-model task, time and cost counts, never
+  text, file names or ids), off unless the person says yes, logged to
+  `~/.cinderpaw/telemetry-sent.jsonl` before it leaves (PROMISES.md 4). No
+  other automatic analytics; crash and bug reports are sent only when a person
+  writes and submits one.
 
 ### Known limits
 

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Settings2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useModel, type InferParamsUI } from '@/stores/model';
-import { useUI } from '@/stores/ui';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { activeContextWindow } from '@/lib/contextWindow';
 
@@ -183,13 +182,11 @@ export function ControlsPopover() {
   const setInferParams = useModel((s) => s.setInferParams);
 
   // Which model will actually serve the next request? Same rule as the context
-  // ring: a resident local GGUF is only "active" when no cloud model is
-  // selected. Cloud active → temperature only (Top-P + context are hidden).
-  const isAgentMode = useUI((s) => s.inputMode) === 'agent';
+  // ring: a resident local GGUF is only "active" when the agent targets the
+  // local engine. Cloud active → temperature only (Top-P + context are hidden).
   const loaded      = useModel((s) => s.loaded);
-  const cloudModel  = useModel((s) => s.cloudModel);
   const cinderpawConfig = useCinderpawStore((s) => s.modelConfig);
-  const { isLocal } = activeContextWindow({ isAgentMode, cinderpawConfig, cloudModel, loaded });
+  const { isLocal } = activeContextWindow({ cinderpawConfig, loaded });
   const isLocalActive = isLocal && !!loaded;
 
   const rows = ROWS.filter((r) => isLocalActive || !r.localOnly);

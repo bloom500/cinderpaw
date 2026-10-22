@@ -19,8 +19,25 @@
 
 import type { EpisodicMemory } from "./episodic.ts";
 import { memoryScope, memoryTokens, type SemanticMemory } from "./semantic.ts";
-import type { MemoryGraph } from "./graph.ts";
+import type { MemoryGraph, MemoryGraphData } from "./graph.ts";
 import type { EpisodicEvent } from "../types.ts";
+
+/**
+ * Whether a recalled line is a tool result, not something said. Tool rows are
+ * kept in episodic memory on purpose (evidence that work happened), but shown
+ * to the person as "memories used" they read as junk:
+ * `artifact_create: Created markdown "Week plan" — id 72fff044-…` (UX lab,
+ * 19 Oct, item 20). The model still gets them; the person's list does not.
+ *
+ * ponytail: a hit with no role (a RAPTOR-only leaf) is judged by the
+ * `tool_name: ` prefix tool rows are written with (agent-loop.ts), which
+ * misses one-word tool names (`recall`, `git`). Carry the role on leaves if
+ * those show up.
+ */
+export function isToolRow(role: string, text: string): boolean {
+  if (role === "tool") return true;
+  return role === "" && /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+: /.test(text);
+}
 
 export interface RecallConfig {
   /** Max episodic events to surface per recall. */
@@ -142,12 +159,19 @@ export class RecallEngine {
     // of the block directly above it, in a different notation, at twenty lines
     // a turn. Only what the facts block did not already say gets through.
     const alreadySaid = new Set(chosen.map((f) => f.value.trim().toLowerCase()));
-    const graph = this.#recallGraph(query, alreadySaid);
+    // ONE graph clone per recall. `snapshot()` is a `structuredClone` of the
+    // whole graph, and this function used to take one per fact: `#recallGraph`
+    // took one, then `#mirrorEdge` took another inside the `chosen.map` below —
+    // so twenty-odd whole-graph deep clones per turn, on a graph that only ever
+    // grows. A recall is synchronous, so nothing can mutate the graph between
+    // here and the reads below; one snapshot is the same data, cloned once.
+    const snapshot = this.#graph?.snapshot() ?? null;
+    const graph = this.#recallGraph(query, alreadySaid, snapshot);
     return {
       text: [semanticBlock, graph.text].filter((b) => b).join("\n\n"),
       used: [
         ...chosen.map((f): MemoryUsed => {
-          const edge = this.#mirrorEdge(f.key, f.value);
+          const edge = this.#mirrorEdge(f.key, f.value, snapshot);
           return { kind: "fact", text: `${f.key}: ${f.value}`, ...(edge ? { forget: edge } : {}) };
         }),
         ...graph.used,
@@ -159,10 +183,16 @@ export class RecallEngine {
    * The graph edge a fact is mirrored as (`key —has→ value`, extractor.ts), so
    * Forget in the app can go through `memory_forget`, which drops the fact
    * with its edge (forget.ts). Null when the graph has no such edge.
+   *
+   * Takes the caller's snapshot rather than cloning again per fact.
    */
-  #mirrorEdge(key: string, value: string): { from: string; to: string; relation: string } | null {
-    if (!this.#graph) return null;
-    const { nodes, edges } = this.#graph.snapshot();
+  #mirrorEdge(
+    key: string,
+    value: string,
+    snapshot: MemoryGraphData | null,
+  ): { from: string; to: string; relation: string } | null {
+    if (!snapshot) return null;
+    const { nodes, edges } = snapshot;
     const norm = (v: string | undefined) => (v ?? "").trim().toLowerCase();
     const e = edges.find((x) =>
       x.relation === "has" && norm(nodes[x.from]?.label) === norm(key) && norm(nodes[x.to]?.label) === norm(value));
@@ -186,10 +216,13 @@ export class RecallEngine {
    * Recency still decides between equally matching edges, and still orders the
    * block when the turn has no query at all.
    */
-  #recallGraph(query = "", alreadySaid: ReadonlySet<string> = new Set()): { text: string; used: MemoryUsed[] } {
+  #recallGraph(
+    query = "",
+    alreadySaid: ReadonlySet<string> = new Set(),
+    snapshot: MemoryGraphData | null = this.#graph?.snapshot() ?? null,
+  ): { text: string; used: MemoryUsed[] } {
     const none = { text: "", used: [] };
-    if (!this.#graph) return none;
-    const snapshot = this.#graph.snapshot();
+    if (!snapshot) return none;
     const edges = snapshot.edges.filter(
       (e) => !alreadySaid.has((snapshot.nodes[e.to]?.label ?? "").trim().toLowerCase()),
     );
@@ -255,7 +288,9 @@ export class RecallEngine {
 
     const lines = hits.map((e) => formatEpisodic(e, this.#config.snippetMaxChars));
     return {
-      used: hits.map((e) => ({ kind: "past", text: clip(e.content, this.#config.snippetMaxChars), ts: e.timestamp })),
+      used: hits
+        .filter((e) => !isToolRow(e.role, e.content))
+        .map((e) => ({ kind: "past", text: clip(e.content, this.#config.snippetMaxChars), ts: e.timestamp })),
       // Dated lines need today's date to be read against; see fractal-recall.
       text: `Relevant past exchanges (today is ${new Date(this.#config.now()).toISOString().slice(0, 10)}):\n${lines.join("\n")}`,
       count: hits.length,

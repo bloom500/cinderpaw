@@ -1,0 +1,5 @@
+#!/bin/sh
+# Feral was renamed Cinderpaw. Installing the Cinderpaw package removes Feral,
+# and Feral's updater then restarts itself by this path: it has to open
+# Cinderpaw, or the app closes after the update and nothing opens.
+exec /usr/bin/cinderpaw "$@"

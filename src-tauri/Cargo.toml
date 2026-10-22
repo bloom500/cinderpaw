@@ -1,6 +1,6 @@
 [package]
 name = "cinderpaw"
-version = "2026.8.11"
+version.workspace = true
 description = "Cinderpaw — local AI desktop runtime"
 authors = ["Cinderpaw Contributors"]
 license = "Apache-2.0"
@@ -112,10 +112,11 @@ getrandom = "0.2"
 
 # Chat attachment text extraction (PDF + OOXML/ODF containers)
 pdf-extract = "0.12"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 tauri-plugin-deep-link = "2.4.10"
 tauri-plugin-single-instance = { version = "2.4.4", features = ["deep-link"] }
 url = "2"
+regex = "1"
 
 [features]
 # `piper` is NOT on by default, and is on no shipping job either. This comment

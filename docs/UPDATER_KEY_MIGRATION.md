@@ -1,6 +1,12 @@
 # Updater key migration plan (0.1.x → 0.2.0)
 
-**Status:** plan approved for 0.2.0 release · **Owner:** release manager
+> **This is a past record, not a current plan.** The key change it describes
+> was completed in v0.2.0 (released 2026-06-12; see the v0.2.0 entry in
+> [CHANGELOG.md](../CHANGELOG.md)). The transitional 0.1.8 release in Step 1
+> was never cut, so anyone still on 0.1.7 or older has to download the
+> installer by hand once. The checklist below is kept as it stood.
+
+**Status:** done in v0.2.0 · **Owner:** release manager
 **Background:** the original Tauri updater signing key (`.tauri-key`) was
 committed to the public repository (commits `7a96557` / `295fd5d`) and must be
 treated as **compromised**. A new keypair was generated on 2026-06-10
@@ -70,5 +76,3 @@ For users who never installed 0.1.8:
 - [ ] Verify on a real 0.1.7 install that 0.1.8 is offered and installs
 - [ ] Cut `0.2.0` signed by CI with the new key
 - [ ] Verify on a 0.1.8 install that 0.2.0 is offered and installs
-- [ ] Destroy local copies of the old key (`~/.tauri/compromised-key-backup/`)
-      after the transition window closes

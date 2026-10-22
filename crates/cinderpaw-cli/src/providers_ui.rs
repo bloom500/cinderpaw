@@ -173,7 +173,7 @@ fn choose_model(entry: &cinderpaw_core::byok::ProviderCatalogEntry, key: &str) -
 }
 
 /// Asked, not assumed. Passing `None` meant the catalog default won silently —
-/// and for OpenRouter that default is `z-ai/glm-5.3-flash`, a reasonable fallback
+/// and for OpenRouter that default is `openrouter/free`, a reasonable fallback
 /// and the wrong answer for almost everyone, since reaching one specific model
 /// is most of why anyone picks OpenRouter at all. The default stays one Enter
 /// away for whoever does not care.
@@ -210,7 +210,9 @@ fn fetch_models(base_url: &str, key: &str) -> Vec<String> {
             .and_then(|d| d.as_array())
             .map(|rows| {
                 rows.iter()
-                    .filter_map(|r| r.get("id").and_then(|i| i.as_str()).map(str::to_string))
+                    .filter_map(|r| r.get("id").and_then(|i| i.as_str()))
+                    .filter(|id| cinderpaw_core::byok::can_chat(id))
+                    .map(str::to_string)
                     .collect()
             })
             .unwrap_or_default();

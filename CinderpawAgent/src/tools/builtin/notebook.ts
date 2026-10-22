@@ -37,7 +37,7 @@ import { hostToolNames } from "../tiers.ts";
 
 /** Tools that put a card in front of the person (ctx.askUser) before acting. */
 const ASKS_THE_PERSON = [
-  "ask_user", "cinderpaw_admin", "shell_exec", "install_capability", "computer_use",
+  "ask_user", "cinderpaw_admin", "shell_exec", "install_capability", "install_skill_from_link", "computer_use",
   "tool_forge", "artifact_send", "delete_skill",
 ];
 

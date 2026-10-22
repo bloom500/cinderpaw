@@ -35,6 +35,7 @@
 
 import { create } from 'zustand';
 import { tauri } from '@/lib/tauri';
+import { useSettings } from '@/stores/settings';
 
 /**
  * Wizard steps in render order. The provider step currently branches
@@ -42,7 +43,7 @@ import { tauri } from '@/lib/tauri';
  * distinct wizard steps, add them here — `totalSteps`, the progress
  * dots, and the next/prev bounds all derive from this list.
  */
-const STEP_IDS = ['welcome', 'names', 'provider', 'connect', 'workspace', 'done'] as const;
+export const STEP_IDS = ['welcome', 'names', 'provider', 'connect', 'workspace', 'done'] as const;
 const TOTAL_STEPS: number = STEP_IDS.length;
 const FIRST_STEP: number = 0;
 const LAST_STEP: number = STEP_IDS.length - 1;
@@ -66,6 +67,21 @@ export interface OnboardingState {
    */
   countInstall: boolean;
   setCountInstall: (on: boolean) => void;
+  /**
+   * Where the person heard about Cinderpaw, if they picked a button on the
+   * last screen. Nothing is picked for them; it rides on the install count,
+   * once, and only when that box is ticked.
+   */
+  heardFrom: string | null;
+  setHeardFrom: (source: string | null) => void;
+  /**
+   * Whether to share the daily usage summary. Default OFF, unlike the install
+   * count: it repeats every day, so it is asked, never assumed ("if we ever
+   * want your data, we'll ask", 3 Oct). Recorded either way at finish, so the
+   * one-time home card does not ask again.
+   */
+  shareUsage: boolean;
+  setShareUsage: (on: boolean) => void;
   /** True when the persisted record says "this user has already onboarded". */
   hasOnboardedBefore: boolean;
   /**
@@ -118,6 +134,8 @@ export const DEFAULTS = {
   skipped: false,
   completedAt: null,
   countInstall: true,
+  heardFrom: null,
+  shareUsage: false,
   active: false,
   step: FIRST_STEP,
   totalSteps: TOTAL_STEPS,
@@ -128,7 +146,15 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
 
   start: () => set({ active: true, step: FIRST_STEP, completedAt: null, skipped: false }),
 
-  reopen: () => set({ active: true, step: FIRST_STEP }),
+  // The share box starts from the saved answer: finish() writes it back, so an
+  // unticked box here would turn sharing off for someone who only wanted to rename.
+  reopen: () => {
+    set({ active: true, step: FIRST_STEP });
+    const seed = () => set({ shareUsage: useSettings.getState().settings?.usage_sharing === true });
+    // Settings > General can be clicked before the page has loaded settings.
+    if (useSettings.getState().settings) seed();
+    else void useSettings.getState().fetchSettings().then(seed);
+  },
 
   // Audit M-R1 fix: derive next/prev bounds from STEP_IDS instead of the
   // hand-managed `totalSteps` constant. Adding a step means inserting a
@@ -144,7 +170,10 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
       step: s.step <= FIRST_STEP ? FIRST_STEP : s.step - 1,
     })),
 
-  setUserName: (name) => set({ userName: name.trim() }),
+  // Only the front is trimmed while typing: trimming the end on every key ate
+  // the space before a second word, so nobody could type "Ana Maria" (UX lab,
+  // 20 Oct). The end is trimmed when the name is saved.
+  setUserName: (name) => set({ userName: name.trimStart() }),
   saveUserName: (name) => {
     set({ userName: name.trim() });
     const s = get();
@@ -161,7 +190,7 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
   // is applied at the use sites (Preview, DoneStep, agent prompt) via
   // `agentName.trim() || "Cinderpaw"`. Storing the raw value also means a
   // half-typed name ("F") doesn't get clobbered to "Cinderpaw".
-  setAgentName: (name) => set({ agentName: name.trim() }),
+  setAgentName: (name) => set({ agentName: name.trimStart() }),
 
   skip: () => {
     const completedAt = Date.now();
@@ -171,6 +200,7 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
       completedAt,
       hasOnboardedBefore: true,
     });
+    set({ userName: get().userName.trim(), agentName: get().agentName.trim() });
     const s = get();
     void persistAsync({
       completed: true,
@@ -202,6 +232,7 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
   // onboardingPersistence.ts and is invoked through the actions above.)
 
   finish: async () => {
+    set({ userName: get().userName.trim(), agentName: get().agentName.trim() });
     const s = get();
     const record: PersistedOnboarding = {
       completed: true,
@@ -232,10 +263,16 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
     // now. Anything that pinged earlier — at launch, at install — would have
     // sent it before they could say no. Failures are the counter's problem:
     // nothing about it belongs in front of the user.
-    void tauri.system.countInstall(get().countInstall).catch(() => {});
+    void tauri.system.countInstall(get().countInstall, get().countInstall ? get().heardFrom : null).catch(() => {});
+    // Opt-in: false unless ticked. Recorded either way, and the settings store
+    // reloaded, so the home card (already mounted under the wizard with "never
+    // asked") does not ask again the moment the wizard closes.
+    void tauri.system.setUsageSharing(get().shareUsage).then(() => useSettings.getState().fetchSettings()).catch(() => {});
   },
 
   setCountInstall: (on: boolean) => set({ countInstall: on }),
+  setHeardFrom: (source: string | null) => set({ heardFrom: source }),
+  setShareUsage: (on: boolean) => set({ shareUsage: on }),
 
   loadPersisted: async () => {
     // Try the layered persistence: localStorage first (sync, no I/O,

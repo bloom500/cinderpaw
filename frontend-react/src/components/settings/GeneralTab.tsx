@@ -149,17 +149,21 @@ export function GeneralTab() {
 
       {/* Voice call self-test — next to the transcription model, because both
           answer "does speech work on this machine" and a person looking for one
-          is looking for the other. */}
-      <div className={rowCls}>
-        <div className="min-w-0 flex-1">
-          <LiveKitSelfTest />
+          is looking for the other. Dev only: release builds have no test
+          buttons (Darius, 9 Oct 2026). */}
+      {import.meta.env.DEV && (
+        <div className={rowCls}>
+          <div className="min-w-0 flex-1">
+            <LiveKitSelfTest />
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Data folder */}
+      {/* The models folder. It was labelled "Data folder" while it shows and
+          changes only where models are kept (UX lab, item 31). */}
       <div className={rowCls}>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-text-primary">Data folder</p>
+          <p className="text-sm font-medium text-text-primary">Models folder</p>
           <p className="text-xs text-text-muted mt-0.5 truncate">
             {settings?.models_dir ?? `~/${APP_HOME_DIR_NAME}/models`}
           </p>

@@ -24,6 +24,30 @@ type Model = { id: string; label: string };
 // ships a model, not between two openings of the same card.
 const cache = new Map<string, Model[]>();
 
+/**
+ * The model a call on `provider` will run, by name, for the card on the
+ * pre-call screen: the pick, else the list's first, which Rust puts at the
+ * front because it is the build's pinned default. `null` asks nothing, so the
+ * vendor is only asked while the call screen is open.
+ */
+export function useS2sModelLabel(provider: string | null): string | null {
+  const chosen = useUI((s) => (provider ? s.s2sModel[provider] : undefined)) ?? '';
+  const [models, setModels] = useState<Model[] | null>(() => (provider ? cache.get(provider) ?? null : null));
+  useEffect(() => {
+    if (!provider) { setModels(null); return; }
+    const cached = cache.get(provider);
+    if (cached) { setModels(cached); return; }
+    let alive = true;
+    tauri.raw
+      .listS2sModels(provider)
+      .then((m) => { cache.set(provider, m); if (alive) setModels(m); })
+      .catch(() => { if (alive) setModels([]); });
+    return () => { alive = false; };
+  }, [provider]);
+  if (!provider) return null;
+  return models?.find((m) => m.id === chosen)?.label || chosen || models?.[0]?.label || null;
+}
+
 export function S2sModelPicker({ provider, label }: { provider: string; label: string }) {
   const chosen = useUI((s) => s.s2sModel[provider] ?? '');
   const setS2sModel = useUI((s) => s.setS2sModel);
@@ -53,9 +77,11 @@ export function S2sModelPicker({ provider, label }: { provider: string; label: s
   if (!models || models.length <= 1) return null;
 
   return (
-    <div className="w-full">
-      {/* The row's label already says "Model"; a second heading inside the
-          control said it again. The refresh sits beside the menu instead. */}
+    <div className="flex w-full min-w-0 flex-col gap-1">
+      {/* The caption lives here, not beside the picker: the picker hides
+          itself when there is nothing to choose, and a "Model" caption left
+          over a blank space reads as something that failed to load. */}
+      <span className="text-xs text-text-muted">Model</span>
       <div className="flex items-center gap-2">
         <SelectMenu
           ariaLabel={`${label} realtime model`}
@@ -76,7 +102,7 @@ export function S2sModelPicker({ provider, label }: { provider: string; label: s
           model holding a conversation: gemini-3.5-transcribe-live is in Google's
           own list and only transcribes. Said here rather than learned from a
           call that connects and never speaks. */}
-      <p className="mt-1 text-micro leading-snug text-text-muted opacity-70">
+      <p className="text-micro leading-snug text-text-muted opacity-70">
         Listed by {label}. A transcription-only model will connect and stay silent.
       </p>
     </div>

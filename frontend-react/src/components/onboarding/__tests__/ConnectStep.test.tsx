@@ -4,8 +4,10 @@ import userEvent from '@testing-library/user-event';
 import { ConnectStep, pick } from '../ConnectStep';
 import { tauri } from '@/lib/tauri';
 import { useOnboarding } from '@/stores/onboarding';
+import { cubbyVoiceUrl } from '@/voice/cubbyVoice';
 
 vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
+vi.mock('@/voice/cubbyVoice', () => ({ cubbyVoiceUrl: vi.fn(() => null) }));
 // The sprite is a canvas, which jsdom cannot draw.
 vi.mock('@/components/chat/mascot/CinderpawMascot', () => ({ CinderpawMascot: () => null }));
 
@@ -32,6 +34,7 @@ describe('ConnectStep', () => {
     expect(screen.getByRole('button', { name: 'Connect Notion' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Connect GitHub' })).toBeNull();
     expect(screen.getByText('Google Docs')).toBeTruthy();
+    expect(cubbyVoiceUrl).toHaveBeenCalledWith('onboarding.connect');
   });
 
   it('keeps the other chat apps behind "N more", in a window of their own, never one that is coming soon', async () => {

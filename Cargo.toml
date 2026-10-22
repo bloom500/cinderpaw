@@ -9,10 +9,21 @@
 # package name `cinderpaw`). The user-facing name `cinderpaw` is applied at
 # packaging time (installer alias/rename) per spec D6a.
 members = ["src-tauri", "crates/cinderpaw-core", "crates/cinderpaw-cli"]
+exclude = ["third_party/wry"]
 resolver = "2"
 
+# wry 0.55.1 with ONE change per platform (webview2, wkwebview, webkitgtk):
+# `window.ipc` is defined `configurable: true`. Upstream defines it locked in
+# every page, so any site with its own global `ipc` dies on load: Google Sheets
+# threw "Identifier 'ipc' has already been declared" in the built-in browser
+# and never opened (11 Oct). Still locked upstream in wry 0.57.0. When Tauri
+# moves to another wry, cargo warns "patch was not used": re-copy that version
+# here with the same change, or drop this if upstream fixed it.
+[patch.crates-io]
+wry = { path = "third_party/wry" }
+
 [workspace.package]
-version = "2026.9.18"
+version = "2026.10.19"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Cinderpaw Contributors"]
@@ -36,3 +47,9 @@ opt-level = 3
 
 [profile.dev.package.llama-cpp-sys-2]
 opt-level = 3
+
+# Dev builds spent much of their time writing debug info for ~900 dependencies
+# nobody steps into. Our own crates keep full debug info, so their panics and
+# backtraces still name the file and line. Release builds are not affected.
+[profile.dev.package."*"]
+debug = false

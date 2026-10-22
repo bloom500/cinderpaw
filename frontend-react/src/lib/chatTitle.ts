@@ -3,6 +3,7 @@ import { useModel } from '@/stores/model';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { useConversations } from '@/stores/conversations';
 import { autoTitle } from '@/lib/autoTitle';
+import { stripStreamingToolCalls } from '@/lib/parseThink';
 
 /**
  * A short name for a conversation, written once after its first answer.
@@ -72,7 +73,10 @@ function pickCloud(): { providerId: string; modelId: string } | null {
 
 /** Strip what models add around a title: thinking, quotes, a label, a full stop. */
 export function cleanTitle(raw: string): string {
-  let t = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  // A model that answers with a tool call instead of words (local models and
+  // scripted ones do) named the chat '<tool_call>{"name": "ask_user"...' (UX lab, 19 Oct).
+  // Nothing left means no title, and the first-message one stays.
+  let t = stripStreamingToolCalls(raw.replace(/<think>[\s\S]*?<\/think>/gi, '')).trim();
   t = t.split('\n').map((l) => l.trim()).filter(Boolean).pop() ?? '';
   t = t.replace(/^(title|titlu)\s*:\s*/i, '').replace(/^["'“”„«*#\s]+|["'“”«»*\s]+$/g, '').replace(/[.!]+$/, '').trim();
   if (t.length > 48) t = t.slice(0, 47).trimEnd() + '…';

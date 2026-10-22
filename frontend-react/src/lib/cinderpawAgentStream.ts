@@ -22,6 +22,7 @@ import { useChat, type MemoryUsedItem } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
+import { useHeadsUp } from '@/stores/headsUp';
 import { useRlmWorkers } from '@/stores/rlmWorkers';
 import { useCoworkTeam } from '@/stores/coworkTeam';
 import { notifyIfBackground, preview } from '@/lib/systemNotify';
@@ -53,8 +54,8 @@ export interface CinderpawStreamHandlers {
   chatMessageId?: string;
   /**
    * Chat session this stream belongs to. Lets `requestCinderpawStop(sessionId)`
-   * stop only that session's streams instead of every in-flight stream —
-   * the same per-session stop semantics `lib/chatStream` has (audit A2).
+   * stop only that session's streams instead of every in-flight stream
+   * (audit A2).
    */
   sessionId?: string;
 }
@@ -152,6 +153,8 @@ _${parsed.diagnostic}_`
         // The agent judged this task worth teaching as a skill. The tool
         // itself does nothing; seeing it on the stream is the signal.
         if (parsed.tool === 'suggest_skill') useUI.getState().setSkillTip(true);
+        // "Something you should know": the card rides the tool's data.
+        if (parsed.tool === 'heads_up' && parsed.sessionId) useHeadsUp.getState().show(parsed.sessionId, parsed.result);
         useCoworkTranscript.getState().ingestTool({
           sessionId: parsed.sessionId,
           tool: parsed.tool,

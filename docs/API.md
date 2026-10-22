@@ -1,7 +1,7 @@
 # CINDERPAW HTTP API reference
 
-> **Stability policy:** As of v1.0 the Cinderpaw HTTP API is **unstable
-> pre-2.0**. Every response carries
+> **Stability policy:** Apart from the two compat surfaces below, the
+> Cinderpaw HTTP API is **unstable**. Every response carries
 > `X-Cinderpaw-Api-Stability: stable|unstable`. The **only** stable
 > surfaces are the third-party protocol compat:
 >   * `/api/*` — Ollama-compatible.
@@ -10,9 +10,10 @@
 > Everything else (`/runtime/*`, `/meta/*`, `/governance/*`,
 > `/modules/*`, `/system_info`, `/providers/test`, `/tokenize`,
 > `/events`, the catalog reads) is `unstable`. Additive changes are
-> fine; breaking changes can land between minor releases without a
-> deprecation cycle. Decision recorded in the spec at
-> `docs/2026-07-09-v1-architecture-hardening-spec.md` §B1.
+> fine; breaking changes can land in any release without a
+> deprecation cycle. The header is set by `api_stability_header` in
+> `crates/cinderpaw-core/src/api.rs` and checked by
+> `crates/cinderpaw-core/tests/api_stability.rs`.
 
 The list below mirrors `crates/cinderpaw-core/src/api.rs::router()`.
 That file is the source of truth — `scripts/check-api-docs.mjs`
@@ -85,6 +86,16 @@ the comment tags next to each `.route(` line.
 | GET  | `/runtime/providers/catalog` | unstable | read | Provider catalog; carries `X-Cinderpaw-Catalog-Version`. |
 | GET  | `/runtime/connectors/catalog` | unstable | read | Connector catalog; same versioning header. |
 | GET  | `/runtime/connectors/whatsapp/qr` | unstable | read | The WhatsApp pairing code waiting to be scanned (`{qr, ascii, svg, ts}`; `svg` is the scannable picture), or `null` once a phone is linked or pairing stopped. |
+| GET  | `/runtime/memory/notes` | unstable | read | What Cinderpaw noted about the person (the Memory page's notes), as the sidecar's `memory_notes_result`. Waits up to 10s. |
+| POST | `/runtime/memory/notes/delete` | unstable | govern | Forget one note (`{noteId}`); answers with `memory_notes_result`. |
+| GET  | `/runtime/memory/search` | unstable | read | What recall would put in front of the model for these words (`?q=`, required), as `memory_search_result`. Waits up to 60s: the query may be embedded on a CPU first. |
+| GET  | `/runtime/cron` | unstable | read | Every scheduled task, as `cron_list_result`. |
+| POST | `/runtime/cron` | unstable | govern | Add (`{op:"add", name, task, schedule}`), remove (`{op:"remove", id}`) or turn on/off (`{op:"toggle", id, enabled}`) a scheduled task. Answers with the whole list after the change; a malformed body is a 400 here, because the sidecar would answer it with nothing to wait for. |
+| GET  | `/runtime/mcp` | unstable | read | The MCP servers and whether each is running, as `mcp_result`. |
+| POST | `/runtime/message` | unstable | govern | Say something in one chat-app conversation (`{to: "<connector>:<chat>", text}`), as `message_send_result`. Waits up to 30s. |
+| GET  | `/runtime/migrate/preview` | unstable | read | Another agent's setup on this machine (OpenClaw, Hermes Agent) and what an import would bring (`migrate::preview`). `[]` for almost everyone. |
+| POST | `/runtime/migrate/apply` | unstable | govern | Import what the preview showed for `{root}` (the root exactly as the preview returned it); answers `{imported}`. |
+| POST | `/runtime/openrouter/sign-in` | unstable | govern | Start OpenRouter's one-click sign-in (`{return_to?}`) and return `{url}` to open. When the browser comes back the key is saved, then the browser is sent to `return_to` if it is this engine's own page. |
 
 ### Meta (`/meta/*` — L6, sidecar roundtrip)
 
@@ -237,6 +248,16 @@ POST /runtime/setup/verify
 POST /runtime/setup/ack
 POST /runtime/shutdown
 GET /runtime/models/download/:id
+GET /runtime/memory/notes
+POST /runtime/memory/notes/delete
+GET /runtime/memory/search
+GET /runtime/cron
+POST /runtime/cron
+GET /runtime/mcp
+POST /runtime/message
+GET /runtime/migrate/preview
+POST /runtime/migrate/apply
+POST /runtime/openrouter/sign-in
 GET /system_info
 POST /tokenize
 ```

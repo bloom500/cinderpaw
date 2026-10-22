@@ -219,6 +219,61 @@ export function createCoworkSendTool(agents: CoworkAgentRepo, mailbox: CoworkMai
 const REPLY_MAX = 6000;
 
 /**
+ * A thread's answers to the person, formatted the way cowork_replies shows
+ * them, and who is still working. Unread answers are marked read here, so one
+ * answer is not acted on twice whichever road it reached the agent by.
+ */
+function takeReplies(threadId: string, agents: CoworkAgentRepo, mailbox: CoworkMailboxRepo, all: boolean) {
+  const rows = mailbox.byThread(threadId);
+  const nameOf = (id: string) => agents.get(id)?.name ?? id;
+  const replies = rows.filter((r) => r.toAgentId === HUMAN && (all || r.status === "pending"));
+  // A message from the person stays `pending` until its teammate has
+  // finished with it, so this is also who is still working.
+  const working = [
+    ...new Set(
+      rows.filter((r) => r.fromAgentId === HUMAN && r.status === "pending").map((r) => nameOf(r.toAgentId)),
+    ),
+  ];
+
+  const lines = replies.map((r) => {
+    let p: Partial<HumanReplyPayload> = {};
+    try {
+      p = JSON.parse(r.payloadJson ?? "{}") as HumanReplyPayload;
+    } catch {
+      /* an unreadable payload still has a body worth showing */
+    }
+    const asked = p.replyTo ? rows.find((q) => q.id === p.replyTo)?.body : undefined;
+    const about = asked ? ` (to "${asked.slice(0, 80).replace(/\s+/g, " ")}")` : "";
+    const body = r.body.length > REPLY_MAX ? `${r.body.slice(0, REPLY_MAX)} … (truncated)` : r.body;
+    return p.failed
+      ? `${nameOf(r.fromAgentId)} could not answer${about}: ${body}`
+      : `${nameOf(r.fromAgentId)}${about}:\n${body}`;
+  });
+  for (const r of replies) if (r.status === "pending") mailbox.updateStatus(r.id, "read");
+  return { replies, working, lines, nameOf };
+}
+
+/**
+ * Answers that arrived since the agent last looked, as a note for its next
+ * turn; empty when nothing new came.
+ *
+ * cowork_send tells the agent not to wait, so an answer landing between turns
+ * reached it only if it remembered to call cowork_replies. On 15 Oct 2026 a
+ * small model polled once, too early, and eight minutes later wrote the plan
+ * alone while Atlas's answer sat unread. Remembering is no longer the agent's
+ * job.
+ */
+export function teammateRepliesBrief(threadId: string, agents: CoworkAgentRepo, mailbox: CoworkMailboxRepo): string {
+  const { lines } = takeReplies(threadId, agents, mailbox, false);
+  if (lines.length === 0) return "";
+  return [
+    "Your teammates answered in this conversation since your last turn. " +
+      "Use what they said in this answer, and tell the user it came from them.",
+    ...lines,
+  ].join("\n\n");
+}
+
+/**
  * cowork_replies — what teammates answered the person in this conversation.
  *
  * cowork_send is fire-and-forget, so without this the main agent could hand
@@ -263,32 +318,7 @@ export function createCoworkRepliesTool(agents: CoworkAgentRepo, mailbox: Cowork
         return { ok: false, content: "cowork_replies needs a thread_id here.", error: "bad_args" };
       }
       const all = args.all === true;
-      const rows = mailbox.byThread(threadId);
-      const nameOf = (id: string) => agents.get(id)?.name ?? id;
-      const replies = rows.filter((r) => r.toAgentId === HUMAN && (all || r.status === "pending"));
-      // A message from the person stays `pending` until its teammate has
-      // finished with it, so this is also who is still working.
-      const working = [
-        ...new Set(
-          rows.filter((r) => r.fromAgentId === HUMAN && r.status === "pending").map((r) => nameOf(r.toAgentId)),
-        ),
-      ];
-
-      const lines = replies.map((r) => {
-        let p: Partial<HumanReplyPayload> = {};
-        try {
-          p = JSON.parse(r.payloadJson ?? "{}") as HumanReplyPayload;
-        } catch {
-          /* an unreadable payload still has a body worth showing */
-        }
-        const asked = p.replyTo ? rows.find((q) => q.id === p.replyTo)?.body : undefined;
-        const about = asked ? ` (to "${asked.slice(0, 80).replace(/\s+/g, " ")}")` : "";
-        const body = r.body.length > REPLY_MAX ? `${r.body.slice(0, REPLY_MAX)} … (truncated)` : r.body;
-        return p.failed
-          ? `${nameOf(r.fromAgentId)} could not answer${about}: ${body}`
-          : `${nameOf(r.fromAgentId)}${about}:\n${body}`;
-      });
-      for (const r of replies) if (r.status === "pending") mailbox.updateStatus(r.id, "read");
+      const { replies, working, lines, nameOf } = takeReplies(threadId, agents, mailbox, all);
 
       const tail = working.length > 0 ? `Still working: ${working.join(", ")}.` : "";
       const content =

@@ -13,6 +13,9 @@ use base64::Engine as _;
 /// Keychain namespace for the DB key. Separate service from BYOK so the two
 /// concerns never collide.
 const SERVICE: &str = "ai.bloom.cinderpaw.dbkey";
+/// Feral's name for the same key. Every memory written before the rename is
+/// encrypted with it, so it is moved over before a new key is ever made.
+const LEGACY_SERVICE: &str = "ai.bloom.feral.dbkey";
 const ACCOUNT: &str = "semantic";
 
 fn entry() -> Result<keyring::Entry, keyring::Error> {
@@ -30,6 +33,9 @@ pub fn get_or_create() -> Option<String> {
         if !existing.is_empty() {
             return Some(existing);
         }
+    }
+    if let Some(old) = crate::secret_store::move_legacy(LEGACY_SERVICE, SERVICE, ACCOUNT) {
+        return Some(old);
     }
     // Generate 32 cryptographically-random bytes from the OS RNG.
     let mut buf = [0u8; 32];

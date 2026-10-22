@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { COPY } from "./copy";
 import {
-  commonFirst, failureLine, firstOffers, load, manualCandidate, mask, save, tryCandidate, tryKey,
+  commonFirst, failureLine, firstOffers, importOffer, load, manualCandidate, mask, save, tryCandidate, tryKey, whatWillCome,
   type Api, type Candidate, type KeyResult, type Outcome, type Provider,
 } from "./onboarding";
 
@@ -24,6 +24,9 @@ function fakeApi(verifyResult: Outcome | Error, detected: Candidate[] = []) {
       return verifyResult;
     },
     activate: async (c) => { calls.activate.push(c); },
+    migratePreview: async () => [],
+    migrateApply: async () => [],
+    openRouterSignIn: async () => "https://openrouter.ai/auth",
   };
   return { api, calls };
 }
@@ -99,4 +102,20 @@ test("a beginner sees four common providers first, in a fixed order, the rest be
   const { common, rest } = commonFirst(all);
   expect(common.map((x) => x.id)).toEqual(["openrouter", "openai", "anthropic", "google"]);
   expect(rest.map((x) => x.id)).toEqual(["kimi", "glm", "nvidia"]);
+});
+
+test("an import is offered only when there is something to bring, and says what", async () => {
+  const { api } = fakeApi(ok);
+  expect(await importOffer(api)).toBeNull();
+  const openclaw = {
+    source: "OpenClaw",
+    root: "/home/u/.openclaw",
+    plan: { willImport: [{ what: "SOUL.md" }, { what: "skill: a" }, { what: "skill: b" }], notImported: [], conflicts: [] },
+  };
+  const empty = { ...openclaw, plan: { ...openclaw.plan, willImport: [] } };
+  expect(await importOffer({ ...api, migratePreview: async () => [empty] })).toBeNull();
+  expect(await importOffer({ ...api, migratePreview: async () => [empty, openclaw] })).toBe(openclaw);
+  expect(await importOffer({ ...api, migratePreview: async () => { throw new Error("404"); } })).toBeNull();
+  expect(whatWillCome(openclaw)).toBe("its personality and 2 skills");
+  expect(whatWillCome({ ...openclaw, plan: { ...openclaw.plan, willImport: [{ what: "skill: a" }] } })).toBe("1 skill");
 });

@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, RefreshCw, Trash2, ShieldAlert, Check } from 'lucide-react';
+import { ArrowUpRight, Loader2, RefreshCw, Trash2, ShieldAlert, Check } from 'lucide-react';
 import {
   tauri,
   type ConnectorCatalogEntry,
@@ -22,6 +22,7 @@ import {
 import { cn } from '@/lib/utils';
 import { BrandLogo } from '@/lib/brandLogos';
 import { ConnectorAccounts } from '@/components/connectors/ConnectorAccounts';
+import { IS_MAC } from '@/components/ui/kbd';
 
 export function ConnectorsPage() {
   const [catalog, setCatalog] = useState<ConnectorCatalogEntry[]>([]);
@@ -117,7 +118,8 @@ export function ConnectorsPage() {
                   advertising an absence (audit 2026-07-10, Part 2). As of
                   19 Sep 2026 all 21 are live, so nothing is filtered and the
                   "More connectors coming" line is gone with it. */}
-              {catalog.filter((entry) => !entry.coming_soon).map((entry) => (
+              {/* iMessage needs a Mac: offered on Windows it could only fail (UX lab, item 30). */}
+              {catalog.filter((entry) => !entry.coming_soon && (IS_MAC || entry.id !== 'imessage')).map((entry) => (
                 <ConnectorCard
                   key={entry.id}
                   entry={entry}
@@ -139,10 +141,13 @@ export function ConnectorCard({
   entry,
   state,
   onChanged,
+  startOpen = false,
 }: {
   entry: ConnectorCatalogEntry;
   state: ConnectorView | null;
   onChanged: () => void;
+  /** Open at once: the wizard's dialog shows this card because it was picked. */
+  startOpen?: boolean;
 }) {
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [allowlist, setAllowlist] = useState(state?.allowlist.join('\n') ?? '');
@@ -157,6 +162,9 @@ export function ConnectorCard({
 
   const enabled = state?.enabled ?? false;
   const configured = state !== null;
+  // Closed until asked for: 21 open forms made one 10,000-character wall
+  // (UX lab, item 30). A connector already set up opens with its settings.
+  const [setupOpen, setSetupOpen] = useState(configured || startOpen);
   const isQr = entry.auth_kind === 'qr';
   const linked = state?.linked ?? false;
   const [waQr, setWaQr] = useState<WhatsappQr | null>(null);
@@ -347,8 +355,28 @@ export function ConnectorCard({
         )}
       </div>
 
-      {!entry.coming_soon && (
+      {!entry.coming_soon && !setupOpen && (
+        <button
+          type="button"
+          onClick={() => setSetupOpen(true)}
+          className="mt-3 self-start rounded-lg border border-border-default px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-bg-hover"
+        >
+          Set up
+        </button>
+      )}
+
+      {!entry.coming_soon && setupOpen && (
         <div className="mt-3 space-y-2">
+          {!isQr && entry.console_url && (
+            <a
+              href={entry.console_url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-2xs text-brand hover:underline"
+            >
+              Where do I get this? <ArrowUpRight size={12} />
+            </a>
+          )}
           {isQr ? (
             <div className="rounded-md border border-border-default bg-bg-primary px-2.5 py-2 text-2xs leading-relaxed">
               {linked ? (

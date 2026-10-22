@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, useState } from 'react';
+import { createContext, memo, useContext } from 'react';
 import type { Components } from 'react-markdown';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -6,61 +6,46 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
 import 'katex/dist/katex.min.css';
-import { Maximize2, X } from 'lucide-react';
+import { Maximize2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { CodeBlock } from '@/components/chat/CodeBlock';
 import { MermaidDiagram } from '@/components/chat/MermaidDiagram';
 import { SourceAwareLink } from '@/components/chat/Sources';
 import { rehypeWordFade } from '@/lib/rehypeWordFade';
 import { splitBlocks } from '@/lib/markdownBlocks';
+import { emberActive, rehypeEmber, type Ember } from '@/lib/emberLetters';
+import { SKIP, visit } from 'unist-util-visit';
+import type { Element as HastElement, ElementContent, Root as HastRoot, Text as HastText } from 'hast';
 
 function ExpandableTable({ children, ...props }: React.HTMLAttributes<HTMLTableElement>) {
-  const [expanded, setExpanded] = useState(false);
+  // The app's dialog, opened by its trigger: Escape closes it, focus stays
+  // inside and returns to the expand button, a screen reader hears a dialog.
   return (
-    <>
+    <Dialog>
       <div className="relative group/table">
-        <button
+        <DialogTrigger asChild><button
           type="button"
-          onClick={() => setExpanded(true)}
           className="absolute top-1 right-1 p-1 rounded bg-bg-elevated border border-border-subtle shadow
-                     opacity-0 group-hover/table:opacity-100 transition-opacity
+                     opacity-0 group-hover/table:opacity-100 focus-visible:opacity-100 transition-opacity
                      text-text-muted hover:text-text-secondary cursor-pointer"
           aria-label="Expand table"
           title="Expand table"
         >
           <Maximize2 size={12} />
-        </button>
-        {/* No negative margin: a message row is `content-visibility: auto`,
-            which clips at its edge, and -mx-1 cut the first column's text. */}
+        </button></DialogTrigger>
+        {/* No negative margin: -mx-1 cut the first column's text where the
+            row clipped at its edge. */}
         <div className="overflow-x-auto">
           <table {...(props as any)}>{children}</table>
         </div>
       </div>
-      {expanded && (
-        <div
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-6"
-          onClick={() => setExpanded(false)}
-        >
-          <div
-            className="relative bg-bg-elevated rounded-xl border border-border-default shadow-xl
-                       max-w-5xl w-full max-h-[80vh] overflow-auto p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={() => setExpanded(false)}
-              className="absolute top-3 right-3 p-1.5 rounded-full bg-bg-surface border border-border-subtle
-                         text-text-muted hover:text-text-primary cursor-pointer"
-              aria-label="Close"
-            >
-              <X size={14} />
-            </button>
-            <div className="prose dark:prose-invert max-w-none">
-              <table {...(props as any)}>{children}</table>
-            </div>
+        <DialogContent className="max-w-5xl w-full max-h-[80vh] overflow-auto p-6">
+          <DialogTitle className="sr-only">Table</DialogTitle>
+          <div className="prose dark:prose-invert max-w-none">
+            <table {...(props as any)}>{children}</table>
           </div>
-        </div>
-      )}
-    </>
+        </DialogContent>
+    </Dialog>
   );
 }
 
@@ -116,9 +101,53 @@ const COMPONENTS: Components = {
 // model writes when it means mathematics.
 const REMARK = [remarkGfm, [remarkMath, { singleDollarTextMath: false }]] as NonNullable<React.ComponentProps<typeof ReactMarkdown>['remarkPlugins']>;
 // Word-fade runs after highlight so it can skip code/pre nodes it produced.
+/**
+ * A paragraph that is only `[[what goes here]]` is a part still to be written
+ * (a document drafted in parts, artifact.ts DRAFT_IN_PARTS): drawn as a grey
+ * line without its brackets, the way Claude Docs shows a pending block. The
+ * text keeps its source offset, so live writing can take it out letter by letter.
+ */
+function rehypePlaceholder() {
+  return (tree: HastRoot) => {
+    for (const node of tree.children) {
+      if (node.type !== 'element' || node.tagName !== 'p' || node.children.length !== 1) continue;
+      const only = node.children[0];
+      if (only?.type !== 'text') continue;
+      const m = /^\[\[([^\]\n]+)\]\]$/.exec(only.value);
+      if (!m) continue;
+      (node as HastElement).properties = { ...node.properties, className: ['md-placeholder'] };
+      const text = only as HastText;
+      const start = text.position?.start.offset;
+      text.value = m[1]!;
+      if (start !== undefined && text.position) text.position = { ...text.position, start: { ...text.position.start, offset: start + 2 } };
+    }
+    // Models also put them inside a heading or a line ("1. [[title of idea
+    // 1]]", "Ingredients: [[for idea 1]]", 20 Oct), where they showed with
+    // their brackets: the same grey, in place. Each piece keeps its offset.
+    visit(tree, 'text', (node, index, parent) => {
+      const text = node as HastText;
+      if (!parent || index === undefined || !text.value.includes('[[')) return;
+      if (parent.type === 'element' && (parent.tagName === 'code' || parent.tagName === 'pre')) return;
+      const start = text.position?.start.offset;
+      const at = (i: number) => (start !== undefined && text.position ? { ...text.position, start: { ...text.position.start, offset: start + i } } : undefined);
+      const pieces: ElementContent[] = [];
+      let last = 0;
+      for (const m of text.value.matchAll(/\[\[([^\]\n]+)\]\]/g)) {
+        if (m.index > last) pieces.push({ type: 'text', value: text.value.slice(last, m.index), position: at(last) });
+        pieces.push({ type: 'element', tagName: 'span', properties: { className: ['md-placeholder-inline'] }, children: [{ type: 'text', value: m[1]!, position: at(m.index + 2) }] });
+        last = m.index + m[0].length;
+      }
+      if (pieces.length === 0) return;
+      if (last < text.value.length) pieces.push({ type: 'text', value: text.value.slice(last), position: at(last) });
+      parent.children.splice(index, 1, ...pieces);
+      return [SKIP, index + pieces.length];
+    });
+  };
+}
+
 // KaTeX before highlight, so a formula is a formula and not a code span.
-const REHYPE = [rehypeKatex, rehypeHighlight];
-const REHYPE_FADE = [rehypeKatex, rehypeHighlight, rehypeWordFade];
+const REHYPE = [rehypePlaceholder, rehypeKatex, rehypeHighlight];
+const REHYPE_FADE = [rehypePlaceholder, rehypeKatex, rehypeHighlight, rehypeWordFade];
 
 /**
  * One top-level block, parsed again only when its own text changes. The fade
@@ -127,24 +156,56 @@ const REHYPE_FADE = [rehypeKatex, rehypeHighlight, rehypeWordFade];
  * again for it was one long frame at the end of every answer.
  */
 export const MarkdownBlock = memo(
-  function MarkdownBlock({ text, fade }: { text: string; fade: boolean }) {
+  function MarkdownBlock({ text, fade, ember }: { text: string; fade: boolean; ember?: Ember & { base: number } }) {
+    // Ember goes last, after maths and highlighting, so it can leave their
+    // nodes alone.
+    const rehype = ember
+      ? ([...REHYPE, [rehypeEmber, { ...ember, source: text }]] as typeof REHYPE)
+      : fade ? REHYPE_FADE : REHYPE;
     return (
-      <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={fade ? REHYPE_FADE : REHYPE} components={COMPONENTS}>
+      <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={rehype} components={COMPONENTS}>
         {text}
       </ReactMarkdown>
     );
   },
-  (prev, next) => prev.text === next.text && (prev.fade === next.fade || !next.fade),
+  (prev, next) => prev.text === next.text && prev.ember === next.ember && (prev.fade === next.fade || !next.fade),
 );
 
-export function Markdown({ children, animateWords }: { children: string; animateWords?: boolean }) {
+/**
+ * `ember` is the Artifacts panel's live writing (emberLetters.ts): letters
+ * arrive one by one as Cinderpaw writes, and an edit's old words go out. Only
+ * a block with something still moving is parsed with it; every other block is
+ * exactly what it is without it, so a settled document is plain markdown.
+ */
+export function Markdown({ children, animateWords, ember }: { children: string; animateWords?: boolean; ember?: Ember }) {
   // Cut into blocks that render the same apart as together (markdownBlocks):
   // while a reply streams, the finished blocks keep their DOM and only the
   // one still growing is parsed again.
   const blocks = splitBlocks(children);
+  // Blocks are the document cut at newlines, so each starts one past the last.
+  let base = 0;
+  const seen = new Map<string, number>();
   return (
     <div className="prose dark:prose-invert max-w-none wrap-break-word wrap-anywhere text-text-primary prose-headings:text-text-primary prose-strong:text-text-primary prose-pre:p-0 prose-pre:bg-transparent prose-pre:border-none prose-a:text-brand prose-li:text-text-primary prose-p:text-text-primary">
-      {blocks.map((b, i) => <MarkdownBlock key={i} text={b} fade={Boolean(animateWords)} />)}
+      {blocks.map((b, i) => {
+        const start = base;
+        base += b.length + 1;
+        // The block the cursor is in is drawn with it even when nothing in it moves.
+        const hasCaret = !!ember?.caret && ember.caret.at >= start && ember.caret.at <= start + b.length;
+        const live = ember && (hasCaret || emberActive(ember, start, start + b.length))
+          ? { ...ember, base: start, caret: hasCaret ? ember.caret : undefined }
+          : undefined;
+        // A part written over a placeholder in the middle pushes every block
+        // below it one place down with each new paragraph; keyed by place, the
+        // whole rest of the document was parsed again each time (150 ms a
+        // paragraph, 20 Oct). Settled blocks are keyed by their text and stay
+        // put. A block still moving keeps its place, so its letters keep
+        // animating. A reply in the chat only grows at its end: by place.
+        const n = seen.get(b) ?? 0;
+        seen.set(b, n + 1);
+        const key = ember && !live ? `t${n}:${b}` : i;
+        return <MarkdownBlock key={key} text={b} fade={Boolean(animateWords)} ember={live} />;
+      })}
     </div>
   );
 }

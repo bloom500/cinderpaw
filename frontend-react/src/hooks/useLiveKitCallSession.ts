@@ -73,10 +73,14 @@ function spokenLanguage(uiLanguage: string): string {
 export function callFailureLine(raw: string): string {
   const text = raw.trim();
   if (/429|quota|rate.?limit|RESOURCE_EXHAUSTED/i.test(text)) {
-    return 'Google cut the call off: the free tier limits how much voice you get. Wait a few minutes, or add billing to that key.';
+    // Not always a free tier running out: on 14 Oct a brand-new key got this
+    // on its first call to Gemini 3.8 Live, and waiting alone fixed nothing.
+    return 'Google turned this key down for this model: it says the quota is used up. Wait a few minutes and try again. If it keeps happening, check in Google AI Studio that the key belongs to a project with billing, or pick another model.';
   }
+  // Not only a model that never speaks: on 14 Oct the default model answered
+  // three times, then Google stopped the call with this same refusal.
   if (/CONTENT_TYPE_AUDIO|not supported for this model/i.test(text)) {
-    return 'That model cannot speak: it accepts a live session but refuses audio. Pick another model in the call settings.';
+    return 'Google stopped the call: it turned down a voice setting for this model. Press Call to try again. If it stops right away every time, pick another model in the call settings.';
   }
   return text || 'The call reported an error.';
 }

@@ -220,39 +220,41 @@
 }
 
 @utility thin-scrollbar {
-  /* ChatGPT/Qwen-style thin interactive scrollbar — faint line, expands on hover */
+  /* Faint always-visible bar that only changes COLOUR on hover. The width
+     never changes: growing 3px -> 6px on :hover made the engine drop the
+     hover mid-grab, so the bar strobed/vanished right when reached for
+     (4 Oct 2026). Stable geometry, colour-only hover. 8px like the app-wide
+     base bar: 6px proved too thin to grab reliably. */
   scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
+  scrollbar-color: color-mix(in srgb, var(--border-default) 55%, transparent) transparent;
   scrollbar-gutter: stable;
   &:hover {
     scrollbar-color: var(--border-default) transparent;
   }
   &::-webkit-scrollbar {
-    width: 3px;
-    height: 3px;
+    width: 8px;
+    height: 8px;
   }
   &::-webkit-scrollbar-track {
     background: transparent;
   }
   &::-webkit-scrollbar-thumb {
-    background-color: transparent;
+    background-color: color-mix(
+      in srgb,
+      var(--border-default) 55%,
+      transparent
+    );
     border-radius: 9999px;
-    border: 1px solid transparent;
-    background-clip: padding-box;
   }
   &:hover::-webkit-scrollbar-thumb {
     background-color: color-mix(
       in srgb,
-      var(--border-default) 70%,
+      var(--border-default) 80%,
       transparent
     );
   }
   &::-webkit-scrollbar-thumb:hover {
     background-color: var(--text-muted);
-  }
-  &:hover::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
   }
 }
 
@@ -997,19 +999,13 @@ html.has-window-effect[data-theme="light"] .app-pane {
   -webkit-backdrop-filter: saturate(0.9) contrast(0.35) brightness(2.5);
 }
 
-/* Long transcripts: a message off screen is not laid out until it scrolls near.
-   Opening a side panel narrows the chat column, and every message used to be
-   re-laid out at once; with this, only the ones on screen are. The intrinsic
-   size keeps the scrollbar honest for the ones that are not. */
-.message-row {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 120px;
-}
-/* content-visibility clips paint to the row, and a board breaks out of the
-   reading column to the chat area's width: its row is laid out normally. */
-.message-row:has([data-board-breakout]) {
-  content-visibility: visible;
-}
+/* `.message-row` carried `content-visibility: auto` (17 Sep, so opening a side
+   panel re-laid out only the messages on screen). Removed 6 Oct: an off-screen
+   message was a 120px guess until it scrolled near, so a long reply grew from
+   120px to its real height while it came into view and the text around it
+   slid, on every scroll up or down. The transcript's own anchor fix runs a
+   frame later, which made it a visible jolt. Turned off in the running app,
+   the drift was gone. Guarded by test/scroll-stability.test.ts. */
 
 /* The `live-frame` and `panel-moving` overrides for `.app-pane` used to live
    here. Both existed only to strip url(#liquid-glass-soft) from the pane for
@@ -1345,6 +1341,28 @@ body::after {
   }
 }
 
+/* ── Glass effects off (Settings > Appearance, off by default) ──────────
+   The in-app kill switch for every blur the app paints itself: the
+   full-window pane frost and the liquid-glass refraction (composer, rail,
+   dialogs). A frost is cheap only while what is behind it stands still, and
+   the transcript never does while streaming or scrolling — the frame log
+   showed it as hundreds of main-thread-free stalls (blocking=0ms, p95
+   700ms over twelve days). This is the same two surfaces the transparency
+   escape above stands down, so the pane keeps its measured tints, only
+   unblurred; what shows through is our own dim scene, never a wallpaper.
+
+   Specificity is load-bearing: the first selector ties the themed
+   `html.has-window-effect[data-theme] .app-pane` rules (0,3,1) and wins by
+   coming later; the rest cover the un-effected pane and every liquid-glass
+   surface including the panel-moving override. Separate from the window
+   background choice, which is the OS transparency, not this. */
+html.has-window-effect[data-glass="off"] .app-pane,
+html[data-glass="off"] .app-pane,
+html[data-glass="off"] .liquid-glass {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 /*
  * Semi-transparency escape hatch
  * Palette is hex → Tailwind's bg-card/50 opacity utilities don't work on
@@ -1465,6 +1483,97 @@ body { overflow: hidden; }
 }
 @media (prefers-reduced-motion: reduce) {
   .word-fade { animation: none; }
+}
+
+/* Live writing in the Artifacts panel (Darius's pick, 17 Oct, "blur that
+   sharpens, and ember that cools"): a letter arrives out of focus and glowing,
+   sharpens first, then cools to the text colour a little later, so a short
+   warm trail follows the writing edge. An edit takes old letters out the same
+   way backwards. emberLetters.ts decides which letters wear these. A word never
+   breaks across lines.
+   Letters stay inline, unlike the demo's inline-block: a letter in a box of its
+   own loses kerning with its neighbours, so a paragraph of boxed letters is
+   about 2.4% wider (582 px against 568 px, Geist 15px), and it visibly shrank
+   when the boxes went back to plain text (Darius, 17 Oct). Blur, colour and
+   glow animate the same on an inline letter. */
+@layer base {
+  :root {
+    --ember-hot: #ff9a6c;
+    --ember-warm: #f6c9b0;
+  }
+}
+/* The demo's in-between colours are for a dark page: pale peach on a light one
+   all but disappears halfway through. Mixed from the brand and the text
+   colour instead, so they stay readable and still cool towards the text. */
+:root[data-theme="light"] {
+  --ember-hot: color-mix(in oklab, var(--brand) 80%, var(--text-primary));
+  --ember-warm: color-mix(in oklab, var(--brand) 35%, var(--text-primary));
+}
+@keyframes in-ember {
+  0%  { opacity: 0; filter: blur(6px); color: var(--brand); text-shadow: 0 0 12px var(--brand); }
+  35% { opacity: 1; filter: blur(1px); color: var(--ember-hot); text-shadow: 0 0 8px #e8643bcc; }
+  70% { filter: none; color: var(--ember-warm); text-shadow: 0 0 3px #e8643b55; }
+}
+@keyframes out-ember {
+  to { opacity: 0; filter: blur(5px); color: var(--text-muted); }
+}
+.ember-word { white-space: nowrap; }
+/* 350 ms at most; each run sets its own length inline (emberLetters.ts). */
+.ember-in { animation: in-ember 350ms ease-out both; }
+.ember-out { animation: out-ember 240ms ease-in both; }
+@media (prefers-reduced-motion: reduce) {
+  .ember-in, .ember-out { animation: none; }
+}
+
+/* Where Cinderpaw is writing: a thin ember bar with its name above it, like a
+   collaborator's cursor in a shared document (Claude Docs, compared 20 Oct).
+   `span.` because it is placed by emberLetters.ts, never by markup: no utility
+   ever sits on it, so its own position is not taken from one (glass.test). */
+span.ember-caret {
+  position: relative;
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  background: var(--brand);
+  animation: ember-caret-blink 1s steps(1) infinite;
+}
+.ember-caret::after {
+  content: attr(data-name);
+  position: absolute;
+  left: -1px;
+  bottom: 100%;
+  margin-bottom: 2px;
+  padding: 0 5px;
+  border-radius: 4px 4px 4px 0;
+  background: var(--brand);
+  color: var(--brand-foreground, #ffffff);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+@keyframes ember-caret-blink { 50% { opacity: 0.4; } }
+
+/* A part still to be written, in a document drafted in parts: grey, with a
+   slow warm sweep so it reads as "coming", not as text (markdown.tsx). */
+.prose .md-placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin-left: -6px;
+  background: linear-gradient(90deg, transparent 0%, color-mix(in oklab, var(--brand) 12%, transparent) 50%, transparent 100%) 0 0 / 200% 100%;
+  animation: md-placeholder-sweep 1.8s linear infinite;
+}
+@keyframes md-placeholder-sweep { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+/* The same, inside a heading or a line ("Ingredients: [[for idea 1]]"). */
+.prose .md-placeholder-inline { color: var(--text-muted); font-style: italic; font-weight: normal; }
+@media (prefers-reduced-motion: reduce) {
+  .ember-caret, .prose .md-placeholder { animation: none; }
 }
 
 /* The logo head under a reply that is still being written (MessageItem's

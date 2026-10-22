@@ -1118,7 +1118,25 @@ export class FractalMemory {
     }
   }
 
-  /** Scan pending + fresh loadLeaves() for the nearest cosine. */
+  /**
+   * Scan pending + the loaded leaves for the nearest cosine.
+   *
+   * It used to reload the corpus here for EVERY fact: `#cappedLeaves()` calls
+   * `loadLeaves()`, which is `episodic.all()` — up to 50,000 rows with their
+   * embedding BLOBs, decoded one by one. The extractor calls `upsertLeaf` five
+   * to ten times at the end of every turn, so that was five to ten full corpus
+   * materialisations plus a cosine over all of them, per turn, growing with
+   * total history. The comment that used to sit here said the cached
+   * `#leavesById` "goes stale between rebuilds" and was not consulted.
+   *
+   * It is maintained between rebuilds: `#doRebuild` sets it whole (line 461),
+   * `#graftIntoTree` adds each grafted leaf, and `#evictLeaves` deletes by id.
+   * The recall paths already gate on `hasTree` and read exactly this map, so
+   * trusting it here is the same assumption those paths already make, not a new
+   * one. With no tree loaded there is nothing cached to read, so that case still
+   * falls through to a fresh load — unchanged, and it is the cold-start path
+   * where one load is the whole cost anyway.
+   */
   #nearestByCosine(embedding: number[]): { leaf: Leaf; sim: number } | null {
     const target = embeddingAsFloat32(embedding);
     if (target.length === 0) return null;
@@ -1126,10 +1144,12 @@ export class FractalMemory {
     const candidates: Leaf[] = [];
     // Pending leaves (inserted via upsertLeaf since the last rebuild).
     for (const l of this.#pendingLeaves.values()) candidates.push(l);
-    // Fresh loadLeaves() snapshot — reads from episodic, the source
-    // of truth. Cached #leavesById is NOT consulted because it goes
-    // stale between rebuilds.
-    for (const l of this.#cappedLeaves()) candidates.push(l);
+    // Loaded leaves. Cached when a tree is up, read fresh when it is not.
+    if (this.#leavesById !== null) {
+      for (const l of this.#leavesById.values()) candidates.push(l);
+    } else {
+      for (const l of this.#cappedLeaves()) candidates.push(l);
+    }
     if (candidates.length === 0) return null;
 
     let best: { leaf: Leaf; sim: number } | null = null;

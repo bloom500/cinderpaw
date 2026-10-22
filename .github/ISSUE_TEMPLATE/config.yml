@@ -3,3 +3,6 @@ contact_links:
   - name: Questions & ideas
     url: https://github.com/bloom500/cinderpaw/discussions
     about: For anything that isn't a bug — feature ideas, setup help, model recommendations.
+  - name: I want to help build Cinderpaw
+    url: https://github.com/bloom500/cinderpaw/blob/main/docs/CONTRIBUTING.md#pick-a-first-task
+    about: First tasks checked against the code, three commands to a running test suite, and where things live.

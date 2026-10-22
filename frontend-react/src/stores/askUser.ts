@@ -33,6 +33,8 @@ export interface AskUserQuestion {
   header?: string;
   options: AskUserOption[];
   multiSelect: boolean;
+  /** Text to read before answering (a skill a link would install), in a scrolling box. */
+  preview?: string;
 }
 
 export interface AskUserAnswer {

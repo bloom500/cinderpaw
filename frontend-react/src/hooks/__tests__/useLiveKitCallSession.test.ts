@@ -83,7 +83,8 @@ describe('a spoken turn reaches the conversation', () => {
     // The raw message names an HTTP status and a quota id, which tells a person
     // nothing about what to do — and a rate-limited call otherwise looks
     // exactly like the app breaking.
-    expect(result.current.notice).toMatch(/free tier/i);
-    expect(result.current.notice).toMatch(/wait a few minutes|billing/i);
+    expect(result.current.notice).toMatch(/quota is used up/i);
+    expect(result.current.notice).toMatch(/wait a few minutes/i);
+    expect(result.current.notice).toMatch(/billing/i);
   });
 });

@@ -47,6 +47,18 @@ export function preview(text: string, max = 120): string {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
+/** Settings' "Send a test notification": always sends, so people can see one
+ *  and learn whether the OS lets Cinderpaw through. Never throws. */
+export async function sendTestNotification(): Promise<boolean> {
+  if (!(await granted())) return false;
+  try {
+    sendNotification({ title: 'Cinderpaw', body: 'Notifications work. You get one when a task finishes while you are in another window.' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Sends only when the window is in the background. Never throws. */
 export async function notifyIfBackground(title: string, body: string): Promise<boolean> {
   if (!inBackground()) return false;
