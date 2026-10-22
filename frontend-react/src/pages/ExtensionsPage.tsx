@@ -11,7 +11,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, Trash2, Loader2, RefreshCw, ShieldAlert, ArrowUpRight } from 'lucide-react';
+import { ChevronDown, ChevronUp, Trash2, Loader2, RefreshCw, ShieldAlert, ArrowUpRight, CheckCircle2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
   tauri,
@@ -22,6 +23,7 @@ import {
 import { cn } from '@/lib/utils';
 import { BrandLogo } from '@/lib/brandLogos';
 import { useUI } from '@/stores/ui';
+import { useConversations } from '@/stores/conversations';
 
 // Communication channels live in the dedicated Connectors section now, never
 // in Extensions — hide them here even if an old install lingers in mcp.json.
@@ -66,12 +68,26 @@ export function ExtensionsPage() {
   const refresh = () =>
     tauri.mcp.list().then((l) => setInstalled(l.filter((s) => !CONNECTOR_IDS.has(s.id)))).catch(() => {});
 
+  // A service that just connected gets its own moment (Darius, 22 Oct: after
+  // signing in in the browser, nothing in Cinderpaw said it worked). The app
+  // comes forward too, since the person is still in the browser tab.
+  const [connected, setConnected] = useState<McpServerView | null>(null);
+  const onConnected = (server?: McpServerView) => {
+    void refresh();
+    if (!server) return;
+    setConnected(server);
+    void import('@tauri-apps/api/window')
+      .then(({ getCurrentWindow }) => getCurrentWindow().setFocus())
+      .catch(() => {});
+  };
+
   const installedIds = new Set(installed.map((s) => s.id));
   const categories = ['All', ...Array.from(new Set(catalog.map((c) => c.category)))];
   const visible = catalog.filter((c) => category === 'All' || c.category === category);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {connected && <ConnectedDialog server={connected} onClose={() => setConnected(null)} />}
       <div className="flex-1 overflow-y-auto scrollbar-hide">
         <div className="max-w-4xl mx-auto px-6 py-8">
           {/* Hero */}
@@ -170,11 +186,11 @@ export function ExtensionsPage() {
                       key={entry.id}
                       entry={entry}
                       installed={installedIds.has(entry.id)}
-                      onInstalled={refresh}
+                      onInstalled={onConnected}
                     />
                   ))}
                 </div>
-                <AddYourOwnCard onInstalled={refresh} />
+                <AddYourOwnCard onInstalled={onConnected} />
                 <p className="text-xs text-text-muted text-center mt-8">
                   More extensions coming in future updates ✨
                 </p>
@@ -340,7 +356,7 @@ export function CatalogCard({
 }: {
   entry: McpCatalogEntry;
   installed: boolean;
-  onInstalled: () => void;
+  onInstalled: (server?: McpServerView) => void;
 }) {
   const [configOpen, setConfigOpen] = useState(false);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -365,8 +381,7 @@ export function CatalogCard({
     setBusy(true);
     setErr(null);
     try {
-      await tauri.mcp.install(entry.id, values);
-      onInstalled();
+      onInstalled(await tauri.mcp.install(entry.id, values));
     } catch (e) {
       setErr(String(e));
     } finally {
@@ -519,7 +534,7 @@ const inputClass =
  * and a key. Reached over the web, so unlike the store's extensions it needs
  * nothing installed on this computer.
  */
-export function AddYourOwnCard({ onInstalled }: { onInstalled: () => void }) {
+export function AddYourOwnCard({ onInstalled }: { onInstalled: (server?: McpServerView) => void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
@@ -531,12 +546,12 @@ export function AddYourOwnCard({ onInstalled }: { onInstalled: () => void }) {
     setBusy(true);
     setErr(null);
     try {
-      await tauri.mcp.installCustom(name, url, key);
+      const server = await tauri.mcp.installCustom(name, url, key);
       setOpen(false);
       setName('');
       setUrl('');
       setKey('');
-      onInstalled();
+      onInstalled(server);
     } catch (e) {
       setErr(String(e));
     } finally {
@@ -604,6 +619,68 @@ export function AddYourOwnCard({ onInstalled }: { onInstalled: () => void }) {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * "Notion is connected": the moment a service joins, on a blurred page, with
+ * what it can do now and one step to try it.
+ */
+export function ConnectedDialog({ server, onClose }: { server: McpServerView; onClose: () => void }) {
+  const navigate = useNavigate();
+  const [tools, setTools] = useState<McpToolView[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    tauri.mcp.listTools(server.id).then((t) => { if (live) setTools(t); }).catch(() => {});
+    return () => { live = false; };
+  }, [server.id]);
+  const tryIt = () => {
+    onClose();
+    useConversations.getState().newChat();
+    navigate('/chat', { state: { compose: `What can you do in ${server.name}?` } });
+  };
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-md text-center">
+        <CheckCircle2 size={44} className="mx-auto text-success" />
+        <DialogHeader>
+          <DialogTitle className="text-center text-2xl">{server.name} is connected</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-text-secondary">
+          {tools
+            ? `Cinderpaw can now use ${tools.length} of its tools. Just ask for it in any chat.`
+            : 'Cinderpaw can use it now. Just ask for it in any chat.'}
+        </p>
+        {tools && tools.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-1.5">
+            {tools.slice(0, 3).map((t) => (
+              <span key={t.name} className="rounded-full bg-bg-hover px-2.5 py-1 text-2xs text-text-secondary">
+                {prettyToolName(t.name)}
+              </span>
+            ))}
+            {tools.length > 3 && (
+              <span className="rounded-full px-2.5 py-1 text-2xs text-text-muted">+{tools.length - 3} more</span>
+            )}
+          </div>
+        )}
+        <DialogFooter className="sm:justify-center">
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-bg-hover text-text-secondary hover:text-text-primary"
+          >
+            Done
+          </button>
+          <button
+            type="button"
+            onClick={tryIt}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand text-on-brand hover:bg-brand/90"
+          >
+            Try it in a chat
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
