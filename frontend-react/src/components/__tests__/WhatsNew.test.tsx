@@ -10,7 +10,7 @@ vi.mock('@/stores/onboarding', () => ({
 }));
 
 import { act } from '@testing-library/react';
-import { WhatsNew, useWhatsNew, WHATS_NEW_DECIDE_MS } from '../WhatsNew';
+import { WhatsNew, useWhatsNew, WHATS_NEW_DECIDE_MS, toPages } from '../WhatsNew';
 import { useAttention } from '@/lib/attention';
 
 // Radix starts listening for outside clicks one tick after the card opens.
@@ -71,5 +71,12 @@ describe("What's new closes only on purpose", () => {
     fireEvent.click(screen.getByRole('button', { name: 'Got it' }));
     await new Promise((r) => setTimeout(r, 0));
     expect(useAttention.getState().holder).toBeNull();
+  });
+});
+
+describe("What's new pages", () => {
+  it('four tiles fill a page; the fifth starts the next one', () => {
+    expect(toPages([1, 2, 3, 4]).map((p) => p.length)).toEqual([4]);
+    expect(toPages([1, 2, 3, 4, 5]).map((p) => p.length)).toEqual([4, 1]);
   });
 });
