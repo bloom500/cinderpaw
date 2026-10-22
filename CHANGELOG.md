@@ -43,7 +43,9 @@
   Capabilities or in the chat.
 - **Cubby has 16 new drawings.** It looks at you, turns its head, thinks with
   a paw on its chin, reads, searches with a lens, writes and talks on the
-  phone, and it changes drawings so it does not repeat the same one.
+  phone, and it changes drawings so it does not repeat the same one. It wags
+  its tail in every one, its paw writes and talks, and its eyes follow the
+  lines it reads.
 - **What's new shows a picture of each change.**
 - **Kimi has two choices:** Kimi Code (subscription) and Kimi API (Moonshot,
   pay per use), each with the right place to get its key.

@@ -229,12 +229,58 @@ def trace_pose(name, spec):
 # angles of the same character, and the things he holds drawn into the pose
 # instead of pasted over it. Generated from the seven originals as references,
 # picked by Darius one by one (22 Oct).
-V2 = ['idle34l', 'idleFront', 'restFront', 'listen34l', 'listenFront', 'listen34r', 'think34l', 'think34r',
-      'thinkProfile', 'doneFront', 'doneProfile', 'search', 'write', 'read', 'call1', 'call2']
+#
+# Each one's tail is cut out to wag, as in the originals. A `hand` is a paw that
+# moves on its own (`motion` names its CSS animation) and takes along what it
+# holds: the pencil scribbles, the free paw talks, the raised fist pumps.
+def tail(region, pivot):
+    return dict(region=region, margin=14, pivot=pivot)
 
 
-def trace_pose_v2(name, face_h_units):
-    """A pose with things in his paws (a book, a headset, a lens) and no parts that move.
+V2 = {
+    'idle34l': {'tail': tail([(838, 860), (1075, 860), (1075, 1085), (790, 1085), (790, 1040), (838, 1015)], (825, 1040))},
+    'idleFront': {'tail': tail([(255, 830), (338, 830), (338, 1045), (255, 1045)], (338, 985))},
+    'restFront': {'tail': tail([(270, 835), (378, 835), (378, 935), (270, 935)], (375, 925))},
+    'listen34l': {'tail': tail([(805, 850), (960, 850), (960, 1060), (805, 1060)], (805, 985))},
+    'listenFront': {'tail': tail([(250, 830), (362, 830), (362, 1070), (250, 1070)], (362, 985))},
+    'listen34r': {'tail': tail([(265, 838), (425, 838), (425, 1040), (265, 1040)], (425, 955))},
+    'think34l': {'tail': tail([(868, 880), (1000, 880), (1000, 1095), (868, 1095)], (868, 1045))},
+    'think34r': {'tail': tail([(245, 872), (300, 872), (455, 900), (440, 1095), (245, 1095)], (430, 1000))},
+    'thinkProfile': {'tail': tail([(270, 845), (428, 845), (428, 1090), (270, 1090)], (428, 990))},
+    'doneFront': {'tail': tail([(295, 868), (405, 900), (418, 1050), (295, 1050)], (418, 1000))},
+    'doneProfile': {
+        'tail': tail([(290, 848), (425, 872), (440, 1022), (290, 1022)], (440, 975)),
+        # The fist stands in front of the head: no head guard (it would keep half
+        # the arm still), and the pump only swings it toward the face, so it never
+        # opens a gap where the head is hidden behind it.
+        'hand': dict(region=[(860, 238), (1048, 238), (1048, 420), (990, 560), (925, 680), (880, 720), (835, 700)],
+                     margin=16, pivot=(860, 690), motion='pump', head=False),
+    },
+    'search': {'tail': tail([(950, 805), (1100, 805), (1100, 1030), (950, 1030)], (950, 960))},
+    'write': {
+        'tail': tail([(800, 815), (985, 815), (985, 1035), (800, 1035)], (800, 980)),
+        'hand': dict(region=[(600, 690), (665, 700), (790, 780), (795, 945), (575, 945), (550, 880), (535, 845),
+                             (512, 838), (520, 805), (560, 760)], margin=14, pivot=(650, 860), motion='scribble', over=True),
+    },
+    'read': {'tail': tail([(860, 840), (1005, 840), (1005, 1075), (860, 1075)], (860, 1000))},
+    'call1': {
+        'tail': tail([(800, 860), (960, 860), (960, 1055), (800, 1055)], (805, 995)),
+        'hand': dict(region=[(170, 705), (420, 705), (440, 760), (430, 900), (170, 900)],
+                     margin=14, pivot=(430, 800), motion='gesture'),
+    },
+    'call2': {
+        # The arm and the tail's tip almost touch: both cut along the middle of the gap.
+        'tail': tail([(838, 880), (870, 875), (900, 861), (915, 850), (930, 836), (945, 828), (960, 826), (975, 832),
+                      (1000, 832), (1000, 1050), (838, 1050)], (835, 990)),
+        'hand': dict(region=[(840, 690), (1030, 670), (1030, 830), (975, 831), (960, 825), (945, 827), (930, 835),
+                             (915, 849), (900, 860), (870, 874), (840, 879)],
+                     margin=14, pivot=(840, 800), motion='gesture'),
+    },
+}
+
+
+def trace_pose_v2(name, spec, face_h_units):
+    """A pose with things in his paws (a book, a headset, a lens), cut like the originals.
 
     The originals know three materials besides the orange: cream, the eyes and
     the laptop's grey. These carry more (a brown book, a yellow pencil, a slate
@@ -268,7 +314,9 @@ def trace_pose_v2(name, face_h_units):
 
     body = keep(orange, 8000)
     creature = morphology.remove_small_holes(body | creams | eyes, max_size=3000)
-    things = opaque & ~orange & ~cream & ~eyes
+    # A small light speck (a pencil's ferrule, a glint) is part of its item, not
+    # a hole: only the big cream shapes are the face and the belly.
+    things = opaque & ~orange & ~creams & ~eyes
     things = keep(morphology.opening(things, disk(1)), 150)
 
     # Scale by the face's height, not its area: in profile the window is half
@@ -302,9 +350,61 @@ def trace_pose_v2(name, face_h_units):
     outline = keep(morphology.opening(inside & (dg <= -9) & ~shadow, disk(1)), 120)
     tone = lambda m: '#%02X%02X%02X' % tuple(im[m][:, :3].mean(0).astype(int)) if m.any() else None
 
+    # The parts, cut as in trace_pose: the head stays whole, a part carries a
+    # margin of body under it. Here a hand is drawn over the face and the items,
+    # so no part may take any cream (it would turn orange on top of the face):
+    # the base keeps the cream's edge instead. A hand takes what it holds along,
+    # with body colour under it, so nothing behind shows when it moves.
+    sil = morphology.dilation(creature, disk(2))
+    grow = lambda m, n: morphology.dilation(m, disk(n)) if n else m
+    face_filled = morphology.remove_small_holes(face_only, max_size=10 ** 6)
+    face_edge = face_filled & ~morphology.erosion(face_filled, disk(1))
+    hood = np.percentile(ndimage.distance_transform_edt(creature)[face_edge], 30)
+    head = morphology.convex_hull_image(ndimage.distance_transform_edt(~face_filled) <= hood)
+    off_head = ~morphology.erosion(head, disk(4))
+    cream_edge = morphology.dilation(creams, disk(3))
+    rest = np.ones(shape, bool)
+    unguarded = np.zeros(shape, bool)
+    under = np.zeros(shape, bool)
+    regs = {}
+    for pname, p in spec.items():
+        # The region is a rough polygon; the part is the biggest piece inside it
+        # (the tail, the arm with what it holds), grown over its own soft edge.
+        # Whatever a thin white gap keeps apart from it (the hood above the
+        # phone arm, the tail's tip under it) stays put instead of tearing off.
+        poly = region(p['region'], shape)
+        lab = measure.label((creature | things) & poly)
+        biggest = max(measure.regionprops(lab), key=lambda q: q.area).label
+        regs[pname] = morphology.dilation(lab == biggest, disk(3)) & poly
+    cuts = {}
+    for pname, p in spec.items():
+        reg = regs[pname]
+        rest &= ~reg
+        if not p.get('head', True):
+            unguarded |= reg
+        guard = off_head if p.get('head', True) else np.ones(shape, bool)
+        held = reg & guard & things
+        full = sil | morphology.erosion(held, disk(3))
+        # The margin reaches into the body, never into a neighbouring part
+        # across a thin gap (the phone arm over the tail's tip).
+        others = np.zeros(shape, bool)
+        for q, r in regs.items():
+            if q != pname:
+                others |= r
+        wide = (reg | (grow(reg, p['margin']) & morphology.erosion(full, disk(4)) & ~others)) & guard & ~morphology.dilation(creams, disk(2))
+        # A paw held in front of the body (`over`): the body goes on behind it.
+        if p.get('over'):
+            under |= reg & (sil | held)
+        cuts[pname] = (p, full & wide, wide, held)
+    keep_base = ((rest | head) & ~unguarded) | cream_edge
+    moved = np.zeros(shape, bool)
+    for _, _, _, held in cuts.values():
+        moved |= held
+
     # Items, one per colour: the pixels' colours grouped by a coarse grid, the
     # groups merged while their means sit within 48 of each other.
     items = []
+    item_masks = []
     if things.any():
         px = im[things][:, :3]
         keys = [tuple(k) for k in (px // 40)]
@@ -326,7 +426,15 @@ def trace_pose_v2(name, face_h_units):
         for i, (m, n) in enumerate(merged):
             mask = keep(things & (near == i), 60)
             if mask.any():
-                items.append(dict(d=trace(mask, tol=1.0, sigma=1.0), color='#%02X%02X%02X' % tuple(im[mask][:, :3].mean(0).astype(int))))
+                color = '#%02X%02X%02X' % tuple(im[mask][:, :3].mean(0).astype(int))
+                item_masks.append((mask, color))
+                stays = mask & ~moved
+                # What a hand held over this item (the pencil on the notepad) leaves
+                # a hole in it; the item closes over it, so the hand moves over paper.
+                if moved.any() and stays.any():
+                    stays |= morphology.closing(stays, disk(18)) & moved
+                if stays.any():
+                    items.append(dict(d=trace(stays, tol=1.0, sigma=1.0), color=color))
 
     eye_list = []
     lab = measure.label(eyes)
@@ -338,12 +446,25 @@ def trace_pose_v2(name, face_h_units):
             rx=round((x1 - x0) * s / 2, 1), ry=round((y1 - y0) * s / 2, 1),
         ))
 
-    sil = morphology.dilation(creature, disk(2))
+    parts = {}
+    for pname, (p, psil, wide, held) in cuts.items():
+        part = dict(
+            sil=trace(psil), light=trace(light & wide),
+            outline=trace(outline & wide, tol=1.0, sigma=0.9), shadow=trace(shadow & wide),
+            pivot=(round(X(p['pivot'][0]), 1), round(Y(p['pivot'][1]), 1)),
+        )
+        if held.any():
+            part['items'] = [dict(d=trace(m & held, tol=1.0, sigma=1.0), color=c) for m, c in item_masks if (m & held).any()]
+        if 'motion' in p:
+            part['motion'] = p['motion']
+        parts[pname] = part
+
     return dict(
-        base=dict(sil=trace(sil), light=trace(light), outline=trace(outline, tol=1.0, sigma=0.9), shadow=trace(shadow)),
+        base=dict(sil=trace((sil & keep_base) | under), light=trace(light & keep_base),
+                  outline=trace(outline & keep_base, tol=1.0, sigma=0.9), shadow=trace(shadow & keep_base)),
         colors=dict(main='#%02X%02X%02X' % tuple(main.astype(int)), light=tone(light) or '', outline=tone(outline) or '',
                     shadow=tone(shadow) or '', cream=tone(face_only), eye=tone(eyes) or '#2B2827'),
-        parts={},
+        parts=parts,
         face=trace(creams),
         faceBox=(round(X(fx0), 1), round(Y(fy0), 1), round(X(fx1), 1), round(Y(fy1), 1)),
         eyes=eye_list,
@@ -379,17 +500,19 @@ def main():
     scenes = {name: trace_pose(name, spec) for name, spec in POSES.items()}
     # The new poses take their head size from the calm sitting original.
     sit = scenes['sit']['faceBox']
-    for name in V2:
-        scenes[name] = trace_pose_v2(name, sit[3] - sit[1])
+    for name, spec in V2.items():
+        scenes[name] = trace_pose_v2(name, spec, sit[3] - sit[1])
     with open(DST, 'w', newline='\n') as f:
         f.write('// GENERATED by scripts/mascot/svg/trace_poses.py from the flat poses in\n')
         f.write('// docs/design/moodboard/SVG/. Do not edit; change the script and regenerate.\n\n')
         f.write("export interface Layers { sil: string; light: string; outline: string; shadow: string }\n")
-        f.write("export interface Part extends Layers { pivot: readonly [number, number] }\n")
+        f.write("export interface Part extends Layers {\n  pivot: readonly [number, number];\n")
+        f.write("  /** What this paw holds, moving with it. */\n  items?: { d: string; color: string }[];\n")
+        f.write("  /** A hand's own animation: cpm-<motion> in mascot.css. */\n  motion?: 'scribble' | 'gesture' | 'pump';\n}\n")
         f.write("export interface Scene {\n  base: Layers;\n")
         f.write("  /** The tones measured in this pose's artwork. */\n")
         f.write("  colors: { main: string; light: string; outline: string; shadow: string; cream: string; eye: string };\n")
-        f.write("  parts: { tail?: Part; arm?: Part; pawL?: Part; pawR?: Part };\n  face: string;\n")
+        f.write("  parts: { tail?: Part; arm?: Part; pawL?: Part; pawR?: Part; hand?: Part };\n  face: string;\n")
         f.write("  /** The face window's box: x0, y0, x1, y1. */\n  faceBox: readonly [number, number, number, number];\n")
         f.write("  eyes: { d: string; at: readonly [number, number]; rx: number; ry: number }[];\n")
         f.write("  marks: { d: string; color: string }[];\n  laptop?: { lid: string; base: string; logo: string };\n")

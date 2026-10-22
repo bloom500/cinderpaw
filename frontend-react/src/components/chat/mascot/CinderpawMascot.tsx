@@ -101,9 +101,9 @@ interface Pose {
 const POSES: Record<MascotState, Pose> = {
   idle:       { scene: 'sit', variants: ['sit', 'idle34l', 'idleFront', 'restFront'], motion: 'breathe', wag: true },
   // The person typing: he watches them, leaning in.
-  typing:     { scene: 'listen34l', variants: ['listen34l', 'listenFront', 'listen34r'], motion: 'breathe' },
-  thinking:   { scene: 'think', variants: ['think', 'think34l', 'think34r', 'thinkProfile'], motion: 'sway', look: 'up', fx: ['thought'] },
-  calling:    { scene: 'call1', variants: ['call1', 'call2'], motion: 'bob', fx: ['talkwaves'] },
+  typing:     { scene: 'listen34l', variants: ['listen34l', 'listenFront', 'listen34r'], motion: 'breathe', wag: true },
+  thinking:   { scene: 'think', variants: ['think', 'think34l', 'think34r', 'thinkProfile'], motion: 'sway', look: 'up', fx: ['thought'], wag: true },
+  calling:    { scene: 'call1', variants: ['call1', 'call2'], motion: 'bob', fx: ['talkwaves'], wag: true },
   done:       { scene: 'cheer', variants: ['cheer', 'doneFront', 'doneProfile'], motion: 'bounce', fx: ['check'], wag: true },
   running:    { scene: 'laptop', motion: 'breathe', eyes: 'focused', fx: ['gear'], wag: true },
   // No marks on the wave scene: its two dashes beside the raised paw read as fingers (2 Oct).
@@ -112,10 +112,11 @@ const POSES: Record<MascotState, Pose> = {
   surprised:  { scene: 'surprised', motion: 'jolt', marks: true },
   curious:    { scene: 'think', motion: 'breathe', look: 'side', wag: true },
   celebrate:  { scene: 'cheer', motion: 'jump', fx: ['confetti'], wag: true },
-  reading:    { scene: 'read', motion: 'breathe' },
-  searching:  { scene: 'search', motion: 'breathe' },
+  // The eyes run along the lines.
+  reading:    { scene: 'read', motion: 'breathe', look: 'scan', wag: true },
+  searching:  { scene: 'search', motion: 'breathe', wag: true },
   building:   { scene: 'laptop', motion: 'breathe', eyes: 'focused', fx: ['blocks'] },
-  writing:    { scene: 'write', motion: 'breathe' },
+  writing:    { scene: 'write', motion: 'breathe', wag: true },
   stretching: { scene: 'cheer', motion: 'stretch' },
   gaming:     { scene: 'sit', motion: 'bob', eyes: 'focused', props: ['gamepad'] },
   love:       { scene: 'surprised', motion: 'bounce', eyes: 'heart', fx: ['hearts'], wag: true },
@@ -126,7 +127,7 @@ const POSES: Record<MascotState, Pose> = {
   asking:     { scene: 'think', motion: 'breathe', fx: ['question'], wag: true },
   waiting:    { scene: 'think', motion: 'breathe', look: 'up', fx: ['hourglass'], wag: true },
   speaking:   { scene: 'wave', motion: 'bob', fx: ['talkwaves'] },
-  listening:  { scene: 'call1', variants: ['call1', 'call2'], motion: 'breathe', fx: ['listenwaves'] },
+  listening:  { scene: 'call1', variants: ['call1', 'call2'], motion: 'breathe', fx: ['listenwaves'], wag: true },
   blocked:    { scene: 'think', motion: 'breathe', fx: ['lock'] },
   scheduling: { scene: 'think', motion: 'breathe', look: 'up', fx: ['calendar'] },
   storing:    { scene: 'cheer', motion: 'breathe', fx: ['database'] },
@@ -161,12 +162,13 @@ function Tones({ layers, colors }: { layers: Layers; colors: Scene['colors'] }) 
   );
 }
 
-/** A part that moves: its own group, turning about its pivot. */
+/** A part that moves: its own group, turning about its pivot, with what it holds. */
 function Moving({ part, colors, className }: { part?: Part; colors: Scene['colors']; className?: string }) {
   if (!part) return null;
   return (
     <g className={className} style={origin(part.pivot[0], part.pivot[1])}>
       <Tones layers={part} colors={colors} />
+      {part.items?.map((it, i) => <path key={i} d={it.d} fill={it.color} fillRule="evenodd" />)}
     </g>
   );
 }
@@ -571,6 +573,9 @@ export function MascotSvg({ state, sceneName, flip, width, css }: {
 
           {/* What a v2 pose holds (book, lens, headset), drawn over him, holes and all. */}
           {scene.items?.map((it, i) => <path key={i} d={it.d} fill={it.color} fillRule="evenodd" />)}
+          {/* A paw of a v2 pose that moves on its own sits in front of the face and
+              the items: the pencil over the notepad, the fist over the head. */}
+          <Moving part={scene.parts.hand} colors={colors} className={`cpm-hand cpm-hand--${scene.parts.hand?.motion}`} />
 
           {scene.laptop && <path d={scene.laptop.base} fill={C.lidDark} />}
           <Moving part={scene.parts.pawR} colors={colors} className="cpm-tap" />

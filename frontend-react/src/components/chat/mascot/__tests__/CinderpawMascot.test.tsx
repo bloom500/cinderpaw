@@ -85,6 +85,16 @@ describe('CinderpawMascot (SVG)', () => {
     }
   });
 
+  // The newer drawings first shipped without moving parts: a stiff Cubby next
+  // to the seven originals that wag (Darius, 23 Oct: "lame af").
+  it('every drawing has a tail of its own to wag, and the writing paw takes its pencil along', () => {
+    for (const [name, scene] of Object.entries(SCENES)) {
+      expect(scene.parts.tail?.sil.length, name).toBeGreaterThan(100);
+    }
+    expect(SCENES.write.parts.hand?.motion).toBe('scribble');
+    expect(SCENES.write.parts.hand?.items?.length).toBeGreaterThan(0);
+  });
+
   it('a state that comes back shows another of its drawings, never the same one twice in a row', () => {
     const seen = new Set<string>();
     let last = '';
