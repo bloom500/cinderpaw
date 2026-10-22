@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import type { ArtifactFact, ToolActivity, ToolKind, DesktopFact, DesktopElement } from '@/hooks/useLiveToolActivity';
 import { stepTitle } from './MessageChain';
+import { platform } from '@/lib/siteKeys';
 
 /**
  * A screen in the corner of a call, showing what Cinderpaw is actually doing.
@@ -418,7 +419,7 @@ function TerminalBody({ a, running }: { a: ToolActivity; running: boolean }) {
             on a machine running PowerShell would make the one panel whose worth
             is that it does not lie into a costume. */}
         <span className="pointer-events-none absolute inset-x-0 truncate text-center text-micro font-medium text-white/70">
-          {folder} · pwsh · 80×24
+          {folder} · {shell.name} · 80×24
         </span>
         {/* State on the title bar, where a window puts its own status — the card
             around this one no longer has a header to carry it. */}
@@ -433,10 +434,8 @@ function TerminalBody({ a, running }: { a: ToolActivity; running: boolean }) {
         style={{ fontFamily: '"SF Mono", Menlo, "Cascadia Mono", Consolas, monospace' }}
       >
         <div className="flex flex-wrap items-baseline gap-x-1.5">
-          {/* zsh's prompt, which is what a current macOS opens with: the folder,
-              then a percent sign. The command itself is plain white. */}
-          <span className="shrink-0 text-[#A8C7FA]">{folder}</span>
-          <span className="shrink-0 text-white/70">%</span>
+          {/* This computer's own prompt (see `Prompt`). The command is plain white. */}
+          <Prompt folder={folder} />
           <span className="min-w-0 break-all text-white">{a.subject}</span>
         </div>
         {lines.map((l, i) => (
@@ -451,13 +450,34 @@ function TerminalBody({ a, running }: { a: ToolActivity; running: boolean }) {
         ))}
         {running && (
           <div className="flex items-baseline gap-1.5">
-            <span className="shrink-0 text-[#A8C7FA]">{folder}</span>
-            <span className="shrink-0 text-white/70">%</span>
+            <Prompt folder={folder} />
             <span className="tw-caret" />
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * The shell this computer opens with, and its prompt. The window keeps the
+ * Mac's dots everywhere (Darius, 21 Oct: they look premium), but the words in
+ * it were a costume: `%` beside "pwsh" on Windows, "pwsh" on a Mac.
+ */
+const SHELLS = {
+  windows: { name: 'pwsh', before: 'PS ', after: '>' },
+  mac: { name: 'zsh', before: '', after: ' %' },
+  linux: { name: 'bash', before: '', after: ' $' },
+} as const;
+const shell = SHELLS[platform()];
+
+function Prompt({ folder }: { folder: string }) {
+  return (
+    <span className="shrink-0">
+      <span className="text-white/70">{shell.before}</span>
+      <span className="text-[#A8C7FA]">{folder}</span>
+      <span className="text-white/70">{shell.after}</span>
+    </span>
   );
 }
 
