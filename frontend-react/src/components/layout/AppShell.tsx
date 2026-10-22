@@ -12,6 +12,7 @@ import { SideNav, NAV_W, NAV_COLLAPSED_W } from './SideNav';
 import { SearchOverlay } from '@/components/chat/SearchOverlay';
 import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
 import { UpdateToast } from '@/components/UpdateToast';
+import { ShareUsageCard } from '@/components/usage/ShareUsageCard';
 import { WhatsNew } from '@/components/WhatsNew';
 import { Toasts } from '@/components/Toasts';
 import { CoworkApprovalDock } from '@/components/CoworkApprovalDock';
@@ -176,6 +177,8 @@ export function AppShell() {
           <CoworkApprovalDock />
           {/* Persistent cards wait until the page stops covering; they are not lost. */}
           {!overPage && <UpdateToast />}
+          {/* The usage question, in the same card and place as the update (21 Oct). */}
+          {!overPage && <ShareUsageCard />}
           <Toasts compact={overPage} />
         </div>,
         document.body,
