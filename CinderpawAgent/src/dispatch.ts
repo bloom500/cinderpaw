@@ -1877,9 +1877,10 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         // is set: reading marks them read, and an answer marked read that no
         // brief carried would be lost.
         const repliesBrief = () => teammateRepliesBrief(sessionId, coworkAgents, coworkMailbox);
-        // The local web page can show a password card; nothing else can.
-        // Per message, because the terminal and the page share the session.
-        markCardSurface(sessionId, msg.surface === "web");
+        // The local web page and the desktop app can show a password card; the
+        // terminal, a call and the connectors cannot. Per message, because the
+        // terminal and the page share the session.
+        markCardSurface(sessionId, msg.surface);
         if (msg.surface === "voice") {
           agent.setSessionSurface(sessionId, [VOICE_SURFACE_BRIEF, browserBrief, repliesBrief()].filter(Boolean).join("\n\n"), { spoken: true });
         } else if (msg.surface === "text" || msg.surface === "web") {

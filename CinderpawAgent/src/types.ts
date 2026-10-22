@@ -1637,11 +1637,12 @@ export interface AskUserQuestion {
   preview?: string;
   /**
    * A secret the person types into a password card (request_secret, spec
-   * 2026-09-24 §6.2). Only a surface that renders cards (the local web page)
-   * is ever sent one; the page saves the value straight to the engine and
-   * answers "Saved" or "Cancel", so the value never reaches the agent.
+   * 2026-09-24 §6.2). Only a surface that renders cards (the local web page,
+   * the desktop app) is ever sent one; the card saves the value itself and
+   * answers "Saved" or "Cancel", so the value never reaches the agent. The
+   * extension form (a service's link + key) is sent to the desktop app only.
    */
-  secret?: { connector: string; field: string };
+  secret?: { connector: string; field: string } | { extensionUrl: string; extensionName?: string };
 }
 
 export interface AskUserAnswer {

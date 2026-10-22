@@ -729,6 +729,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             connectors::connectors_catalog,
             connectors::connectors_list,
             connectors::connectors_save,
+            connectors::connectors_save_secret,
             connectors::connectors_set_enabled,
             connectors::connectors_remove,
             connectors::connectors_whatsapp_qr,
