@@ -548,7 +548,7 @@ export class MCPClient {
       pending?.reject(e);
     };
     try {
-      const res = await fetch(this.#postUrl, {
+      const res = await fetchSameSite(this.#postUrl, {
         method: "POST",
         headers: {
           ...this.#config.headers,
@@ -589,7 +589,7 @@ export class MCPClient {
   /** The pre-2025 transport: a GET event stream that names where to POST. */
   async #openLegacySse(): Promise<void> {
     this.#http = "sse";
-    const res = await fetch(this.#config.url, {
+    const res = await fetchSameSite(this.#config.url, {
       headers: { ...this.#config.headers, Accept: "text/event-stream" },
       signal: this.#abort.signal,
     });
@@ -631,6 +631,24 @@ export class MCPClient {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * `fetch` that follows a redirect only within the same site. The headers carry
+ * the person's key, and fetch drops only `Authorization` on a hop to another
+ * site: an `X-API-Key` from mcp.json would go along to wherever it pointed.
+ */
+export async function fetchSameSite(url: string, init: RequestInit): Promise<Response> {
+  const origin = new URL(url).origin;
+  for (let hops = 0; ; hops++) {
+    const res = await fetch(url, { ...init, redirect: "manual" });
+    const to = res.headers.get("location");
+    if (res.status < 300 || res.status > 399 || !to) return res;
+    const next = new URL(to, url);
+    if (next.origin !== origin) throw new Error(`the server sent the request to another site (${next.origin})`);
+    if (hops === 4) throw new Error("the server redirected too many times");
+    url = next.href;
+  }
+}
 
 /** Read a `text/event-stream` body, calling `on` per event, until it ends. */
 export async function readSse(res: Response, on: (event: string, data: string) => void): Promise<void> {
