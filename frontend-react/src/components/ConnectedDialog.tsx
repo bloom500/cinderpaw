@@ -28,11 +28,13 @@ function ConnectPair({ logoId, name }: { logoId: string; name: string }) {
       ? { initial: false as const, animate: { x: 0, rotate } }
       : { initial: { x: from, rotate: 0, opacity: 0 }, animate: { x: 0, rotate, opacity: 1 }, transition: { type: 'spring' as const, stiffness: 320, damping: 18 } };
   return (
-    <div className="relative mx-auto flex h-24 items-center justify-center" aria-hidden>
-      <motion.span className={`${tile} -mr-2`} {...slide(-36, -6)}>
+    // A gap, not an overlap: the tiles are translucent, and overlapped their
+    // borders crossed and the two looked woven together (Darius, 22 Oct).
+    <div className="relative mx-auto flex h-24 items-center justify-center gap-3" aria-hidden>
+      <motion.span className={tile} {...slide(-36, -6)}>
         <img src={logoUrl} alt="" draggable={false} className="size-10" />
       </motion.span>
-      <motion.span className="-ml-2" {...slide(36, 6)}>
+      <motion.span {...slide(36, 6)}>
         <BrandLogo id={logoId} name={name} className={`${tile} text-2xl [&>img]:size-9`} />
       </motion.span>
       <motion.span
