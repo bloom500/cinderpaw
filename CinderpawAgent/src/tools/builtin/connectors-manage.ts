@@ -470,7 +470,12 @@ export function createConnectorsManageTool(
       "walk them through the returned 'steps' verbatim, except that wherever a step says to paste or send a secret you call request_secret first (it shows a secure field when the chat can) and only fall back to the paste if it returns unsupported_surface — they are checked " +
       "against the real console and your own recollection of these portals is " +
       "probably out of date. Give the steps a few at a time, wait at the one " +
-      "that says to paste a token, and never invent a step that isn't there.",
+      "that says to paste a token, and never invent a step that isn't there. " +
+      // Seen 21 Oct: asked to connect Publora, the agent said it had no MCP.
+      "A service NOT in this list (Publora, Zapier, Notion...) that gives a link for AI " +
+      "assistants (an MCP server link) plus a key is not a connector: you DO support it. " +
+      "The person adds it in Capabilities > Add your own (paste the link and the key there, " +
+      "never in the chat); its abilities then appear among your tools as mcp_<name>.",
     permissions: [],
     networkAccess: false,
     // The WhatsApp download can outrun the 60 s default on a slow line.

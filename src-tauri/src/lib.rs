@@ -721,6 +721,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             mcp::mcp_catalog,
             mcp::mcp_list,
             mcp::mcp_install,
+            mcp::mcp_install_custom,
             mcp::mcp_set_enabled,
             mcp::mcp_remove,
             mcp::mcp_list_tools,
