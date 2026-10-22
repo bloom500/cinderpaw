@@ -156,7 +156,9 @@ export const CONNECTOR_TOOLS = new Set<string>([
  * "an allow-list that omits it". A session gets these only when it has no
  * profile at all.
  */
-export const OWNER_ONLY_TOOLS = new Set<string>(["notebook"]);
+// extension_connect gives the agent a new server's tools: a stranger messaging
+// the bot must never be the one who picks that server.
+export const OWNER_ONLY_TOOLS = new Set<string>(["notebook", "extension_connect"]);
 
 /** True when this tool must be withheld from any profiled (non-owner) session. */
 export const isOwnerOnlyTool = (name: string): boolean => OWNER_ONLY_TOOLS.has(name);

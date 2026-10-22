@@ -79,8 +79,9 @@ export function createRequestSecretTool(
           return {
             ok: false,
             content:
-              "unsupported_surface: only the desktop app can connect a service. Tell the person to open " +
-              "Capabilities > Add your own in the desktop app and paste the link and the key there, not in this chat.",
+              "unsupported_surface: this chat cannot keep the key out of the conversation. Let the person " +
+              "choose: paste the key here and you call extension_connect with it, or add the service " +
+              "themselves in Capabilities > Add your own.",
           };
         }
         field = "key";
