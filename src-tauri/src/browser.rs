@@ -1389,11 +1389,47 @@ fn find_script(query_json: &str, direction_json: &str) -> String {
 }})()"#)
 }
 
+/// The element is there and on screen: the answer round-trip before an action
+/// that may navigate. The action itself goes through `fire`.
+fn find_script(reference: &str) -> String {
+    element_script(reference, "return { ok: true };")
+}
+
 fn click_script(reference: &str) -> String {
     element_script(reference, "el.focus(); el.click(); return { ok: true };")
 }
 
-fn type_script(reference: &str, text: &str, submit: bool) -> String {
+fn submit_script(reference: &str) -> String {
+    element_script(
+        reference,
+        "if (el.form && el.form.requestSubmit) el.form.requestSubmit(); \
+         else el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return { ok: true };",
+    )
+}
+
+/// An action that may navigate, run with no answer written into the page.
+///
+/// `run` writes its answer into the address and then puts the old address
+/// back. Inside the same script as a click, that undid the click's own
+/// navigation on every single-page site: the router had already moved to the
+/// thread, and the host moved the address back to the feed (Reddit, 23 Oct:
+/// the agent "clicked" a thread three times and stayed on /new/). A route
+/// change loads no page, so `settle` cannot see it; the address can.
+async fn fire(wv: &Webview, script: &str) -> Result<Value, String> {
+    let before = wv.url().map_err(|e| e.to_string())?;
+    wv.eval(script).map_err(|e| e.to_string())?;
+    // A download needs a moment to start and be filed; a route change, to show.
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    for _ in 0..9 {
+        if wv.url().map_err(|e| e.to_string())? != before { break; }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    settle(Duration::from_secs(15)).await;
+    let now = wv.url().map_err(|e| e.to_string())?;
+    Ok(json!({ "ok": true, "url": now.as_str() }))
+}
+
+fn type_script(reference: &str, text: &str) -> String {
     let t = serde_json::to_string(text).unwrap_or_else(|_| "\"\"".into());
     element_script(
         reference,
@@ -1410,8 +1446,6 @@ fn type_script(reference: &str, text: &str, submit: bool) -> String {
                      const setter = proto && Object.getOwnPropertyDescriptor(proto, 'value'); \
                      if (setter && setter.set) setter.set.call(el, text); else el.value = text; \
                      el.dispatchEvent(new Event('input', {{ bubbles: true }})); el.dispatchEvent(new Event('change', {{ bubbles: true }})); }} \
-             if ({submit}) {{ if (el.form && el.form.requestSubmit) el.form.requestSubmit(); \
-                     else el.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', bubbles: true }})); }} \
              return {{ ok: true }};"
         ),
     )
@@ -1530,22 +1564,19 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
         }
         "click" => {
             let wv = open_page(&app)?;
-            let out = run(&wv, &click_script(param_str(params, "ref")?)).await?;
-            // A click often navigates; let the next snapshot see the new page.
-            // A download needs a moment longer to start and be filed.
-            tokio::time::sleep(Duration::from_millis(600)).await;
-            settle(Duration::from_secs(15)).await;
-            Ok(with_downloads(out))
+            let reference = param_str(params, "ref")?;
+            let found = run(&wv, &find_script(reference)).await?;
+            if found.get("ok") != Some(&json!(true)) { return Ok(found); }
+            // A click often navigates; the next snapshot sees the new page.
+            Ok(with_downloads(fire(&wv, &click_script(reference)).await?))
         }
         "type" => {
             let wv = open_page(&app)?;
+            let reference = param_str(params, "ref")?;
             let submit = params.get("submit").and_then(|v| v.as_bool()).unwrap_or(false);
-            let out = run(&wv, &type_script(param_str(params, "ref")?, param_str(params, "text")?, submit)).await?;
-            if submit {
-                tokio::time::sleep(Duration::from_millis(300)).await;
-                settle(Duration::from_secs(15)).await;
-            }
-            Ok(out)
+            let out = run(&wv, &type_script(reference, param_str(params, "text")?)).await?;
+            if !submit || out.get("ok") != Some(&json!(true)) { return Ok(out); }
+            fire(&wv, &submit_script(reference)).await
         }
         "scroll" => {
             let wv = open_page(&app)?;
@@ -1858,6 +1889,16 @@ mod tests {
         .await
         .expect("returns when the bus closes");
         assert!(waited.is_err());
+    }
+
+    #[test]
+    fn nothing_that_navigates_rides_on_an_answer() {
+        // `run` rewrites the address after its script: a navigation started
+        // in that script is undone (single-page sites, 23 Oct).
+        assert!(!find_script("1").contains("click()"));
+        assert!(!type_script("1", "x").contains("requestSubmit"));
+        assert!(click_script("1").contains("el.click()"));
+        assert!(submit_script("1").contains("requestSubmit"));
     }
 
     #[test]
