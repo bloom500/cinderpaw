@@ -310,7 +310,9 @@ export function finishActivity(a: ToolActivity, result: unknown): ToolActivity {
     endedAt: Date.now(),
     note: null,
     hits: hitsOf(result),
-    files: filesOf(result),
+    // A window or a control has a `name` too: on an app step "1 file" was a
+    // control the agent looked at, never a file.
+    files: a.kind === 'desktop' ? [] : filesOf(result),
     facts: factsOf(result),
     desktop: desktopDone(a.desktop, result),
     artifact: a.kind === 'artifact' ? artifactOf(result) : null,
