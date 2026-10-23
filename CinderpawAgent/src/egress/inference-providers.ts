@@ -1026,7 +1026,13 @@ export class AnthropicProvider implements InferenceProvider {
     };
     if (systemText) body.system = systemText;
     // A3: use native function calling when tool definitions are provided.
-    if (req.nativeTools && req.nativeTools.length > 0) body.tools = req.nativeTools;
+    // eager_input_streaming: without it Anthropic buffers a tool's input and
+    // sends it whole at the end, so a document written by artifact_create
+    // appeared in one burst instead of being written live. The API then stops
+    // validating the input; a cut-off one becomes a malformed call below.
+    if (req.nativeTools && req.nativeTools.length > 0) {
+      body.tools = req.nativeTools.map((t) => ({ ...t, eager_input_streaming: true }));
+    }
     Object.assign(body, anthropicCacheControl(req));
 
     const headers = anthropicHeaders(target);
