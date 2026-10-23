@@ -19,6 +19,11 @@ describe('useMascotState', () => {
     expect(result.current).toBe('typing');
   });
 
+  it('listening while a voice message is recorded, even with text in the box', () => {
+    const { result } = renderHook(() => useMascotState({ streamStatus: 'idle', agentPhase: null, isUserTyping: true, isUserRecording: true }));
+    expect(result.current).toBe('listening');
+  });
+
   it('thinking while streaming with no/thinking/processing phase', () => {
     for (const phase of [null, 'thinking', 'processing'] as AgentPhase[]) {
       const { result } = run({ streamStatus: 'streaming', agentPhase: phase, isUserTyping: false });

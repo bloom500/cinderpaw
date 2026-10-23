@@ -100,8 +100,9 @@ interface Pose {
 // longer drawn over him.
 const POSES: Record<MascotState, Pose> = {
   idle:       { scene: 'sit', variants: ['sit', 'idle34l', 'idleFront', 'restFront'], motion: 'breathe', wag: true },
-  // The person typing: he watches them, leaning in.
-  typing:     { scene: 'listen34l', variants: ['listen34l', 'listenFront', 'listen34r'], motion: 'breathe', wag: true },
+  // The person typing: he types along at his laptop (Darius, 23 Oct: the
+  // more intuitive picture). Leaning in to listen is for a voice message.
+  typing:     { scene: 'laptop', motion: 'breathe', wag: true },
   thinking:   { scene: 'think', variants: ['think', 'think34l', 'think34r', 'thinkProfile'], motion: 'sway', look: 'up', fx: ['thought'], wag: true },
   calling:    { scene: 'call1', variants: ['call1', 'call2'], motion: 'bob', fx: ['talkwaves'], wag: true },
   done:       { scene: 'cheer', variants: ['cheer', 'doneFront', 'doneProfile'], motion: 'bounce', fx: ['check'], wag: true },
@@ -127,7 +128,8 @@ const POSES: Record<MascotState, Pose> = {
   asking:     { scene: 'think', motion: 'breathe', fx: ['question'], wag: true },
   waiting:    { scene: 'think', motion: 'breathe', look: 'up', fx: ['hourglass'], wag: true },
   speaking:   { scene: 'wave', motion: 'bob', fx: ['talkwaves'] },
-  listening:  { scene: 'call1', variants: ['call1', 'call2'], motion: 'breathe', fx: ['listenwaves'], wag: true },
+  // The person records a voice message: he leans in and listens.
+  listening:  { scene: 'listen34l', variants: ['listen34l', 'listenFront', 'listen34r'], motion: 'breathe', fx: ['listenwaves'], wag: true },
   blocked:    { scene: 'think', motion: 'breathe', fx: ['lock'] },
   scheduling: { scene: 'think', motion: 'breathe', look: 'up', fx: ['calendar'] },
   storing:    { scene: 'cheer', motion: 'breathe', fx: ['database'] },
