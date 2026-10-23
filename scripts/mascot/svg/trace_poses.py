@@ -312,7 +312,9 @@ def trace_pose_v2(name, spec, face_h_units):
         if fy0 <= cy <= fy1 and fx0 <= cx <= fx1 and (y1 - y0) > 1.15 * (x1 - x0):
             eyes |= measure.label(keep(inky, 300)) == p.label
 
-    body = keep(orange, 8000)
+    # A paw cut off from the body by what it holds is its own piece (read's left
+    # paw in front of the book, ~6,500 px); speckle in the art stays under 1,000.
+    body = keep(orange, 2000)
     creature = morphology.remove_small_holes(body | creams | eyes, max_size=3000)
     # A small light speck (a pencil's ferrule, a glint) is part of its item, not
     # a hole: only the big cream shapes are the face and the belly.
