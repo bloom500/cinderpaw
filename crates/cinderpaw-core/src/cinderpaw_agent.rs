@@ -230,6 +230,9 @@ async fn discover_active_model(base_url: &str, api_token: &str) -> Option<String
 /// slot — pre-populating would race against `try_wait()` polling.
 /// A cloud provider endpoint loaded from the user's BYOK config + OS keychain.
 struct ByokEndpoint {
+    /// Protocol family (`Provider::family`), so a cold boot speaks the same
+    /// dialect as a `set_model` hot-swap to the same provider.
+    family: &'static str,
     base_url: String,
     api_key: String,
     model: Option<String>,
@@ -269,6 +272,7 @@ fn load_byok_provider_endpoint(provider_id: &str) -> Option<ByokEndpoint> {
         .to_string();
     tracing::info!(provider = %provider_id, %base_url, "cinderpaw-agent: using BYOK cloud provider");
     Some(ByokEndpoint {
+        family: crate::byok::Provider::from_id(provider_id).family(),
         base_url,
         api_key: cfg.api_key.clone(),
         model: info.default_model,
@@ -425,7 +429,11 @@ pub async fn spawn(
         .or_else(|| persisted_route.as_ref().map(|(pid, _)| pid.clone()))
         .and_then(|pid| load_byok_provider_endpoint(&pid));
 
+    // Without the BYOK family an Anthropic key booted onto Anthropic's
+    // OpenAI-compatible door, which never names a workspace: every chat after a
+    // restart failed for multi-workspace keys, while a hot-swap worked.
     let provider = crate::env::env_var("CINDERPAW_PROVIDER")
+        .or_else(|| byok.as_ref().map(|b| b.family.to_string()))
         .unwrap_or_else(|| "openai_compatible".to_string());
     let base_url = crate::env::env_var("CINDERPAW_BASE_URL")
         .or_else(|| byok.as_ref().map(|b| b.base_url.clone()))
