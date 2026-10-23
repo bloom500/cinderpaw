@@ -41,7 +41,7 @@ const RELEASE = {
   title: 'Calmer, and it asks first',
   tiles: [
     { tone: 'var(--brand)', title: 'You choose what it may do', shot: '/releases/2026-10/access', wide: false },
-    { tone: 'var(--success)', title: 'It asks before it changes itself', shot: '/releases/2026-10/approve', wide: true },
+    { tone: 'var(--success)', title: 'It asks before it changes how it practises', shot: '/releases/2026-10/approve', wide: true },
     { tone: 'var(--info)', title: 'One notice at a time', shot: '/releases/2026-10/notices', wide: true },
     { tone: 'var(--warning)', title: 'Memory waits for your first answer', shot: '/releases/2026-10/download', wide: false },
   ],

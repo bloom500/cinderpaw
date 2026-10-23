@@ -67,29 +67,32 @@ function useHasAnyModel(): boolean | null {
 function SetupCard() {
   const [busy, setBusy] = useState(false);
   return (
-    <div className="mt-3 mx-6 w-full max-w-xl rounded-3xl border border-border-default bg-(--surface-typing) p-5 text-left shadow-lg">
-      <p className="text-base font-semibold text-text-primary">Cinderpaw needs a model to think with.</p>
-      <p className="mt-1 text-sm text-text-secondary">
-        Sign in with OpenRouter and it answers right away, on any computer. Or download a model that runs here, free and private, if this machine is strong enough.
-      </p>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => { setBusy(true); void signInWithOpenRouter().finally(() => setBusy(false)); }}
-          className="rounded-xl bg-brand px-4 py-2 text-sm font-medium text-brand-foreground hover:opacity-90 disabled:opacity-60 cursor-pointer"
-        >
-          {busy ? 'Finish in your browser…' : 'Sign in with OpenRouter'}
-        </button>
-        <button
-          type="button"
-          // Loaded on click: importing the router here pulls the whole app into
-          // anything that renders the home screen, tests included.
-          onClick={() => { void import('@/router').then((m) => m.router.navigate('/models')); }}
-          className="rounded-xl border border-border-default px-4 py-2 text-sm text-text-secondary hover:bg-bg-hover cursor-pointer"
-        >
-          Download a model
-        </button>
+    // Same frame as the intent cards below the composer: centered, as wide as the composer.
+    <div className="mx-auto mt-4 w-full max-w-2xl px-4">
+      <div className="rounded-3xl border border-border-default bg-(--surface-typing) p-5 text-left shadow-lg">
+        <p className="text-base font-semibold text-text-primary">Cinderpaw needs a model to think with.</p>
+        <p className="mt-1 text-sm text-text-secondary">
+          Sign in with OpenRouter and it answers right away, on any computer. Or download a model that runs here, free and private, if this machine is strong enough.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => { setBusy(true); void signInWithOpenRouter().finally(() => setBusy(false)); }}
+            className="rounded-xl bg-brand px-4 py-2 text-sm font-medium text-brand-foreground hover:opacity-90 disabled:opacity-60 cursor-pointer"
+          >
+            {busy ? 'Finish in your browser…' : 'Sign in with OpenRouter'}
+          </button>
+          <button
+            type="button"
+            // Loaded on click: importing the router here pulls the whole app into
+            // anything that renders the home screen, tests included.
+            onClick={() => { void import('@/router').then((m) => m.router.navigate('/models')); }}
+            className="rounded-xl border border-border-default px-4 py-2 text-sm text-text-secondary hover:bg-bg-hover cursor-pointer"
+          >
+            Download a model
+          </button>
+        </div>
       </div>
     </div>
   );

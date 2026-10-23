@@ -155,6 +155,13 @@ pub struct ConnectorView {
     /// can be pre-filled). Empty when unset.
     #[serde(rename = "knowledgeBase")]
     pub knowledge_base: String,
+    /// Whether it actually came online, from the sidecar's health report;
+    /// absent before the first report. Saving a token proves nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live: Option<bool>,
+    /// Why it is not online, beside `live: false`.
+    #[serde(rename = "liveError", skip_serializing_if = "Option::is_none")]
+    pub live_error: Option<String>,
 }
 
 fn view_of(cfg: &ConnectorConfig) -> ConnectorView {
@@ -169,6 +176,7 @@ fn view_of(cfg: &ConnectorConfig) -> ConnectorView {
         auth_kind: "token".into(),
         coming_soon: false,
     });
+    let health = cinderpaw_core::connectors::redact_for_frontend(cfg);
     let filled = entry
         .fields
         .iter()
@@ -191,6 +199,8 @@ fn view_of(cfg: &ConnectorConfig) -> ConnectorView {
         channels: cfg.channels.clone(),
         mode: cfg.mode.clone().unwrap_or_else(|| "owner".into()),
         knowledge_base: cfg.knowledge_base.clone().unwrap_or_default(),
+        live: health.live,
+        live_error: health.live_error,
     }
 }
 
@@ -344,6 +354,39 @@ pub async fn connectors_save(
     save_connector_configs(&connectors)?;
     notify_sidecar(&state).await;
     Ok(view_of(&row))
+}
+
+/// One secret from the chat's secure field (`request_secret`). Only that value
+/// changes: `connectors_save` would also replace the allowlist and channels,
+/// and an empty allowlist answers nobody.
+#[tauri::command]
+#[specta::specta]
+pub async fn connectors_save_secret(
+    state: tauri::State<'_, crate::AppState>,
+    id: String,
+    field: String,
+    value: String,
+) -> Result<(), String> {
+    let entry = catalog()
+        .into_iter()
+        .find(|c| c.id == id)
+        .ok_or_else(|| "Unknown connector.".to_string())?;
+    if !entry.fields.iter().any(|f| f.key == field) {
+        return Err("This connector has no such setting.".to_string());
+    }
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("The field is empty. Paste the value, then press Save.".to_string());
+    }
+    let mut connectors = load_connector_configs();
+    let mut row = connectors.iter().find(|c| c.id == id).cloned().unwrap_or_else(|| blank_connector_config(&id));
+    row.secrets.insert(field, value.to_string());
+    seed_discord(&mut row);
+    connectors.retain(|c| c.id != id);
+    connectors.push(row);
+    save_connector_configs(&connectors)?;
+    notify_sidecar(&state).await;
+    Ok(())
 }
 
 /// Turn a connector on or off. Enabling requires it to be ready (tokens filled,

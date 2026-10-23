@@ -22,6 +22,7 @@ import {
 import { cn } from '@/lib/utils';
 import { BrandLogo } from '@/lib/brandLogos';
 import { useUI } from '@/stores/ui';
+import { useConnected } from '@/stores/connected';
 
 // Communication channels live in the dedicated Connectors section now, never
 // in Extensions — hide them here even if an old install lingers in mcp.json.
@@ -65,6 +66,14 @@ export function ExtensionsPage() {
 
   const refresh = () =>
     tauri.mcp.list().then((l) => setInstalled(l.filter((s) => !CONNECTOR_IDS.has(s.id)))).catch(() => {});
+
+  // A service that just connected gets its own moment (ConnectedDialog).
+  const onConnected = (server?: McpServerView) => {
+    void refresh();
+    if (server) {
+      useConnected.getState().show({ name: server.name, logoId: server.id, mcpId: server.id, prompt: `What can you do in ${server.name}?` });
+    }
+  };
 
   const installedIds = new Set(installed.map((s) => s.id));
   const categories = ['All', ...Array.from(new Set(catalog.map((c) => c.category)))];
@@ -170,10 +179,11 @@ export function ExtensionsPage() {
                       key={entry.id}
                       entry={entry}
                       installed={installedIds.has(entry.id)}
-                      onInstalled={refresh}
+                      onInstalled={onConnected}
                     />
                   ))}
                 </div>
+                <AddYourOwnCard onInstalled={onConnected} />
                 <p className="text-xs text-text-muted text-center mt-8">
                   More extensions coming in future updates ✨
                 </p>
@@ -339,7 +349,7 @@ export function CatalogCard({
 }: {
   entry: McpCatalogEntry;
   installed: boolean;
-  onInstalled: () => void;
+  onInstalled: (server?: McpServerView) => void;
 }) {
   const [configOpen, setConfigOpen] = useState(false);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -364,8 +374,7 @@ export function CatalogCard({
     setBusy(true);
     setErr(null);
     try {
-      await tauri.mcp.install(entry.id, values);
-      onInstalled();
+      onInstalled(await tauri.mcp.install(entry.id, values));
     } catch (e) {
       setErr(String(e));
     } finally {
@@ -456,11 +465,20 @@ export function CatalogCard({
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-2 text-sm text-text-secondary">
-            <p>
-              This extension runs third-party software made by its publisher on your
-              computer to do its job. It runs with your account’s access, outside
-              Cinderpaw’s protected area.
-            </p>
+            {/* A sign-in service runs on its publisher's servers: Cinderpaw only
+                talks to it over the web (mcp-oauth.ts), nothing is installed. */}
+            {entry.browser_login ? (
+              <p>
+                {entry.name} runs on its publisher’s servers. Cinderpaw sends it what you
+                ask it to do there, with your account’s access.
+              </p>
+            ) : (
+              <p>
+                This extension runs third-party software made by its publisher on your
+                computer to do its job. It runs with your account’s access, outside
+                Cinderpaw’s protected area.
+              </p>
+            )}
             {/* Said BEFORE the install starts, not after. A browser window
                 opening by itself looks like something went wrong, and the
                 install cannot finish until the user goes and completes the
@@ -495,6 +513,104 @@ export function CatalogCard({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ── Add your own: a service's link for AI assistants, plus its key ───────────
+
+const inputClass =
+  'mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-hidden';
+
+/**
+ * Many services (Publora, Zapier, Notion…) give a link "for AI assistants"
+ * and a key. Reached over the web, so unlike the store's extensions it needs
+ * nothing installed on this computer.
+ */
+export function AddYourOwnCard({ onInstalled }: { onInstalled: (server?: McpServerView) => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [url, setUrl] = useState('');
+  const [key, setKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const add = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const server = await tauri.mcp.installCustom(name, url, key);
+      setOpen(false);
+      setName('');
+      setUrl('');
+      setKey('');
+      onInstalled(server);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 rounded-xl border border-dashed border-border-default bg-bg-surface p-4">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full text-left flex items-center gap-3"
+      >
+        <span aria-hidden="true" className="text-lg">🔗</span>
+        <span className="flex-1">
+          <span className="block text-sm font-semibold text-text-primary">Add your own</span>
+          <span className="block text-xs text-text-muted mt-0.5">
+            A service gave you a link for AI assistants? Paste it here with its key.
+          </span>
+        </span>
+        {open ? <ChevronUp size={14} className="text-text-muted" /> : <ChevronDown size={14} className="text-text-muted" />}
+      </button>
+
+      {open && (
+        <div className="mt-3 space-y-2">
+          <label className="block">
+            <span className="text-2xs text-text-secondary">Link</span>
+            <input
+              type="url"
+              placeholder="https://mcp.example.com"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              className={inputClass}
+            />
+          </label>
+          <label className="block">
+            <span className="text-2xs text-text-secondary">
+              Key <span className="text-text-muted">(if the service gave you one; if not, it may ask you to sign in)</span>
+            </span>
+            <input type="password" value={key} onChange={(e) => setKey(e.target.value)} className={inputClass} />
+          </label>
+          <label className="block">
+            <span className="text-2xs text-text-secondary">
+              Name <span className="text-text-muted">(optional)</span>
+            </span>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
+          </label>
+          <p className="text-2xs text-text-muted">
+            Your assistant will send this service what you ask it to do there. Only add services you trust.
+          </p>
+          {err && (
+            <p className="text-2xs text-error bg-error/10 border border-error/30 rounded px-2 py-1.5">{err}</p>
+          )}
+          <button
+            type="button"
+            onClick={() => void add()}
+            disabled={busy || !url.trim()}
+            className="w-full text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand text-on-brand hover:bg-brand/90 disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+          >
+            {busy && <Loader2 size={12} className="animate-spin" />}
+            {busy ? 'Connecting…' : 'Connect'}
+          </button>
+          {busy && <p className="text-2xs text-text-muted">If a browser tab opens, sign in there to finish.</p>}
+        </div>
+      )}
     </div>
   );
 }

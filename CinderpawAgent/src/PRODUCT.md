@@ -42,6 +42,24 @@ github.com/bloom500/cinderpaw, community Discord discord.gg/eqvfVRD6y7.
 - A one-time security acknowledgement is shown: Cinderpaw runs with the user's
   permissions, so shared/multi-user machines should be locked down.
 
+## Extensions (services connected by a link)
+
+Many services (Publora, Zapier, Notion and others) give a link "for AI
+assistants" (an MCP server link) and usually a key. **You support these and
+connect them yourself**; never say you have no MCP. Get the link from the
+person or the service's docs. In the desktop app, call `request_secret` with
+`extension_url` (and `extension_name`): the key goes in a secure field and
+saving it connects the service. If the key is already in the chat, or
+request_secret answers unsupported_surface, call `extension_connect` with
+`url`, `name` and `key`. Both ask the person to confirm. Once connected, the
+service's abilities are your tools, named `mcp_<tool>`. Adding it by hand in
+Capabilities > Add your own is the manual way, never required.
+
+Some services have no key and sign in through the browser instead (Notion,
+Linear and most big ones). Call `extension_connect` with just the `url`: after
+Connect, a sign-in page opens in the person's browser; tell them to finish
+there. Nothing to create on the service's side, and no Node needed.
+
 ## Connectors
 
 Connectors let the agent talk on chat platforms. Configuration lives in
@@ -53,7 +71,7 @@ memory or from this file WHICH platforms exist: call `connectors_manage`
 ids back. A list typed here rots: it named three while the build carried 21,
 and people were turned away from connectors we had the code for.
 `action:"configure"` saves the config and applies it immediately. Ask the user for the required secrets (e.g. the Discord bot
-token): on the Cinderpaw page, call `request_secret`, which opens a secure
+token): in the desktop app or on the Cinderpaw page, call `request_secret`, which opens a secure
 field so the value never enters the chat; elsewhere ask in the chat. Then configure it yourself — do not send them to the settings UI
 unless they prefer that. WhatsApp needs no secret: enable it, then tell the
 user to scan the QR code shown in the app (Connectors page or TUI). The first
@@ -144,6 +162,23 @@ like this" — it can keep that as a skill of its own.
   told to.
 - `delete_skill` removes one taught by mistake, after asking; it cannot be undone.
 
+## What you may change (permission modes)
+
+The person picks one of three modes under the box where they type; the
+default is **Can edit files**. A change applies to the next step, no restart.
+
+- **Look only** (`read_only`) — reads files and the web, changes nothing on
+  the computer: no file writes, no destructive or machine-level commands.
+- **Can edit files** (`workspace_write`, the default) — writes inside the
+  workspace, where the safety point can undo them; asks before anything outside.
+- **Full access** (`full_access`) — the file tools reach every folder and
+  commands run anywhere. Deleting what cannot be undone still asks a person,
+  the folders holding Cinderpaw's state and keys stay closed, and commands
+  known to wipe a disk are refused.
+
+You cannot change the mode yourself. If a task needs more, say which mode it
+needs and where to pick it.
+
 ## Running its own installation
 
 Once Cinderpaw is set up, the person should not have to open a terminal again for
@@ -184,6 +219,8 @@ person).
   retrieval). The agent can use `recall` and `self_memory`; the TUI's `/memory`
   command does not implement statistics or search.
 - Dream cycles: background reflection that consolidates memory when idle.
+  Off on a new install, local and cloud alike, until the user turns on Dreams
+  in Settings → Learning.
   The TUI's `/dream` shows its last observed dream event; `/dream now` is unavailable.
 - LoRA personalization: on-device fine-tuning proposals gated by eval
   (never auto-applied blind). `/lora` shows training status.
@@ -364,9 +401,10 @@ token footnote), `/restart` (restart the runtime).
 - No telemetry of chat content. One install count at setup (version + OS + an optional button for where they heard about Cinderpaw,
   once, refusable) and an opt-in daily usage summary per model, no
   text; see PROMISES.md 4.
-- Not unsupervised in the user's project by default: writes are refused
-  outside the configured workspace roots, and the agent must read a file
-  before it may overwrite it.
+- Not unsupervised in the user's project by default: in the default mode,
+  writes are refused outside the configured workspace roots (Full access
+  widens that, see the permission modes above), and the agent must read a
+  file before it may overwrite it.
 - The agent cannot edit its own settings, memory database, or identity files
   under `~/.cinderpaw` — configuration changes go through the commands and
   surfaces above. The ONE exception is `~/.cinderpaw/workspace`, its scratchpad,

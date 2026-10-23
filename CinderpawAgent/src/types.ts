@@ -76,6 +76,13 @@ export interface ToolManifest {
    */
   allowAnyCwd?: boolean;
   /**
+   * The general file tools (read, write, edit, list, search, grep): in
+   * `full_access` mode a path outside `allowedPaths` is accepted. The deny
+   * wall (~/.cinderpaw, ~/.ssh) still applies. Tools with their own folder
+   * (skills, artifacts, leads) never set it.
+   */
+  fullAccessReach?: boolean;
+  /**
    * Optional retry policy for transient failures. The registry retries the
    * tool up to `attempts` times after the initial call (so total calls =
    * 1 + attempts). Retries happen with linear backoff (250ms × attempt).
@@ -1637,11 +1644,12 @@ export interface AskUserQuestion {
   preview?: string;
   /**
    * A secret the person types into a password card (request_secret, spec
-   * 2026-09-24 §6.2). Only a surface that renders cards (the local web page)
-   * is ever sent one; the page saves the value straight to the engine and
-   * answers "Saved" or "Cancel", so the value never reaches the agent.
+   * 2026-09-24 §6.2). Only a surface that renders cards (the local web page,
+   * the desktop app) is ever sent one; the card saves the value itself and
+   * answers "Saved" or "Cancel", so the value never reaches the agent. The
+   * extension form (a service's link + key) is sent to the desktop app only.
    */
-  secret?: { connector: string; field: string };
+  secret?: { connector: string; field: string } | { extensionUrl: string; extensionName?: string };
 }
 
 export interface AskUserAnswer {

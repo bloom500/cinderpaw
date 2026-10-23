@@ -473,6 +473,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     streamStatus: status,
     agentPhase,
     isUserTyping: text.trim().length > 0,
+    isUserRecording: rec.state === 'recording',
   });
   const ember = useEmberRun();
   // Kept as a name because several controls read it; nothing sets it from

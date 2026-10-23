@@ -25,7 +25,7 @@ const args = { purpose: "Your Discord bot token, so I can talk there.", connecto
 
 test("on a surface without cards it says so and asks nothing", async () => {
   const asked: AskUserQuestion[][] = [];
-  const tool = createRequestSecretTool({ hasCards: () => false, isPresent: async () => false });
+  const tool = createRequestSecretTool({ cardSurface: () => undefined, isPresent: async () => false, extensionHasKey: () => false });
   const res = await tool.execute(args, ctxWith("Saved", asked));
   expect(res.ok).toBe(false);
   expect(res.content).toContain("unsupported_surface");
@@ -34,7 +34,7 @@ test("on a surface without cards it says so and asks nothing", async () => {
 
 test("in the browser it asks with a secret card and returns only { field, saved }", async () => {
   const asked: AskUserQuestion[][] = [];
-  const tool = createRequestSecretTool({ hasCards: () => true, isPresent: async (c, f) => c === "discord" && f === "DISCORD_TOKEN" });
+  const tool = createRequestSecretTool({ cardSurface: () => "web", extensionHasKey: () => false, isPresent: async (c, f) => c === "discord" && f === "DISCORD_TOKEN" });
   const res = await tool.execute(args, ctxWith("Saved", asked));
   expect(asked[0]![0]!.secret).toEqual({ connector: "discord", field: "DISCORD_TOKEN" });
   expect(res.ok).toBe(true);
@@ -42,7 +42,7 @@ test("in the browser it asks with a secret card and returns only { field, saved 
 });
 
 test("a Saved answer is checked against what was really stored", async () => {
-  const tool = createRequestSecretTool({ hasCards: () => true, isPresent: async () => false });
+  const tool = createRequestSecretTool({ cardSurface: () => "web", extensionHasKey: () => false, isPresent: async () => false });
   const res = await tool.execute(args, ctxWith("Saved"));
   expect(JSON.parse(res.content)).toMatchObject({ field: "DISCORD_TOKEN", saved: false, reason: "not_stored" });
 });
@@ -51,7 +51,7 @@ test("'Not now' says the person declined, and forbids asking for a paste instead
   // Seen live 25 Sep: on a bare { saved: false } the agent concluded the field
   // did not work and asked for the token in the chat, the one thing this
   // tool exists to prevent.
-  const tool = createRequestSecretTool({ hasCards: () => true, isPresent: async () => true });
+  const tool = createRequestSecretTool({ cardSurface: () => "web", extensionHasKey: () => false, isPresent: async () => true });
   for (const answer of ["Cancel", new Error("cancelled")] as const) {
     const res = JSON.parse((await tool.execute(args, ctxWith(answer))).content);
     expect(res).toMatchObject({ field: "DISCORD_TOKEN", saved: false, reason: "person_declined" });
@@ -60,7 +60,33 @@ test("'Not now' says the person declined, and forbids asking for a paste instead
 });
 
 test("an unknown connector or a field it does not have is refused", async () => {
-  const tool = createRequestSecretTool({ hasCards: () => true, isPresent: async () => true });
+  const tool = createRequestSecretTool({ cardSurface: () => "web", extensionHasKey: () => false, isPresent: async () => true });
   expect((await tool.execute({ ...args, connector: "nope" }, ctxWith("Saved"))).ok).toBe(false);
   expect((await tool.execute({ ...args, field: "OPENAI_API_KEY" }, ctxWith("Saved"))).ok).toBe(false);
+});
+
+const ext = { purpose: "Your Publora key, so I can post for you.", extension_url: "https://mcp.publora.com", extension_name: "Publora" };
+
+test("a service's key is asked for in the desktop app, which connects it", async () => {
+  // Seen 21 Oct: asked for Publora's key, the tool said only listed connectors.
+  const asked: AskUserQuestion[][] = [];
+  const tool = createRequestSecretTool({ cardSurface: () => "text", isPresent: async () => false, extensionHasKey: (u) => u === "https://mcp.publora.com/" });
+  const res = await tool.execute(ext, ctxWith("Saved", asked));
+  expect(asked[0]![0]!.secret).toEqual({ extensionUrl: "https://mcp.publora.com/", extensionName: "Publora" });
+  expect(JSON.parse(res.content)).toEqual({ field: "key", saved: true });
+});
+
+test("the web page and the terminal offer extension_connect or Capabilities instead", async () => {
+  for (const surface of ["web", undefined] as const) {
+    const asked: AskUserQuestion[][] = [];
+    const tool = createRequestSecretTool({ cardSurface: () => surface, isPresent: async () => true, extensionHasKey: () => true });
+    const res = await tool.execute(ext, ctxWith("Saved", asked));
+    expect(res.content).toContain("Capabilities > Add your own");
+    expect(asked.length).toBe(0);
+  }
+});
+
+test("an unknown connector points the agent at extension_url", async () => {
+  const tool = createRequestSecretTool({ cardSurface: () => "text", isPresent: async () => true, extensionHasKey: () => true });
+  expect((await tool.execute({ ...args, connector: "publora" }, ctxWith("Saved"))).content).toContain("extension_url");
 });

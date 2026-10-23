@@ -13,9 +13,13 @@
  *                       any surface where the person talking is not the owner.
  *   - `workspace_write` (default) — the working agent: writes inside the
  *                       workspace roots, where the safety point can undo it.
- *   - `full_access`   — the operator has decided; guards that exist to prevent
- *                       mistakes get out of the way. The catastrophic denylist
- *                       still applies, because nobody means `mkfs`.
+ *   - `full_access`   — the operator has decided: the file tools reach every
+ *                       folder and commands run anywhere. Full access is not
+ *                       "never ask" (Darius, 22 Oct): what cannot be undone
+ *                       (destruction outside the workspace, the catastrophic
+ *                       denylist) asks a present human instead of refusing,
+ *                       and still refuses when nobody is there. The keys
+ *                       folders (~/.cinderpaw, ~/.ssh) stay walled.
  *
  * And three outcomes, because two were not enough. `Block` is a refusal the
  * agent must work around; `Warn` is a decision that belongs to a human. With a
@@ -157,8 +161,8 @@ export function decideIntent(intent: CommandIntent, mode: PermissionMode): Decis
  * really does want the agent to clear a folder elsewhere — so it becomes the
  * human's call when a human is reachable, and stays a refusal when not.
  */
-export function decideOutsideWorkspace(path: string, mode: PermissionMode): Decision {
-  if (mode === "full_access") return ALLOW;
+export function decideOutsideWorkspace(path: string): Decision {
+  // Full access included: nothing can undo it, so a human says yes every time.
   return {
     kind: "warn",
     question: `Let the agent destroy "${path}"? It is outside the workspace, so nothing can undo it.`,
