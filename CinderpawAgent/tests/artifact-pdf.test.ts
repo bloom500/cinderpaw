@@ -169,7 +169,8 @@ describe("the agent's tools on a PDF", () => {
     const id = (res.data as { id: string }).id;
     expect(store.get(id)).toMatchObject({ kind: "markdown", title: "Ofertă" });
     expect(res.content).toContain("Download PDF");
-    expect(res.content).toContain("a PDF of 1 page.");
+    expect(res.content).toContain("a PDF of 1 page (counted from the file)");
+    expect(res.content).toContain("Do not export or check it again");
     const back = await read.execute({ id }, ctx);
     expect(back.content).toContain("Preț: 100 lei");
   });

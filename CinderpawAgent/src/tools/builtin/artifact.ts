@@ -334,15 +334,17 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       const blank = forPdf ? await unsupportedChars(content) : [];
       // So "one page" can be answered from the file, not guessed.
       const pages = forPdf ? (await PDFDocument.load(await pdfFromMarkdown(prose, title))).getPageCount() : 0;
+      // Said as the PDF it is. "Created markdown" read as a failure: the agent
+      // exported a second copy and spent turns counting its pages (23 Oct).
       const pdfNote = forPdf
-        ? ` The person sees it formatted in the panel; the Download PDF button on its card saves it as a PDF of ${pages} page${pages === 1 ? "" : "s"}. To change it, edit this artifact.`
+        ? ` This IS the PDF that was asked for, and it is done: shown formatted in the panel, and the Download PDF button on its card saves it as a PDF of ${pages} page${pages === 1 ? "" : "s"} (counted from the file). Do not export or check it again; tell the person it is ready. To change it, edit this artifact.`
         : "";
       const warning = blank.length > 0
         ? ` WARNING: these characters have no glyph in the bundled font and will be BLANK on the page: ${blank.slice(0, 20).join("")}. Tell the user, and offer a markdown or document artifact instead, which has no such limit.`
         : "";
       return {
         ok: true,
-        content: `Created ${a.kind} "${a.title}" — id ${a.id} (v1, ${a.bytes} bytes).${pdfNote}${warning}${checked?.note ?? ""}`,
+        content: `Created ${forPdf ? "the PDF" : a.kind} "${a.title}" — id ${a.id} (v1, ${a.bytes} bytes).${pdfNote}${warning}${checked?.note ?? ""}`,
         data: { id: a.id, kind: a.kind, title: a.title, version: a.version },
       };
     },
