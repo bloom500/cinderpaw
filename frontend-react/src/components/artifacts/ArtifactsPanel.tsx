@@ -184,7 +184,7 @@ export function ArtifactsPanel({
         // panel gives way down to its minimum rather than pushing the chat off.
         // The boards draw the panel as a card of its own, lifted off the window's
         // edges; mt-10 keeps it under the window's close/maximize/minimize.
-        'relative mb-3 mr-3 mt-10 flex shrink flex-col overflow-hidden rounded-3xl border border-border-default bg-bg-surface shadow-xl',
+        'artifact-sheet relative mb-3 mr-3 mt-10 flex shrink flex-col overflow-hidden rounded-3xl border border-border-default bg-bg-surface shadow-xl',
         compact ? 'ml-3 min-w-0 flex-1' : 'min-w-[320px]',
         // The frame is another document: without this, crossing it mid-drag
         // hands the pointer to the page inside and the drag stops.
