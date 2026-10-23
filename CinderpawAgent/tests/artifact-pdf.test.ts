@@ -159,22 +159,26 @@ describe("the agent's tools on a PDF", () => {
     return { store, ctx, create: t.createArtifactCreateTool(deps), read: t.createArtifactReadTool(deps), edit: t.createArtifactEditTool(deps) };
   }
 
-  test("create makes a real PDF from markdown, and read returns its words", async () => {
+  // 23 Oct: a PDF shown as a white sheet in a page viewer looked like Adobe
+  // Reader in the panel. Asked-for PDFs are written documents now; the card's
+  // Download PDF makes the file, and the agent is told how many pages it is.
+  test("a PDF asked for is a formatted document that downloads as a PDF", async () => {
     const { store, ctx, create, read } = await tools();
     const res = await create.execute({ kind: "pdf", title: "Ofertă", content: "# Ofertă\n\nPreț: 100 lei" }, ctx);
     expect(res.ok).toBe(true);
     const id = (res.data as { id: string }).id;
-    expect(isPdf(store.readBytes(id)!)).toBe(true);
+    expect(store.get(id)).toMatchObject({ kind: "markdown", title: "Ofertă" });
+    expect(res.content).toContain("Download PDF");
+    expect(res.content).toContain("a PDF of 1 page.");
     const back = await read.execute({ id }, ctx);
     expect(back.content).toContain("Preț: 100 lei");
   });
 
-  test("a find/replace on a PDF is refused with what works instead", async () => {
+  test("and it can be changed like any document", async () => {
     const { ctx, create, edit } = await tools();
     const res = await create.execute({ kind: "pdf", title: "X", content: "hello" }, ctx);
     const out = await edit.execute({ id: (res.data as { id: string }).id, find: "hello", replace: "bye" }, ctx);
-    expect(out.ok).toBe(false);
-    expect(out.content).toContain("Artifacts panel");
+    expect(out.ok).toBe(true);
   });
 });
 

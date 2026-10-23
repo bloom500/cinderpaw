@@ -28,6 +28,7 @@
 import type { Database } from "bun:sqlite";
 import type { Tool, ToolManifest } from "../../types.ts";
 import { extname, resolve } from "node:path";
+import { PDFDocument } from "pdf-lib";
 import {
   PermissionDeniedError,
   pathWithin,
@@ -277,9 +278,14 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       }
       // Prose sent as a 'document' in Markdown is stored as markdown, where it
       // renders and exports properly (see looksLikeHtml).
+      // A PDF asked for is written as markdown too: the panel shows it formatted,
+      // like a document, and its card's Download PDF makes the file. Shown as a
+      // PDF it was a white sheet in a page viewer (23 Oct, his ask). PDFs that
+      // arrive as files (downloads, uploads) stay PDFs.
+      const forPdf = asked === "pdf";
       const kind: ArtifactKind =
-        asked === "document" && typeof args.content === "string" && !looksLikeHtml(args.content) ? "markdown" : asked;
-      if (!ArtifactStore.isTextKind(kind) && kind !== "pdf") {
+        forPdf || (asked === "document" && typeof args.content === "string" && !looksLikeHtml(args.content)) ? "markdown" : asked;
+      if (!ArtifactStore.isTextKind(kind)) {
         return {
           ok: false,
           error: "bad_args",
@@ -310,12 +316,12 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
 
       const checked = kind === "board" ? boardContent(content, title) : null;
       if (checked?.error) return { ok: false, error: "bad_args", content: checked.error };
-      const prose = kind === "markdown" || kind === "pdf" ? withDateline(content, loadUserConfig().userName) : content;
+      const prose = kind === "markdown" ? withDateline(content, loadUserConfig().userName) : content;
 
       const a = deps.store.create({
         kind,
         title,
-        content: kind === "pdf" ? await pdfFromMarkdown(prose, title) : checked?.text ?? prose,
+        content: checked?.text ?? prose,
         workspaceId: activeWorkspaceId(deps.db),
         sessionId: ctx.sessionId,
         // Provenance, so a later "the report I made on WhatsApp" has something
@@ -325,13 +331,18 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       // A PDF whose alphabet the bundled face cannot draw comes out blank on
       // the page while the text still copies out of it. Said here, once, so the
       // agent can tell the person rather than handing over an empty sheet.
-      const blank = kind === "pdf" ? await unsupportedChars(content) : [];
+      const blank = forPdf ? await unsupportedChars(content) : [];
+      // So "one page" can be answered from the file, not guessed.
+      const pages = forPdf ? (await PDFDocument.load(await pdfFromMarkdown(prose, title))).getPageCount() : 0;
+      const pdfNote = forPdf
+        ? ` The person sees it formatted in the panel; the Download PDF button on its card saves it as a PDF of ${pages} page${pages === 1 ? "" : "s"}. To change it, edit this artifact.`
+        : "";
       const warning = blank.length > 0
         ? ` WARNING: these characters have no glyph in the bundled font and will be BLANK on the page: ${blank.slice(0, 20).join("")}. Tell the user, and offer a markdown or document artifact instead, which has no such limit.`
         : "";
       return {
         ok: true,
-        content: `Created ${a.kind} "${a.title}" — id ${a.id} (v1, ${a.bytes} bytes).${warning}${checked?.note ?? ""}`,
+        content: `Created ${a.kind} "${a.title}" — id ${a.id} (v1, ${a.bytes} bytes).${pdfNote}${warning}${checked?.note ?? ""}`,
         data: { id: a.id, kind: a.kind, title: a.title, version: a.version },
       };
     },
