@@ -472,7 +472,7 @@ The philosophy is **capable by default, restrictable by choice**: the agent can 
 
 - **Manifest validation** — tools declare `permissions: ["fs:read" | "fs:write" | "network:outbound" | "process:spawn"]` at registration; undeclared permissions are blocked
 - **Egress proxy** — built-in web tools use `ctx.fetch()` for SSRF checks, rate limits and audit attempts. Inference, connectors and external processes have separate I/O paths. `fetch_url` / `http_request` allow public hosts by default; set `CINDERPAW_FETCH_DOMAINS` / `CINDERPAW_HTTP_DOMAINS` to restrict them.
-- **Filesystem checks** — tool paths are checked against workspace roots and protected profile/SSH paths, with a scratch exception. Default roots are launch dir + home + scratch; `CINDERPAW_WORKSPACE` restricts configured roots. These checks do not confine spawned processes; see [SECURITY.md](SECURITY.md) for known gaps.
+- **Filesystem checks** — tool paths are checked against workspace roots and protected profile/SSH paths, with a scratch exception. Default roots are launch dir + home + scratch; `CINDERPAW_WORKSPACE` restricts configured roots. In **Full access** mode (picked under the box where you type) the general file tools also reach paths outside those roots; the protected paths still hold. These checks do not confine spawned processes; see [SECURITY.md](SECURITY.md) for known gaps.
 - **Audit log** — instrumented operations attempt SQLite writes; failures can leave gaps even when the retained chain verifies.
 
 ### Built-in tools

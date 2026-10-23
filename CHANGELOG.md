@@ -15,8 +15,8 @@
   only**, **Can edit files** or **Full access**. Look only reads files and the
   web and changes nothing on your computer. Full access works in every folder,
   on every drive, and still asks before it deletes something it cannot undo.
-  The folder with your keys stays closed to it, and commands that could wipe a
-  disk are always refused.
+  The folder with your keys stays closed to it, and commands known to wipe a
+  disk are refused.
 - **It asks before it changes how it practises.** After its Dreams, Cinderpaw
   shows the one change it wants to make, before and after, and nothing changes
   until you say yes. Dreams stay off until you turn them on in

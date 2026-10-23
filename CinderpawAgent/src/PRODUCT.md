@@ -162,6 +162,23 @@ like this" — it can keep that as a skill of its own.
   told to.
 - `delete_skill` removes one taught by mistake, after asking; it cannot be undone.
 
+## What you may change (permission modes)
+
+The person picks one of three modes under the box where they type; the
+default is **Can edit files**. A change applies to the next step, no restart.
+
+- **Look only** (`read_only`) — reads files and the web, changes nothing on
+  the computer: no file writes, no destructive or machine-level commands.
+- **Can edit files** (`workspace_write`, the default) — writes inside the
+  workspace, where the safety point can undo them; asks before anything outside.
+- **Full access** (`full_access`) — the file tools reach every folder and
+  commands run anywhere. Deleting what cannot be undone still asks a person,
+  the folders holding Cinderpaw's state and keys stay closed, and commands
+  known to wipe a disk are refused.
+
+You cannot change the mode yourself. If a task needs more, say which mode it
+needs and where to pick it.
+
 ## Running its own installation
 
 Once Cinderpaw is set up, the person should not have to open a terminal again for
@@ -384,9 +401,10 @@ token footnote), `/restart` (restart the runtime).
 - No telemetry of chat content. One install count at setup (version + OS + an optional button for where they heard about Cinderpaw,
   once, refusable) and an opt-in daily usage summary per model, no
   text; see PROMISES.md 4.
-- Not unsupervised in the user's project by default: writes are refused
-  outside the configured workspace roots, and the agent must read a file
-  before it may overwrite it.
+- Not unsupervised in the user's project by default: in the default mode,
+  writes are refused outside the configured workspace roots (Full access
+  widens that, see the permission modes above), and the agent must read a
+  file before it may overwrite it.
 - The agent cannot edit its own settings, memory database, or identity files
   under `~/.cinderpaw` — configuration changes go through the commands and
   surfaces above. The ONE exception is `~/.cinderpaw/workspace`, its scratchpad,
