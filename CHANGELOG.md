@@ -45,7 +45,8 @@
   a paw on its chin, reads, searches with a lens, writes and talks on the
   phone, and it changes drawings so it does not repeat the same one. It wags
   its tail in every one, its paw writes and talks, and its eyes follow the
-  lines it reads.
+  lines it reads. While you type, it types along at its laptop; while you
+  record a voice message, it leans in and listens.
 - **What's new shows a picture of each change.**
 - **Kimi has two choices:** Kimi Code (subscription) and Kimi API (Moonshot,
   pay per use), each with the right place to get its key.
@@ -67,6 +68,10 @@
   Downloads and compatibility popups are no longer see-through.
 - **Deleting a model Windows keeps locked works now.** Cinderpaw deletes it the
   next time it starts, before any model loads.
+- **Clicks on sites like Reddit work.** When Cinderpaw clicks a link on a page
+  that changes without reloading, it now lands on the new page instead of
+  going back to the old one.
+- **A step where Cinderpaw used an app says what it did,** not "1 file".
 - **Security:** updated parts with known security problems (zip, webpki,
   follow-redirects, vite, DOMPurify).
 
