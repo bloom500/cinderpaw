@@ -1391,7 +1391,7 @@ fn find_script(query_json: &str, direction_json: &str) -> String {
 
 /// The element is there and on screen: the answer round-trip before an action
 /// that may navigate. The action itself goes through `fire`.
-fn find_script(reference: &str) -> String {
+fn locate_script(reference: &str) -> String {
     element_script(reference, "return { ok: true };")
 }
 
@@ -1565,7 +1565,7 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
         "click" => {
             let wv = open_page(&app)?;
             let reference = param_str(params, "ref")?;
-            let found = run(&wv, &find_script(reference)).await?;
+            let found = run(&wv, &locate_script(reference)).await?;
             if found.get("ok") != Some(&json!(true)) { return Ok(found); }
             // A click often navigates; the next snapshot sees the new page.
             Ok(with_downloads(fire(&wv, &click_script(reference)).await?))
@@ -1895,7 +1895,7 @@ mod tests {
     fn nothing_that_navigates_rides_on_an_answer() {
         // `run` rewrites the address after its script: a navigation started
         // in that script is undone (single-page sites, 23 Oct).
-        assert!(!find_script("1").contains("click()"));
+        assert!(!locate_script("1").contains("click()"));
         assert!(!type_script("1", "x").contains("requestSubmit"));
         assert!(click_script("1").contains("el.click()"));
         assert!(submit_script("1").contains("requestSubmit"));
