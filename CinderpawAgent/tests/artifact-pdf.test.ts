@@ -29,6 +29,16 @@ describe("pdfFromMarkdown", () => {
     expect(text).toContain("plata în 30 de zile");
   });
 
+  // 23 Oct: "a one-page PDF with a table of tasks for each day" came out as
+  // rows of "| Day | Production |" and "| --- |", the first thing anyone asks for.
+  test("a markdown table is drawn as a table, not as pipes", async () => {
+    const md = "# Plan\n\n| Day | Production |\n| --- | :---: |\n| Mon 26 Oct | Bake **sourdough** |\n| Tue | Croissants |";
+    const text = await textOf(await pdfFromMarkdown(md, "Plan"));
+    expect(text).not.toContain("|");
+    expect(text).not.toContain("---");
+    for (const cell of ["Day", "Production", "Mon 26 Oct", "Bake sourdough", "Croissants"]) expect(text).toContain(cell);
+  });
+
   test("a long document flows onto more pages instead of running off the first", async () => {
     const long = Array.from({ length: 200 }, (_, i) => `Paragraph ${i} with enough words to wrap across the line.`).join("\n\n");
     const pdf = await pdfFromMarkdown(long, "Long");
