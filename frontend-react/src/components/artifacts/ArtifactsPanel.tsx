@@ -10,7 +10,7 @@ import {
   ArtifactTitle,
 } from '@/components/ai-elements/artifact';
 import { Markdown } from '@/lib/markdown';
-import { emberText, liveUntil, type Ember } from '@/lib/emberLetters';
+import { emberText, liveUntil, revealedTo, type Ember } from '@/lib/emberLetters';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SelectMenu } from '@/components/ui/select-menu';
 import { LiveFrame } from './LiveFrame';
@@ -679,6 +679,8 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
     const now = Date.now();
     const due = [live.out?.until ?? 0, liveUntil(live.runs) + 60].filter((t) => t > now);
     if (due.length === 0) return;
+    // The cursor walks with the letters, which can trail the text by seconds.
+    if (live.writing) due.push(now + 120);
     const t = window.setTimeout(() => setTick((n) => n + 1), Math.min(...due) - now);
     return () => window.clearTimeout(t);
   }, [open?.live, open?.content, tick]);
@@ -736,7 +738,11 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
   const writingEnd = live?.edit ? live.edit.at + live.edit.replace.length : content.length;
   // Markdown drops trailing whitespace from its text nodes. Keep the cursor
   // on the last visible letter so a newline cannot hide it or stop following.
-  const caretAt = live?.writing && !leaving ? content.slice(0, writingEnd).trimEnd().length : undefined;
+  // A fast model's letters are paced and trail the text: the cursor sits on the
+  // last letter shown, not ahead of letters that have not appeared yet.
+  const caretAt = live?.writing && !leaving
+    ? Math.min(content.slice(0, writingEnd).trimEnd().length, revealedTo(live.runs, now) ?? Infinity)
+    : undefined;
   const ember: Ember | undefined = live
     ? { runs: leaving ? [] : live.runs, out: leaving?.ranges, now, ...(caretAt !== undefined ? { caret: { at: caretAt, name: agentName } } : {}) }
     : undefined;

@@ -965,7 +965,15 @@ function liveAfter(prev: OpenArtifact, row: ArtifactRow, content: string, encodi
     // Saved with a little more than was written: the date and name the engine
     // puts under the title come in like the rest of the writing.
     const diff = editRuns(prev.content, content, Date.now());
-    return diff && diff.out.length === 0 ? { runs: diff.runs } : undefined;
+    if (!diff || diff.out.length > 0) return undefined;
+    // Letters still to come keep coming, moved past what the save added: a
+    // fast model's are paced and can trail the text by seconds.
+    const later = (r: Run) => diff.runs.reduce((n, d) => (d.from <= r.from + n ? n + d.to - d.from : n), 0);
+    const pending = prev.live.runs.filter((r) => liveUntil([r]) > Date.now()).map((r) => {
+      const n = later(r);
+      return { ...r, from: r.from + n, to: r.to + n };
+    });
+    return { runs: [...pending, ...diff.runs] };
   }
   // A part already written in place: the saved version is what is on screen.
   if (prev.live?.edit && prev.row.id === row.id && prev.content === content) return { runs: prev.live.runs };
