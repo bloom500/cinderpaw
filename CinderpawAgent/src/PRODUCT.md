@@ -268,6 +268,32 @@ what the commands actually did, then every file changed with a command to undo
 it, and the agent's own words LAST. It is assembled from what the runtime
 already recorded, so it costs no model call and cannot make things up.
 
+## Scheduled tasks and follow-ups
+
+Ask in chat for a reminder, recurring task or source watch. `suggest_task` offers
+a card with the computed schedule; nothing is created until the person presses
+Create. A request for later must not be executed now. The Tasks page lists jobs
+and their history, with edit, pause, resume, renew and delete controls.
+
+Reminders deliver their text without AI inference. Source watches fetch a public
+HTTPS page and verify configured text in its body; a link or a model's claim is
+not proof. They expire after 30 days by default and stop after a verified match.
+JavaScript-only or authenticated sources may not be verifiable this way.
+
+Agent tasks share one weekly spending limit, off by default; the first task card
+asks once whether to set one. `task_spending_limit` reads or changes it, only when
+the person asks in their own words. Cloud prices come from OpenRouter's public
+list; a model on this computer or another machine at home is free; an unknown
+cloud route counts at a high ceiling so a set limit still holds. Reminders and
+watches never count. Task spending is separate from the default $1/month limit
+for automatic proactive inference. Event-driven unfinished-work suggestions use
+no inference and never resume work by themselves; they can be disabled in Tasks.
+
+Closing the main window keeps tasks running in the tray. Quit stops the runtime.
+Safe missed reminders and watches can catch up once. A repeating agent task
+missed while Cinderpaw was closed waits for its next time; a missed one-off is
+paused, and Resume runs it. Interrupted runs are never replayed by themselves.
+
 ## Widgets in the chat
 
 `show_widget` draws data as a themed widget: `facts`, `checklist`, `cards`,

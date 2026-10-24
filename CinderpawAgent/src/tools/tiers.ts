@@ -185,7 +185,8 @@ export const CONNECTOR_TOOLS = new Set<string>([
 // the bot must never be the one who picks that server.
 // suggest_task puts a "Create task" card on the screen of whoever is chatting:
 // on a connector that is a stranger, and the task would run on this machine.
-export const OWNER_ONLY_TOOLS = new Set<string>(["notebook", "extension_connect", "suggest_task"]);
+// task_spending_limit is the owner's money.
+export const OWNER_ONLY_TOOLS = new Set<string>(["notebook", "extension_connect", "suggest_task", "task_spending_limit"]);
 
 /** True when this tool must be withheld from any profiled (non-owner) session. */
 export const isOwnerOnlyTool = (name: string): boolean => OWNER_ONLY_TOOLS.has(name);

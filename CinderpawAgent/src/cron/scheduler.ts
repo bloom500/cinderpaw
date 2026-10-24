@@ -21,6 +21,7 @@
  */
 
 import { nextRunAt } from "./schedule.ts";
+import { verifyWatch } from "./watch.ts";
 import { deliverCron, type CronDeliveryContext } from "./delivery.ts";
 import type {
   CronJob,
@@ -47,6 +48,8 @@ export type CronRunFn = (job: CronJob) => Promise<CronRunOutcome>;
  * point — an unattended run has no user to notice.
  */
 export interface CronRunOutcome {
+  costUsd?: number;
+  budgetExceeded?: boolean;
   /** Text to deliver. Present for incomplete runs too — partial work is worth seeing. */
   text: string;
   /** The task reached a natural end. False = stopped with work outstanding. */
@@ -54,6 +57,12 @@ export interface CronRunOutcome {
 }
 
 export interface CronSchedulerConfig {
+  /** Apply restart safety to overdue occurrences. Enabled by production boot. */
+  catchUpOnStart?: boolean;
+  stopJob?: (job: CronJob) => void;
+  /** The one weekly limit over all agent tasks (cron/limit.ts). Absent = none. */
+  limit?: { blockedReason(): string | null; record(usd: number): void };
+  watchFetch?: (job: CronJob) => import("../types.ts").CinderpawFetch;
   repo: CronJobsRepo;
   runJob: CronRunFn;
   /** Delivery dispatcher. The default uses the chat/webhook/tool helper. */
@@ -101,6 +110,11 @@ export class CronScheduler {
   readonly #jobTimeoutMs: number;
   readonly #now: () => Date;
   readonly #onJobError: ((job: CronJob, message: string) => void) | undefined;
+  readonly #watchFetch: CronSchedulerConfig["watchFetch"];
+  readonly #startedAt: number;
+  readonly #catchUpOnStart: boolean;
+  readonly #stopJob: CronSchedulerConfig["stopJob"];
+  readonly #limit: CronSchedulerConfig["limit"];
 
   #timer: ReturnType<typeof setTimeout> | null = null;
   #running = false;
@@ -114,6 +128,11 @@ export class CronScheduler {
     this.#jobTimeoutMs = config.jobTimeoutMs ?? DEFAULT_JOB_TIMEOUT_MS;
     this.#now = config.now ?? (() => new Date());
     this.#onJobError = config.onJobError;
+    this.#watchFetch = config.watchFetch;
+    this.#startedAt = this.#now().getTime();
+    this.#catchUpOnStart = config.catchUpOnStart ?? false;
+    this.#stopJob = config.stopJob;
+    this.#limit = config.limit;
   }
 
   /** Start the timer. Idempotent. */
@@ -160,15 +179,46 @@ export class CronScheduler {
       const now = this.#now();
       const due = this.#repo.list().filter((j) => {
         if (!j.enabled) return false;
+        if (j.expiresAt !== undefined && now.getTime() >= j.expiresAt) return true;
         if (j.nextRunMs == null) return false;
         return j.nextRunMs <= now.getTime();
       });
       for (const job of due) {
+        if (job.expiresAt !== undefined && now.getTime() >= job.expiresAt) {
+          this.#skip(job, "expired", "Watch expired. Renew it to continue checking.");
+          continue;
+        }
+        if (this.#catchUpOnStart && (job.kind === "agent" || job.delivery.kind !== "chat") && job.nextRunMs! <= this.#startedAt) {
+          // A repeating task just waits for its next time: closing the app at
+          // night must not switch "every weekday at 9" off (24 Oct review). A
+          // one-off is never replayed on its own; Resume runs it.
+          const once = job.schedule.kind === "at";
+          this.#skip(job, "skipped", once
+            ? "Missed while Cinderpaw was closed. Resume to run it now; past actions are never replayed on their own."
+            : "Missed while Cinderpaw was closed. It runs again at its next time.", once);
+          continue;
+        }
+        const overLimit = job.kind === "agent" ? this.#limit?.blockedReason() : null;
+        if (overLimit) {
+          // Only this occurrence: the limit frees up within the week.
+          this.#skip(job, "budget_exceeded", overLimit, false);
+          continue;
+        }
         await this.#runOne(job);
       }
     } finally {
       this.#inflight = false;
     }
+  }
+
+  #skip(job: CronJob, status: "expired" | "skipped" | "budget_exceeded", detail: string, disable = true): void {
+    const at = this.#now().getTime();
+    // A one-off skipped only for now (the weekly limit) has no "next" time of
+    // its own: try again in an hour instead of losing it.
+    const next = !disable && job.schedule.kind === "at" ? at + 3_600_000 : nextRunAt(job.schedule, new Date(at));
+    if (!this.#repo.updateAfterRun(job.id, at, next, {runAt:at,status,durationMs:0,result:detail}, job.retryCount, job.updatedAt)) return;
+    if (disable) this.#repo.setEnabled(job.id, false);
+    try { this.#onJobError?.(job, detail); } catch { /* reporter is best effort */ }
   }
 
   #schedule(): void {
@@ -193,9 +243,25 @@ export class CronScheduler {
     const from = this.#now();
     let record: CronRunRecord;
     let content: string | undefined;
+    let running: Promise<CronRunOutcome> | undefined;
+    if (!this.#repo.claimRun(job, startedAt, computeNext(job, from))) return;
 
     try {
-      const outcome = await this.#withTimeout(this.#runJob(job), this.#jobTimeoutMs);
+      if (job.kind === "watch") {
+        if (!job.watch || !this.#watchFetch) throw new Error("Watch source verification is unavailable");
+        const proof = await verifyWatch(job.watch, this.#watchFetch(job), startedAt);
+        const result = proof ? `Verified on ${proof.sourceUrl}:\n“${proof.excerpt}”` : "Checked source; expected text is not present yet.";
+        if (!this.#repo.updateAfterRun(job.id, startedAt, computeNext(job, this.#now()), {runAt:startedAt,status:proof ? "success" : "waiting",durationMs:this.#now().getTime()-startedAt,result,proof,costUsd:0}, 0, job.updatedAt)) return;
+        if (proof) {
+          this.#repo.setEnabled(job.id, false);
+          await this.#deliver(job.delivery, result, job, {emit:()=>{},fetch:globalThis.fetch});
+        }
+        return;
+      }
+      running = this.#runJob(job);
+      const outcome = await this.#withTimeout(running, this.#jobTimeoutMs);
+      this.#repo.settleSpend(job.id, (job.spentUsd ?? 0) + Math.max(0, outcome.costUsd ?? 0));
+      this.#limit?.record(Math.max(0, outcome.costUsd ?? 0));
       content = outcome.text;
       // An unfinished run is NOT a success. It keeps the retry streak climbing
       // (so a job that never completes eventually reads as stuck instead of
@@ -204,17 +270,20 @@ export class CronScheduler {
       // work below, which is the part the user can actually use.
       record = {
         runAt: startedAt,
-        status: outcome.finished ? "success" : "incomplete",
+        status: outcome.budgetExceeded ? "budget_exceeded" : outcome.finished ? "success" : "incomplete",
         durationMs: this.#now().getTime() - startedAt,
         result: content.slice(0, 2_000),
+        costUsd: outcome.costUsd ?? 0,
       };
-      this.#repo.updateAfterRun(
+      const current = this.#repo.updateAfterRun(
         job.id,
         startedAt,
-        computeNext(job, from),
+        computeNext(job, this.#now()),
         record,
         outcome.finished ? 0 : job.retryCount + 1,
+        job.updatedAt,
       );
+      if (!current) return;
       // A one-shot that did not finish stays enabled, so the next tick picks it
       // up again instead of silently consuming a task that was never done.
       if (job.schedule.kind === "at" && outcome.finished) {
@@ -228,6 +297,20 @@ export class CronScheduler {
         }
       }
     } catch (err) {
+      let charged = (err as {costUsd?:number})?.costUsd;
+      if (err instanceof CronTimeoutError) {
+        this.#stopJob?.(job);
+        // The stopped run still says what it spent; wait briefly for it, so a
+        // timeout counts against the weekly limit like any other run.
+        charged = await Promise.race([
+          running!.then((o) => o.costUsd, (e) => (e as {costUsd?:number})?.costUsd),
+          new Promise<undefined>((r) => setTimeout(r, 30_000)),
+        ]);
+      }
+      if (typeof charged === "number" && charged > 0) {
+        this.#repo.settleSpend(job.id,(job.spentUsd ?? 0)+charged);
+        this.#limit?.record(charged);
+      }
       const newRetry = job.retryCount + 1;
       record = {
         runAt: startedAt,
@@ -235,13 +318,16 @@ export class CronScheduler {
         durationMs: this.#now().getTime() - startedAt,
         error: String(err).slice(0, 500),
       };
-      this.#repo.updateAfterRun(
+      const current = this.#repo.updateAfterRun(
         job.id,
         startedAt,
-        computeNext(job, from),
+        computeNext(job, this.#now()),
         record,
         newRetry,
+        job.updatedAt,
       );
+      if (!current) return;
+      // A slow run is not a reason to switch a repeating task off for good.
       // X3: surface the failure beyond the run-history table.
       try {
         this.#onJobError?.(job, record.error ?? String(err));

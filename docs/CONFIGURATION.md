@@ -167,6 +167,8 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_SHELL_PATH_EXTRA` | list | `null` | yes | Extra directories appended to the PATH every spawned child sees, on top of the well-known install locations (Git bin, nodejs, npm global on Windows; /usr/local/bin, homebrew, ~/.local/bin, ~/.bun/bin, ~/.cargo/bin elsewhere). Needed because the agent inherits whatever PATH launched the gateway, so a tool a terminal finds can be invisible here — that is what made `bash` fail with a permissions-sounding error. Appended, never prepended, so it cannot change which binary an already-working call resolves to. Directories that do not exist are ignored. |
 | `CINDERPAW_SHELL_DENYLIST` | list | `null` | yes | Overrides the built-in shell_exec denylist (dangerous binaries refused even in YOLO mode). |
 | `CINDERPAW_PROACTIVE_ENABLED` | bool | `false` | yes | Master enable for the proactive/mood-engine loop. |
+| `CINDERPAW_FOLLOWUPS_ENABLED` | bool | `true` |  | Event-driven suggestions for unfinished desktop work. Suggestions never resume work or call a model. |
+| `CINDERPAW_PROACTIVE_MONTHLY_USD` | string | `"1"` | yes | Monthly USD cap for automatic proactive inference only. Confirmed scheduled tasks have separate limits. Zero disables paid proactive inference; unknown route prices fail closed. |
 | `CINDERPAW_INNER_THOUGHTS_ENABLED` | bool | `false` | yes | Sub-flag enabling the inner-thoughts loop. |
 | `CINDERPAW_MODEL` | string | `"qwen2.5:7b"` |  | Model id sent to the inference provider. |
 | `CINDERPAW_PROVIDER` | string | `"openai_compatible"` |  | Provider family adapter to use. |
@@ -470,6 +472,8 @@ CINDERPAW_PERMISSION_MODE
 CINDERPAW_PEXELS_KEY
 CINDERPAW_PII_REDACTION
 CINDERPAW_PROACTIVE_ENABLED
+CINDERPAW_FOLLOWUPS_ENABLED
+CINDERPAW_PROACTIVE_MONTHLY_USD
 CINDERPAW_PROVIDER
 CINDERPAW_PUBLIC_JOURNAL_DIR
 CINDERPAW_PUBLIC_JOURNAL_LIMIT

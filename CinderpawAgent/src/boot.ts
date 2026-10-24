@@ -165,6 +165,7 @@ import { defaultJournalPath } from "./rsi/infra/journal.ts";
 import { ActivityMonitor } from "./rsi/l1-config/activity-monitor.ts";
 import { resolveDreamConfig, autonomousInferenceGate } from "./rsi/l1-config/dream-config.ts";
 import { priceResolverFromJson } from "./rsi/infra/rsi-cost.ts";
+import { FollowUpLedger, recordInteractiveTurn } from "./core/proactive-followups.ts";
 import { episodeStartOptions, episodeBudgetCaps } from "./rsi/l1-config/episode-options.ts";
 import { MetaEvolution } from "./rsi/l6-meta/meta-evolution.ts";
 import { effectiveGates, layerFrozen, loadPolicy } from "./rsi/l5-gov/governance.ts";
@@ -182,6 +183,9 @@ import { setHostToolNames } from "./tools/tiers.ts";
 import { createAskUserTool } from "./tools/builtin/ask-user.ts";
 import { createHeadsUpTool } from "./tools/builtin/heads-up.ts";
 import { createSuggestTaskTool } from "./tools/builtin/suggest-task.ts";
+import { createTaskLimitTool } from "./tools/builtin/task-limit.ts";
+import { TaskLimit } from "./cron/limit.ts";
+import { refreshModelPrices, withModelPrices } from "./egress/model-prices.ts";
 import { DesktopControlBridgeImpl } from "./core/desktop-control-bridge.ts";
 import { RequestBridge } from "./core/request-bridge.ts";
 import { createComputerUseTool } from "./tools/builtin/computer-use.ts";
@@ -453,6 +457,14 @@ export async function boot(transportOverride?: Transport) {
   // because the boot-time resume pass below needs it before anything else can
   // start a new run.
   const runStore = new RunStore(db.raw);
+  const followUps = new FollowUpLedger(db.raw);
+  // Lifecycle events, never idle model polling. The card only opens prior work;
+  // it does not authorize a resumed task or any external action.
+  function offerUnfinishedWork(): void {
+    if (!cfgBool("CINDERPAW_FOLLOWUPS_ENABLED")) return;
+    const followUp = followUps.take();
+    if (followUp) transport.send({ type: "proactive", content: "You left something unfinished", followUp });
+  }
 
   // --- RSI bootstrap (Faza 0 — Keystone) ---
   // Boot the Bounded-RSI substrate. Two slices, two owners:
@@ -988,6 +1000,8 @@ export async function boot(transportOverride?: Transport) {
   registry.register(createAskUserTool());
   registry.register(createHeadsUpTool());
   registry.register(createSuggestTaskTool());
+  const taskLimit = new TaskLimit(db.raw);
+  registry.register(createTaskLimitTool(taskLimit));
 
   // computer_use — OS-level desktop control via the accessibility tree. This
   // is powerful (it can click/type into any non-denylisted app), so it is
@@ -1711,13 +1725,24 @@ export async function boot(transportOverride?: Transport) {
   }
 
   const cronRepo = new CronJobsRepo(db.raw);
+  const taskPrice = withModelPrices(priceResolverFromJson(cfgPath("CINDERPAW_AUTONOMOUS_PRICING_JSON")));
+  const watchEgress = new EgressProxy(audit.logger, { trustedLocalOrigins: [] });
   const cronScheduler = new CronScheduler({
     repo: cronRepo,
+    limit: taskLimit,
+    catchUpOnStart: true,
+    stopJob: job => { agent.stop(`cron:${job.id}`); router.abort(`cron:${job.id}`); router.setSessionSpendAuthority(`cron:${job.id}`, null); },
+    watchFetch: (job) => watchEgress.forTool({name:"task_watch",description:"Verify a user-approved source condition",permissions:["network:outbound"],networkAccess:true,allowedDomains:[new URL(job.watch!.sourceUrl).hostname]}, `cron:${job.id}`),
     runJob: async (job) => {
       // A reminder is its own text, said at the time it was asked for: no
       // model call, no safety point, no cost.
       if (job.kind === "reminder") return { text: job.task, finished: true };
       const sessionId = `cron:${job.id}`;
+      // The public price list, only for a cloud model: a local-only person's
+      // tasks never reach out for it.
+      if (!router.isPrimaryLocal) await refreshModelPrices();
+      const allowance = new InferenceSpendAuthority({maxCostUsd:taskLimit.remaining(),allowCloud:true,price:taskPrice});
+      router.setSessionSpendAuthority(sessionId, allowance);
       try {
         // `handleTurn()` never throws — on failure it emits an `error` event to
         // the sink and returns the error text. Capture that event and throw
@@ -1747,6 +1772,7 @@ export async function boot(transportOverride?: Transport) {
           doneWhen: job.doneWhen ?? null,
           delivery: { kind: "cron", target: job.id, sessionId },
         });
+        if (!runRow) throw new Error("A previous run is still active; this occurrence will not replay it.");
         // runUnattended, not handle(): a scheduled task that hits the turn
         // budget half-way gets continued rather than reported as finished.
         const run = await runUnattended(
@@ -1769,7 +1795,15 @@ export async function boot(transportOverride?: Transport) {
             verify: () => verifyIfAsserted(job.doneWhen ?? null, safety),
           },
         );
-        if (runError) throw new Error(runError);
+        if (runError) {
+          await concludeRun(runRow, "unfinished", "not_continuable", runError);
+          // Only the allowance's own refusal is the weekly limit, and only when
+          // one is set: a provider error that says "scope" or the router's day
+          // budget is not (24 Oct review).
+          const overLimit = taskLimit.view().weeklyUsd !== null
+            && (String(allowance.signal.reason ?? "").includes("cost cap exhausted") || /autonomous inference would exceed the \$/.test(runError));
+          return {text:overLimit ? "Stopped partway: this run reached your weekly limit for scheduled tasks. Ask Cinderpaw to raise or remove the limit, or change it on the Tasks page." : runError,finished:false,budgetExceeded:overLimit,costUsd:allowance.spentUsd + allowance.reservedUsd};
+        }
         const changed = await changedSince(safety);
         const check = await verifyDoneWhen(job.doneWhen, safety[0]?.root ?? null);
         const digest = renderDigest(run, changed, check, safety, undefined, intentSummary(sessionId));
@@ -1787,11 +1821,16 @@ export async function boot(transportOverride?: Transport) {
         }
         return {
           text: digest,
+          costUsd: allowance.spentUsd + allowance.reservedUsd,
           // The agent's own claim is not the authority. When a job declares a
           // done_when, that assertion decides whether the run finished.
           finished: run.finished && check.passed,
         };
+      } catch (error) {
+        throw Object.assign(error instanceof Error ? error : new Error(String(error)), {costUsd:allowance.spentUsd + allowance.reservedUsd});
       } finally {
+        allowance.stop("Scheduled task finished or stopped");
+        router.setSessionSpendAuthority(sessionId, null);
         // N2 fix: the synthetic `cron:${job.id}` sessionId would otherwise
         // grow the router's per-conversation-token map forever (one entry
         // per scheduled job for the life of the sidecar). Evict it after
@@ -2789,6 +2828,8 @@ export async function boot(transportOverride?: Transport) {
   // this shared, mutable `ctx` object rather than being destructured by
   // value on the other side.
   const ctx = {
+    offerUnfinishedWork,
+    recordInteractiveTurn: (sessionId: string, mission: string, outcome: string, report: string) => recordInteractiveTurn(runStore, sessionId, mission, outcome, report, db.raw),
     config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     // The semantic graph, for the memory page's Forget (dispatch `memory_forget`),
     // with the fact store it mirrors so Forget clears the fact too.

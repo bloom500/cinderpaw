@@ -85,6 +85,10 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
     description: "Overrides the built-in shell_exec denylist (dangerous binaries refused even in YOLO mode).", security: true },
   { name: "CINDERPAW_PROACTIVE_ENABLED", type: "bool", default: false,
     description: "Master enable for the proactive/mood-engine loop.", security: true },
+  { name: "CINDERPAW_FOLLOWUPS_ENABLED", type: "bool", default: true,
+    description: "Event-driven suggestions for unfinished desktop work. Suggestions never resume work or call a model.", security: false },
+  { name: "CINDERPAW_PROACTIVE_MONTHLY_USD", type: "string", default: "1",
+    description: "Monthly USD cap for automatic proactive inference only. Confirmed scheduled tasks have separate limits. Zero disables paid proactive inference; unknown route prices fail closed.", security: true },
   { name: "CINDERPAW_INNER_THOUGHTS_ENABLED", type: "bool", default: false,
     description: "Sub-flag enabling the inner-thoughts loop.", security: true },
 

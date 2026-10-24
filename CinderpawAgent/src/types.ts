@@ -1193,7 +1193,16 @@ export type DeliveryTarget =
 /** One row in a job's run history. Capped to the most recent 50 entries. */
 import type { DoneWhen } from "./cron/done-when.ts";
 
+export interface WatchCondition {
+  sourceUrl: string;
+  contains: string;
+  /** User-selected source preference, never inferred authority. */
+  official?: boolean;
+}
+
 export interface CronRunRecord {
+  costUsd?: number;
+  proof?: { sourceUrl: string; checkedAt: number; excerpt: string; contentHash: string };
   runAt: number;
   /**
    * `incomplete` = the agent ran but stopped with work outstanding (the turn
@@ -1201,7 +1210,7 @@ export interface CronRunRecord {
    * there IS usable partial output, and it is delivered — but the run must not
    * count as a success or a job could report finished work it never did.
    */
-  status: "success" | "incomplete" | "failed" | "timeout" | "budget_exceeded" | "skipped";
+  status: "success" | "incomplete" | "failed" | "timeout" | "budget_exceeded" | "skipped" | "waiting" | "expired" | "running";
   durationMs: number;
   result?: string;
   error?: string;
@@ -1229,7 +1238,11 @@ export interface CronJob {
   /** Current consecutive failure count; reset to 0 on success. */
   retryCount: number;
   /** `reminder`: delivers `task` as written, no model call, no cost. Default `agent`. */
-  kind: "agent" | "reminder";
+  kind: "agent" | "reminder" | "watch";
+  watch?: WatchCondition;
+  expiresAt?: number;
+  budgetUsd?: number;
+  spentUsd?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -1245,7 +1258,10 @@ export interface CronJobInput {
   enabled?: boolean;
   doneWhen?: DoneWhen | null;
   maxRetries?: number;
-  kind?: "agent" | "reminder";
+  kind?: "agent" | "reminder" | "watch";
+  watch?: WatchCondition;
+  expiryDays?: number;
+  budgetUsd?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -1578,6 +1594,10 @@ export interface InboundMessage {
   headsUpChoice?: "more" | "knew" | "dismiss";
   // ask_user_response fields (all present when type === "ask_user_response")
   /** Matches the id of the original "ask_user" outbound event. */
+  /** Explicit desktop task subscriber requesting unfinished-work suggestions. */
+  followUps?: boolean;
+  /** cron_list: set the weekly task limit first (number, or null = none). */
+  taskLimit?: { weeklyUsd: number | null };
   requestId?: string;
   answers?: AskUserAnswer[];
   // ask_user_cancel fields (all present when type === "ask_user_cancel")
@@ -1727,7 +1747,7 @@ export type OutboundEvent =
       find?: string;
       traceId?: string;
     }
-  | { type: "proactive"; content: string; traceId?: string }
+  | { type: "proactive"; content: string; followUp?: { id: string; sessionId: string; mission: string }; traceId?: string }
   | { type: "model_set"; provider: string; model: string }
   | { type: "model_error"; message: string; traceId?: string }
   /**
@@ -2292,7 +2312,8 @@ export type OutboundEvent =
       id: string;
       ok: boolean;
       error?: string;
-      jobs: Array<{ id: string; name: string; task: string; schedule: Schedule; enabled: boolean; nextRunMs?: number; lastRunMs?: number; kind: "agent" | "reminder"; history: CronRunRecord[] }>;
+      jobs: Array<Pick<CronJob, "id" | "name" | "task" | "schedule" | "enabled" | "nextRunMs" | "lastRunMs" | "kind" | "history" | "watch" | "expiresAt" | "budgetUsd" | "spentUsd">>;
+      taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number };
     }
   // Dream Cycle lifecycle — emitted by the host when an evolutionary episode
   // starts (`phase:"started"`) and ends (`phase:"ended"`). Forwarded verbatim

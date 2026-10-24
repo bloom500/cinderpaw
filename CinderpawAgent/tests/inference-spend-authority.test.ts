@@ -288,3 +288,33 @@ describe("InferenceSpendAuthority", () => {
   });
 
 });
+
+test("a durable session cap also covers auxiliary requests and cannot be overridden", async () => {
+  const db = openDatabase(":memory:"); const audit = new AuditLog(db.raw);
+  const router = new InferenceRouter({primary:{...known,provider:"openai"},tokenBudget:{perConversation:50000,perDay:500000,onExhausted:"stop"}},audit.logger,db.raw);
+  const zero = new InferenceSpendAuthority({maxCostUsd:0,allowCloud:true,price:()=>({inputPerMillionUsd:1,outputPerMillionUsd:1})});
+  const loose = new InferenceSpendAuthority({maxCostUsd:100,allowCloud:true,price:()=>({inputPerMillionUsd:0,outputPerMillionUsd:0})});
+  const original = globalThis.fetch; let calls=0;
+  globalThis.fetch = (async()=>{calls++;throw new Error("network must be unreachable")}) as typeof fetch;
+  try {
+    router.setSessionSpendAuthority("cron:task",zero);
+    await expect(router.complete({sessionId:"cron:task__facts",messages:[{role:"user",content:"read"}],spendAuthority:loose})).rejects.toBeInstanceOf(AutonomousSpendDeniedError);
+    expect(calls).toBe(0);
+  } finally {globalThis.fetch=original;db.close();}
+});
+
+test("a task's cap covers its own sub-agents, never another chat's background work", async () => {
+  const db=openDatabase(":memory:");const audit=new AuditLog(db.raw);
+  const router=new InferenceRouter({primary:{...known,provider:"openai"},tokenBudget:{perConversation:50000,perDay:500000,onExhausted:"stop"}},audit.logger,db.raw);
+  const authority=new InferenceSpendAuthority({maxCostUsd:0,allowCloud:true,price:()=>({inputPerMillionUsd:1,outputPerMillionUsd:1})});
+  const original=globalThis.fetch;let calls=0;
+  globalThis.fetch=(async()=>{calls++;return new Response(JSON.stringify({choices:[{message:{role:"assistant",content:"ok"}}],usage:{prompt_tokens:1,completion_tokens:1}}),{headers:{"content-type":"application/json"}})}) as typeof fetch;
+  try {
+    router.setSessionSpendAuthority("cron:task",authority);
+    await expect(router.complete({sessionId:"subagent:cron:task:a1",messages:[{role:"user",content:"do work"}]})).rejects.toBeInstanceOf(AutonomousSpendDeniedError);
+    expect(calls).toBe(0);
+    // The memory queue a run wakes up also drains other chats: those are not the task's.
+    await router.complete({sessionId:"chat-1__facts",messages:[{role:"user",content:"read"}]});
+    expect(calls).toBe(1);
+  }finally{globalThis.fetch=original;db.close();}
+});

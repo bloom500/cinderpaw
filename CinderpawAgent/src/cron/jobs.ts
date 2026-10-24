@@ -22,6 +22,7 @@ import type {
 } from "../types.ts";
 import { parseDoneWhen } from "./done-when.ts";
 import { nextRunAt } from "./schedule.ts";
+import { isBlockedHost } from "../egress/egress-proxy.ts";
 
 const HISTORY_CAP = 50;
 
@@ -36,6 +37,7 @@ function safeParse(json: string): unknown {
 const DEFAULT_MAX_RETRIES = 3;
 
 interface CronRow {
+  policy_json: string | null;
   done_when_json: string | null;
   kind: string | null;
   id: string;
@@ -54,6 +56,7 @@ interface CronRow {
 }
 
 export class CronJobsRepo {
+  readonly #db: Database;
   readonly #insert: ReturnType<Database["query"]>;
   readonly #list: ReturnType<Database["query"]>;
   readonly #get: ReturnType<Database["query"]>;
@@ -62,15 +65,19 @@ export class CronJobsRepo {
   readonly #updateEnabled: ReturnType<Database["query"]>;
 
   constructor(db: Database) {
+    this.#db = db;
+    if (!(db.query("PRAGMA table_info(cron_jobs)").all() as {name:string}[]).some(c => c.name === "policy_json")) {
+      db.exec("ALTER TABLE cron_jobs ADD COLUMN policy_json TEXT");
+    }
     this.#insert = db.query(`
       INSERT INTO cron_jobs (
         id, name, task, schedule_json, delivery_json,
         enabled, last_run_ms, next_run_ms, history_json,
-        done_when_json, max_retries, retry_count, created_at, updated_at, kind
+        done_when_json, max_retries, retry_count, created_at, updated_at, kind, policy_json
       ) VALUES (
         $id, $name, $task, $scheduleJson, $deliveryJson,
         $enabled, $lastRunMs, $nextRunMs, $historyJson,
-        $doneWhenJson, $maxRetries, 0, $createdAt, $updatedAt, $kind
+        $doneWhenJson, $maxRetries, 0, $createdAt, $updatedAt, $kind, $policyJson
       )
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
@@ -86,19 +93,20 @@ export class CronJobsRepo {
         done_when_json = excluded.done_when_json,
         max_retries = excluded.max_retries,
         updated_at = excluded.updated_at,
-        kind = excluded.kind
+        kind = excluded.kind,
+        policy_json = excluded.policy_json
     `);
     this.#list = db.query(`
       SELECT id, name, task, schedule_json, delivery_json,
              enabled, last_run_ms, next_run_ms, history_json,
-             done_when_json, max_retries, retry_count, created_at, updated_at, kind
+             done_when_json, max_retries, retry_count, created_at, updated_at, kind, policy_json
       FROM cron_jobs
       ORDER BY created_at ASC
     `);
     this.#get = db.query(`
       SELECT id, name, task, schedule_json, delivery_json,
              enabled, last_run_ms, next_run_ms, history_json,
-             done_when_json, max_retries, retry_count, created_at, updated_at, kind
+             done_when_json, max_retries, retry_count, created_at, updated_at, kind, policy_json
       FROM cron_jobs
       WHERE id = ?
     `);
@@ -147,8 +155,28 @@ export class CronJobsRepo {
    */
   upsert(input: CronJobInput): CronJob {
     const existing = input.id ? this.get(input.id) : undefined;
+    const kind = input.kind ?? existing?.kind ?? "agent";
+    if (kind !== "agent" && kind !== "reminder" && kind !== "watch") throw new Error("Unknown task kind");
+    const watch = input.watch;
+    if (kind === "watch") {
+      if (!watch || !watch.contains?.trim() || watch.contains.length > 500) throw new Error("A watch needs the exact text to verify on its source");
+      const url = new URL(watch.sourceUrl);
+      if (url.protocol !== "https:" || url.username || url.password || isBlockedHost(url.hostname)) throw new Error("A watch source must be public HTTPS without credentials");
+      if (input.schedule.kind === "at") throw new Error("A watch needs a recurring check");
+      if (input.delivery.kind !== "chat") throw new Error("Watch results are notification-only");
+    }
+    if (input.expiryDays !== undefined && (!Number.isFinite(input.expiryDays) || input.expiryDays < 1 || input.expiryDays > 365)) throw new Error("Expiry must be 1 to 365 days");
+    if (input.budgetUsd !== undefined && (!Number.isFinite(input.budgetUsd) || input.budgetUsd < 0)) throw new Error("Task spending limit must be a nonnegative dollar amount");
     const id = input.id ?? randomUUID();
-    const now = Date.now();
+    // Monotonic even for two edits in the same millisecond: this is also the
+    // revision used to keep an old async run from overwriting a newer task.
+    const now = Math.max(Date.now(), (existing?.updatedAt ?? -1) + 1);
+    const policy = {
+      watch: kind === "watch" ? watch : undefined,
+      expiresAt: kind === "watch" ? (input.expiryDays !== undefined ? now + input.expiryDays * 86400000 : existing?.expiresAt ?? now + 30 * 86400000) : undefined,
+      budgetUsd: kind === "agent" ? (input.budgetUsd ?? existing?.budgetUsd ?? 5) : 0,
+      spentUsd: existing?.spentUsd ?? 0,
+    };
     const scheduleJson = JSON.stringify(input.schedule);
     const deliveryJson = JSON.stringify(input.delivery);
     const scheduleChanged =
@@ -163,7 +191,7 @@ export class CronJobsRepo {
       $task: input.task,
       $scheduleJson: scheduleJson,
       $deliveryJson: deliveryJson,
-      $enabled: (input.enabled ?? true) ? 1 : 0,
+      $enabled: (input.enabled ?? existing?.enabled ?? true) ? 1 : 0,
       $lastRunMs: existing?.lastRunMs ?? null,
       $nextRunMs: nextRunMs,
       $historyJson: JSON.stringify(existing?.history ?? []),
@@ -174,13 +202,31 @@ export class CronJobsRepo {
         const spec = parseDoneWhen(input.doneWhen ?? existing?.doneWhen ?? null);
         return spec ? JSON.stringify(spec) : null;
       })(),
-      $maxRetries: input.maxRetries ?? DEFAULT_MAX_RETRIES,
-      $kind: (input.kind ?? existing?.kind) === "reminder" ? "reminder" : null,
+      $maxRetries: input.maxRetries ?? existing?.maxRetries ?? DEFAULT_MAX_RETRIES,
+      $kind: kind,
+      $policyJson: JSON.stringify(policy),
       $createdAt: existing?.createdAt ?? now,
       $updatedAt: now,
     });
 
     return this.get(id)!;
+  }
+
+  /** Consume this occurrence before executing it. A crash cannot replay it.
+   * ponytail: no spend hold here. Holding the whole $5 showed "$5.00 used"
+   * after a crash and became permanent on the next settle, while nothing
+   * enforced a per-task cap (24 Oct review); the weekly limit is the cap. */
+  claimRun(job: CronJob, at: number, next: number | null): boolean {
+    const current = this.get(job.id);
+    if (!current?.enabled || JSON.stringify(current) !== JSON.stringify(job)) return false;
+    const history = [...current.history, {runAt:at,status:"running",durationMs:0,error:"Interrupted runs are never replayed automatically."}].slice(-HISTORY_CAP);
+    const result = this.#db.query("UPDATE cron_jobs SET next_run_ms=?, history_json=? WHERE id=? AND next_run_ms=? AND enabled=1").run(next,JSON.stringify(history),job.id,job.nextRunMs!);
+    return result.changes > 0;
+  }
+
+  settleSpend(id: string, spentUsd: number): void {
+    const job = this.get(id); if (!job) return;
+    this.#db.query("UPDATE cron_jobs SET policy_json=? WHERE id=?").run(JSON.stringify({watch:job.watch,expiresAt:job.expiresAt,budgetUsd:job.budgetUsd,spentUsd}),id);
   }
 
   /** Remove a job. Returns true if a row was deleted. */
@@ -201,18 +247,27 @@ export class CronJobsRepo {
     nextRunMs: number | null,
     record: CronRunRecord,
     retryCount: number,
-  ): void {
+    expectedUpdatedAt?: number,
+  ): boolean {
     const job = this.get(id);
-    if (!job) return;
-    const history = [...job.history, record].slice(-HISTORY_CAP);
+    if (!job) return false;
+    const current = expectedUpdatedAt === undefined || job.updatedAt === expectedUpdatedAt;
+    if (!current) {
+      nextRunMs = job.nextRunMs ?? null;
+      retryCount = job.retryCount;
+      record = { ...record, status: "skipped", proof: undefined, result: "Task changed during this run; the old outcome was not applied. " + (record.result ?? "") };
+    }
+    const previous = job.history.at(-1)?.status === "running" ? job.history.slice(0, -1) : job.history;
+    const history = [...previous, record].slice(-HISTORY_CAP);
     this.#updateAfterRun.run({
       $id: id,
       $lastRunMs: lastRunMs,
       $nextRunMs: nextRunMs,
       $historyJson: JSON.stringify(history),
       $retryCount: retryCount,
-      $updatedAt: Date.now(),
+      $updatedAt: Math.max(Date.now(), job.updatedAt + 1),
     });
+    return current;
   }
 
   /** Toggle the enabled flag. Turning a job back on schedules it from now:
@@ -220,9 +275,11 @@ export class CronJobsRepo {
   setEnabled(id: string, enabled: boolean): void {
     const job = this.get(id);
     if (!job) return;
-    const now = Date.now();
-    const nextRunMs = enabled && (job.nextRunMs === undefined || job.nextRunMs < now)
-      ? nextRunAt(job.schedule, new Date(now))
+    const now = Math.max(Date.now(), job.updatedAt + 1);
+    // Resuming a one-off whose time passed (missed while closed) runs it now:
+    // its schedule alone has no future time left (24 Oct review).
+    const nextRunMs = enabled && (job.nextRunMs == null || job.nextRunMs < now)
+      ? nextRunAt(job.schedule, new Date(now)) ?? (job.schedule.kind === "at" ? now : null)
       : (job.nextRunMs ?? null);
     this.#updateEnabled.run({
       $id: id,
@@ -234,7 +291,12 @@ export class CronJobsRepo {
 }
 
 function fromRow(r: CronRow): CronJob {
+  const policy = safeParse(r.policy_json ?? "{}") as Partial<CronJob> | null;
   return {
+    watch: policy?.watch,
+    expiresAt: policy?.expiresAt,
+    budgetUsd: policy?.budgetUsd ?? (r.kind === "reminder" || r.kind === "watch" ? 0 : 5),
+    spentUsd: policy?.spentUsd ?? 0,
     id: r.id,
     name: r.name,
     task: r.task,
@@ -247,7 +309,7 @@ function fromRow(r: CronRow): CronJob {
     doneWhen: parseDoneWhen(r.done_when_json ? safeParse(r.done_when_json) : null),
     maxRetries: r.max_retries,
     retryCount: r.retry_count,
-    kind: r.kind === "reminder" ? "reminder" : "agent",
+    kind: r.kind === "watch" ? "watch" : r.kind === "reminder" ? "reminder" : "agent",
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };

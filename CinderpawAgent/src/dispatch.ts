@@ -13,7 +13,7 @@
  */
 
 import { join } from "node:path";
-import type { CronJob, InboundMessage, ModelTarget, OutboundEvent, Schedule, DeliveryTarget } from "./types.ts";
+import type { CronJob, InboundMessage, ModelTarget, OutboundEvent } from "./types.ts";
 import type { BootContext } from "./boot.ts";
 import { forgetEdge } from "./memory/forget.ts";
 import { cfgBool, cfgInt, cfgPath } from "./config.ts";
@@ -65,6 +65,7 @@ import { rollup } from "./telemetry/usage-rollup.ts";
 import { appVersion, buildPayload, osLabel, readSentLog, sharingSetting } from "./telemetry/usage-sender.ts";
 import type { Database } from "bun:sqlite";
 import { headsUpLedger } from "./tools/builtin/heads-up.ts";
+import { TaskLimit, type TaskLimitView } from "./cron/limit.ts";
 
 /**
  * Diagnostics go to stderr; stdout is reserved for the transport protocol.
@@ -161,16 +162,20 @@ const VOICE_SURFACE_BRIEF = [
  * delete answers with the fresh list, so the page never shows a deleted note.
  */
 /** Every scheduled task, the shape `cinderpaw cron` prints. */
-export function cronListResult(id: string, jobs: CronJob[], error?: string): Extract<OutboundEvent, { type: "cron_list_result" }> {
+export function cronListResult(id: string, jobs: CronJob[], error?: string, taskLimit?: TaskLimitView): Extract<OutboundEvent, { type: "cron_list_result" }> {
   return {
     type: "cron_list_result",
     id,
     ok: error === undefined,
     ...(error ? { error } : {}),
-    jobs: jobs.map(({ id, name, task, schedule, enabled, nextRunMs, lastRunMs, kind, history }) => ({
+    ...(taskLimit ? { taskLimit } : {}),
+    jobs: jobs.map(({ id, name, task, schedule, enabled, nextRunMs, lastRunMs, kind, history, watch, expiresAt, budgetUsd, spentUsd }) => ({
       id, name, task, schedule, enabled, nextRunMs, lastRunMs, kind,
+      ...(watch ? {watch} : {}), ...(expiresAt !== undefined ? {expiresAt} : {}), ...(budgetUsd !== undefined ? {budgetUsd} : {}), ...(spentUsd !== undefined ? {spentUsd} : {}),
       // The last few results, for the Tasks page; the full 50 stay on disk.
-      history: history.slice(-5),
+      // This list also answers every follow-up check after a chat reply, so
+      // all 50 (up to 2 KB each) per task went out each time (24 Oct review).
+      history: history.slice(-10),
     })),
   };
 }
@@ -1944,6 +1949,11 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           // rather than being one, and an `incomplete` turn is one an
           // unattended caller is about to continue — counting either would
           // double-count the work. Only a terminal turn is a unit of work.
+          if (event.type === "done" && !event.runSummary && !cfgBool("CINDERPAW_AUTONOMOUS")) {
+            try {
+              ctx.recordInteractiveTurn(sessionId, content, event.stopped ? "stopped" : event.outcome ?? "completed", event.content);
+            } catch (error) { log(`follow-up verdict not recorded: ${String(error)}`); }
+          }
           if (event.type === "done" && !event.runSummary && !event.incomplete) {
             const ok = event.outcome === undefined || event.outcome === "completed";
             const at = Date.now();
@@ -2028,41 +2038,38 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       // detail fields yet — V1 reads them off `msg as any` and
       // validates inside the handler).
       case "cron_list": {
+          if (msg.followUps) ctx.offerUnfinishedWork();
         // Used to answer with a `model_set` carrying only the count, so no
         // client could ever show the tasks. `cinderpaw cron` reads this.
+        const limit = new TaskLimit(db.raw);
+        let limitError: string | undefined;
+        if (msg.taskLimit) {
+          try { limit.set(msg.taskLimit.weeklyUsd); } catch (error) { limitError = error instanceof Error ? error.message : String(error); }
+        }
         const jobs = cronRepo.list();
-        transport.send(cronListResult(msg.id ?? "", jobs));
+        transport.send(cronListResult(msg.id ?? "", jobs, limitError, limit.view()));
         log(`cron_list → ${jobs.length} job(s)`);
         break;
       }
       case "cron_add": {
-        const m = msg as unknown as {
-          id?: string;
-          name?: string;
-          task?: string;
-          schedule?: Schedule;
-          delivery?: DeliveryTarget;
-          kind?: string;
-        };
-        if (!m.name || !m.task || !m.schedule || !m.delivery) {
-          transport.send({
-            type: "model_error",
-            message: "cron_add requires name, task, schedule, delivery",
-          });
-          return;
+        const m = msg as unknown as import("./types.ts").CronJobInput & {requestId?:string};
+        try {
+          if (m.id && !m.delivery) m.delivery = cronRepo.get(m.id)?.delivery!;
+          if (!m.name?.trim() || !m.task?.trim() || !m.schedule || !m.delivery) throw new Error("A task needs name, task, schedule and delivery");
+          if (m.id && !cronRepo.get(m.id)) throw new Error("No task with that id.");
+          if (m.schedule.kind === "every" && (!Number.isFinite(m.schedule.intervalMs) || m.schedule.intervalMs < 60000)) throw new Error("Task interval must be at least one minute");
+          if (m.id) {
+            agent.stop(`cron:${m.id}`);
+            router.setSessionSpendAuthority(`cron:${m.id}`, null);
+          }
+          const job = cronRepo.upsert(m);
+          log(`cron_add → ${job.id} (${job.name})`);
+          if (m.requestId) transport.send(cronListResult(m.requestId, cronRepo.list()));
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          if (m.requestId) transport.send(cronListResult(m.requestId, cronRepo.list(), detail));
+          else transport.send({type:"model_error",message:detail});
         }
-        const job = cronRepo.upsert({
-          id: m.id,
-          name: m.name,
-          task: m.task,
-          schedule: m.schedule,
-          delivery: m.delivery,
-          kind: m.kind === "reminder" ? "reminder" : "agent",
-        });
-        log(`cron_add → ${job.id} (${job.name})`);
-        // `requestId`, not `id`: on this message `id` names the job.
-        const req = (msg as { requestId?: string }).requestId;
-        if (req) transport.send(cronListResult(req, cronRepo.list()));
         break;
       }
       case "cron_remove": {
@@ -2074,6 +2081,8 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           });
           return;
         }
+        agent.stop(`cron:${m.id}`);
+        router.setSessionSpendAuthority(`cron:${m.id}`, null);
         const removed = cronRepo.remove(m.id);
         log(`cron_remove → ${m.id} (${removed ? "ok" : "not found"})`);
         const req = (msg as { requestId?: string }).requestId;
@@ -2088,6 +2097,10 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             message: "cron_toggle requires id and enabled",
           });
           return;
+        }
+        if (!m.enabled) {
+          agent.stop(`cron:${m.id}`);
+          router.setSessionSpendAuthority(`cron:${m.id}`, null);
         }
         cronRepo.setEnabled(m.id, m.enabled);
         log(`cron_toggle → ${m.id} enabled=${m.enabled}`);

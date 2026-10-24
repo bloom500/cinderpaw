@@ -28,6 +28,36 @@ describe("buildSchedule", () => {
 });
 
 describe("suggest_task", () => {
+  test("condition watches are proposed with an explicit public source, expiry and zero inference budget", async () => {
+    const tool = createSuggestTaskTool(new SuggestionLedger(), () => NOW);
+    const r = await tool.execute({
+      title: "Watch the release", task: "Tell me when the release is available.", kind: "watch", repeat: "hourly",
+      watch: { sourceUrl: "https://example.com/releases", contains: "Version 2.0 is available", official: true },
+    }, ctx);
+    expect(r.ok).toBe(true);
+    expect((r.data as any).taskSuggestion).toMatchObject({ kind: "watch", expiryDays: 30,
+      watch: { sourceUrl: "https://example.com/releases", contains: "Version 2.0 is available", official: true } });
+  });
+
+  test.each([
+    { sourceUrl: "http://example.com/releases", contains: "released" },
+    { sourceUrl: "https://127.0.0.1/private", contains: "released" },
+    { sourceUrl: "https://localhost/private", contains: "released" },
+    { sourceUrl: "https://user:secret@example.com/releases", contains: "released" },
+    { sourceUrl: "https://example.com/releases", contains: " " },
+  ])("invalid watch conditions never produce a card: %j", async watch => {
+    const r = await createSuggestTaskTool().execute({ title: "Watch", task: "Check the release.", kind: "watch", repeat: "hourly", watch }, ctx);
+    expect(r.ok).toBe(false);
+    expect(r.data).toBeUndefined();
+  });
+
+  test("agent proposals carry no per-task money cap: one weekly limit covers all tasks", async () => {
+    const args = { title: "Check the weather", task: "Check the weather in Cluj.", kind: "agent", repeat: "hourly" };
+    const r = await createSuggestTaskTool().execute(args, ctx);
+    expect(r.ok).toBe(true);
+    expect((r.data as any).taskSuggestion.budgetUsd).toBeUndefined();
+  });
+
   test("offers a card and creates nothing; the same title or a quick second card is held back", async () => {
     let t = NOW.getTime();
     const tool = createSuggestTaskTool(new SuggestionLedger(), () => new Date(t));
@@ -37,10 +67,10 @@ describe("suggest_task", () => {
     expect(card.when).toMatch(/^Mon,? 26 Oct at 09:00$/);
     expect(r.content).toMatch(/created only when they press Create/);
     const again = await tool.execute({ title: "call the BANK", task: "x", kind: "reminder", repeat: "daily", time: "09:00" }, ctx);
-    expect(again.data).toBeUndefined();
+    expect((again.data as { taskSuggestion?: unknown })?.taskSuggestion).toBeUndefined();
     t += 60_000;
     const quick = await tool.execute({ title: "Water the plants", task: "x", kind: "reminder", repeat: "daily", time: "19:00" }, ctx);
-    expect(quick.data).toBeUndefined();
+    expect((quick.data as { taskSuggestion?: unknown })?.taskSuggestion).toBeUndefined();
   });
 
   test("never reaches a stranger on a connector", () => {

@@ -50,7 +50,7 @@ import {
   parseRetryAfter,
   type ThrottleWait,
 } from "./rate-limiter.ts";
-import { AutonomousSpendDeniedError } from "./inference-spend-authority.ts";
+import { AutonomousSpendDeniedError, type InferenceSpendAuthority } from "./inference-spend-authority.ts";
 
 /**
  * How many times a transient failure is retried before it surfaces.
@@ -233,6 +233,23 @@ export class InferenceRouter {
    * `evictSession()` after their one-shot inference call returns.
    */
   readonly #conversationTokens = new Map<string, number>();
+  readonly #sessionSpend = new Map<string, InferenceSpendAuthority>();
+
+  /**
+   * Bind every inference of this task to its allowance: the task's own session
+   * and the ones derived from it (`cron:x__facts`, `subagent:cron:x:…`).
+   * ponytail: matched by session id, not by async context. An async-context
+   * scope also caught the memory queue the run woke up, so other chats'
+   * memory was billed to the task and refused once it ended (24 Oct review).
+   * A tool that invents an unrelated session id is not counted.
+   */
+  setSessionSpendAuthority(sessionId: string, authority: InferenceSpendAuthority | null): void {
+    if (authority) this.#sessionSpend.set(sessionId, authority);
+    else {
+      this.#sessionSpend.get(sessionId)?.stop("Background task scope closed");
+      this.#sessionSpend.delete(sessionId);
+    }
+  }
   /**
    * Per-session AbortController map. `complete()` installs the controller's
    * signal into its fetch requests; `abort(sessionId)` aborts it, which
@@ -492,6 +509,8 @@ export class InferenceRouter {
     fallback: ModelTarget | undefined,
     req: InferenceRequest,
   ): Promise<InferenceResponse> {
+    const scope = this.#sessionSpend.get(req.sessionId) ?? [...this.#sessionSpend].find(([session]) => req.sessionId.includes(session))?.[1];
+    if (scope) req = { ...req, spendAuthority: scope };
     // Interactive-priority gate (2026-07-11): background work (RSI evals,
     // dreams, semantic indexing, …) must never starve a user-facing chat.
     // Observed failure: an RSI eval sweep saturated the provider while the

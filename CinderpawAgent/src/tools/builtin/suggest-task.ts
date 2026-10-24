@@ -15,16 +15,19 @@
 
 import { randomUUID } from "node:crypto";
 import type { Schedule, Tool, ToolResult } from "../../types.ts";
+import { isBlockedHost } from "../../egress/egress-proxy.ts";
 
 /** What the app draws (the tool's `data.taskSuggestion`). */
 export interface TaskSuggestion {
   id: string;
   title: string;
   task: string;
-  kind: "agent" | "reminder";
+  kind: "agent" | "reminder" | "watch";
   schedule: Schedule;
   /** The schedule in words, e.g. "Every weekday at 09:00". */
   when: string;
+  watch?: { sourceUrl: string; contains: string; official?: boolean };
+  expiryDays?: number;
 }
 
 const REPEATS = ["once", "daily", "weekdays", "weekly", "hourly"] as const;
@@ -131,34 +134,64 @@ export function createSuggestTaskTool(ledger = new SuggestionLedger(), now: () =
         description: `For a reminder: the words they will see. For an agent task: the instruction to run each time, self-contained. Under ${TASK_MAX} characters.`,
         required: true,
       },
-      kind: { type: "string", description: '"reminder" or "agent".', required: true },
+      kind: { type: "string", description: '"reminder", "agent" or "watch". A watch checks a public HTTPS source for expected visible text, with no AI run.', required: true },
       repeat: { type: "string", description: '"once", "daily", "weekdays", "weekly" or "hourly".', required: true },
       time: { type: "string", description: '"HH:MM", 24-hour, local. Not for hourly.' },
       date: { type: "string", description: '"YYYY-MM-DD", for once.' },
       day: { type: "string", description: '"mon".."sun", for weekly.' },
       every_hours: { type: "number", description: "For hourly: 1 to 168." },
       in_minutes: { type: "number", description: "For once, instead of date and time: minutes from now (120 = in two hours)." },
+      watch: {
+        type: "object", description: "For watch only: a public HTTPS source and concrete text whose appearance is the condition. Do not invent a condition or claim a source is official without evidence.",
+        schema: { type: "object", properties: {
+          sourceUrl: { type: "string", description: "Public HTTPS page to check." },
+          contains: { type: "string", description: "Concrete expected visible text, not a model's opinion." },
+          official: { type: "boolean", description: "True only with evidence this is the publisher's official source." },
+        }, required: ["sourceUrl", "contains"], additionalProperties: false },
+      },
+      expiryDays: { type: "number", description: "Watch expiry, 1 to 365 days; default 30. Renewable by the person." },
     },
     async execute(args, ctx): Promise<ToolResult> {
       const title = typeof args.title === "string" ? args.title.trim() : "";
       const task = typeof args.task === "string" ? args.task.trim() : "";
-      const kind = args.kind === "reminder" ? "reminder" : args.kind === "agent" ? "agent" : null;
-      if (!title || !task || !kind) return { ok: false, content: "", error: 'suggest_task needs title, task and kind ("reminder" or "agent").' };
+      const kind = args.kind === "reminder" ? "reminder" : args.kind === "agent" ? "agent" : args.kind === "watch" ? "watch" : null;
+      if (!title || !task || !kind) return { ok: false, content: "", error: 'suggest_task needs title, task and kind ("reminder", "agent" or "watch").' };
       if (title.length > TITLE_MAX || task.length > TASK_MAX) {
         return { ok: false, content: "", error: `Keep title under ${TITLE_MAX} and task under ${TASK_MAX} characters.` };
       }
       const built = buildSchedule(args, now());
       if ("error" in built) return { ok: false, content: "", error: built.error };
+      let watch: TaskSuggestion["watch"];
+      let expiryDays: number | undefined;
+      if (kind === "watch") {
+        const value = args.watch as Record<string, unknown> | undefined;
+        const contains = typeof value?.contains === "string" ? value.contains.trim() : "";
+        let source: URL;
+        try { source = new URL(typeof value?.sourceUrl === "string" ? value.sourceUrl : ""); }
+        catch { return { ok: false, content: "", error: "watch.sourceUrl must be a public HTTPS URL." }; }
+        // A proposal does not fetch. EgressProxy validates DNS and redirects
+        // when the confirmed watch actually runs.
+        if (source.protocol !== "https:" || source.username || source.password || isBlockedHost(source.hostname) || !contains || contains.length > 500) {
+          return { ok: false, content: "", error: "A watch needs a public HTTPS source without credentials and 1–500 characters of expected text." };
+        }
+        const days = args.expiryDays ?? 30;
+        if (typeof days !== "number" || !Number.isInteger(days) || days < 1 || days > 365 || built.schedule.kind === "at") {
+          return { ok: false, content: "", error: "A watch needs a recurring schedule and expiryDays between 1 and 365." };
+        }
+        expiryDays = days;
+        watch = { sourceUrl: source.toString(), contains, ...(typeof value?.official === "boolean" ? { official: value.official } : {}) };
+      }
 
       const s = ledger.session(ctx.sessionId);
-      if (s.titles.has(norm(title))) return { ok: true, content: "Already offered in this chat, so not shown again." };
+      if (s.titles.has(norm(title))) return { ok: true, content: "Already offered in this chat, so not shown again.", data: { taskSuggestionStatus: "already_offered" } };
       const t = now().getTime();
       if (t - s.lastAt < MIN_GAP_MS) {
-        return { ok: true, content: "Not shown: a task was offered less than three minutes ago. Mention it in your reply if it still matters." };
+        return { ok: true, content: "Not shown: a task was offered less than three minutes ago. Mention it in your reply if it still matters.", data: { taskSuggestionStatus: "rate_limited" } };
       }
       s.titles.add(norm(title));
       s.lastAt = t;
-      const card: TaskSuggestion = { id: randomUUID(), title, task, kind, schedule: built.schedule, when: built.when };
+      const card: TaskSuggestion = { id: randomUUID(), title, task, kind, schedule: built.schedule, when: built.when,
+        ...(watch ? { watch, expiryDays } : {}) };
       return {
         ok: true,
         // One line is enough: the card says the rest (24 Oct: three sentences
