@@ -5,11 +5,36 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
-## 2026.10.23
+## 2026.10.25
 
-> Calmer, and it asks first. If you have 2026.10.19, it updates by itself.
+> It can do things later, and it still asks first. If you have 2026.10.19, it
+> updates by itself.
 
 ### New
+
+- **Ask it to do something later.** Say "remind me in 3 minutes to stretch".
+  Cinderpaw shows a card with the time, and nothing is scheduled until you
+  press **Create task**. Reminders are free: they use no AI. The new **Tasks**
+  page lists your tasks, where you can pause, change or delete them and see
+  what each one did.
+- **It can watch a page for you.** Ask it to tell you when a page says
+  something, like a price or "in stock". It reads the page itself and tells
+  you only when the words are really there. A watch stops after 30 days
+  unless you renew it, and it costs nothing.
+- **Each task has a spending limit** you can change, $5 to start. Reminders
+  and watches cost $0.
+- **Closing the window keeps your tasks running.** Cinderpaw stays in the
+  tray, next to the clock, so reminders still arrive. To stop everything,
+  choose **Quit** from the tray icon. On a Mac, click it in the Dock to open
+  the window again.
+- **When a task is done, a small note in the corner tells you,** and it stays
+  until you press **Got it**.
+- **Picking up where you left off.** When a chat ended with work unfinished,
+  Cinderpaw may suggest going back to it: at most one card every 4 hours and
+  three a day. It never starts the work again by itself.
+- **Ask for a PDF and you get a formatted document** that downloads as a PDF.
+  Tables come out as tables.
+- **The home screen** gives each choice five everyday jobs to start from.
 
 - **You choose what it may do.** Under the box where you type, pick **Look
   only**, **Can edit files** or **Full access**. Look only reads files and the
@@ -53,6 +78,16 @@
 
 ### Fixed
 
+- **A request for later waits for you.** When you give a time or say
+  "later", Cinderpaw offers a card instead of doing it right away.
+- **It answers in the language you just wrote in,** even when it remembers
+  you in another one.
+- **Claude on your own Anthropic key** starts on the first try and sends less
+  with every message, because the tool list goes out once and is cached.
+- **Documents are written in order,** at a pace you can read, to the end.
+- **After a restart, the model picker names the model in use,** and says
+  Starting while it loads.
+- **The window can be moved** while it loads and during the first setup.
 - **Your first answer comes sooner.** The memory download (630 MB) waits until
   your first reply has finished.
 - **Chats stay where you left them.** Switching chats quickly no longer shows
