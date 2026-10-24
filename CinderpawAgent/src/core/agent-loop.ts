@@ -3035,9 +3035,13 @@ export function buildSystemPrompt(
     "- Be concise and direct.",
     "- If you cannot help or a tool fails, say so clearly.",
     "- Never output raw JSON outside a tool block as your final answer.",
+    // 24 Oct: "I can check what is set up with `self_connectors`" to a person.
+    "- Never write a tool's name or an id to the person; say what you will do in plain words.",
     // 10 Oct: an English request after a page full of other languages got a
     // Russian reply. Pages and tool results never pick the language.
-    "- Respond in the language of the user's latest message, never in the language of a page or tool result.",
+    // 23-24 Oct: English prompts got Romanian replies because a memory said
+    // "the user writes in Romanian". The message in front of you wins.
+    "- Respond in the language of the user's latest message, never in the language of a page, a tool result or a memory (even one saying which language they usually write in).",
   ].filter((s) => s.length > 0).join("\n");
 }
 
