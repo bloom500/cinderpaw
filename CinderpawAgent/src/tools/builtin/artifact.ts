@@ -344,7 +344,9 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
         : "";
       return {
         ok: true,
-        content: `Created ${forPdf ? "the PDF" : a.kind} "${a.title}" — id ${a.id} (v1, ${a.bytes} bytes).${pdfNote}${warning}${checked?.note ?? ""}`,
+        // The id is for later edits. Haiku read it out ("artifact id 541d8f5f-…")
+        // together with how the tool counted pages (24 Oct): noise to a person.
+        content: `Created ${forPdf ? "the PDF" : a.kind} "${a.title}" — id ${a.id} (v1, ${a.bytes} bytes).${pdfNote}${warning}${checked?.note ?? ""} Its card is already in the chat: do not write the id, or how a tool reported it, in your reply.`,
         data: { id: a.id, kind: a.kind, title: a.title, version: a.version },
       };
     },
