@@ -114,7 +114,7 @@ export function RsiEngineStatusPanel() {
   const summary = !e
     ? (dreamsOn
         ? 'Waiting for a quiet moment. It practices while you are away.'
-        : 'Off. Turn on Dreaming above and it practices while you are away.')
+        : 'Off. Turn on Dreaming below and it practices while you are away.')
     : `Tried ${e.iteration.toLocaleString()} ${e.iteration === 1 ? 'idea' : 'ideas'} so far${
         status.main_tip_score != null ? `. The version in use scores ${status.main_tip_score.toFixed(2)} out of 1.` : '.'
       }`;

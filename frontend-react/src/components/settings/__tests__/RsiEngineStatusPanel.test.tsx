@@ -101,7 +101,7 @@ describe('RsiEngineStatusPanel', () => {
     useSettings.setState({ settings: { dreams_enabled: false } } as never);
     vi.spyOn(tauri.rsi, 'status').mockResolvedValue({ ...makeStatus(), engine: null } as any);
     render(<RsiEngineStatusPanel />);
-    expect(await screen.findByText(/Off\. Turn on Dreaming above/)).toBeInTheDocument();
+    expect(await screen.findByText(/Off\. Turn on Dreaming below/)).toBeInTheDocument();
     expect(screen.getByText('off')).toBeInTheDocument();
     useSettings.setState({ settings: null } as never);
   });
