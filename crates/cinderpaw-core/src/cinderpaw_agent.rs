@@ -425,9 +425,8 @@ pub async fn spawn(
     });
     let env_byok = crate::env::env_var("CINDERPAW_BYOK_PROVIDER");
     let route_is_source = env_byok.is_none() && persisted_route.is_some();
-    let byok = env_byok
-        .or_else(|| persisted_route.as_ref().map(|(pid, _)| pid.clone()))
-        .and_then(|pid| load_byok_provider_endpoint(&pid));
+    let byok_pid = env_byok.or_else(|| persisted_route.as_ref().map(|(pid, _)| pid.clone()));
+    let byok = byok_pid.as_deref().and_then(load_byok_provider_endpoint);
 
     // Without the BYOK family an Anthropic key booted onto Anthropic's
     // OpenAI-compatible door, which never names a workspace: every chat after a
@@ -484,6 +483,11 @@ pub async fn spawn(
     };
     cmd.env("CINDERPAW_MODEL", &model_name);
     *runtime.active_agent_model.lock() = Some(model_name.clone());
+    let route_provider = match (&byok, byok_pid) {
+        (Some(_), Some(pid)) => pid,
+        _ => "cinderpaw-local".to_string(),
+    };
+    *runtime.active_agent_route.lock() = Some((route_provider, base_url.clone()));
     tracing::info!(model = %model_name, "cinderpaw-agent: using discovered model");
 
     // Where the bundled local engine lives, ALWAYS — even when the sidecar
