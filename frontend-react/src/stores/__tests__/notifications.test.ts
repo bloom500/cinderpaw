@@ -12,6 +12,9 @@ describe('toasts', () => {
     const left = useNotifications.getState().toasts;
     expect(left.map((t) => t.title)).toEqual(['Scheduled task: Stretch']);
     useNotifications.getState().dismiss(left[0]!.id);
+    // It plays its way out first, then leaves the list.
+    expect(useNotifications.getState().toasts[0]!.exiting).toBe(true);
+    vi.advanceTimersByTime(600);
     expect(useNotifications.getState().toasts).toEqual([]);
   });
 });

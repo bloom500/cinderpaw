@@ -23,6 +23,8 @@ export interface Toast {
   /** Stays until the person closes it. Only for what fired while they may not
    *  have been looking: a scheduled task's result (24 Oct, his call). */
   sticky?: boolean;
+  /** Playing its way out (Sileo's gooey exit); removed when that is done. */
+  exiting?: boolean;
   createdAt: number;
 }
 
@@ -48,6 +50,8 @@ interface NotificationStore {
  */
 const AUTO_DISMISS_MS = 5_000;
 const MAX_VISIBLE = 4;
+/** Sileo's exit (EXIT_DURATION in components/ui/sileo/constants.ts). */
+const EXIT_MS = 600;
 
 export const useNotifications = create<NotificationStore>((set, get) => ({
   toasts: [],
@@ -70,7 +74,11 @@ export const useNotifications = create<NotificationStore>((set, get) => ({
   },
 
   dismiss(id) {
-    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+    // Two steps, so the toast can leave on its spring instead of vanishing:
+    // marked exiting now, gone once the exit has played.
+    if (!get().toasts.some((t) => t.id === id && !t.exiting)) return;
+    set((s) => ({ toasts: s.toasts.map((t) => (t.id === id ? { ...t, exiting: true } : t)) }));
+    setTimeout(() => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), EXIT_MS);
   },
 }));
 
