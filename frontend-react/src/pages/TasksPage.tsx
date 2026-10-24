@@ -7,7 +7,8 @@ import { cn } from '@/lib/utils';
 const DAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** A schedule in words. The shapes suggest_task builds read as sentences; any
+/** A schedule in words, in English like the rest of the app (the system locale
+ *  wrote "sâm., 24 oct."). The shapes suggest_task builds read as sentences; any
  *  other cron expression is shown as it is, never guessed at. */
 export function scheduleWords(s: TaskSchedule): string {
   if (s.kind === 'every') {
@@ -17,7 +18,7 @@ export function scheduleWords(s: TaskSchedule): string {
   }
   if (s.kind === 'at') {
     const d = new Date(s.isoTimestamp);
-    return `Once, ${d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} at ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `Once, ${d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
   const m = /^(\d{1,2}) (\d{1,2}) \* \* (\*|1-5|[0-6])$/.exec(s.expression.trim());
   if (!m) return `Custom schedule (${s.expression})`;
@@ -32,7 +33,7 @@ function when(ms: number | undefined): string {
   const d = new Date(ms);
   const sameDay = d.toDateString() === new Date().toDateString();
   const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  return sameDay ? `today at ${time}` : `${d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} at ${time}`;
+  return sameDay ? `today at ${time}` : `${d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at ${time}`;
 }
 
 const STATUS: Record<string, string> = {
@@ -60,7 +61,8 @@ function TaskRow({ job }: { job: ScheduledTask }) {
           <p className="truncate text-xs text-text-muted">
             {scheduleWords(job.schedule)}
             {' · '}{job.kind === 'reminder' ? 'Reminder, free' : 'Agent task, uses your model'}
-            {' · '}{!job.enabled ? 'Paused' : finishedOnce ? 'Done' : job.nextRunMs ? `Next ${when(job.nextRunMs)}` : 'Not scheduled'}
+            {/* A one-time task turns itself off once done: that is Done, not Paused. */}
+            {' · '}{finishedOnce ? 'Done' : !job.enabled ? 'Paused' : job.nextRunMs ? `Next ${when(job.nextRunMs)}` : 'Not scheduled'}
           </p>
         </button>
         <button type="button" aria-label={job.enabled ? `Pause ${job.name}` : `Resume ${job.name}`} onClick={() => toggle(job.id, !job.enabled)}

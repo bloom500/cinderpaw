@@ -14,6 +14,7 @@ import { useAgent } from '@/stores/agent';
 import { useModel } from '@/stores/model';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { useNotifications } from '@/stores/notifications';
+import { notifyIfBackground, preview } from '@/lib/systemNotify';
 import { failArtifactRequests, useArtifacts, type DraftEvent } from '@/stores/artifacts';
 import { t } from '@/lib/i18n';
 import { autoTitle } from '@/lib/autoTitle';
@@ -779,12 +780,17 @@ export function useCinderpawGlobal() {
             `Scheduled task: ${toastText(parsed.jobName, 80)}`,
             toastText(parsed.content, 2000),
           );
+          // A reminder is for the moment it fires, which is rarely a moment the
+          // person is looking at this window: the toast alone lasted 5 s inside
+          // a window behind others (24 Oct). The OS shows it where they are.
+          void notifyIfBackground(toastText(parsed.jobName, 80), preview(parsed.content));
         } else if (parsed.type === 'cron_error') {
           useNotifications.getState().push(
             'error',
             `Scheduled task failed: ${toastText(parsed.jobName, 80)}`,
             toastText(parsed.message, 2000),
           );
+          void notifyIfBackground(`Task failed: ${toastText(parsed.jobName, 80)}`, preview(parsed.message));
         }
       });
 
