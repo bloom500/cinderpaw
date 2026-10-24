@@ -149,7 +149,8 @@ mod command_count_test {
     // and key, 21 Oct 2026).
     // 199 -> 200 = + connectors::connectors_save_secret (the desktop's password
     // field saves a connector's or a web extension's key, 21 Oct 2026).
-    const EXPECTED_COMMAND_COUNT: usize = 200;
+    // 200 -> 201 = + cinderpaw_cron_op (the Tasks page and the task card, 24 Oct 2026).
+    const EXPECTED_COMMAND_COUNT: usize = 201;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

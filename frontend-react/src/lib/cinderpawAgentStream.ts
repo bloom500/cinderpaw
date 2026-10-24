@@ -23,6 +23,7 @@ import { useUI } from '@/stores/ui';
 import { useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
 import { useHeadsUp } from '@/stores/headsUp';
+import { useTasks } from '@/stores/tasks';
 import { announceWhenLive, isLive, useConnected } from '@/stores/connected';
 import { useRlmWorkers } from '@/stores/rlmWorkers';
 import { useCoworkTeam } from '@/stores/coworkTeam';
@@ -185,6 +186,8 @@ _${parsed.diagnostic}_`
         if (parsed.tool === 'suggest_skill') useUI.getState().setSkillTip(true);
         // "Something you should know": the card rides the tool's data.
         if (parsed.tool === 'heads_up' && parsed.sessionId) useHeadsUp.getState().show(parsed.sessionId, parsed.result);
+        // A task offered as a card; nothing is scheduled until the person presses Create.
+        if (parsed.tool === 'suggest_task' && parsed.sessionId) useTasks.getState().offer(parsed.sessionId, parsed.result);
         announceFromChat(parsed.tool, parsed.callId, parsed.result);
         useCoworkTranscript.getState().ingestTool({
           sessionId: parsed.sessionId,
@@ -232,6 +235,9 @@ _${parsed.diagnostic}_`
         break;
       case 'cowork_team_result':
         useCoworkTeam.getState().receive(parsed);
+        break;
+      case 'cron_list_result':
+        useTasks.getState().receive(parsed);
         break;
       case 'cowork_event': {
         // Agent Cowork (S3.5): one A2A exchange, upserted by mailbox message

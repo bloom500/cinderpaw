@@ -802,6 +802,8 @@ export type CinderpawAgentEvent =
     }
   // X3: scheduled-job results and failures, surfaced as toasts.
   | { type: 'cron_fired'; jobId: string; jobName: string; sessionId: string; content: string }
+  // Every scheduled task, answering `cinderpawCronOp`, after the change it made.
+  | { type: 'cron_list_result'; id: string; ok: boolean; error?: string; jobs: ScheduledTask[] }
   | { type: 'cron_error'; jobId: string; jobName: string; message: string }
   // Agent Cowork (S3.5): one agent-to-agent occurrence, rendered as an
   // activity bubble on the mascot strip. `title` is the human-readable
@@ -828,6 +830,26 @@ export type CinderpawAgentEvent =
     };
 
 /** Display-safe snapshot of the Cinderpaw Agent's active LLM — no API keys. */
+/** When a scheduled task runs (the sidecar's `Schedule`). */
+export type TaskSchedule =
+  | { kind: 'cron'; expression: string }
+  | { kind: 'every'; intervalMs: number }
+  | { kind: 'at'; isoTimestamp: string };
+
+/** One scheduled task as the Tasks page shows it. */
+export interface ScheduledTask {
+  id: string;
+  name: string;
+  task: string;
+  schedule: TaskSchedule;
+  enabled: boolean;
+  kind: 'agent' | 'reminder';
+  nextRunMs?: number;
+  lastRunMs?: number;
+  /** The last few runs, oldest first. */
+  history: { runAt: number; status: string; durationMs: number; result?: string; error?: string }[];
+}
+
 export interface CinderpawModelConfigView {
   provider: string;
   model: string;
@@ -1117,6 +1139,21 @@ const raw = {
     }),
   cinderpawCoworkHistory: (threadId?: string | null) =>
     invoke<void>('cinderpaw_cowork_history', { threadId: threadId ?? null }),
+  /** Scheduled tasks: list, add, remove, toggle. Answered by a `cron_list_result` event. */
+  cinderpawCronOp: (requestId: string, action: 'list' | 'add' | 'remove' | 'toggle', opts: {
+    jobId?: string; name?: string; task?: string; schedule?: TaskSchedule; kind?: 'agent' | 'reminder'; sessionId?: string; enabled?: boolean;
+  } = {}) =>
+    invoke<void>('cinderpaw_cron_op', {
+      requestId,
+      action,
+      jobId: opts.jobId ?? null,
+      name: opts.name ?? null,
+      task: opts.task ?? null,
+      schedule: opts.schedule ?? null,
+      kind: opts.kind ?? null,
+      sessionId: opts.sessionId ?? null,
+      enabled: opts.enabled ?? null,
+    }),
   /** The roster: 'list', or 'remove' one. Answered by a `cowork_team_result` event. */
   cinderpawCoworkTeam: (action: 'list' | 'remove', agentId?: string) =>
     invoke<void>('cinderpaw_cowork_team', { action, agentId: agentId ?? null }),
