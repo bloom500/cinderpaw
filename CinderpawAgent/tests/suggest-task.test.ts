@@ -35,7 +35,7 @@ describe("suggest_task", () => {
     const card = (r.data as { taskSuggestion: { kind: string; when: string } }).taskSuggestion;
     expect(card.kind).toBe("reminder");
     expect(card.when).toMatch(/^Mon,? 26 Oct at 09:00$/);
-    expect(r.content).toMatch(/Nothing is scheduled unless they press Create/);
+    expect(r.content).toMatch(/created only when they press Create/);
     const again = await tool.execute({ title: "call the BANK", task: "x", kind: "reminder", repeat: "daily", time: "09:00" }, ctx);
     expect(again.data).toBeUndefined();
     t += 60_000;
@@ -45,5 +45,13 @@ describe("suggest_task", () => {
 
   test("never reaches a stranger on a connector", () => {
     expect(isOwnerOnlyTool("suggest_task")).toBe(true);
+  });
+});
+
+describe("in_minutes", () => {
+  test("a reminder in N minutes is counted from now, no clock reading needed", () => {
+    const r = buildSchedule({ repeat: "once", in_minutes: 3 }, NOW);
+    expect(r).toEqual({ schedule: { kind: "at", isoTimestamp: new Date(NOW.getTime() + 180_000).toISOString() }, when: "Today at 17:03" });
+    expect(buildSchedule({ repeat: "once", in_minutes: 0 }, NOW)).toEqual({ error: expect.stringMatching(/in_minutes/) });
   });
 });

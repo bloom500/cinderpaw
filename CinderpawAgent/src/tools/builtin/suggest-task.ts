@@ -51,7 +51,7 @@ const pad = (n: number) => String(n).padStart(2, "0");
 
 /** The schedule and its words, or the reason it cannot be built. */
 export function buildSchedule(
-  args: { repeat?: unknown; time?: unknown; day?: unknown; date?: unknown; every_hours?: unknown },
+  args: { repeat?: unknown; time?: unknown; day?: unknown; date?: unknown; every_hours?: unknown; in_minutes?: unknown },
   now: Date = new Date(),
 ): { schedule: Schedule; when: string } | { error: string } {
   const repeat = String(args.repeat ?? "") as Repeat;
@@ -61,6 +61,16 @@ export function buildSchedule(
     if (!Number.isFinite(hours) || hours < 1 || hours > 168) return { error: "every_hours must be between 1 and 168." };
     const n = Math.round(hours);
     return { schedule: { kind: "every", intervalMs: n * 3_600_000 }, when: n === 1 ? "Every hour" : `Every ${n} hours` };
+  }
+  // "In 3 minutes", "in 2 hours": counted here. The agent ran a shell command
+  // just to read the clock before it could offer one (24 Oct).
+  if (repeat === "once" && args.in_minutes !== undefined && args.in_minutes !== null) {
+    const mins = Number(args.in_minutes);
+    if (!Number.isFinite(mins) || mins < 1 || mins > 60 * 24 * 365) return { error: "in_minutes must be between 1 and 525600." };
+    const at = new Date(now.getTime() + Math.round(mins) * 60_000);
+    const same = at.toDateString() === now.toDateString();
+    const words = same ? "Today" : at.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+    return { schedule: { kind: "at", isoTimestamp: at.toISOString() }, when: `${words} at ${pad(at.getHours())}:${pad(at.getMinutes())}` };
   }
   const t = clock(args.time);
   if (!t) return { error: 'time must be "HH:MM" on a 24-hour clock, e.g. "09:00".' };
@@ -106,7 +116,8 @@ export function createSuggestTaskTool(ledger = new SuggestionLedger(), now: () =
         "that has not happened yet (\"tell me when it launches\"). Use it instead of asking \"do you want me to remind " +
         "you?\" in your reply. kind: \"reminder\" when the text alone is enough at that time (free, no AI runs); " +
         "\"agent\" only when work must be done then (search, read, write; it costs a model run each time). " +
-        "repeat: once (needs date and time), daily, weekdays, weekly (needs day) or hourly (every_hours). Times are " +
+        "repeat: once (date and time, or in_minutes for \"in 10 minutes\" / \"in 2 hours\"), daily, weekdays, weekly " +
+        "(needs day) or hourly (every_hours). Times are " +
         "the person's local clock. At most one card per topic; never for things they did not ask about or imply.",
       permissions: [],
       networkAccess: false,
@@ -124,6 +135,7 @@ export function createSuggestTaskTool(ledger = new SuggestionLedger(), now: () =
       date: { type: "string", description: '"YYYY-MM-DD", for once.' },
       day: { type: "string", description: '"mon".."sun", for weekly.' },
       every_hours: { type: "number", description: "For hourly: 1 to 168." },
+      in_minutes: { type: "number", description: "For once, instead of date and time: minutes from now (120 = in two hours)." },
     },
     async execute(args, ctx): Promise<ToolResult> {
       const title = typeof args.title === "string" ? args.title.trim() : "";
@@ -147,7 +159,9 @@ export function createSuggestTaskTool(ledger = new SuggestionLedger(), now: () =
       const card: TaskSuggestion = { id: randomUUID(), title, task, kind, schedule: built.schedule, when: built.when };
       return {
         ok: true,
-        content: `Shown as a card: "${title}", ${built.when}. Nothing is scheduled unless they press Create; do not say it is set.`,
+        // One line is enough: the card says the rest (24 Oct: three sentences
+        // explaining that nothing was set yet).
+        content: `Shown as a card under your reply: "${title}", ${built.when}. It is created only when they press Create. In your reply, one short line pointing to the card; do not say it is set.`,
         data: { taskSuggestion: card },
       };
     },
