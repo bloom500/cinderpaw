@@ -932,7 +932,14 @@ export class AnthropicProvider implements InferenceProvider {
     req: InferenceRequest,
     isFallback: boolean,
   ): Promise<InferenceResponse> {
-    const { systemText, userMessages } = splitAnthropicMessages(req.messages);
+    const split = splitAnthropicMessages(req.messages);
+    const { userMessages } = split;
+    // Native tool definitions replace the prose copy, as on every other
+    // provider. Anthropic alone kept it: every tool's schema went out twice,
+    // the prose half for ALL tools, ~37k extra tokens a turn (24 Oct).
+    const systemText = split.systemText && req.nativeTools && req.nativeTools.length > 0
+      ? stripToolsFromSystemPrompt(split.systemText)
+      : split.systemText;
     const body: Record<string, unknown> = {
       model: target.model,
       // Anthropic requires max_tokens — the API returns 400 without it.
@@ -1020,7 +1027,14 @@ export class AnthropicProvider implements InferenceProvider {
     req: InferenceRequest,
     isFallback: boolean,
   ): Promise<InferenceResponse> {
-    const { systemText, userMessages } = splitAnthropicMessages(req.messages);
+    const split = splitAnthropicMessages(req.messages);
+    const { userMessages } = split;
+    // Native tool definitions replace the prose copy, as on every other
+    // provider. Anthropic alone kept it: every tool's schema went out twice,
+    // the prose half for ALL tools, ~37k extra tokens a turn (24 Oct).
+    const systemText = split.systemText && req.nativeTools && req.nativeTools.length > 0
+      ? stripToolsFromSystemPrompt(split.systemText)
+      : split.systemText;
     const body: Record<string, unknown> = {
       model: target.model,
       max_tokens: req.maxTokens ?? 128_000,

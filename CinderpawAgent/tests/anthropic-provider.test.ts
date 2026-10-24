@@ -195,3 +195,39 @@ describe("streamed tool input", () => {
     expect(body.tools).toEqual([{ ...tool, eager_input_streaming: true }]);
   });
 });
+
+// 24 Oct: every other provider drops the prose tool list when native tools go
+// out; Anthropic sent both, ~37k extra tokens on a "hello".
+describe("one copy of the tools", () => {
+  const system = "You are Cinderpaw.\n\n## Available tools\nartifact_create: {...}\n\n## Rules\n- Be concise.";
+  const withSystem = (extra: Record<string, unknown>) => ({
+    ...req,
+    messages: [{ role: "system", content: system }, { role: "user", content: "Hi" }],
+    ...extra,
+  }) as unknown as InferenceRequest;
+  const tool = { name: "artifact_create", description: "d", input_schema: { type: "object", properties: {} } };
+
+  for (const [name, extra] of [["streaming", { onToken: () => {} }], ["non-streaming", {}]] as const) {
+    test(`${name}: native tools strip the prose list, the rest of the prompt stays`, async () => {
+      let body: { system?: unknown } = {};
+      globalThis.fetch = (async (_url: string, init: RequestInit) => {
+        body = JSON.parse(init.body as string);
+        return new Response("{}", { status: 400 });
+      }) as typeof fetch;
+      await new AnthropicProvider().complete(target("claude-haiku-5-5"), withSystem({ ...extra, nativeTools: [tool] }), false).catch(() => {});
+      const sent = JSON.stringify(body.system);
+      expect(sent).not.toContain("## Available tools");
+      expect(sent).toContain("## Rules");
+    });
+  }
+
+  test("without native tools the prose list is the only copy, so it stays", async () => {
+    let body: { system?: unknown } = {};
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      body = JSON.parse(init.body as string);
+      return new Response("{}", { status: 400 });
+    }) as typeof fetch;
+    await new AnthropicProvider().complete(target("claude-haiku-5-5"), withSystem({}), false).catch(() => {});
+    expect(JSON.stringify(body.system)).toContain("## Available tools");
+  });
+});
