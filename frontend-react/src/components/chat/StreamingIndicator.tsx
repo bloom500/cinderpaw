@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useChat, type AgentPhase } from '@/stores/chat';
 import { useModel } from '@/stores/model';
-import { useCinderpawStore } from '@/stores/cinderpaw';
+import { onCloudModel, useCinderpawStore } from '@/stores/cinderpaw';
 import { events, type StreamProgressEvent } from '@/lib/tauri';
 import { MessageLoading } from '@/components/ui/message-loading';
 import { kindOf } from '@/hooks/useLiveToolActivity';
@@ -59,7 +59,7 @@ export function StreamingIndicator({ phase = 'thinking', tool, icon }: Streaming
   const loadProgress = useModel((s) => s.loadProgress);
   // A cloud model is never "loaded": on Claude the hint blamed a load that
   // did not happen. Unknown config keeps the hint (a fresh local install).
-  const isCloud = useCinderpawStore((s) => !!s.modelConfig?.base_url && !/^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(s.modelConfig.base_url));
+  const isCloud = useCinderpawStore(onCloudModel);
 
   useEffect(() => {
     setSlowStart(false);
