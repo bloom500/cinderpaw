@@ -260,6 +260,8 @@
     </svg>
     <div id="root"></div>
     <div id="cinderpaw-startup">
+      <!-- The window has no OS title bar: this strip is how it moves while loading. -->
+      <div data-tauri-drag-region style="position:absolute;top:0;left:0;right:0;height:32px;z-index:3"></div>
       <div class="cinderpaw-startup-light" aria-hidden="true"></div>
       <!-- The app's own mascot, asleep: CinderpawMascot's 'sleep' scene
            rendered to static SVG (inline, since the CSP allows no assets

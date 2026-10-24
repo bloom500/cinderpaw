@@ -79,6 +79,8 @@ export function OnboardingWizard() {
       aria-modal="true"
       aria-labelledby="onboarding-title"
     >
+      {/* This overlay covers the shell's drag strip; the window needs its own. */}
+      <div data-tauri-drag-region aria-hidden className="fixed top-0 inset-x-0 h-8" />
       <div className="mx-auto flex min-h-full max-w-6xl flex-col px-4 py-6 sm:px-10 sm:py-8">
         <header className="flex items-center gap-2" aria-hidden>
           <CinderpawMascot state="idle" width={32} />
