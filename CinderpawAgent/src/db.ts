@@ -784,6 +784,8 @@ function migrate(db: Database): void {
   // A job's optional mechanical completion assertion (cron/done-when.ts).
   // Stored as JSON so the check can gain shapes without another migration.
   addColumnIfMissing(db, "cron_jobs", "done_when_json", "TEXT");
+  // "reminder" fires its text as it is, with no model call; null is "agent".
+  addColumnIfMissing(db, "cron_jobs", "kind", "TEXT");
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_cron_jobs_next_run
       ON cron_jobs (enabled, next_run_ms);

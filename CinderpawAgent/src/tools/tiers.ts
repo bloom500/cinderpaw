@@ -183,7 +183,9 @@ export const CONNECTOR_TOOLS = new Set<string>([
  */
 // extension_connect gives the agent a new server's tools: a stranger messaging
 // the bot must never be the one who picks that server.
-export const OWNER_ONLY_TOOLS = new Set<string>(["notebook", "extension_connect"]);
+// suggest_task puts a "Create task" card on the screen of whoever is chatting:
+// on a connector that is a stranger, and the task would run on this machine.
+export const OWNER_ONLY_TOOLS = new Set<string>(["notebook", "extension_connect", "suggest_task"]);
 
 /** True when this tool must be withheld from any profiled (non-owner) session. */
 export const isOwnerOnlyTool = (name: string): boolean => OWNER_ONLY_TOOLS.has(name);

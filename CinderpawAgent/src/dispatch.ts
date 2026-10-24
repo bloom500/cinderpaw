@@ -167,7 +167,11 @@ export function cronListResult(id: string, jobs: CronJob[], error?: string): Ext
     id,
     ok: error === undefined,
     ...(error ? { error } : {}),
-    jobs: jobs.map(({ id, name, task, schedule, enabled, nextRunMs, lastRunMs }) => ({ id, name, task, schedule, enabled, nextRunMs, lastRunMs })),
+    jobs: jobs.map(({ id, name, task, schedule, enabled, nextRunMs, lastRunMs, kind, history }) => ({
+      id, name, task, schedule, enabled, nextRunMs, lastRunMs, kind,
+      // The last few results, for the Tasks page; the full 50 stay on disk.
+      history: history.slice(-5),
+    })),
   };
 }
 
@@ -2038,6 +2042,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           task?: string;
           schedule?: Schedule;
           delivery?: DeliveryTarget;
+          kind?: string;
         };
         if (!m.name || !m.task || !m.schedule || !m.delivery) {
           transport.send({
@@ -2052,6 +2057,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           task: m.task,
           schedule: m.schedule,
           delivery: m.delivery,
+          kind: m.kind === "reminder" ? "reminder" : "agent",
         });
         log(`cron_add → ${job.id} (${job.name})`);
         // `requestId`, not `id`: on this message `id` names the job.

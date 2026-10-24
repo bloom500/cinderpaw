@@ -181,6 +181,7 @@ import { HostToolBridge, loadHostTools } from "./core/host-tool-bridge.ts";
 import { setHostToolNames } from "./tools/tiers.ts";
 import { createAskUserTool } from "./tools/builtin/ask-user.ts";
 import { createHeadsUpTool } from "./tools/builtin/heads-up.ts";
+import { createSuggestTaskTool } from "./tools/builtin/suggest-task.ts";
 import { DesktopControlBridgeImpl } from "./core/desktop-control-bridge.ts";
 import { RequestBridge } from "./core/request-bridge.ts";
 import { createComputerUseTool } from "./tools/builtin/computer-use.ts";
@@ -986,6 +987,7 @@ export async function boot(transportOverride?: Transport) {
   // pure event emission through the AskUserBridge in the tool context.
   registry.register(createAskUserTool());
   registry.register(createHeadsUpTool());
+  registry.register(createSuggestTaskTool());
 
   // computer_use — OS-level desktop control via the accessibility tree. This
   // is powerful (it can click/type into any non-denylisted app), so it is
@@ -1712,6 +1714,9 @@ export async function boot(transportOverride?: Transport) {
   const cronScheduler = new CronScheduler({
     repo: cronRepo,
     runJob: async (job) => {
+      // A reminder is its own text, said at the time it was asked for: no
+      // model call, no safety point, no cost.
+      if (job.kind === "reminder") return { text: job.task, finished: true };
       const sessionId = `cron:${job.id}`;
       try {
         // `handleTurn()` never throws — on failure it emits an `error` event to

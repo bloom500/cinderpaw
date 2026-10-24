@@ -1228,6 +1228,8 @@ export interface CronJob {
   maxRetries: number;
   /** Current consecutive failure count; reset to 0 on success. */
   retryCount: number;
+  /** `reminder`: delivers `task` as written, no model call, no cost. Default `agent`. */
+  kind: "agent" | "reminder";
   createdAt: number;
   updatedAt: number;
 }
@@ -1243,6 +1245,7 @@ export interface CronJobInput {
   enabled?: boolean;
   doneWhen?: DoneWhen | null;
   maxRetries?: number;
+  kind?: "agent" | "reminder";
 }
 
 // ---------------------------------------------------------------------------
@@ -2289,7 +2292,7 @@ export type OutboundEvent =
       id: string;
       ok: boolean;
       error?: string;
-      jobs: Array<{ id: string; name: string; task: string; schedule: Schedule; enabled: boolean; nextRunMs?: number; lastRunMs?: number }>;
+      jobs: Array<{ id: string; name: string; task: string; schedule: Schedule; enabled: boolean; nextRunMs?: number; lastRunMs?: number; kind: "agent" | "reminder"; history: CronRunRecord[] }>;
     }
   // Dream Cycle lifecycle — emitted by the host when an evolutionary episode
   // starts (`phase:"started"`) and ends (`phase:"ended"`). Forwarded verbatim

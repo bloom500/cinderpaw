@@ -37,6 +37,7 @@ const DEFAULT_MAX_RETRIES = 3;
 
 interface CronRow {
   done_when_json: string | null;
+  kind: string | null;
   id: string;
   name: string;
   task: string;
@@ -65,11 +66,11 @@ export class CronJobsRepo {
       INSERT INTO cron_jobs (
         id, name, task, schedule_json, delivery_json,
         enabled, last_run_ms, next_run_ms, history_json,
-        done_when_json, max_retries, retry_count, created_at, updated_at
+        done_when_json, max_retries, retry_count, created_at, updated_at, kind
       ) VALUES (
         $id, $name, $task, $scheduleJson, $deliveryJson,
         $enabled, $lastRunMs, $nextRunMs, $historyJson,
-        $doneWhenJson, $maxRetries, 0, $createdAt, $updatedAt
+        $doneWhenJson, $maxRetries, 0, $createdAt, $updatedAt, $kind
       )
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
@@ -84,19 +85,20 @@ export class CronJobsRepo {
         next_run_ms = excluded.next_run_ms,
         done_when_json = excluded.done_when_json,
         max_retries = excluded.max_retries,
-        updated_at = excluded.updated_at
+        updated_at = excluded.updated_at,
+        kind = excluded.kind
     `);
     this.#list = db.query(`
       SELECT id, name, task, schedule_json, delivery_json,
              enabled, last_run_ms, next_run_ms, history_json,
-             done_when_json, max_retries, retry_count, created_at, updated_at
+             done_when_json, max_retries, retry_count, created_at, updated_at, kind
       FROM cron_jobs
       ORDER BY created_at ASC
     `);
     this.#get = db.query(`
       SELECT id, name, task, schedule_json, delivery_json,
              enabled, last_run_ms, next_run_ms, history_json,
-             done_when_json, max_retries, retry_count, created_at, updated_at
+             done_when_json, max_retries, retry_count, created_at, updated_at, kind
       FROM cron_jobs
       WHERE id = ?
     `);
@@ -112,7 +114,7 @@ export class CronJobsRepo {
     `);
     this.#updateEnabled = db.query(`
       UPDATE cron_jobs
-      SET enabled = $enabled, updated_at = $updatedAt
+      SET enabled = $enabled, next_run_ms = $nextRunMs, updated_at = $updatedAt
       WHERE id = $id
     `);
   }
@@ -173,6 +175,7 @@ export class CronJobsRepo {
         return spec ? JSON.stringify(spec) : null;
       })(),
       $maxRetries: input.maxRetries ?? DEFAULT_MAX_RETRIES,
+      $kind: (input.kind ?? existing?.kind) === "reminder" ? "reminder" : null,
       $createdAt: existing?.createdAt ?? now,
       $updatedAt: now,
     });
@@ -212,12 +215,20 @@ export class CronJobsRepo {
     });
   }
 
-  /** Toggle the enabled flag. */
+  /** Toggle the enabled flag. Turning a job back on schedules it from now:
+   *  the run it missed while paused is not fired late on the next tick. */
   setEnabled(id: string, enabled: boolean): void {
+    const job = this.get(id);
+    if (!job) return;
+    const now = Date.now();
+    const nextRunMs = enabled && (job.nextRunMs === undefined || job.nextRunMs < now)
+      ? nextRunAt(job.schedule, new Date(now))
+      : (job.nextRunMs ?? null);
     this.#updateEnabled.run({
       $id: id,
       $enabled: enabled ? 1 : 0,
-      $updatedAt: Date.now(),
+      $nextRunMs: nextRunMs,
+      $updatedAt: now,
     });
   }
 }
@@ -236,6 +247,7 @@ function fromRow(r: CronRow): CronJob {
     doneWhen: parseDoneWhen(r.done_when_json ? safeParse(r.done_when_json) : null),
     maxRetries: r.max_retries,
     retryCount: r.retry_count,
+    kind: r.kind === "reminder" ? "reminder" : "agent",
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
