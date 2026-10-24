@@ -231,3 +231,26 @@ describe("one copy of the tools", () => {
     expect(JSON.stringify(body.system)).toContain("## Available tools");
   });
 });
+
+// 24 Oct: two chats 25 s apart each wrote ~38k tokens and read 0, because the
+// only breakpoint sat after a system prompt whose memory differs per chat.
+describe("tools cached on their own", () => {
+  const tool = (name: string) => ({ name, description: "d", input_schema: { type: "object", properties: {} } });
+  for (const [name, extra] of [["streaming", { onToken: () => {} }], ["non-streaming", {}]] as const) {
+    test(`${name}: the last tool carries the same breakpoint as the request`, async () => {
+      let body: { tools?: Record<string, unknown>[]; cache_control?: unknown } = {};
+      globalThis.fetch = (async (_url: string, init: RequestInit) => {
+        body = JSON.parse(init.body as string);
+        return new Response("{}", { status: 400 });
+      }) as typeof fetch;
+      const tools = [tool("a"), tool("b")];
+      const r = { ...req, ...extra, nativeTools: tools, cachePrefix: "short" } as unknown as InferenceRequest;
+      await new AnthropicProvider().complete(target("claude-haiku-5-5"), r, false).catch(() => {});
+      expect(body.tools?.[1]?.cache_control).toEqual({ type: "ephemeral" });
+      expect(body.tools?.[0]?.cache_control).toBeUndefined();
+      expect(body.cache_control).toEqual({ type: "ephemeral" });
+      // The caller's own definitions are not touched.
+      expect((tools[1] as Record<string, unknown>).cache_control).toBeUndefined();
+    });
+  }
+});

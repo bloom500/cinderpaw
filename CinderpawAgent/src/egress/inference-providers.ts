@@ -956,6 +956,7 @@ export class AnthropicProvider implements InferenceProvider {
     // A3: use native function calling when tool definitions are provided.
     if (req.nativeTools && req.nativeTools.length > 0) body.tools = req.nativeTools;
     Object.assign(body, anthropicCacheControl(req));
+    cacheToolsSeparately(body);
 
     const authHeaders = anthropicHeaders(target);
 
@@ -1053,6 +1054,7 @@ export class AnthropicProvider implements InferenceProvider {
       body.tools = req.nativeTools.map((t) => ({ ...t, eager_input_streaming: true }));
     }
     Object.assign(body, anthropicCacheControl(req));
+    cacheToolsSeparately(body);
 
     const headers = anthropicHeaders(target);
 
@@ -1866,6 +1868,20 @@ function isLoopbackTarget(target: ModelTarget): boolean {
  * it earns that back only when turns are far enough apart that a short-lived
  * entry would have expired between them.
  */
+/**
+ * A second breakpoint on the last tool, so the tool schemas are cached on their
+ * own. The one automatic breakpoint sits after the system prompt, whose memory
+ * part differs in every chat, so a new chat matched nothing, not even the tools
+ * every chat shares: 25 s apart, two chats each wrote ~38k tokens to the cache
+ * at 1.25x and read 0 (24 Oct). Same TTL as the automatic one (a mismatch is a 400).
+ */
+function cacheToolsSeparately(body: Record<string, unknown>): void {
+  const tools = body.tools as Record<string, unknown>[] | undefined;
+  if (!body.cache_control || !tools || tools.length === 0) return;
+  // A copy: the array may be the caller's own list of tool definitions.
+  body.tools = [...tools.slice(0, -1), { ...tools[tools.length - 1], cache_control: body.cache_control }];
+}
+
 function anthropicCacheControl(req: InferenceRequest): Record<string, unknown> {
   if (!req.cachePrefix || req.cachePrefix === "none") return {};
   return {
