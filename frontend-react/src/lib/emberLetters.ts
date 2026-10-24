@@ -32,13 +32,15 @@ const STAGGER_MS = 7;
 /** A chunk's whole stagger, at most: a document that arrives in one piece
  *  (Ollama, Gemini) would otherwise take 9 ms x 10,000 letters to appear. */
 const MAX_CHUNK_MS = 600;
-/** The fastest a stream is shown, about 200 letters a second. A fast model
+/** The fastest a stream is shown, about 80 letters a second. A fast model
  *  (Haiku 5.5, 600 a second) otherwise put a whole table down in a blink and
- *  nobody saw it written (23 Oct, his recording). */
-const MIN_PER_MS = 5;
+ *  nobody saw it written (23 Oct, his recording). At 200 a second it was still
+ *  too fast to follow, and the more letters glow at once the more the page
+ *  works (24 Oct): the text is all here, the page plays it back, like a reel. */
+const MIN_PER_MS = 12;
 /** ...but the letters never trail the model by more than this: past it they
  *  keep pace again, so a long document does not keep writing for a minute. */
-const MAX_BEHIND_MS = 4000;
+const MAX_BEHIND_MS = 10_000;
 /** A letter counts as finished a little after its animation ends, so the span
  *  is never taken away while the last frame is still painting. */
 const SLACK_MS = 50;
