@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useChat, type AgentPhase } from '@/stores/chat';
 import { useModel } from '@/stores/model';
+import { useCinderpawStore } from '@/stores/cinderpaw';
 import { events, type StreamProgressEvent } from '@/lib/tauri';
 import { MessageLoading } from '@/components/ui/message-loading';
 import { kindOf } from '@/hooks/useLiveToolActivity';
@@ -56,6 +57,9 @@ export function StreamingIndicator({ phase = 'thinking', tool, icon }: Streaming
   // loads, and an explanatory line when no token has arrived for a while.
   const isModelLoading = useModel((s) => s.isLoading);
   const loadProgress = useModel((s) => s.loadProgress);
+  // A cloud model is never "loaded": on Claude the hint blamed a load that
+  // did not happen. Unknown config keeps the hint (a fresh local install).
+  const isCloud = useCinderpawStore((s) => !!s.modelConfig?.base_url && !/^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(s.modelConfig.base_url));
 
   useEffect(() => {
     setSlowStart(false);
@@ -86,7 +90,7 @@ export function StreamingIndicator({ phase = 'thinking', tool, icon }: Streaming
       if (isModelLoading) {
         const pct = loadProgress ? ` ${Math.round(loadProgress.percentage)}%` : '';
         setBaseLabel(`Loading model…${pct}`);
-      } else if (slowStart && phase === 'thinking') {
+      } else if (slowStart && phase === 'thinking' && !isCloud) {
         setBaseLabel('Thinking… The first response after loading a model can take a while.');
       } else {
         setBaseLabel(phaseLabel(phase, tool));
@@ -94,7 +98,7 @@ export function StreamingIndicator({ phase = 'thinking', tool, icon }: Streaming
       setVisible(true);
     }, 120);
     return () => clearTimeout(swap);
-  }, [phase, tool, isModelLoading, loadProgress, slowStart]);
+  }, [phase, tool, isModelLoading, loadProgress, slowStart, isCloud]);
 
   // Live label: progress wins during thinking; otherwise base label.
   const label = progress && progress.sessionId === sessionId && phase === 'thinking' && !isModelLoading

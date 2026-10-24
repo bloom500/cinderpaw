@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { events, type StreamProgressEvent } from '@/lib/tauri';
 import { useChat, type AgentPhase } from '@/stores/chat';
 import { useModel } from '@/stores/model';
+import { useCinderpawStore } from '@/stores/cinderpaw';
 import { StreamingIndicator } from '../StreamingIndicator';
 
 let emitAgent: (event: StreamProgressEvent) => void;
@@ -16,6 +17,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   useChat.setState({ sessionId: 'active' });
   useModel.setState({ isLoading: false, loadProgress: null });
+  useCinderpawStore.setState({ modelConfig: null });
   vi.spyOn(events.onStreamProgress, 'listen').mockImplementation((cb) => {
     emitAgent = cb;
     return Promise.resolve(vi.fn());
@@ -77,6 +79,14 @@ describe('StreamingIndicator', () => {
     expect(screen.getByText('Reading your message…')).toBeInTheDocument();
     act(() => emitAgent(progress({ phase: 'prefill', elapsedMs: 65000 })));
     expect(screen.getByText('Reading your message · 1m 5s')).toBeInTheDocument();
+  });
+
+  it('does not blame a model load on a cloud model', () => {
+    useCinderpawStore.setState({ modelConfig: { provider: 'anthropic', model: 'claude-haiku-5-5', base_url: 'https://api.anthropic.com', display_name: '' } });
+    render(<StreamingIndicator />);
+    act(() => vi.advanceTimersByTime(5000));
+    settle();
+    expect(screen.getByText('Thinking…')).toBeInTheDocument();
   });
 
   it('restarts the slow-response grace period for a different chat', () => {
