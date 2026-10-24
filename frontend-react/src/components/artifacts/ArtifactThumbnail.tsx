@@ -17,7 +17,11 @@ export function artifactImageSource(content: string): string | null {
 function documentText(kind: string, content: string): string {
   content = content.slice(0, 16_000);
   if (kind === 'markdown') {
-    return content.split(/\r?\n/).map((line) => plainText(line.replace(/^\s*(?:#{1,6}|[-+*])\s+/, '')))
+    // A table row reads "Monday · Oatmeal · Soup", and its |---| rule goes:
+    // the gallery tile showed the raw pipes of a meal-plan table (24 Oct).
+    return content.split(/\r?\n/).filter((line) => !/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(line))
+      .map((line) => /^\s*\|.*\|\s*$/.test(line) ? line.trim().slice(1, -1).split('|').map((c) => c.trim()).join(' · ') : line)
+      .map((line) => plainText(line.replace(/^\s*(?:#{1,6}|[-+*])\s+/, '')))
       .filter(Boolean).slice(0, 8).join('\n\n').slice(0, 1400);
   }
   const words = content.replace(/<(script|style)\b[^>]*>[\s\S]*?(?:<\/\1>|$)/gi, '')
