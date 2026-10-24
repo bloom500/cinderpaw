@@ -42,7 +42,8 @@ export function Toasts({ compact = false }: { compact?: boolean }) {
             layout
             initial={{ opacity: 0, x: 24, scale: 0.96 }}
             animate={{ opacity: 1, x: 0, scale: 1 }}
-            exit={{ opacity: 0, x: 24, scale: 0.96, transition: { duration: 0.15 } }}
+            // Out like Sileo's toasts: it shrinks, blurs and lifts on a spring, not a cut.
+            exit={{ opacity: 0, y: -10, scale: 0.9, filter: 'blur(6px)', transition: { type: 'spring', stiffness: 320, damping: 30 } }}
             transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.8 }}
             className={cn(
               'group pointer-events-auto relative flex items-start gap-2 rounded-xl border px-3 py-2.5',

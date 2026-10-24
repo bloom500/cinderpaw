@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Bell, CalendarClock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { TaskCard } from '@/lib/widgets';
@@ -8,7 +9,9 @@ import { isCreated, useTasks } from '@/stores/tasks';
  * A task the agent offered (`suggest_task`), at the end of the reply it came
  * with, as if it noticed on its own. Nothing exists until Create: the card says
  * what it will do, when, and whether it costs anything, so the click is an
- * informed one. "Created" is read from the task list, so it holds after a reload.
+ * informed one. It stays until the person acts; then it goes, on a spring (his
+ * call, 24 Oct, after Sileo's toasts): Not now at once, Create after a moment
+ * of "Created". A card whose task already exists is not shown again on reload.
  */
 export function TaskSuggestionCard({ card, sessionId }: { card: TaskCard; sessionId: string }) {
   const jobs = useTasks((s) => s.jobs);
@@ -20,13 +23,32 @@ export function TaskSuggestionCard({ card, sessionId }: { card: TaskCard; sessio
   const refresh = useTasks((s) => s.refresh);
   useEffect(() => { if (!loaded) refresh(); }, [loaded, refresh]);
 
-  const created = pressed?.state === 'created' || isCreated(jobs, card);
-  if (dismissed && !created) return null;
+  const justCreated = pressed?.state === 'created';
+  const created = justCreated || isCreated(jobs, card);
+  // Seen "Created" long enough to read it, then out.
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    if (!justCreated) return;
+    const t = setTimeout(() => setSettled(true), 1800);
+    return () => clearTimeout(t);
+  }, [justCreated]);
+  // Created in an earlier visit: nothing left to decide, nothing to show.
+  if (created && !justCreated) return null;
+  const visible = !dismissed && !settled;
   const reminder = card.kind === 'reminder';
   const Icon = reminder ? Bell : CalendarClock;
 
   return (
-    <section aria-label="Suggested task" className="rounded-2xl border border-border-default bg-bg-surface px-3 py-2.5">
+    <AnimatePresence initial={false}>
+    {visible && (
+    <motion.section
+      aria-label="Suggested task"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0, height: 'auto' }}
+      exit={{ opacity: 0, y: -6, scale: 0.96, height: 0, marginTop: 0, paddingTop: 0, paddingBottom: 0, filter: 'blur(6px)' }}
+      transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+      style={{ overflow: 'hidden' }}
+      className="rounded-2xl border border-border-default bg-bg-surface px-3 py-2.5">
       <div className="flex gap-3">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-bg-active text-brand">
           <Icon size={20} aria-hidden />
@@ -60,6 +82,8 @@ export function TaskSuggestionCard({ card, sessionId }: { card: TaskCard; sessio
           )}
         </div>
       </div>
-    </section>
+    </motion.section>
+    )}
+    </AnimatePresence>
   );
 }

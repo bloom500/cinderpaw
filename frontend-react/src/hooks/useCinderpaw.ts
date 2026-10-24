@@ -779,6 +779,8 @@ export function useCinderpawGlobal() {
             'success',
             `Scheduled task: ${toastText(parsed.jobName, 80)}`,
             toastText(parsed.content, 2000),
+            undefined,
+            { sticky: true },
           );
           // A reminder is for the moment it fires, which is rarely a moment the
           // person is looking at this window: the toast alone lasted 5 s inside
@@ -789,6 +791,8 @@ export function useCinderpawGlobal() {
             'error',
             `Scheduled task failed: ${toastText(parsed.jobName, 80)}`,
             toastText(parsed.message, 2000),
+            undefined,
+            { sticky: true },
           );
           void notifyIfBackground(`Task failed: ${toastText(parsed.jobName, 80)}`, preview(parsed.message));
         }

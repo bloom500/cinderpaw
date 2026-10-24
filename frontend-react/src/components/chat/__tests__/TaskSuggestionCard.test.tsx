@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
@@ -36,17 +36,17 @@ describe('task card', () => {
     expect(await screen.findByText(/Created\./)).toBeTruthy();
   });
 
-  it('a card whose task already exists says Created, after a reload too', () => {
+  it('a card whose task already exists is not shown again after a reload', () => {
     useTasks.setState({ jobs: [{ id: 'j1', name: card.title, task: card.task, schedule: card.schedule, enabled: true, kind: 'reminder', history: [] }] });
     render(<MemoryRouter><TaskSuggestionCard card={card} sessionId="s1" /></MemoryRouter>);
-    expect(screen.getByText(/Created\./)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Create task' })).toBeNull();
+    expect(screen.queryByText('Call the bank')).toBeNull();
   });
 
   it('Not now closes it', async () => {
     render(<MemoryRouter><TaskSuggestionCard card={card} sessionId="s1" /></MemoryRouter>);
     await userEvent.click(screen.getByRole('button', { name: 'Not now' }));
-    expect(screen.queryByText('Call the bank')).toBeNull();
+    // It leaves on a spring: gone once the exit has played.
+    await waitFor(() => expect(screen.queryByText('Call the bank')).toBeNull());
   });
 });
 

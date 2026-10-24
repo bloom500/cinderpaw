@@ -20,12 +20,15 @@ export interface Toast {
   message?: string;
   /** One button on the toast, e.g. Undo. Pressing it runs `run` and closes the toast. */
   action?: { label: string; run: () => void };
+  /** Stays until the person closes it. Only for what fired while they may not
+   *  have been looking: a scheduled task's result (24 Oct, his call). */
+  sticky?: boolean;
   createdAt: number;
 }
 
 interface NotificationStore {
   toasts: Toast[];
-  push(kind: ToastKind, title: string, message?: string, action?: Toast['action']): void;
+  push(kind: ToastKind, title: string, message?: string, action?: Toast['action'], opts?: { sticky?: boolean }): void;
   dismiss(id: string): void;
 }
 
@@ -49,18 +52,21 @@ const MAX_VISIBLE = 4;
 export const useNotifications = create<NotificationStore>((set, get) => ({
   toasts: [],
 
-  push(kind, title, message, action) {
+  push(kind, title, message, action, opts) {
     const toast: Toast = {
       id: crypto.randomUUID(),
       kind,
       title,
       message,
       action,
+      sticky: opts?.sticky,
       createdAt: Date.now(),
     };
     set((s) => ({ toasts: [...s.toasts, toast].slice(-MAX_VISIBLE) }));
-    // Every kind clears itself, errors included — see AUTO_DISMISS_MS.
-    setTimeout(() => get().dismiss(toast.id), AUTO_DISMISS_MS);
+    // Every kind clears itself, errors included — see AUTO_DISMISS_MS. A sticky
+    // one is a scheduled task's result: it fired for a moment the person chose,
+    // which is rarely a moment they were watching this window.
+    if (!toast.sticky) setTimeout(() => get().dismiss(toast.id), AUTO_DISMISS_MS);
   },
 
   dismiss(id) {
