@@ -142,6 +142,10 @@ function observerPrompt(now: number): string {
     "",
     "=== FACTS ===",
     "Durable facts about the USER (identity, role, preferences, decisions, goals, commitments).",
+    // 24 Oct: "make me a meal plan for a family of four" was filed as the
+    // user's household size, and the PDF's id and page count as facts.
+    "Only what the user says about themselves. The details of a task they ask for (who a plan",
+    "is for, what a document contains) are not facts about them. Never ids, file names or page counts.",
     "One per line: category | key: value",
     "category is one of: fact, preference, decision, commitment, goal, event, instruction, relationship, context, learning, observation, error, artifact",
     "Example: preference | units: metric",
