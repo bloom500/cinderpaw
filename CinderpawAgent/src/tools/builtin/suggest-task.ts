@@ -111,7 +111,9 @@ export function createSuggestTaskTool(ledger = new SuggestionLedger(), now: () =
       name: "suggest_task",
       description:
         "Offer the person a task that runs later, as a card with a Create button. It does NOT create anything: " +
-        "they decide with one click. Offer one when the conversation shows something worth doing later: a reminder " +
+        "they decide with one click. When they ask for something LATER or AGAIN (\"in 2 minutes\", \"tomorrow at 9\", " +
+        "\"every Monday\", \"tell me when\"), do not do it now: call this, and only then answer in one line. " +
+        "Also offer one when the conversation shows something worth doing later: a reminder " +
         "(\"remind me to call the bank on Monday\"), something to repeat (a weekly summary), or a check on something " +
         "that has not happened yet (\"tell me when it launches\"). Use it instead of asking \"do you want me to remind " +
         "you?\" in your reply. kind: \"reminder\" when the text alone is enough at that time (free, no AI runs); " +
