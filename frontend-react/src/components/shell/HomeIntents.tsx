@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BarChart3, PenLine, Repeat, Search } from 'lucide-react';
+import { ArrowUpRight, BarChart3, PenLine, Repeat, Search } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { tauri } from '@/lib/tauri';
 import { signInWithOpenRouter } from '@/lib/openrouterSignIn';
@@ -13,17 +13,44 @@ import { signInWithOpenRouter } from '@/lib/openrouterSignIn';
  * product is for". Only the second is a claim, and only a claim can be wrong,
  * which is what makes it worth making.
  *
- * Each one drops a verb into the composer and stops there. Sending on click
- * would be the product guessing the sentence, which is the one thing the
- * contract says it must never do to the composer.
+ * Each one opens five everyday jobs under it. It used to drop only its verb
+ * ("Automate ") into the composer, and a person who does not know what to ask
+ * stopped right there (24 Oct): most people do not know what they need, so
+ * the product has to. A job fills the composer and stops; sending on click
+ * would be the product guessing the sentence, which the contract forbids.
  */
 
-/** The stem each intent leaves in the composer, and the keys for its label and hint. */
+/** Each intent's label and hint keys, and the jobs it offers. Jobs are ones the
+ *  agent can do today with its own tools: nothing here needs a connector. */
 const INTENTS = [
-  { key: 'home.intent.research', hint: 'home.intent.research.hint', stem: 'Research ', icon: Search },
-  { key: 'home.intent.create',   hint: 'home.intent.create.hint',   stem: 'Create ',   icon: PenLine },
-  { key: 'home.intent.analyze',  hint: 'home.intent.analyze.hint',  stem: 'Analyze ',  icon: BarChart3 },
-  { key: 'home.intent.automate', hint: 'home.intent.automate.hint', stem: 'Automate ', icon: Repeat },
+  { key: 'home.intent.research', hint: 'home.intent.research.hint', icon: Search, jobs: [
+    'Find the three best-reviewed vacuum cleaners under $200 and tell me why each one stands out',
+    'Plan a cheap weekend trip for two next month: where to go, how to get there and what it costs',
+    'Compare mobile phone plans and tell me which one is cheapest for about 20 GB a month',
+    'What happened in the news this week? Give me the five main stories in plain words',
+    'Find a simple recipe I can cook tonight with chicken, rice and a few vegetables',
+  ] },
+  { key: 'home.intent.create', hint: 'home.intent.create.hint', icon: PenLine, jobs: [
+    'Write a polite email asking my landlord to fix the heating this week',
+    'Make a weekly meal plan for my family, with a shopping list',
+    'Help me make a one-page CV. Ask me about my work first',
+    'Write a short, warm birthday message for my mom',
+    'Make a poster for a garage sale on Saturday morning',
+  ] },
+  { key: 'home.intent.analyze', hint: 'home.intent.analyze.hint', icon: BarChart3, jobs: [
+    'I will attach a PDF. Tell me the five things I need to know from it',
+    'I will attach my bank statement. Show me where most of my money goes',
+    'I will attach a contract. Point out anything risky before I sign it',
+    'I will attach a spreadsheet. Turn it into a chart and tell me what stands out',
+    'I will paste a long email thread. Tell me what I am expected to do',
+  ] },
+  { key: 'home.intent.automate', hint: 'home.intent.automate.hint', icon: Repeat, jobs: [
+    'Sort my Downloads folder into folders: documents, images, videos and installers',
+    'Find the biggest files on my computer I probably do not need. Ask me before deleting anything',
+    'Rename the photos in a folder by the date they were taken',
+    'Fill in an online form for me. I will tell you the page and the details',
+    'Check three online shops for the price of a product and tell me where it is cheapest',
+  ] },
 ] as const;
 
 /**
@@ -101,17 +128,20 @@ function SetupCard() {
 export function HomeIntents({ onPick }: { onPick: (text: string) => void }) {
   const t = useT();
   const hasModel = useHasAnyModel();
+  const [open, setOpen] = useState<(typeof INTENTS)[number]['key'] | null>(null);
   if (hasModel === false) return <SetupCard />;
+  const jobs = INTENTS.find((i) => i.key === open)?.jobs;
   return (
     <div className="mx-auto mt-4 w-full max-w-2xl px-4">
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-        {INTENTS.map(({ key, hint, stem, icon: Icon }) => (
+        {INTENTS.map(({ key, hint, icon: Icon }) => (
           <button
             key={key}
             type="button"
             aria-label={t(key)}
-            onClick={() => onPick(stem)}
-            className="flex flex-col items-start gap-2 rounded-2xl border border-border-default bg-bg-surface p-3.5 text-left transition-colors hover:border-brand/40 cursor-pointer"
+            aria-expanded={open === key}
+            onClick={() => setOpen(open === key ? null : key)}
+            className={`flex flex-col items-start gap-2 rounded-2xl border bg-bg-surface p-3.5 text-left transition-colors hover:border-brand/40 cursor-pointer ${open === key ? 'border-brand/60' : 'border-border-default'}`}
           >
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-bg-active text-brand"><Icon size={16} /></span>
             <span className="text-sm font-semibold text-text-primary">{t(key)}</span>
@@ -119,6 +149,22 @@ export function HomeIntents({ onPick }: { onPick: (text: string) => void }) {
           </button>
         ))}
       </div>
+      {jobs ? (
+        <ul className="mt-3 flex flex-col overflow-hidden rounded-2xl border border-border-default bg-bg-surface">
+          {jobs.map((job, i) => (
+            <li key={job} className={i > 0 ? 'border-t border-border-subtle' : undefined}>
+              <button
+                type="button"
+                onClick={() => onPick(job)}
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary cursor-pointer"
+              >
+                <span className="min-w-0 flex-1">{job}</span>
+                <ArrowUpRight size={14} className="shrink-0 text-text-disabled" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
       <div className="mt-3 flex flex-wrap justify-center gap-2">
         {SUGGESTIONS.map((s) => (
           <button
@@ -131,6 +177,7 @@ export function HomeIntents({ onPick }: { onPick: (text: string) => void }) {
           </button>
         ))}
       </div>
+      )}
     </div>
   );
 }
