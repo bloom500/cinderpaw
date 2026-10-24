@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { TaskSuggestionCard } from '../TaskSuggestionCard';
-import { useChat } from '@/stores/chat';
 import { useTasks } from '@/stores/tasks';
 import { scheduleWords } from '@/pages/TasksPage';
 
@@ -18,16 +17,15 @@ const card = {
 describe('task card', () => {
   beforeEach(() => {
     vi.mocked(invoke).mockClear();
-    useChat.setState({ sessionId: 's1' });
-    useTasks.setState({ offered: {}, jobs: [], loaded: false, error: null });
+    useTasks.setState({ jobs: [], loaded: true, error: null, creating: {}, dismissed: {} });
   });
 
   it('shows what, when and that a reminder is free; Create sends it, the answer settles it', async () => {
-    useTasks.getState().offer('s1', { data: { taskSuggestion: card } });
-    render(<MemoryRouter><TaskSuggestionCard /></MemoryRouter>);
+    render(<MemoryRouter><TaskSuggestionCard card={card} sessionId="s1" /></MemoryRouter>);
     expect(screen.getByText('Call the bank')).toBeTruthy();
     expect(screen.getByText(/costs nothing/)).toBeTruthy();
     expect(screen.getByText(/runs while Cinderpaw is open/)).toBeTruthy();
+    expect(invoke).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole('button', { name: 'Create task' }));
     expect(invoke).toHaveBeenCalledWith('cinderpaw_cron_op', expect.objectContaining({
@@ -38,10 +36,15 @@ describe('task card', () => {
     expect(await screen.findByText(/Created\./)).toBeTruthy();
   });
 
-  it('nothing is created by the offer itself, and Not now closes it', async () => {
-    useTasks.getState().offer('s1', { data: { taskSuggestion: card } });
-    render(<MemoryRouter><TaskSuggestionCard /></MemoryRouter>);
-    expect(invoke).not.toHaveBeenCalled();
+  it('a card whose task already exists says Created, after a reload too', () => {
+    useTasks.setState({ jobs: [{ id: 'j1', name: card.title, task: card.task, schedule: card.schedule, enabled: true, kind: 'reminder', history: [] }] });
+    render(<MemoryRouter><TaskSuggestionCard card={card} sessionId="s1" /></MemoryRouter>);
+    expect(screen.getByText(/Created\./)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Create task' })).toBeNull();
+  });
+
+  it('Not now closes it', async () => {
+    render(<MemoryRouter><TaskSuggestionCard card={card} sessionId="s1" /></MemoryRouter>);
     await userEvent.click(screen.getByRole('button', { name: 'Not now' }));
     expect(screen.queryByText('Call the bank')).toBeNull();
   });

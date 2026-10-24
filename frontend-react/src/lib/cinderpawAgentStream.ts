@@ -186,8 +186,6 @@ _${parsed.diagnostic}_`
         if (parsed.tool === 'suggest_skill') useUI.getState().setSkillTip(true);
         // "Something you should know": the card rides the tool's data.
         if (parsed.tool === 'heads_up' && parsed.sessionId) useHeadsUp.getState().show(parsed.sessionId, parsed.result);
-        // A task offered as a card; nothing is scheduled until the person presses Create.
-        if (parsed.tool === 'suggest_task' && parsed.sessionId) useTasks.getState().offer(parsed.sessionId, parsed.result);
         announceFromChat(parsed.tool, parsed.callId, parsed.result);
         useCoworkTranscript.getState().ingestTool({
           sessionId: parsed.sessionId,
