@@ -3,6 +3,7 @@ import { Lightbulb, X } from 'lucide-react';
 import { useChat } from '@/stores/chat';
 import { useHeadsUp, type HeadsUpChoice } from '@/stores/headsUp';
 import { cn } from '@/lib/utils';
+import { GooeyCard } from './GooeyCard';
 
 /** Typing in a field must never trigger a card: 1, 2, 3 only act outside one. */
 function typing(target: EventTarget | null): boolean {
@@ -75,7 +76,7 @@ export function HeadsUpCard() {
 
   return (
     <section aria-label="Something you should know" className="mx-auto w-full max-w-[764px] px-4 pb-2">
-      <div className="relative rounded-2xl border border-border-default bg-(--surface-typing) liquid-glass liquid-glass-rim px-3 py-2.5">
+      <GooeyCard key={card.id}>
         <button type="button" aria-label="Close" onClick={() => choose('dismiss')}
           className="absolute right-2 top-2 rounded-full p-1 text-text-muted hover:bg-text-primary/5 hover:text-text-primary">
           <X size={16} />
@@ -98,7 +99,7 @@ export function HeadsUpCard() {
             </div>
           </div>
         </div>
-      </div>
+      </GooeyCard>
     </section>
   );
 }

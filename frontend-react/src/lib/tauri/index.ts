@@ -747,7 +747,7 @@ export type CinderpawAgentEvent =
       /** The worker's final answer (bounded), on the settling event only. */
       answer?: string;
     }
-  | { type: 'proactive';   content: string }
+  | { type: 'proactive';   content: string; followUp?: { id: string; sessionId: string; mission: string } }
   | { type: 'model_set';   provider: string; model: string }
   // Which model answered this turn, and why that one. Emitted on the
   // success AND the failure path: automatic model selection used to fail
@@ -803,7 +803,7 @@ export type CinderpawAgentEvent =
   // X3: scheduled-job results and failures, surfaced as toasts.
   | { type: 'cron_fired'; jobId: string; jobName: string; sessionId: string; content: string }
   // Every scheduled task, answering `cinderpawCronOp`, after the change it made.
-  | { type: 'cron_list_result'; id: string; ok: boolean; error?: string; jobs: ScheduledTask[] }
+  | { type: 'cron_list_result'; id: string; ok: boolean; error?: string; jobs: ScheduledTask[]; taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number } }
   | { type: 'cron_error'; jobId: string; jobName: string; message: string }
   // Agent Cowork (S3.5): one agent-to-agent occurrence, rendered as an
   // activity bubble on the mascot strip. `title` is the human-readable
@@ -843,11 +843,15 @@ export interface ScheduledTask {
   task: string;
   schedule: TaskSchedule;
   enabled: boolean;
-  kind: 'agent' | 'reminder';
+  kind: 'agent' | 'reminder' | 'watch';
+  watch?: { sourceUrl: string; contains: string; official?: boolean };
+  expiresAt?: number;
+  budgetUsd?: number;
+  spentUsd?: number;
   nextRunMs?: number;
   lastRunMs?: number;
   /** The last few runs, oldest first. */
-  history: { runAt: number; status: string; durationMs: number; result?: string; error?: string }[];
+  history: { runAt: number; status: string; durationMs: number; result?: string; error?: string; costUsd?: number; proof?: {sourceUrl:string; checkedAt:number; excerpt:string; contentHash:string} }[];
 }
 
 export interface CinderpawModelConfigView {
@@ -1140,8 +1144,10 @@ const raw = {
   cinderpawCoworkHistory: (threadId?: string | null) =>
     invoke<void>('cinderpaw_cowork_history', { threadId: threadId ?? null }),
   /** Scheduled tasks: list, add, remove, toggle. Answered by a `cron_list_result` event. */
-  cinderpawCronOp: (requestId: string, action: 'list' | 'add' | 'remove' | 'toggle', opts: {
-    jobId?: string; name?: string; task?: string; schedule?: TaskSchedule; kind?: 'agent' | 'reminder'; sessionId?: string; enabled?: boolean;
+  cinderpawCronOp: (requestId: string, action: 'list' | 'followups' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit', opts: {
+    jobId?: string; name?: string; task?: string; schedule?: TaskSchedule; kind?: 'agent' | 'reminder' | 'watch'; sessionId?: string; enabled?: boolean; watch?: ScheduledTask['watch']; expiryDays?: number;
+    /** 'limit' only: the weekly limit for all scheduled tasks, or null for none. */
+    weeklyLimitUsd?: number | null;
   } = {}) =>
     invoke<void>('cinderpaw_cron_op', {
       requestId,
@@ -1149,7 +1155,9 @@ const raw = {
       jobId: opts.jobId ?? null,
       name: opts.name ?? null,
       task: opts.task ?? null,
-      schedule: opts.schedule ?? null,
+      // The weekly limit rides in taskOptions too: the command is at Specta's argument limit.
+      schedule: action === 'limit' ? { taskOptions: { weeklyLimitUsd: opts.weeklyLimitUsd ?? null } }
+        : opts.schedule ? { ...opts.schedule, taskOptions: { ...(opts.watch ? {watch:opts.watch} : {}), ...(opts.expiryDays !== undefined ? {expiryDays:opts.expiryDays} : {}) } } : null,
       kind: opts.kind ?? null,
       sessionId: opts.sessionId ?? null,
       enabled: opts.enabled ?? null,

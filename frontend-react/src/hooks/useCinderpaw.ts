@@ -14,6 +14,7 @@ import { useAgent } from '@/stores/agent';
 import { useModel } from '@/stores/model';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { useNotifications } from '@/stores/notifications';
+import { useFollowUps } from '@/stores/followUps';
 import { notifyIfBackground, preview } from '@/lib/systemNotify';
 import { failArtifactRequests, useArtifacts, type DraftEvent } from '@/stores/artifacts';
 import { t } from '@/lib/i18n';
@@ -191,6 +192,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
       },
     ) => {
       const chat = useChat.getState();
+      useFollowUps.getState().clearSession(chatSessionId);
 
       const userMsg = {
         id: crypto.randomUUID(),
@@ -626,6 +628,15 @@ export function useCinderpawGlobal() {
       for (const d of batch) useArtifacts.getState().onDraft(d);
     };
 
+    let outputSubscribed = false;
+    const requestFollowUp = () => {
+      if (!outputSubscribed || !useFollowUps.getState().enabled) return;
+      void tauri.raw.cinderpawCronOp(crypto.randomUUID(), 'followups').catch(() => {});
+    };
+    const offFollowUps = useFollowUps.subscribe((state, previous) => {
+      if (state.enabled && !previous.enabled) requestFollowUp();
+    });
+    unlisteners.push(offFollowUps);
     const setup = async () => {
       const offWait = await events.onRateLimited.listen(({ sessionId, waitMs }) => {
         useConversations.getState().setProviderWait(sessionId, waitMs);
@@ -640,6 +651,7 @@ export function useCinderpawGlobal() {
       await subscribe('cinderpaw://agent-ready', () => {
         setReady(true);
         void fetchConfig();
+        requestFollowUp();
       });
       if (disposed) return;
 
@@ -769,6 +781,9 @@ export function useCinderpawGlobal() {
           // Every way a turn ends, including a stop or a broken stream: a draft
           // still being written then was never saved, and says so.
           useArtifacts.getState().endDraft(parsed.id, { reason: 'Cinderpaw stopped before saving this.' });
+          if (parsed.type === 'done') requestFollowUp();
+        } else if (parsed.type === 'proactive' && parsed.followUp) {
+          useFollowUps.getState().receive(parsed.followUp);
         } else if (parsed.type === 'cron_fired') {
           // X3: scheduled-job results were previously dropped on the floor.
           // Capped. Both strings are model output — a cron job's answer and the
@@ -798,7 +813,11 @@ export function useCinderpawGlobal() {
         }
       });
 
-      if (!disposed) void fetchConfig();
+      outputSubscribed = true;
+      if (!disposed) {
+        void fetchConfig();
+        requestFollowUp();
+      }
     };
 
     void setup();

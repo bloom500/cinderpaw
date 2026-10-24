@@ -14,6 +14,9 @@ interface TasksStore {
   /** False until the first answer arrives, so "no tasks yet" is never a guess. */
   loaded: boolean;
   error: string | null;
+  /** The one weekly limit for all scheduled tasks; null until the first answer. */
+  limit: { weeklyUsd: number | null; asked: boolean; spentUsd: number } | null;
+  setLimit: (weeklyUsd: number | null) => void;
   /** What a card's Create is doing, by card id. Absent = not pressed this session. */
   creating: Record<string, { state: 'creating' | 'created' | 'failed'; error?: string }>;
   /** Cards closed with Not now, by card id. */
@@ -21,9 +24,10 @@ interface TasksStore {
   refresh: () => void;
   remove: (jobId: string) => void;
   toggle: (jobId: string, enabled: boolean) => void;
+  edit: (job: ScheduledTask, changes: {name:string;task:string;schedule:ScheduledTask["schedule"];watch?:ScheduledTask["watch"];expiryDays?:number}) => void;
   create: (card: TaskCard, sessionId: string) => void;
   dismiss: (cardId: string) => void;
-  receive: (e: { id: string; ok: boolean; error?: string; jobs: ScheduledTask[] }) => void;
+  receive: (e: { id: string; ok: boolean; error?: string; jobs: ScheduledTask[]; taskLimit?: TasksStore['limit'] }) => void;
 }
 
 /** Which card a request was for, so its answer can settle that card. */
@@ -36,7 +40,7 @@ export const isCreated = (jobs: ScheduledTask[], card: TaskCard) =>
 export const useTasks = create<TasksStore>()((set) => {
   const settle = (cardId: string, state: 'created' | 'failed', error?: string) =>
     set((s) => ({ creating: { ...s.creating, [cardId]: { state, error } } }));
-  const send = (action: 'list' | 'add' | 'remove' | 'toggle', opts: Parameters<typeof tauri.raw.cinderpawCronOp>[2] = {}, forCard?: string) => {
+  const send = (action: 'list' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit', opts: Parameters<typeof tauri.raw.cinderpawCronOp>[2] = {}, forCard?: string) => {
     const requestId = crypto.randomUUID();
     if (forCard) pendingCreate.set(requestId, forCard);
     tauri.raw.cinderpawCronOp(requestId, action, opts).catch((err: unknown) => {
@@ -51,20 +55,23 @@ export const useTasks = create<TasksStore>()((set) => {
     jobs: [],
     loaded: false,
     error: null,
+    limit: null,
+    setLimit: (weeklyUsd) => send('limit', { weeklyLimitUsd: weeklyUsd }),
     creating: {},
     dismissed: {},
     refresh: () => send('list'),
     remove: (jobId) => send('remove', { jobId }),
     toggle: (jobId, enabled) => send('toggle', { jobId, enabled }),
+    edit: (job, changes) => send('edit', {jobId:job.id,kind:job.kind,...changes}),
     create: (card, sessionId) => {
       set((s) => ({ creating: { ...s.creating, [card.id]: { state: 'creating' } } }));
-      send('add', { name: card.title, task: card.task, schedule: card.schedule, kind: card.kind, sessionId }, card.id);
+      send('add', { name: card.title, task: card.task, schedule: card.schedule, kind: card.kind, watch:card.watch,expiryDays:card.expiryDays, sessionId }, card.id);
     },
     dismiss: (cardId) => set((s) => ({ dismissed: { ...s.dismissed, [cardId]: true } })),
     receive: (e) => {
       const forCard = pendingCreate.get(e.id);
       pendingCreate.delete(e.id);
-      set({ jobs: e.jobs ?? [], loaded: true, error: e.ok ? null : (e.error ?? 'That did not work.') });
+      set((s) => ({ jobs: e.jobs ?? [], loaded: true, limit: e.taskLimit ?? s.limit, error: e.ok ? null : (e.error ?? 'That did not work.') }));
       if (forCard) settle(forCard, e.ok ? 'created' : 'failed', e.error);
     },
   };

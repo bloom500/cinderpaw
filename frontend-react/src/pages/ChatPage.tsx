@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { BrowserPanel } from '@/components/browser/BrowserPanel';
 import { AgentOfflineBanner } from '@/components/chat/AgentOfflineBanner';
 import { HeadsUpCard } from '@/components/chat/HeadsUpCard';
+import { FollowUpCard } from '@/components/chat/FollowUpCard';
 import { ProviderWaitNotice, StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
 import { WorkersCard } from '@/components/chat/WorkersCard';
 import { ComposerTip, TEACH_PROMPT } from '@/components/chat/ComposerTip';
@@ -383,6 +384,7 @@ export function ChatPage() {
           <ProviderWaitNotice />
           {/* "Something you should know", found while the agent works. */}
           <HeadsUpCard />
+          <FollowUpCard />
           <ComposerTip
             isEmpty={isEmpty}
             // A new chat with the request typed in and the caret after it.

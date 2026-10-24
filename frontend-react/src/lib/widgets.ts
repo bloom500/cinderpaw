@@ -30,7 +30,10 @@ export interface TaskCard {
   id: string;
   title: string;
   task: string;
-  kind: 'agent' | 'reminder';
+  kind: 'agent' | 'reminder' | 'watch';
+  watch?: { sourceUrl: string; contains: string; official?: boolean };
+  expiryDays?: number;
+  budgetUsd?: number;
   schedule: { kind: 'cron'; expression: string } | { kind: 'every'; intervalMs: number } | { kind: 'at'; isoTimestamp: string };
   when: string;
 }
@@ -154,8 +157,11 @@ export function widgetOf(tool: string, result: unknown): WidgetData | null {
       : s?.kind === 'at' && str(s.isoTimestamp) ? { kind: 'at' as const, isoTimestamp: s.isoTimestamp as string }
       : null;
     const id = str(t.id); const title = str(t.title); const task = str(t.task); const when = str(t.when);
-    if (!schedule || !id || !title || !task || !when || (t.kind !== 'agent' && t.kind !== 'reminder')) return null;
-    return { kind: 'task', card: { id, title, task, when, kind: t.kind, schedule } };
+    if (!schedule || !id || !title || !task || !when || (t.kind !== 'agent' && t.kind !== 'reminder' && t.kind !== 'watch')) return null;
+    const source = isRec(t.watch) ? t.watch : null;
+    const watch = source && https(source.sourceUrl) && str(source.contains) ? {sourceUrl:source.sourceUrl as string,contains:source.contains as string,official:source.official === true} : undefined;
+    if (t.kind === 'watch' && (!watch || schedule.kind === 'at')) return null;
+    return { kind: 'task', card: { id, title, task, when, kind: t.kind, schedule, ...(watch ? {watch,expiryDays:num(t.expiryDays) ?? 30} : {}) } };
   }
   if (tool === 'todo_write' && isRec(data) && Array.isArray(data.items)) {
     // The store lists newest change first; a plan reads in the order it was written.
