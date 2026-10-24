@@ -4,7 +4,7 @@ import { events, type StreamProgressEvent } from '@/lib/tauri';
 import { useChat, type AgentPhase } from '@/stores/chat';
 import { useModel } from '@/stores/model';
 import { useCinderpawStore } from '@/stores/cinderpaw';
-import { StreamingIndicator } from '../StreamingIndicator';
+import { StreamingIndicator, WAIT_LINES } from '../StreamingIndicator';
 
 let emitAgent: (event: StreamProgressEvent) => void;
 const progress = (patch: Partial<StreamProgressEvent> = {}): StreamProgressEvent => ({
@@ -86,7 +86,14 @@ describe('StreamingIndicator', () => {
     render(<StreamingIndicator />);
     act(() => vi.advanceTimersByTime(5000));
     settle();
-    expect(screen.getByText('Thinking…')).toBeInTheDocument();
+    const first = screen.getByRole('status').textContent ?? '';
+    expect(first).not.toMatch(/loading a model/);
+    expect(WAIT_LINES).toContain(first);
+    // Seven seconds later the line has moved on, so a long wait never looks frozen.
+    act(() => vi.advanceTimersByTime(7000));
+    settle();
+    expect(screen.getByRole('status').textContent).not.toBe(first);
+    expect(WAIT_LINES).toContain(screen.getByRole('status').textContent);
   });
 
   it('restarts the slow-response grace period for a different chat', () => {
