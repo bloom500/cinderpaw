@@ -51,7 +51,9 @@ const en = {
   'home.intent.research.hint': 'Look into a topic and bring back sources',
   'home.intent.create.hint': 'Write, draft or make something new',
   'home.intent.analyze.hint': 'Make sense of a file, data or text',
-  'home.intent.automate.hint': 'Set something up to run on its own',
+  // Not "run on its own": nothing schedules a task from chat yet, and the agent
+  // said so when asked (24 Oct). Scheduled tasks are the next release.
+  'home.intent.automate.hint': 'Do a job in your browser or apps for you',
   // Truncated-response banner
   'chat.truncated.title': 'Response truncated.',
   'chat.truncated.body': 'The model hit its token limit before finishing',
