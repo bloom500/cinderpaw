@@ -973,7 +973,12 @@ export class AnthropicProvider implements InferenceProvider {
     }
     const reportedPrompt = raw.usage?.input_tokens;
     const reportedCompletion = raw.usage?.output_tokens;
-    const promptTokens = reportedPrompt ?? estimateTokens(req.messages);
+    // The whole context, as every other provider reports it: Anthropic's
+    // input_tokens is only the uncached half, so a cached chat read "~453 of
+    // 200,000" on the context ring (24 Oct). Cost still uses the halves below.
+    const promptTokens = reportedPrompt === undefined
+      ? estimateTokens(req.messages)
+      : reportedPrompt + (raw.usage?.cache_read_input_tokens ?? 0) + (raw.usage?.cache_creation_input_tokens ?? 0);
     const completionTokens = reportedCompletion ?? estimateText(content);
     return {
       content,
@@ -1004,7 +1009,7 @@ export class AnthropicProvider implements InferenceProvider {
       // distinguishable from "nothing was cached".
       ...(raw.usage?.cache_read_input_tokens !== undefined ||
       raw.usage?.cache_creation_input_tokens !== undefined
-        ? { freshPromptTokens: promptTokens }
+        ? { freshPromptTokens: reportedPrompt ?? promptTokens }
         : {}),
     };
   }
@@ -1161,7 +1166,10 @@ export class AnthropicProvider implements InferenceProvider {
       dc.cleanup();
     }
 
-    const promptTokens = reportedPrompt ?? estimateTokens(req.messages);
+    // Whole context: input_tokens is only the uncached half (see the non-streaming path).
+    const promptTokens = reportedPrompt === undefined
+      ? estimateTokens(req.messages)
+      : reportedPrompt + (cacheReadTokens ?? 0) + (cacheWriteTokens ?? 0);
     const completionTokens = reportedCompletion ?? estimateText(content);
     return {
       content,
@@ -1185,7 +1193,7 @@ export class AnthropicProvider implements InferenceProvider {
       // Same Anthropic dialect as the non-streaming path above: `input_tokens`
       // is already the uncached half.
       ...(cacheReadTokens !== undefined || cacheWriteTokens !== undefined
-        ? { freshPromptTokens: promptTokens }
+        ? { freshPromptTokens: reportedPrompt ?? promptTokens }
         : {}),
     };
   }
