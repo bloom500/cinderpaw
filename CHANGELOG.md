@@ -7,8 +7,17 @@
 
 ## 2026.10.25
 
-> It can do things later, and it still asks first. If you have 2026.10.19, it
-> updates by itself.
+> It can do things later, and it still asks first. On Windows and Mac, if you
+> have 2026.10.19, it updates by itself.
+
+**Linux: update by hand this time.** The tray icon now needs one more system
+library (`libayatana-appindicator3-1`). The automatic update cannot install it
+and would stop halfway, so on Linux this version does not update by itself.
+Download the file for your system from the release page and install it with
+your package manager, which brings the library too:
+
+- Ubuntu, Debian: `sudo apt install ./Cinderpaw_2026.10.25_amd64.deb`
+- Fedora: `sudo dnf install ./Cinderpaw-2026.10.25-1.x86_64.rpm`
 
 ### New
 
