@@ -90,11 +90,14 @@ export function streamRun(prev: Run | undefined, from: number, text: string, now
  *  while the text after it is still to appear. Undefined when nothing is moving. */
 export function revealedTo(runs: Run[], now: number): number | undefined {
   let end: number | undefined;
+  let waiting: number | undefined;
   for (const r of runs) {
-    const shown = now < r.at ? r.from : Math.min(r.to, r.from + Math.floor((now - r.at) / Math.max(r.per, 0.001)) + 1);
-    end = Math.max(end ?? 0, shown);
+    // A piece still queued behind the others has shown nothing: counting its
+    // start put the cursor where the model was, seconds ahead of the letters.
+    if (now < r.at) { waiting = Math.min(waiting ?? r.from, r.from); continue; }
+    end = Math.max(end ?? 0, Math.min(r.to, r.from + Math.floor((now - r.at) / Math.max(r.per, 0.001)) + 1));
   }
-  return end;
+  return end ?? waiting;
 }
 
 /** The letter's animation (delay, length) while it is still animating, else null. */

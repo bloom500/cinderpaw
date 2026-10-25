@@ -31,6 +31,13 @@ describe('streamRun', () => {
     expect(revealedTo([], 70)).toBeUndefined();
   });
 
+  it('a piece queued behind the letters does not pull the cursor ahead to it', () => {
+    const shown = streamRun(undefined, 0, 'x'.repeat(100), 0, 1000); // runs to 1200 ms
+    const queued = streamRun(shown, 100, 'x'.repeat(24), 40, 40); // starts at 1200 ms
+    expect(revealedTo([shown, queued], 70)).toBe(6);
+    expect(revealedTo([queued], 70)).toBe(100);
+  });
+
   it('shows a slow model at the readable 12 ms pace', () => {
     expect(streamRun(undefined, 0, 'abc', 0, 500).per).toBe(12);
   });
