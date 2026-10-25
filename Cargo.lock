@@ -1039,6 +1039,7 @@ dependencies = [
  "getrandom 0.2.17",
  "git2",
  "keyring",
+ "libloading 0.7.4",
  "log",
  "once_cell",
  "parking_lot",
