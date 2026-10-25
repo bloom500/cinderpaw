@@ -275,6 +275,57 @@ describe("paying on any site waits for the person", () => {
     }
   });
 
+  test("buttons that confirm a payment are asked about; payment settings are not", async () => {
+    for (const name of ["Confirm payment", "Complete payment", "Make a payment", "Submit payment", "Confirmă plata"]) {
+      const t = store(shop(name));
+      await t.tool.execute({ action: "snapshot" }, t.ctx);
+      expect({ name, res: await t.tool.execute({ action: "click", ref: "2" }, t.ctx) }).toMatchObject({ name, res: { error: "purchase_needs_approval" } });
+    }
+    const t = store(shop("Payment methods", "https://florarie.ro/cont"));
+    await t.tool.execute({ action: "snapshot" }, t.ctx);
+    expect((await t.tool.execute({ action: "click", ref: "2" }, t.ctx)).ok).toBe(true);
+  });
+
+  test("a form submitted on a cart or order page is asked about; a cartoon site is not", async () => {
+    for (const url of ["https://shop.ro/cart", "https://shop.ro/en/order/123", "https://laden.de/warenkorb"]) {
+      const t = store(shop("Continue", url));
+      await t.tool.execute({ action: "snapshot" }, t.ctx);
+      expect({ url, res: await t.tool.execute({ action: "type", ref: "1", text: "x", submit: true }, t.ctx) }).toMatchObject({ url, res: { error: "purchase_needs_approval" } });
+    }
+    const t = store(shop("Continue", "https://cartoons.example/border"));
+    await t.tool.execute({ action: "snapshot" }, t.ctx);
+    expect((await t.tool.execute({ action: "type", ref: "1", text: "x", submit: true }, t.ctx)).ok).toBe(true);
+  });
+
+  test("a control that both posts and pays asks about the money too", async () => {
+    const page = shop("Buy and share", "https://www.tiktok.com/shop/p/1");
+    const headers: string[] = [];
+    const calls: string[] = [];
+    const ctx = {
+      sessionId: "p2",
+      askUser: {
+        ask: async (qs: Array<{ header?: string }>) => {
+          headers.push(String(qs[0].header));
+          return [{ selected: [qs[0].header === "Publish" ? "Yes, post it" : "No, don't pay"] }];
+        },
+      },
+      desktopControl: { request: async (action: string) => { calls.push(action); return action === "browser.snapshot" ? page : { ok: true, url: page.url }; } },
+    } as never;
+    const tool = createBrowserTool();
+    await tool.execute({ action: "snapshot" }, ctx);
+    // A yes to posting is not a yes to paying: the Purchase card is asked too.
+    expect(await tool.execute({ action: "click", ref: "2" }, ctx)).toMatchObject({ ok: false, error: "purchase_declined" });
+    expect(headers).toEqual(["Publish", "Purchase"]);
+    expect(calls).toEqual(["browser.snapshot"]);
+  });
+
+  test("a click in the user's tab is judged by the user's page, not the agent's", async () => {
+    const t = store(shop("Tulip photos", "https://florarie.ro/galerie"));
+    await t.tool.execute({ action: "snapshot" }, t.ctx); // the agent's own tab
+    expect(await t.tool.execute({ action: "click", ref: "2", tab: "user" }, t.ctx)).toMatchObject({ ok: false, error: "bad_args" });
+    expect(t.calls).toEqual(["browser.snapshot"]);
+  });
+
   test("on a checkout page an unread control, or a submitted form, is asked about too", async () => {
     const t = store(shop("Continue", "https://florarie.ro/checkout/payment"));
     await t.tool.execute({ action: "open", url: "https://florarie.ro/checkout/payment" }, t.ctx);

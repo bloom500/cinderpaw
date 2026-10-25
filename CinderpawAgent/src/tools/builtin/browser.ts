@@ -95,10 +95,12 @@ const PUBLISH_WORD = /(?<!\p{L})(post|tweet|repl|repost|retweet|share|publi|send
 // about ("Place order", "Pay", "Buy now"), not "Add to cart" or "Checkout",
 // which spend nothing. Word starts, like PUBLISH_WORD, so other languages match.
 // ponytail: stems, not a dictionary; add a language's stem when one turns up.
-const PAY_WORD = /(?<!\p{L})(pay(?!ment)|buy|purchase|(place|complete|confirm|submit)( your)? order|order now|plăt|cumpăr|cumpar|plasea|finaliz|kaufen|bezahl|bestell|payer|acheter|valider (la|ma) commande|pagar|comprar|realizar pedido|confirmar pedido)/iu;
+const PAY_WORD = /(?<!\p{L})(pay(?!ment)|buy|purchase|(place|complete|confirm|submit)( your)? order|order now|(confirm|complete|make|submit|authori[sz]e)( a| the| your)? payment|confirm[aă] plata|plăt|cumpăr|cumpar|plasea|finaliz|kaufen|bezahl|bestell|payer|acheter|valider (la|ma) commande|pagar|comprar|realizar pedido|confirmar pedido)/iu;
 // On a page like this, a control it has not read, or a submitted form, may be the
-// one that pays.
-const CHECKOUT_PATH = /checkout|payment|pay\b|plata|comanda|kasse|paiement|pago/i;
+// one that pays. Cart and order pages too: some shops take the payment there.
+// ponytail: an address test; a one-page shop whose address names none of these
+// still pays unasked on a submitted form. Reading the form's button is the upgrade.
+const CHECKOUT_PATH = /checkout|payment|pay\b|plata|comanda|kasse|paiement|pago|(?<![a-z])(cart|basket|order|panier|carrito)s?(?![a-z])|warenkorb|bestell/i;
 
 function hostOf(url?: string): string | null {
   try { return url ? new URL(url).hostname : null; } catch { return null; }
@@ -194,7 +196,13 @@ export function createBrowserTool(): Tool {
       if (action !== "open" && args.tab === "user") params.tab = "user";
 
       const sid = ctx.sessionId ?? "";
-      const page = lastPage.get(sid);
+      // One page per tab: a click in the user's tab is judged by the user's page,
+      // never by what the agent last read in its own tab.
+      const tabKey = `${sid}\u0000${params.tab === "user" ? "user" : "own"}`;
+      const page = lastPage.get(tabKey);
+      if ((action === "click" || action === "type") && params.tab === "user" && !page) {
+        return fail('browser: take a snapshot of the user\'s tab first (tab: "user"), so you act on a control you have read.', "bad_args");
+      }
       const host = hostOf(page?.url);
       const social = Boolean(host && SOCIAL_HOST.test(host));
       let publishing = false;
@@ -227,7 +235,9 @@ export function createBrowserTool(): Tool {
           }
         }
       }
-      if ((action === "click" || action === "type") && host && !publishing) {
+      // Not `else`: a control can both post and pay ("Buy and share"); a yes to
+      // posting is not a yes to spending.
+      if ((action === "click" || action === "type") && host) {
         const control = page!.elements.find((e) => e.ref === params.ref);
         const checkout = CHECKOUT_PATH.test(page?.url ?? "");
         const paying = action === "click"
@@ -280,8 +290,8 @@ export function createBrowserTool(): Tool {
       }
       // What the agent last saw is what its next ref means. A new address
       // forgets the controls, so a blind click there counts as unknown.
-      if (action === "snapshot") lastPage.set(ctx.sessionId ?? "", { url: result.url, elements: result.elements ?? [] });
-      else if (result.url) lastPage.set(ctx.sessionId ?? "", { url: result.url, elements: [] });
+      if (action === "snapshot") lastPage.set(tabKey, { url: result.url, elements: result.elements ?? [] });
+      else if (result.url) lastPage.set(tabKey, { url: result.url, elements: [] });
 
       if (action === "snapshot") {
         // Controls and text are the page's: framed, scanned, and the session
