@@ -74,6 +74,28 @@ describe("What's new closes only on purpose", () => {
   });
 });
 
+describe("What's new after an update", () => {
+  it("someone who closed the last release's card sees this one at the first launch, and once only", async () => {
+    localStorage.clear();
+    localStorage.setItem('cinderpaw.whatsNew.seen', '2026-10-mycena');
+    persisted.load = async () => true;
+    // A launch is a fresh page: the card reads what was seen when it loads.
+    vi.resetModules();
+    const first = await import('../WhatsNew');
+    const view = render(<MemoryRouter><first.WhatsNew /></MemoryRouter>);
+    expect(await screen.findByText('It can do things later, and it still asks first')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Got it' }));
+    view.unmount();
+
+    vi.resetModules();
+    const next = await import('../WhatsNew');
+    render(<MemoryRouter><next.WhatsNew /></MemoryRouter>);
+    await tick();
+    expect(next.useWhatsNew.getState().due).toBe(false);
+    expect(screen.queryByText('It can do things later, and it still asks first')).toBeNull();
+  });
+});
+
 describe("What's new pages", () => {
   it('four tiles fill a page; the fifth starts the next one', () => {
     expect(toPages([1, 2, 3, 4]).map((p) => p.length)).toEqual([4]);
