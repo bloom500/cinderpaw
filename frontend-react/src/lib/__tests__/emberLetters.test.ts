@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { IN_MS, chunkRun, editRuns, letterDelay, liveUntil, revealedTo, streamRun, unshown, type Run } from '@/lib/emberLetters';
+import { IN_MS, chunkRun, editRuns, emberActive, letterDelay, liveUntil, revealedTo, streamRun, unshown, type Run } from '@/lib/emberLetters';
 
 describe('streamRun', () => {
   it('starts a piece where the letters of the piece before stop', () => {
@@ -36,6 +36,12 @@ describe('streamRun', () => {
     const queued = streamRun(shown, 100, 'x'.repeat(24), 40, 40); // starts at 900 ms
     expect(revealedTo([shown, queued], 70)).toBe(8);
     expect(revealedTo([queued], 70)).toBe(100);
+  });
+
+  it('a paragraph whose letters have settled stops moving, though the rest of its piece is still coming', () => {
+    const whole = streamRun(undefined, 0, 'x'.repeat(5000), 0, 0); // one piece, about 9 ms a letter
+    expect(emberActive({ runs: [whole], now: 5000 }, 0, 100)).toBe(false);
+    expect(emberActive({ runs: [whole], now: 5000 }, 500, 600)).toBe(true);
   });
 
   it('letters still queued are not drawn: only what has started is on the page', () => {

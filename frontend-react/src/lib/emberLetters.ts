@@ -139,7 +139,10 @@ export function liveUntil(runs: Run[]): number {
 /** Whether anything in source offsets `[from, to)` is still moving. */
 export function emberActive(e: Ember, from: number, to: number): boolean {
   if (e.out?.some(([a, b]) => a < to && b > from)) return true;
-  return e.runs.some((r) => r.from < to && r.to > from && liveUntil([r]) + SLACK_MS > e.now);
+  // Until this range's own last letter has settled, not the run's: a document
+  // that arrives in one piece is one run, and every paragraph already written
+  // counted as moving and was parsed again on each tick, more as it grew (25 Oct).
+  return e.runs.some((r) => r.from < to && r.to > from && liveUntil([{ ...r, to: Math.min(to, r.to) }]) + SLACK_MS > e.now);
 }
 
 type Mark = 'out' | { delay: number; dur: number } | null;
