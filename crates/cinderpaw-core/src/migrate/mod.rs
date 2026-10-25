@@ -188,6 +188,7 @@ pub fn leftovers(found: &Found) -> Vec<String> {
         data.env
             .keys()
             .filter(|k| !keys::ENV_KEYS.iter().any(|(v, _)| v == k))
+            .filter(|k| !connections::env_vars().any(|v| v == k.as_str()))
             .map(|k| format!(".env {k} — not an AI key Cinderpaw knows; set it by hand if a skill needs it")),
     );
     out

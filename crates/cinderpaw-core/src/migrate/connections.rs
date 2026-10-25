@@ -103,6 +103,14 @@ pub fn handled() -> impl Iterator<Item = &'static str> {
     PLATFORMS.iter().map(|p| p.id)
 }
 
+/// `.env` variables this module brings over (tokens and allowlists), so they
+/// are not also listed as left behind.
+pub fn env_vars() -> impl Iterator<Item = &'static str> {
+    PLATFORMS
+        .iter()
+        .flat_map(|p| p.env.iter().map(|(v, _)| *v).chain((!p.allow_env.is_empty()).then_some(p.allow_env)))
+}
+
 /// A string setting, with `${VAR}` resolved from `env`; anything else (a
 /// number, an array of relays) as text.
 fn value(v: &serde_json::Value, env: &BTreeMap<String, String>) -> Option<String> {
