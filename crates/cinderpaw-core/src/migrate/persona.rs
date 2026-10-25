@@ -32,6 +32,37 @@ pub struct PlanItem {
     /// pairs, so it cannot drift from the plan that was shown.
     #[serde(skip)]
     pub source: PathBuf,
+    /// What apply does for this item. Never serialised: a key's secret must
+    /// not reach the plan the UI shows.
+    #[serde(skip)]
+    pub action: Action,
+}
+
+/// How an item lands.
+#[derive(Clone)]
+pub enum Action {
+    /// Copy `source` (file or folder) to `target`.
+    Copy,
+    /// Write this text to `target` (memory notes, see `memory.rs`).
+    Write(String),
+    /// Save an AI provider key in Cinderpaw's key store (see `keys.rs`).
+    Key { provider: String, secret: String, base_url: Option<String> },
+    /// Add a chat connection, switched off (see `connections.rs`).
+    Connector { id: String, secrets: std::collections::BTreeMap<String, String>, allowlist: Vec<String> },
+    /// Write the source's old conversations into `dir` (see `conversations.rs`).
+    Conversations { root: PathBuf, source: Source, dir: PathBuf },
+}
+
+impl std::fmt::Debug for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Action::Copy => f.write_str("Copy"),
+            Action::Write(t) => write!(f, "Write({} bytes)", t.len()),
+            Action::Key { provider, .. } => write!(f, "Key({provider}, secret hidden)"),
+            Action::Connector { id, allowlist, .. } => write!(f, "Connector({id}, {} allowed, secrets hidden)", allowlist.len()),
+            Action::Conversations { dir, .. } => write!(f, "Conversations(into {})", dir.display()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -60,16 +91,12 @@ fn deferred_files(source: Source) -> &'static [(&'static str, &'static str)] {
     match source {
         Source::OpenClaw => &[
             ("workspace/AGENTS.md", "OpenClaw's working manual; Cinderpaw keeps its own"),
-            ("workspace/USER.md", "notes about you; tell Cinderpaw in chat, memory import comes later"),
-            ("workspace/MEMORY.md", "memory import comes later"),
             ("workspace/TOOLS.md", "notes about OpenClaw's tools"),
             ("workspace/HEARTBEAT.md", "OpenClaw's check-in schedule; use Cinderpaw's schedules instead"),
             ("workspace/BOOTSTRAP.md", "OpenClaw's first-run script"),
         ],
         Source::Hermes => &[
             ("AGENTS.md", "Hermes Agent's working manual; Cinderpaw keeps its own"),
-            ("memories/MEMORY.md", "memory import comes later"),
-            ("memories/USER.md", "notes about you; tell Cinderpaw in chat, memory import comes later"),
         ],
     }
 }
@@ -110,6 +137,7 @@ pub fn plan_persona_into(found: &Found, cinderpaw_dir: &Path, overwrite: bool) -
             target: dst.display().to_string(),
             note: dst.exists().then(|| "overwrites existing".to_string()),
             source: src,
+            action: Action::Copy,
         });
     }
 
@@ -125,6 +153,28 @@ pub fn plan_persona_into(found: &Found, cinderpaw_dir: &Path, overwrite: bool) -
 pub fn apply(plan: &Plan) -> Result<Vec<String>> {
     let mut done = Vec::new();
     for item in &plan.will_import {
+        if let Action::Key { provider, secret, base_url } = &item.action {
+            let config = crate::byok::ProviderConfig {
+                enabled: true,
+                api_key: secret.clone(),
+                base_url: base_url.clone(),
+                default_model: None,
+            };
+            crate::byok::save_provider(provider, config).with_context(|| format!("saving the {provider} key"))?;
+            done.push(item.what.clone());
+            continue;
+        }
+        if let Action::Conversations { root, source, dir } = &item.action {
+            let chats = super::conversations::find_chats(*source, root);
+            super::conversations::write_chats(&chats, dir, false).context("writing the old conversations")?;
+            done.push(item.what.clone());
+            continue;
+        }
+        if let Action::Connector { id, secrets, allowlist } = &item.action {
+            super::connections::save(id, secrets, allowlist).with_context(|| format!("adding the {id} connection"))?;
+            done.push(item.what.clone());
+            continue;
+        }
         let dst = Path::new(&item.target);
         if dst.exists() {
             std::fs::create_dir_all(&plan.backup_dir)
@@ -138,8 +188,11 @@ pub fn apply(plan: &Plan) -> Result<Vec<String>> {
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        copy_all(&item.source, dst)
-            .with_context(|| format!("copying {} to {}", item.source.display(), dst.display()))?;
+        match &item.action {
+            Action::Write(text) => std::fs::write(dst, text).with_context(|| format!("writing {}", dst.display()))?,
+            _ => copy_all(&item.source, dst)
+                .with_context(|| format!("copying {} to {}", item.source.display(), dst.display()))?,
+        }
         done.push(item.what.clone());
     }
     Ok(done)
@@ -288,16 +341,21 @@ mod tests {
         assert!(!home.path().join("AGENTS.md").exists());
     }
 
-    /// Hermes memory markdown is out of scope for this increment, so it has to
-    /// show up as deferred rather than disappear.
+    /// Hermes' own working manual stays behind and says so; its memory is
+    /// memory.rs's job now and no longer listed here.
     #[test]
-    fn hermes_memory_markdown_is_reported_not_dropped() {
+    fn hermes_agents_md_is_reported_not_dropped() {
         let tmp = tempdir().unwrap();
         let root = tmp.path().join("hermes");
         fs::create_dir_all(root.join("memories")).unwrap();
-        fs::write(root.join("config.yaml"), "{}\n").unwrap();
-        fs::write(root.join("SOUL.md"), "# theirs\n").unwrap();
-        fs::write(root.join("memories").join("MEMORY.md"), "notes\n").unwrap();
+        fs::write(root.join("config.yaml"), "{}
+").unwrap();
+        fs::write(root.join("SOUL.md"), "# theirs
+").unwrap();
+        fs::write(root.join("AGENTS.md"), "# their manual
+").unwrap();
+        fs::write(root.join("memories").join("MEMORY.md"), "notes
+").unwrap();
         let found = Found {
             source: Source::Hermes,
             root: root.clone(),
@@ -309,7 +367,7 @@ mod tests {
         let plan = plan_persona_into(&found, home.path(), false);
 
         assert_eq!(plan.will_import.len(), 1, "SOUL.md only");
-        assert_eq!(plan.not_imported.len(), 1, "MEMORY.md present, USER.md is not");
-        assert!(plan.not_imported[0].starts_with("memories/MEMORY.md — "));
+        assert_eq!(plan.not_imported.len(), 1, "AGENTS.md; MEMORY.md is imported by memory.rs");
+        assert!(plan.not_imported[0].starts_with("AGENTS.md — "));
     }
 }

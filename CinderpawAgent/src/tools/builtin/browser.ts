@@ -90,6 +90,18 @@ const SOCIAL_HOST = /(^|\.)(x\.com|twitter\.com|instagram\.com|facebook\.com|thr
 // only when the control is unread. Add its stem when one turns up.
 const PUBLISH_WORD = /(?<!\p{L})(post|tweet|repl|repost|retweet|share|publi|send|upload|comment|koment|coment|trimi|distribui|răspun|teil|antwort|veröffentl|partag|compart|envo|envi|répon|respon)/iu;
 
+// Spending the person's money is theirs to decide too, on ANY site: saved cards
+// and logins make one click a real order. Only the button that pays is asked
+// about ("Place order", "Pay", "Buy now"), not "Add to cart" or "Checkout",
+// which spend nothing. Word starts, like PUBLISH_WORD, so other languages match.
+// ponytail: stems, not a dictionary; add a language's stem when one turns up.
+const PAY_WORD = /(?<!\p{L})(pay(?!ment)|buy|purchase|(place|complete|confirm|submit)( your)? order|order now|(confirm|complete|make|submit|authori[sz]e)( a| the| your)? payment|confirm[aă] plata|plăt|cumpăr|cumpar|plasea|finaliz|kaufen|bezahl|bestell|payer|acheter|valider (la|ma) commande|pagar|comprar|realizar pedido|confirmar pedido)/iu;
+// On a page like this, a control it has not read, or a submitted form, may be the
+// one that pays. Cart and order pages too: some shops take the payment there.
+// ponytail: an address test; a one-page shop whose address names none of these
+// still pays unasked on a submitted form. Reading the form's button is the upgrade.
+const CHECKOUT_PATH = /checkout|payment|pay\b|plata|comanda|kasse|paiement|pago|(?<![a-z])(cart|basket|order|panier|carrito)s?(?![a-z])|warenkorb|bestell/i;
+
 function hostOf(url?: string): string | null {
   try { return url ? new URL(url).hostname : null; } catch { return null; }
 }
@@ -131,7 +143,8 @@ export function createBrowserTool(): Tool {
       "post. Keep under the network's limit or Post stays greyed out: X 280 characters " +
       "(a link counts as 23) unless they say they have Premium, Threads 500, LinkedIn 3000. " +
       "Count before you open the page. The user presses Post. Pressing it yourself, or any publish control on a " +
-      "social site, asks them first, and is refused when nobody is there.",
+      "social site, asks them first, and is refused when nobody is there. Shopping: fill the cart and checkout, " +
+      "then pressing the button that pays (Place order, Pay, Buy now) on any site asks them first too.",
     permissions: [],
     // The requests are the page's, made by the webview in the host, not by this
     // process; there is nothing for the egress proxy to see or to allow.
@@ -183,7 +196,13 @@ export function createBrowserTool(): Tool {
       if (action !== "open" && args.tab === "user") params.tab = "user";
 
       const sid = ctx.sessionId ?? "";
-      const page = lastPage.get(sid);
+      // One page per tab: a click in the user's tab is judged by the user's page,
+      // never by what the agent last read in its own tab.
+      const tabKey = `${sid}\u0000${params.tab === "user" ? "user" : "own"}`;
+      const page = lastPage.get(tabKey);
+      if ((action === "click" || action === "type") && params.tab === "user" && !page) {
+        return fail('browser: take a snapshot of the user\'s tab first (tab: "user"), so you act on a control you have read.', "bad_args");
+      }
       const host = hostOf(page?.url);
       const social = Boolean(host && SOCIAL_HOST.test(host));
       let publishing = false;
@@ -216,6 +235,35 @@ export function createBrowserTool(): Tool {
           }
         }
       }
+      // Not `else`: a control can both post and pay ("Buy and share"); a yes to
+      // posting is not a yes to spending.
+      if ((action === "click" || action === "type") && host) {
+        const control = page!.elements.find((e) => e.ref === params.ref);
+        const checkout = CHECKOUT_PATH.test(page?.url ?? "");
+        const paying = action === "click"
+          ? (control ? PAY_WORD.test(control.name) : checkout)
+          : params.submit === true && checkout;
+        if (paying) {
+          const what = action === "type" ? "submit the form" : `press "${control?.name ?? "a control it has not read"}"`;
+          if (!canAskAHuman(Boolean(ctx.askUser))) {
+            return fail(`browser: refused. This would ${what} on ${host}, which may spend the user's money, and nobody is here to approve it. Leave it for the user.`, "purchase_needs_approval");
+          }
+          const [answer] = await ctx.askUser!.ask([{
+            question: `Cinderpaw wants to ${what} on ${host}. This may spend your money. Allow it?`,
+            header: "Purchase",
+            multiSelect: false,
+            // Their money: never auto-answered.
+            forceEscalate: true,
+            options: [
+              { label: "Yes, pay", description: "Allow this one action." },
+              { label: "No, don't pay", description: "Nothing is bought." },
+            ],
+          }], ctx.sessionId);
+          if (!(answer?.selected?.[0]?.toLowerCase().startsWith("yes") ?? false)) {
+            return fail(`browser: the user declined paying on ${host}. Do not try again; tell them the order is ready for them to place.`, "purchase_declined");
+          }
+        }
+      }
 
       let data: unknown;
       try {
@@ -242,8 +290,8 @@ export function createBrowserTool(): Tool {
       }
       // What the agent last saw is what its next ref means. A new address
       // forgets the controls, so a blind click there counts as unknown.
-      if (action === "snapshot") lastPage.set(ctx.sessionId ?? "", { url: result.url, elements: result.elements ?? [] });
-      else if (result.url) lastPage.set(ctx.sessionId ?? "", { url: result.url, elements: [] });
+      if (action === "snapshot") lastPage.set(tabKey, { url: result.url, elements: result.elements ?? [] });
+      else if (result.url) lastPage.set(tabKey, { url: result.url, elements: [] });
 
       if (action === "snapshot") {
         // Controls and text are the page's: framed, scanned, and the session

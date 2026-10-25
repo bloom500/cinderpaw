@@ -384,7 +384,7 @@ fn paste_key_flow(token: &str) -> Option<(Value, Value)> {
 
 // ── Tiny prompt helpers ──────────────────────────────────────────────────────
 
-/// Coming from OpenClaw or Hermes Agent: offer their personality and skills
+/// Coming from OpenClaw or Hermes Agent: offer their personality, memory and skills
 /// before the model step, from the same plan `cinderpaw migrate` prints.
 /// Silent for anyone who has neither.
 fn offer_import() {
@@ -394,12 +394,7 @@ fn offer_import() {
         if plan.will_import.is_empty() {
             continue;
         }
-        let skills = plan.will_import.iter().filter(|i| i.what.starts_with("skill: ")).count();
-        let what = match (plan.will_import.len() > skills, skills) {
-            (true, 0) => "its personality".to_string(),
-            (true, n) => format!("its personality and {n} skill(s)"),
-            (false, n) => format!("{n} skill(s)"),
-        };
+        let what = cinderpaw_core::migrate::summary(&plan);
         println!("\n  {ACCENT}Found {}{RESET} at {}", found.source.label(), found.root.display());
         println!("  {META}I can bring over {what}. The full list: cinderpaw migrate --dry-run{RESET}");
         if !confirm("Bring it over?", true) {

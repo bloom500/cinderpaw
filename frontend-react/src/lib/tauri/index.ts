@@ -875,6 +875,8 @@ export interface MigrateFound {
   source: string;
   root: string;
   version: string | null;
+  /** "its personality, its memory and 12 skills" (cinderpaw-core `migrate::summary`). */
+  summary: string;
   plan: {
     willImport: { what: string; target: string; note: string | null }[];
     notImported: string[];
