@@ -1737,7 +1737,7 @@ export async function boot(transportOverride?: Transport) {
   const taskPrice = withModelPrices(priceResolverFromJson(cfgPath("CINDERPAW_AUTONOMOUS_PRICING_JSON")));
   const watchEgress = new EgressProxy(audit.logger, { trustedLocalOrigins: [] });
   // What an import left while the agent was not running is filed now, so its
-  // tasks show under Schedules before anyone starts a conversation.
+  // tasks show under Tasks before anyone starts a conversation.
   try {
     const filed = ingestImports(join(CINDERPAW_HOME, "import"), { notes: notesStore, cron: cronRepo });
     if (filed) log(`import: filed ${filed} note(s) and task(s) from another agent`);

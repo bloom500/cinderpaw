@@ -31,7 +31,7 @@ export function ImportCard() {
       setState('done');
       // Chat apps and scheduled tasks arrive off: two programs running one bot or one job fight over it.
       const off = done.some((w) => w.startsWith('chat: ') || w.startsWith('schedule: '))
-        ? ` Chat apps and scheduled tasks came over turned off; turn them on in Connectors and Schedules once ${found.source} is stopped.`
+        ? ` Chat apps and scheduled tasks came over turned off; turn them on in Connectors and Tasks once ${found.source} is stopped.`
         : '';
       setMessage(`Brought over ${done.length} item${done.length === 1 ? '' : 's'}. Your ${found.source} setup was only read, never changed.${off}`);
     } catch (e) {

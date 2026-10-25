@@ -181,7 +181,7 @@ pub fn plan_schedules_into(found: &Found, cinderpaw_dir: &std::path::Path, overw
             continue;
         }
         let line = json!({ "kind": "schedule", "id": format!("import-{src}-{safe}"), "text": job.name, "task": job.task, "schedule": job.schedule });
-        let mut note = vec!["off until you turn it on in Schedules; the old agent may still run it".to_string()];
+        let mut note = vec!["off until you turn it on in Tasks; the old agent may still run it".to_string()];
         note.extend(job.note);
         plan.will_import.push(PlanItem {
             what: format!("schedule: {}", job.name),
