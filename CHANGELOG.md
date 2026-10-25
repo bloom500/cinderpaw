@@ -42,6 +42,16 @@
   on every drive, and still asks before it deletes something it cannot undo.
   The folder with your keys stays closed to it, and commands known to wipe a
   disk are refused.
+- **It asks before it pays.** Cinderpaw can fill a cart for you in its
+  browser, but pressing the button that pays (**Place order**, **Pay**, **Buy
+  now**) on any site shows you a card first, and nothing is bought until you
+  press **Yes, pay**. If nobody is there to answer, it does not pay.
+- **Coming from OpenClaw or Hermes Agent?** During setup, Cinderpaw offers to
+  bring your things over: personality, skills, memory, your AI keys (only if
+  you say yes), your chat apps, your scheduled tasks and your old
+  conversations, which you can read in the sidebar. Chat apps and tasks arrive
+  turned off, so the old agent and Cinderpaw don't both answer. Stop the old
+  one, then turn them on in **Connectors** and **Tasks**.
 - **It asks before it changes how it practises.** After its Dreams, Cinderpaw
   shows the one change it wants to make, before and after, and nothing changes
   until you say yes. Dreams stay off until you turn them on in

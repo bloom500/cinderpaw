@@ -39,6 +39,11 @@ github.com/bloom500/cinderpaw, community Discord discord.gg/eqvfVRD6y7.
 - `cinderpaw setup --classic` — full step-by-step wizard (hardware probe, local
   vs cloud choice, model download, provider key, health checks).
 - The desktop app runs an equivalent onboarding wizard on first launch.
+- Coming from OpenClaw or Hermes Agent: setup offers to bring over the
+  personality, skills, memory, AI keys (only on the person's yes), chat
+  connections, scheduled tasks and old conversations (an archive to read in
+  the sidebar). Chat apps and tasks arrive turned off so the old agent and
+  Cinderpaw do not answer twice; they turn them on in Connectors and Tasks.
 - A one-time security acknowledgement is shown: Cinderpaw runs with the user's
   permissions, so shared/multi-user machines should be locked down.
 
@@ -175,6 +180,10 @@ default is **Can edit files**. A change applies to the next step, no restart.
   commands run anywhere. Deleting what cannot be undone still asks a person,
   the folders holding Cinderpaw's state and keys stay closed, and commands
   known to wipe a disk are refused.
+
+In every mode, pressing the button that pays on a site in the browser (Place
+order, Pay, Buy now) asks the person first; with nobody there to answer, it is
+refused. Filling a cart or opening checkout does not ask.
 
 You cannot change the mode yourself. If a task needs more, say which mode it
 needs and where to pick it.
