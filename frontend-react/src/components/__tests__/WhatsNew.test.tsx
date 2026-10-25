@@ -42,7 +42,7 @@ describe("What's new closes only on purpose", () => {
   it('the X is the button its always-visible chip styles reach', async () => {
     render(<WhatsNew />);
     useWhatsNew.getState().show();
-    await screen.findByText('Calmer, and it asks first');
+    await screen.findByText('It can do things later, and it still asks first');
     const x = screen.getByRole('button', { name: 'Close' });
     // The chip is set on the dialog as [&>button:last-child]; if the dialog
     // component ever moves its X, this fails instead of the X going dark again.
@@ -53,7 +53,7 @@ describe("What's new closes only on purpose", () => {
   it('a click outside the card does not close it; Got it does', async () => {
     render(<WhatsNew />);
     useWhatsNew.getState().show();
-    expect(await screen.findByText('Calmer, and it asks first')).toBeTruthy();
+    expect(await screen.findByText('It can do things later, and it still asks first')).toBeTruthy();
     await tick();
     fireEvent.pointerDown(document.body);
     fireEvent.mouseDown(document.body);
@@ -66,7 +66,7 @@ describe("What's new closes only on purpose", () => {
   it("for someone who updated: What's new holds the notice turn until it is closed", async () => {
     useWhatsNew.setState({ due: null });
     render(<MemoryRouter><WhatsNew /></MemoryRouter>);
-    expect(await screen.findByText('Calmer, and it asks first')).toBeTruthy();
+    expect(await screen.findByText('It can do things later, and it still asks first')).toBeTruthy();
     expect(useAttention.getState().holder).toBe('whatsNew');
     fireEvent.click(screen.getByRole('button', { name: 'Got it' }));
     await new Promise((r) => setTimeout(r, 0));

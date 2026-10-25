@@ -36,14 +36,14 @@ export const WHATS_NEW_DECIDE_MS = 3_000;
  * second page. `wide` alternates the column widths row by row.
  */
 const RELEASE = {
-  id: '2026-10-mycena',
+  id: '2026-10-25-later',
   date: 'October 2026',
-  title: 'Calmer, and it asks first',
+  title: 'It can do things later, and it still asks first',
   tiles: [
-    { tone: 'var(--brand)', title: 'You choose what it may do', shot: '/releases/2026-10/access', wide: false },
-    { tone: 'var(--success)', title: 'It asks before it changes how it practises', shot: '/releases/2026-10/approve', wide: true },
-    { tone: 'var(--info)', title: 'One notice at a time', shot: '/releases/2026-10/notices', wide: true },
-    { tone: 'var(--warning)', title: 'Memory waits for your first answer', shot: '/releases/2026-10/download', wide: false },
+    { tone: 'var(--brand)', title: 'Ask it to do something later', shot: '/releases/2026-10-25/later', wide: false },
+    { tone: 'var(--success)', title: 'It watches a page and tells you', shot: '/releases/2026-10-25/watch', wide: true },
+    { tone: 'var(--warning)', title: 'It asks before it pays', shot: '/releases/2026-10-25/pay', wide: true },
+    { tone: 'var(--info)', title: 'Bring everything from OpenClaw or Hermes', shot: '/releases/2026-10-25/import', wide: false },
   ],
   // ponytail: no recap video yet; the "Watch the recap" link appears once this is set.
   recap: null as string | null,
