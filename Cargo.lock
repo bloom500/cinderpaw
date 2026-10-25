@@ -1033,6 +1033,7 @@ dependencies = [
  "bytes",
  "chrono",
  "cinderpaw-core",
+ "cinderpaw-tray",
  "dirs 5.0.1",
  "encoding_rs",
  "futures",
@@ -1157,6 +1158,13 @@ dependencies = [
  "uuid",
  "whisper-rs",
  "zip 9.0.5",
+]
+
+[[package]]
+name = "cinderpaw-tray"
+version = "2026.10.26"
+dependencies = [
+ "tauri",
 ]
 
 [[package]]
