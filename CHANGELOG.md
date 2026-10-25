@@ -5,6 +5,32 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
+## 2026.10.26
+
+> Documents are written calmly to the end, and Linux updates by itself again.
+
+### Fixed
+
+- **A long document no longer rushes at the end or freezes the panel.** Ask
+  for a PDF or any document and you see it written at an even, readable pace,
+  about 110 letters a second, from the first letter to the last, with any AI
+  model: one that writes slowly, one that writes very fast, or one that sends
+  the whole document at once. Before, the end of a long document came in a
+  blink and the panel could stutter.
+- **The writing cursor stays on the last letter you can see**, instead of
+  jumping ahead to where the AI had got to.
+- **Linux updates by itself again.** If you have 2026.10.25 or older, it
+  updates like on Windows and Mac. The tray icon next to the clock uses
+  `libayatana-appindicator3-1`: most desktops have it already. Without it,
+  Cinderpaw still works, and closing the window quits it instead of keeping
+  it in the tray.
+
+### New
+
+- **What's new shows this update's biggest changes**, once, the first time you
+  open Cinderpaw after updating: tasks for later, page watches, asking before
+  it pays, and bringing your things over from OpenClaw or Hermes.
+
 ## 2026.10.25
 
 > It can do things later, and it still asks first. On Windows and Mac, if you

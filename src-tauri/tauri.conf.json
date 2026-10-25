@@ -57,14 +57,14 @@
     "linux": {
       "deb": {
         "depends": ["git"],
-        "recommends": ["xdotool"],
+        "recommends": ["xdotool", "libayatana-appindicator3-1"],
         "conflicts": ["feral"],
         "replaces": ["feral"],
         "files": { "/usr/bin/feral": "linux/feral" }
       },
       "rpm": {
         "depends": ["git"],
-        "recommends": ["xdotool"],
+        "recommends": ["xdotool", "libayatana-appindicator3.so.1()(64bit)"],
         "obsoletes": ["feral"],
         "files": { "/usr/bin/feral": "linux/feral" }
       }
