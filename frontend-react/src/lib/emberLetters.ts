@@ -38,9 +38,15 @@ const MAX_CHUNK_MS = 600;
  *  too fast to follow, and the more letters glow at once the more the page
  *  works (24 Oct): the text is all here, the page plays it back, like a reel. */
 const MIN_PER_MS = 12;
-/** ...but the letters never trail the model by more than this: past it they
- *  keep pace again, so a long document does not keep writing for a minute. */
-const MAX_BEHIND_MS = 10_000;
+/** ...until the letters trail the model by this much: past it they speed up,
+ *  so a very long document does not keep writing for minutes. At 10 s a
+ *  3,000-letter PDF from Haiku showed its first 800 letters at 80 a second and
+ *  dumped the other 2,000 at the model's 500 a second, a blink that also lit
+ *  a hundred letters at once and made the page lag (25 Oct, the release). */
+const MAX_BEHIND_MS = 60_000;
+/** Past the cap they still never go faster than about 200 a second (5 ms a
+ *  letter): the model's own pace was the blink and the lag. */
+const MAX_PER_MS = 5;
 /** A letter counts as finished a little after its animation ends, so the span
  *  is never taken away while the last frame is still painting. */
 const SLACK_MS = 50;
@@ -76,7 +82,7 @@ export function streamRun(prev: Run | undefined, from: number, text: string, now
   const len = Math.max(1, text.length);
   const natural = Math.min(STAGGER_MS, Math.min(gap, MAX_CHUNK_MS) / len);
   const room = (now + MAX_BEHIND_MS - at) / len;
-  const per = Math.max(natural, Math.min(MIN_PER_MS, room));
+  const per = Math.max(natural, Math.min(MIN_PER_MS, Math.max(MAX_PER_MS, room)));
   return { from, to: from + text.length, at, per, dur: runDur(per) };
 }
 
