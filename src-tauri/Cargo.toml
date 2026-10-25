@@ -19,13 +19,11 @@ tauri-build = { version = "2", features = [] }
 # `unstable`: multiwebview (Window::add_child), which the built-in browser needs
 # to put a web page inside the main window. See src/browser.rs.
 # `devtools`: the built-in browser has an Inspect button, like every browser.
-# The tray comes in through this crate's own `tray` feature (default), not this
-# list: the Tauri CLI reads this list (and `--features`) and then makes a Linux
-# .deb/.rpm REQUIRE the appindicator library. The in-app updater installs with
-# `dpkg -i` / `rpm -U`, which bring no dependencies, so 2026.10.25 stopped
-# half-installed on every Linux box without it. tauri.conf.json recommends it
-# instead, and tray.rs checks for it before making the tray.
+# The tray comes in through crates/cinderpaw-tray, not this list: the Tauri CLI
+# reads this manifest and then makes a Linux .deb/.rpm REQUIRE the appindicator
+# library (see that crate's Cargo.toml).
 tauri = { version = "2", features = ["protocol-asset", "unstable", "devtools"] }
+cinderpaw-tray = { path = "../crates/cinderpaw-tray" }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 # Native message box for the one failure that happens before a window exists
@@ -162,9 +160,7 @@ regex = "1"
 # of what asked for them. Off by default means `cargo build` works on every
 # platform a contributor might have; the Windows and macOS jobs turn them on
 # explicitly, which is also exactly where they ship.
-default = ["inference", "tray"]
-# Required by tray.rs: every desktop build ships with it (see the tauri line).
-tray = ["tauri/tray-icon"]
+default = ["inference"]
 # CPU-only baseline (works everywhere; slow for larger models).
 inference = ["cinderpaw-core/inference"]
 # GPU backends — additive on top of `inference`. Pick at most ONE per build
