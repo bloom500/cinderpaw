@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { AnthropicProvider, anthropicEffort, anthropicSampling, openAIReasoning } from "../src/egress/inference-providers";
+import { AnthropicProvider, anthropicEffort, anthropicMaxTokens, anthropicSampling, openAIReasoning } from "../src/egress/inference-providers";
 import type { InferenceRequest, ModelTarget } from "../src/types";
 
 const realFetch = globalThis.fetch;
@@ -253,4 +253,23 @@ describe("tools cached on their own", () => {
       expect((tools[1] as Record<string, unknown>).cache_control).toBeUndefined();
     });
   }
+});
+
+describe("anthropicMaxTokens", () => {
+  test("current Claude models get the full 128K", () => {
+    for (const m of ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1",
+      "claude-opus-4-8", "claude-opus-4-6", "claude-sonnet-4-6"]) {
+      expect(anthropicMaxTokens(target(m), req)).toBe(128_000);
+    }
+  });
+
+  test("older models get 32K, which they all accept (128K is a 400 there)", () => {
+    for (const m of ["claude-haiku-4-5", "claude-opus-4-1-20250805", "claude-sonnet-4-5-20250929", "claude-something-next"]) {
+      expect(anthropicMaxTokens(target(m), req)).toBe(32_000);
+    }
+  });
+
+  test("an explicit cap still wins", () => {
+    expect(anthropicMaxTokens(target("claude-haiku-5-5"), { ...req, maxTokens: 500 })).toBe(500);
+  });
 });

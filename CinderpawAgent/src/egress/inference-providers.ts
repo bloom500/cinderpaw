@@ -947,7 +947,7 @@ export class AnthropicProvider implements InferenceProvider {
       // 128K output, Sonnet 4.6 supports 8K. The model stops naturally
       // when it's done — max_tokens is just the ceiling, not a target.
       // The user's explicit override always wins.
-      max_tokens: req.maxTokens ?? 128_000,
+      max_tokens: anthropicMaxTokens(target, req),
       messages: userMessages,
       ...anthropicSampling(target, req),
       ...anthropicEffort(target, req),
@@ -1038,7 +1038,7 @@ export class AnthropicProvider implements InferenceProvider {
       : split.systemText;
     const body: Record<string, unknown> = {
       model: target.model,
-      max_tokens: req.maxTokens ?? 128_000,
+      max_tokens: anthropicMaxTokens(target, req),
       messages: userMessages,
       ...anthropicSampling(target, req),
       ...anthropicEffort(target, req),
@@ -1766,6 +1766,18 @@ export function anthropicEffort(target: ModelTarget, req: InferenceRequest): { o
   return req.reasoningEffort && ANTHROPIC_TAKES_EFFORT.test(target.model)
     ? { output_config: { effort: req.reasoningEffort } }
     : {};
+}
+
+// Anthropic requires max_tokens and answers a value above the model's own
+// output limit with a 400. Opus/Sonnet 4.6 and every 5-series model take 128K;
+// the older ones top out between 32K and 64K, so an older or unknown-old name
+// gets 32K, which all of them accept. The app used to send 4096 with every
+// message, which hid this and cut long documents off (25 Oct).
+const ANTHROPIC_128K_OUTPUT =
+  /^claude-(?:opus-4-[6-9]|sonnet-4-[6-9]|(?:opus|sonnet|haiku|fable|mythos)-[5-9](?:-\d+)?)(?:-\d{8})?$/;
+
+export function anthropicMaxTokens(target: ModelTarget, req: InferenceRequest): number {
+  return req.maxTokens ?? (ANTHROPIC_128K_OUTPUT.test(target.model) ? 128_000 : 32_000);
 }
 
 /**
