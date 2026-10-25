@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { IN_MS, chunkRun, editRuns, letterDelay, liveUntil, revealedTo, streamRun, type Run } from '@/lib/emberLetters';
+import { IN_MS, chunkRun, editRuns, letterDelay, liveUntil, revealedTo, streamRun, unshown, type Run } from '@/lib/emberLetters';
 
 describe('streamRun', () => {
   it('starts a piece where the letters of the piece before stop', () => {
@@ -8,13 +8,13 @@ describe('streamRun', () => {
     expect(streamRun(first, 4, 'efgh', 50, 50).at).toBe(50);
   });
 
-  it('a 3,000-letter PDF from a fast model is written at ~80 a second to its last letter', () => {
+  it('a 3,000-letter PDF from a fast model is written at ~110 a second to its last letter', () => {
     // 24 letters every 40 ms is 600 a second (Haiku 5.5). With a 10 s cap the
     // release showed 800 letters at 80 a second, then the rest in a blink (25 Oct).
     let run = chunkRun(0, 'x'.repeat(24), 0);
     for (let k = 1; k < 125; k++) {
       run = streamRun(run, 24 * k, 'x'.repeat(24), 40 * k, 40);
-      expect(run.per).toBe(12);
+      expect(run.per).toBe(9);
     }
   });
 
@@ -25,26 +25,34 @@ describe('streamRun', () => {
   });
 
   it('the cursor stands on the last letter shown, not at the end of the text', () => {
-    const r = streamRun(undefined, 0, 'x'.repeat(100), 0, 1000); // 12 ms a letter: letters 0..5 have started by 70 ms
-    expect(revealedTo([r], 70)).toBe(6);
+    const r = streamRun(undefined, 0, 'x'.repeat(100), 0, 1000); // 9 ms a letter: letters 0..7 have started by 70 ms
+    expect(revealedTo([r], 70)).toBe(8);
     expect(revealedTo([r], 5000)).toBe(100);
     expect(revealedTo([], 70)).toBeUndefined();
   });
 
   it('a piece queued behind the letters does not pull the cursor ahead to it', () => {
-    const shown = streamRun(undefined, 0, 'x'.repeat(100), 0, 1000); // runs to 1200 ms
-    const queued = streamRun(shown, 100, 'x'.repeat(24), 40, 40); // starts at 1200 ms
-    expect(revealedTo([shown, queued], 70)).toBe(6);
+    const shown = streamRun(undefined, 0, 'x'.repeat(100), 0, 1000); // runs to 900 ms
+    const queued = streamRun(shown, 100, 'x'.repeat(24), 40, 40); // starts at 900 ms
+    expect(revealedTo([shown, queued], 70)).toBe(8);
     expect(revealedTo([queued], 70)).toBe(100);
   });
 
-  it('shows a slow model at the readable 12 ms pace', () => {
-    expect(streamRun(undefined, 0, 'abc', 0, 500).per).toBe(12);
+  it('letters still queued are not drawn: only what has started is on the page', () => {
+    const shown = streamRun(undefined, 0, 'x'.repeat(100), 0, 1000);
+    const queued = streamRun(shown, 100, 'x'.repeat(24), 40, 40);
+    expect(unshown([shown, queued], 70)).toEqual([8, 124]);
+    expect(unshown([shown, queued], 60_000)).toBeUndefined();
+    expect(unshown([], 70)).toBeUndefined();
+  });
+
+  it('shows a slow model at the readable 9 ms pace', () => {
+    expect(streamRun(undefined, 0, 'abc', 0, 500).per).toBe(9);
   });
 
   it('a letter settles while about 40 more arrive: a short trail, never hundreds', () => {
     expect(streamRun(undefined, 0, 'abc', 0, 500).dur).toBe(350);
-    // 600 letters a second: shown at the 12 ms pace, a 350 ms trail at most.
+    // 600 letters a second: shown at the 9 ms pace, a 350 ms trail at most.
     expect(streamRun(undefined, 0, 'x'.repeat(24), 0, 40).dur).toBe(350);
   });
 });

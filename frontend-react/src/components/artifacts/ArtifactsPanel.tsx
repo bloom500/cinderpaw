@@ -10,7 +10,7 @@ import {
   ArtifactTitle,
 } from '@/components/ai-elements/artifact';
 import { Markdown } from '@/lib/markdown';
-import { emberText, liveUntil, revealedTo, type Ember } from '@/lib/emberLetters';
+import { emberText, liveUntil, revealedTo, unshown, type Ember } from '@/lib/emberLetters';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SelectMenu } from '@/components/ui/select-menu';
 import { LiveFrame } from './LiveFrame';
@@ -741,12 +741,13 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
   // A fast model's letters are paced and trail the text: the cursor sits on the
   // last letter shown, not ahead of letters that have not appeared yet.
   const caretAt = live?.writing && !leaving
-    ? Math.min(content.slice(0, writingEnd).trimEnd().length, revealedTo(live.runs, now) ?? Infinity)
+    ? content.slice(0, Math.min(writingEnd, revealedTo(live.runs, now) ?? Infinity)).trimEnd().length
     : undefined;
   const ember: Ember | undefined = live
     ? { runs: leaving ? [] : live.runs, out: leaving?.ranges, now, ...(caretAt !== undefined ? { caret: { at: caretAt, name: agentName } } : {}) }
     : undefined;
-  const text = leaving ? leaving.content : content;
+  const queued = live && !leaving ? unshown(live.runs, now) : undefined;
+  const text = leaving ? leaving.content : queued ? content.slice(0, queued[0]) + content.slice(queued[1]) : content;
   // While it is written, anything that is not prose shows as its source: a page
   // or a board half written cannot be drawn, and a frame reloaded on every
   // letter would flicker. A PDF is written as markdown.

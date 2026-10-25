@@ -32,12 +32,12 @@ const STAGGER_MS = 7;
 /** A chunk's whole stagger, at most: a document that arrives in one piece
  *  (Ollama, Gemini) would otherwise take 9 ms x 10,000 letters to appear. */
 const MAX_CHUNK_MS = 600;
-/** The fastest a stream is shown, about 80 letters a second. A fast model
+/** The fastest a stream is shown, about 110 letters a second. A fast model
  *  (Haiku 5.5, 600 a second) otherwise put a whole table down in a blink and
  *  nobody saw it written (23 Oct, his recording). At 200 a second it was still
- *  too fast to follow, and the more letters glow at once the more the page
- *  works (24 Oct): the text is all here, the page plays it back, like a reel. */
-const MIN_PER_MS = 12;
+ *  too fast to follow (24 Oct); 110 is his pick from a side-by-side of 45, 60,
+ *  80 and 110 on a real PDF (25 Oct): "fast enough and comfy". */
+const MIN_PER_MS = 9;
 /** ...until the letters trail the model by this much: past it they speed up,
  *  so a very long document does not keep writing for minutes. At 10 s a
  *  3,000-letter PDF from Haiku showed its first 800 letters at 80 a second and
@@ -98,6 +98,19 @@ export function revealedTo(runs: Run[], now: number): number | undefined {
     end = Math.max(end ?? 0, Math.min(r.to, r.from + Math.floor((now - r.at) / Math.max(r.per, 0.001)) + 1));
   }
   return end ?? waiting;
+}
+
+/**
+ * Source offsets `[from, to)` whose letters have not started yet: the queue a
+ * fast model left behind. They are not drawn at all. Drawn invisible and
+ * blurred, each waiting for its turn, they were parsed again on every tick of
+ * the clock, so the page lagged more the longer the queue was (25 Oct).
+ */
+export function unshown(runs: Run[], now: number): [number, number] | undefined {
+  const at = revealedTo(runs, now);
+  if (at === undefined) return undefined;
+  const to = Math.max(...runs.map((r) => r.to));
+  return at < to ? [at, to] : undefined;
 }
 
 /** The letter's animation (delay, length) while it is still animating, else null. */
