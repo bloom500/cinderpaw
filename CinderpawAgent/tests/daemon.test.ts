@@ -45,6 +45,15 @@ describe("unkeptWriteClaims", () => {
     expect(await unkeptWriteClaims("I created mod.ts and mod.test.ts.", dir)).toEqual(["mod.test.ts"]);
   });
 
+  test("a file whose name has spaces is not accused by its first word (25 Oct)", async () => {
+    // The path pattern stops at a space, so "...\5-Day Dinner Plan.pdf" was
+    // read as "...\5-Day", found missing, and the agent was told it had lied.
+    const dir = await workspace();
+    await writeFile(join(dir, "5-Day Dinner Plan.pdf"), "pdf");
+    const answer = `I saved the PDF at ${join(dir, "5-Day Dinner Plan.pdf")}.`;
+    expect(await unkeptWriteClaims(answer, dir)).toEqual([]);
+  });
+
   test("mentioning a missing file without claiming to have written it is silent", async () => {
     const dir = await workspace();
     expect(await unkeptWriteClaims("I could not find config.json in the project.", dir)).toEqual([]);
