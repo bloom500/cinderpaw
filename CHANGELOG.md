@@ -5,6 +5,111 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
+## 2026.10.25
+
+> It can do things later, and it still asks first. If you have 2026.10.19, it
+> updates by itself.
+
+### New
+
+- **Ask it to do something later.** Say "remind me in 3 minutes to stretch".
+  Cinderpaw shows a card with the time, and nothing is scheduled until you
+  press **Create task**. Reminders are free: they use no AI. The new **Tasks**
+  page lists your tasks, where you can pause, change or delete them and see
+  what each one did.
+- **It can watch a page for you.** Ask it to tell you when a page says
+  something, like a price or "in stock". It reads the page itself and tells
+  you only when the words are really there. A watch stops after 30 days
+  unless you renew it, and it costs nothing.
+- **Each task has a spending limit** you can change, $5 to start. Reminders
+  and watches cost $0.
+- **Closing the window keeps your tasks running.** Cinderpaw stays in the
+  tray, next to the clock, so reminders still arrive. To stop everything,
+  choose **Quit** from the tray icon. On a Mac, click it in the Dock to open
+  the window again.
+- **When a task is done, a small note in the corner tells you,** and it stays
+  until you press **Got it**.
+- **Picking up where you left off.** When a chat ended with work unfinished,
+  Cinderpaw may suggest going back to it: at most one card every 4 hours and
+  three a day. It never starts the work again by itself.
+- **Ask for a PDF and you get a formatted document** that downloads as a PDF.
+  Tables come out as tables.
+- **The home screen** gives each choice five everyday jobs to start from.
+
+- **You choose what it may do.** Under the box where you type, pick **Look
+  only**, **Can edit files** or **Full access**. Look only reads files and the
+  web and changes nothing on your computer. Full access works in every folder,
+  on every drive, and still asks before it deletes something it cannot undo.
+  The folder with your keys stays closed to it, and commands known to wipe a
+  disk are refused.
+- **It asks before it changes how it practises.** After its Dreams, Cinderpaw
+  shows the one change it wants to make, before and after, and nothing changes
+  until you say yes. Dreams stay off until you turn them on in
+  **Settings → Learning**.
+- **Connect a service with its link and key.** In **Capabilities → Add your
+  own**, paste the link a service gives for AI assistants and its key, then
+  press Connect. Nothing else needs to be installed. Or ask in the chat:
+  "connect Publora, here is the link", and Cinderpaw connects it after you
+  press Connect on a card. When it needs a key, a password field appears in
+  the chat: the key is saved on your computer and never goes to the AI.
+- **Notion, Linear and other services that use a sign-in connect too.** Paste
+  the link and press Connect: your browser opens their sign-in page, you press
+  Allow, and they connect. Nothing to set up on their side, nothing else to
+  install. Cinderpaw keeps the sign-in fresh by itself. The Linear, Jira &
+  Confluence and Intercom cards in Capabilities connect this way now too, so
+  they no longer need Node.js on your computer.
+- **"Something you should know."** When Cinderpaw finds something important
+  while it works, a small bar above the box where you type tells you, and it
+  keeps working. Press **I already knew this** and it flags less of the obvious.
+- **One notice at a time.** What's new, the update card and the usage question
+  now take turns, in the same card, in the same top-right corner.
+- **You see when a service is connected.** A card shows its logo next to
+  Cinderpaw's and what it can now do, whether you connected it in
+  Capabilities or in the chat.
+- **Cubby has 16 new drawings.** It looks at you, turns its head, thinks with
+  a paw on its chin, reads, searches with a lens, writes and talks on the
+  phone, and it changes drawings so it does not repeat the same one. It wags
+  its tail in every one, its paw writes and talks, and its eyes follow the
+  lines it reads. While you type, it types along at its laptop; while you
+  record a voice message, it leans in and listens.
+- **What's new shows a picture of each change.**
+- **Kimi has two choices:** Kimi Code (subscription) and Kimi API (Moonshot,
+  pay per use), each with the right place to get its key.
+
+### Fixed
+
+- **A request for later waits for you.** When you give a time or say
+  "later", Cinderpaw offers a card instead of doing it right away.
+- **It answers in the language you just wrote in,** even when it remembers
+  you in another one.
+- **Claude on your own Anthropic key** starts on the first try and sends less
+  with every message, because the tool list goes out once and is cached.
+- **Documents are written in order,** at a pace you can read, to the end.
+- **After a restart, the model picker names the model in use,** and says
+  Starting while it loads.
+- **The window can be moved** while it loads and during the first setup.
+- **Your first answer comes sooner.** The memory download (630 MB) waits until
+  your first reply has finished.
+- **Chats stay where you left them.** Switching chats quickly no longer shows
+  the wrong one, and messages you queued are still there when you come back.
+- **Long writing keeps up.** Documents appear in parts as they are written, and
+  the panel no longer falls behind.
+- **A narrow window shows the chat or the side panel,** not both squeezed.
+- **The command card shows the result** and says why a command failed. Its
+  prompt looks like your own computer's: Windows, Mac or Linux.
+- **Leaving a fullscreen video is faster:** about 0.8 seconds instead of 2.2 on
+  Windows. On a Mac the video now fills the screen.
+- **Models:** Hugging Face cards stay in place when one opens, and the
+  Downloads and compatibility popups are no longer see-through.
+- **Deleting a model Windows keeps locked works now.** Cinderpaw deletes it the
+  next time it starts, before any model loads.
+- **Clicks on sites like Reddit work.** When Cinderpaw clicks a link on a page
+  that changes without reloading, it now lands on the new page instead of
+  going back to the old one.
+- **A step where Cinderpaw used an app says what it did,** not "1 file".
+- **Security:** updated parts with known security problems (zip, webpki,
+  follow-redirects, vite, DOMPurify).
+
 ## 2026.10.19
 
 > A small update with fixes. If you have 2026.10.16, it updates by itself.

@@ -253,6 +253,24 @@ describe("CronJobsRepo", () => {
     repo.setEnabled(job.id, true);
     expect(repo.get(job.id)?.enabled).toBe(true);
   });
+
+  test("a job turned back on after its time passed is scheduled from now, not fired late", () => {
+    const job = repo.upsert(makeInput({ schedule: { kind: "every", intervalMs: 3_600_000 } }));
+    repo.setEnabled(job.id, false);
+    repo.updateAfterRun(job.id, 1, 1_000, { runAt: 1, status: "success", durationMs: 1 }, 0); // a next run long gone
+    const before = Date.now();
+    repo.setEnabled(job.id, true);
+    expect(repo.get(job.id)!.nextRunMs!).toBeGreaterThanOrEqual(before + 3_600_000);
+  });
+
+  test("a reminder keeps its kind; every other job is an agent job", () => {
+    const reminder = repo.upsert({ ...makeInput(), kind: "reminder" });
+    expect(repo.get(reminder.id)!.kind).toBe("reminder");
+    // Renaming without saying the kind keeps it a reminder.
+    repo.upsert({ ...makeInput(), id: reminder.id, name: "renamed" });
+    expect(repo.get(reminder.id)!.kind).toBe("reminder");
+    expect(repo.upsert(makeInput()).kind).toBe("agent");
+  });
 });
 
 // ─── Delivery ──────────────────────────────────────────────────────────────

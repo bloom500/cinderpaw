@@ -14,6 +14,7 @@ import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
 import { UpdateToast } from '@/components/UpdateToast';
 import { ShareUsageCard } from '@/components/usage/ShareUsageCard';
 import { WhatsNew } from '@/components/WhatsNew';
+import { ConnectedDialog } from '@/components/ConnectedDialog';
 import { Toasts } from '@/components/Toasts';
 import { CoworkApprovalDock } from '@/components/CoworkApprovalDock';
 import { SkillHubDrawer } from '@/components/SkillHubDrawer';
@@ -89,6 +90,7 @@ export function AppShell() {
           list never came back and the gallery loaded for good (20 Oct). */}
       <CinderpawGlobalMount />
       <WhatsNew />
+      <ConnectedDialog />
       {/* pt-14 on main clears the floating nav. The nav is translucent and sits
           over the page by design, but "over" must not mean "on top of the chat
           title": the page starts below it, so what shows through the glass is

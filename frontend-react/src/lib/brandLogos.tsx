@@ -22,6 +22,17 @@ const LOGOS: Record<string, string> = Object.fromEntries(
 /** Catalog ids that are the same company. */
 const SAME_AS: Record<string, string> = { zalouser: 'zalo' };
 
+/**
+ * The logo id for a service, also when it was added by its link: "Add your own"
+ * names Notion `custom-mcp-notion-com`, which has no file, while its name or a
+ * piece of its address does. '' when nothing matches (the tile shows the initial).
+ */
+export function brandIdFor(id: string, name: string): string {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const candidates = [SAME_AS[id] ?? id, slug, ...id.split(/[-_.]/)];
+  return candidates.find((c) => c && LOGOS[c]) ?? '';
+}
+
 /** The canvas's Connect board: a 40px raised tile with a hairline, the mark or initial centred in it. */
 export function BrandLogo({ id, name, className }: { id: string; name: string; className?: string }) {
   const key = SAME_AS[id] ?? id;

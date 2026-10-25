@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AccountCard } from './AccountCard';
 import { tauri, type ConnectorAccount } from '@/lib/tauri';
+import { useConnected } from '@/stores/connected';
 
 /**
  * The accounts list, and the loop that makes a pairing code mean something.
@@ -59,6 +60,15 @@ export function ConnectorAccounts() {
         for (const id of ids) {
           const updated = await tauri.connectors.pairPoll(id);
           merge(updated);
+          // Only pairing accounts are polled, so "connected" here is the moment it happened.
+          if (updated.status === 'connected') {
+            const name = id.charAt(0).toUpperCase() + id.slice(1);
+            useConnected.getState().show({
+              name,
+              logoId: id,
+              body: updated.display_name ? `Signed in as ${updated.display_name}. Cinderpaw can use it now.` : 'Cinderpaw can use it now.',
+            });
+          }
         }
       } catch (e) {
         // A failed poll is not a failed pairing — the next tick may well work,

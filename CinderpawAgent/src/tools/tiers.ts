@@ -115,6 +115,31 @@ export const EXTENDED_TOOLS = new Set<string>([
   // `browser` is NOT here, on the same evidence as delegate_task above: in the
   // drawer the model never reached for it on its own, and a browser it has to
   // ask for by name is a browser it drives only when told to.
+  // 24 Oct, by the audit log (30 days): admin tools nobody asks for in a chat,
+  // 0 calls, and the runtime self-checks, 1-12 calls a month each, rode along
+  // on every completion of every chat. Their names stay in the capability
+  // index, so the agent still knows they exist; `self_status` and
+  // `self_describe` stay core as the front door to the rest.
+  "cinderpaw_admin",
+  "connectors_pair",
+  "cowork_create_teammate",
+  "cowork_remove_teammate",
+  "cowork_update_teammate",
+  "create_skill",
+  "custom_tool",
+  "delete_skill",
+  "install_capability",
+  "self_connectors",
+  "self_dreams",
+  "self_genome",
+  "self_health",
+  "self_lora",
+  "self_memory",
+  "self_progress",
+  "self_providers",
+  "self_runtime",
+  "self_subsystem",
+  "self_tools",
   // code-quality family (code-quality.ts CodeQualityKind)
   "run_tests",
   "format_code",
@@ -156,7 +181,12 @@ export const CONNECTOR_TOOLS = new Set<string>([
  * "an allow-list that omits it". A session gets these only when it has no
  * profile at all.
  */
-export const OWNER_ONLY_TOOLS = new Set<string>(["notebook"]);
+// extension_connect gives the agent a new server's tools: a stranger messaging
+// the bot must never be the one who picks that server.
+// suggest_task puts a "Create task" card on the screen of whoever is chatting:
+// on a connector that is a stranger, and the task would run on this machine.
+// task_spending_limit is the owner's money.
+export const OWNER_ONLY_TOOLS = new Set<string>(["notebook", "extension_connect", "suggest_task", "task_spending_limit"]);
 
 /** True when this tool must be withheld from any profiled (non-owner) session. */
 export const isOwnerOnlyTool = (name: string): boolean => OWNER_ONLY_TOOLS.has(name);

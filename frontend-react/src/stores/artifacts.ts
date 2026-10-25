@@ -917,7 +917,9 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
         content: e.append,
         showing: 0,
         versions: [],
-        live: { runs: e.append ? [chunkRun(0, e.append, now)] : [], writing: { turn: e.id, sessionId: e.sessionId }, came: now },
+        // Paced like every later piece: as one chunk a big first piece was all on
+        // screen in 0.6 s, the whole page at once (24 Oct).
+        live: { runs: e.append ? [streamRun(undefined, 0, e.append, now, 0)] : [], writing: { turn: e.id, sessionId: e.sessionId }, came: now },
       },
     });
   },
@@ -961,11 +963,30 @@ function liveAfter(prev: OpenArtifact, row: ArtifactRow, content: string, encodi
   if (encoding === 'base64' || prev.encoding === 'base64') return undefined;
   if (prev.row.version === 0 && prev.live && !prev.live.stopped) {
     if (prev.content === content) return { runs: prev.live.runs };
-    if (prev.content === '') return content ? { runs: [chunkRun(0, content, Date.now())] } : undefined;
+    if (prev.content === '') return content ? { runs: [streamRun(undefined, 0, content, Date.now(), 0)] } : undefined;
     // Saved with a little more than was written: the date and name the engine
     // puts under the title come in like the rest of the writing.
     const diff = editRuns(prev.content, content, Date.now());
-    return diff && diff.out.length === 0 ? { runs: diff.runs } : undefined;
+    if (!diff || diff.out.length > 0) return undefined;
+    // Letters still to come keep coming, moved past what the save added: a
+    // fast model's are paced and can trail the text by seconds.
+    const later = (r: Run) => diff.runs.reduce((n, d) => (d.from <= r.from + n ? n + d.to - d.from : n), 0);
+    const now = Date.now();
+    const pending = prev.live.runs.filter((r) => liveUntil([r]) > now).map((r) => {
+      const n = later(r);
+      return { ...r, from: r.from + n, to: r.to + n };
+    });
+    // What the save adds after the draft's text (the draft often carried only
+    // the start) is written after the letters still coming, at their pace. As
+    // its own fast run, section 2 stood finished while section 1 was still
+    // being written (24 Oct). A line added above (the date) keeps its own run.
+    let tail = pending.reduce<Run | undefined>((a, r) => (!a || r.to > a.to ? r : a), undefined);
+    const added = diff.runs.map((d) => {
+      if (!tail || d.from < tail.to) return d;
+      tail = streamRun(tail, d.from, content.slice(d.from, d.to), now, 0);
+      return tail;
+    });
+    return { runs: [...pending, ...added] };
   }
   // A part already written in place: the saved version is what is on screen.
   if (prev.live?.edit && prev.row.id === row.id && prev.content === content) return { runs: prev.live.runs };

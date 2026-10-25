@@ -63,6 +63,12 @@ describe('modelLabel', () => {
     expect(modelLabel('Qwen3-4B-Instruct.gguf')).toBe('Qwen3 4B Instruct');
   });
 
+  it('reads a dashed version as one number, and leaves a date alone', () => {
+    expect(modelLabel('claude-haiku-5-5')).toBe('Claude Haiku 5.5');
+    expect(modelLabel('claude-3-5-sonnet-20241022')).toBe('Claude 3.5 Sonnet 20241022');
+    expect(modelLabel('gpt-4o-2024-08-06')).toBe('Gpt 4o 2024 08 06');
+  });
+
   it('says nothing rather than something when there is no id', () => {
     expect(modelLabel(undefined)).toBe('');
     expect(modelLabel('')).toBe('');

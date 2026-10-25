@@ -76,6 +76,13 @@ export interface ToolManifest {
    */
   allowAnyCwd?: boolean;
   /**
+   * The general file tools (read, write, edit, list, search, grep): in
+   * `full_access` mode a path outside `allowedPaths` is accepted. The deny
+   * wall (~/.cinderpaw, ~/.ssh) still applies. Tools with their own folder
+   * (skills, artifacts, leads) never set it.
+   */
+  fullAccessReach?: boolean;
+  /**
    * Optional retry policy for transient failures. The registry retries the
    * tool up to `attempts` times after the initial call (so total calls =
    * 1 + attempts). Retries happen with linear backoff (250ms × attempt).
@@ -1186,7 +1193,16 @@ export type DeliveryTarget =
 /** One row in a job's run history. Capped to the most recent 50 entries. */
 import type { DoneWhen } from "./cron/done-when.ts";
 
+export interface WatchCondition {
+  sourceUrl: string;
+  contains: string;
+  /** User-selected source preference, never inferred authority. */
+  official?: boolean;
+}
+
 export interface CronRunRecord {
+  costUsd?: number;
+  proof?: { sourceUrl: string; checkedAt: number; excerpt: string; contentHash: string };
   runAt: number;
   /**
    * `incomplete` = the agent ran but stopped with work outstanding (the turn
@@ -1194,7 +1210,7 @@ export interface CronRunRecord {
    * there IS usable partial output, and it is delivered — but the run must not
    * count as a success or a job could report finished work it never did.
    */
-  status: "success" | "incomplete" | "failed" | "timeout" | "budget_exceeded" | "skipped";
+  status: "success" | "incomplete" | "failed" | "timeout" | "budget_exceeded" | "skipped" | "waiting" | "expired" | "running";
   durationMs: number;
   result?: string;
   error?: string;
@@ -1221,6 +1237,12 @@ export interface CronJob {
   maxRetries: number;
   /** Current consecutive failure count; reset to 0 on success. */
   retryCount: number;
+  /** `reminder`: delivers `task` as written, no model call, no cost. Default `agent`. */
+  kind: "agent" | "reminder" | "watch";
+  watch?: WatchCondition;
+  expiresAt?: number;
+  budgetUsd?: number;
+  spentUsd?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -1236,6 +1258,10 @@ export interface CronJobInput {
   enabled?: boolean;
   doneWhen?: DoneWhen | null;
   maxRetries?: number;
+  kind?: "agent" | "reminder" | "watch";
+  watch?: WatchCondition;
+  expiryDays?: number;
+  budgetUsd?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -1568,6 +1594,10 @@ export interface InboundMessage {
   headsUpChoice?: "more" | "knew" | "dismiss";
   // ask_user_response fields (all present when type === "ask_user_response")
   /** Matches the id of the original "ask_user" outbound event. */
+  /** Explicit desktop task subscriber requesting unfinished-work suggestions. */
+  followUps?: boolean;
+  /** cron_list: set the weekly task limit first (number, or null = none). */
+  taskLimit?: { weeklyUsd: number | null };
   requestId?: string;
   answers?: AskUserAnswer[];
   // ask_user_cancel fields (all present when type === "ask_user_cancel")
@@ -1637,11 +1667,12 @@ export interface AskUserQuestion {
   preview?: string;
   /**
    * A secret the person types into a password card (request_secret, spec
-   * 2026-09-24 §6.2). Only a surface that renders cards (the local web page)
-   * is ever sent one; the page saves the value straight to the engine and
-   * answers "Saved" or "Cancel", so the value never reaches the agent.
+   * 2026-09-24 §6.2). Only a surface that renders cards (the local web page,
+   * the desktop app) is ever sent one; the card saves the value itself and
+   * answers "Saved" or "Cancel", so the value never reaches the agent. The
+   * extension form (a service's link + key) is sent to the desktop app only.
    */
-  secret?: { connector: string; field: string };
+  secret?: { connector: string; field: string } | { extensionUrl: string; extensionName?: string };
 }
 
 export interface AskUserAnswer {
@@ -1716,7 +1747,7 @@ export type OutboundEvent =
       find?: string;
       traceId?: string;
     }
-  | { type: "proactive"; content: string; traceId?: string }
+  | { type: "proactive"; content: string; followUp?: { id: string; sessionId: string; mission: string }; traceId?: string }
   | { type: "model_set"; provider: string; model: string }
   | { type: "model_error"; message: string; traceId?: string }
   /**
@@ -2281,7 +2312,8 @@ export type OutboundEvent =
       id: string;
       ok: boolean;
       error?: string;
-      jobs: Array<{ id: string; name: string; task: string; schedule: Schedule; enabled: boolean; nextRunMs?: number; lastRunMs?: number }>;
+      jobs: Array<Pick<CronJob, "id" | "name" | "task" | "schedule" | "enabled" | "nextRunMs" | "lastRunMs" | "kind" | "history" | "watch" | "expiresAt" | "budgetUsd" | "spentUsd">>;
+      taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number };
     }
   // Dream Cycle lifecycle — emitted by the host when an evolutionary episode
   // starts (`phase:"started"`) and ends (`phase:"ended"`). Forwarded verbatim

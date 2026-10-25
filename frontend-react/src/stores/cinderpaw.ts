@@ -40,6 +40,10 @@ interface CinderpawStore {
   setModel(selection: CinderpawModelSelection): Promise<void>;
 }
 
+/** The model in use answers from the internet (a key), not from this machine. */
+export const onCloudModel = (s: Pick<CinderpawStore, 'modelConfig'>): boolean =>
+  !!s.modelConfig?.base_url && !/^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(s.modelConfig.base_url);
+
 export const useCinderpawStore = create<CinderpawStore>((set) => ({
   modelConfig: null,
   isReady: false,

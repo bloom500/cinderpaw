@@ -707,6 +707,7 @@ mod tests {
             cinderpaw_agent_planned_exit: StdArc::new(PlMutex::new(None)),
             events_tx: tokio::sync::broadcast::channel(16).0,
             active_agent_model: StdArc::new(PlMutex::new(None)),
+            active_agent_route: StdArc::new(PlMutex::new(None)),
             shutdown: StdArc::new(tokio::sync::Notify::new()),
             // Sprint 2 / audit C-5 — in-flight model-download map. Tests
             // start empty; `runtime_models_install` populates it on the

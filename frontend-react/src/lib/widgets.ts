@@ -21,7 +21,22 @@ export type WidgetData =
   | { kind: 'verdict'; title?: string; text: string }
   /** Not drawn in place: chips at the end of the latest reply (spec 7.5). */
   | { kind: 'followups'; next: string[] }
+  /** Not drawn in place: a task the agent offered (`suggest_task`), closing its reply. */
+  | { kind: 'task'; card: TaskCard }
   | { kind: 'list'; title?: string; lines: string[] };
+
+/** What `suggest_task` offers. Nothing exists until the person presses Create. */
+export interface TaskCard {
+  id: string;
+  title: string;
+  task: string;
+  kind: 'agent' | 'reminder' | 'watch';
+  watch?: { sourceUrl: string; contains: string; official?: boolean };
+  expiryDays?: number;
+  budgetUsd?: number;
+  schedule: { kind: 'cron'; expression: string } | { kind: 'every'; intervalMs: number } | { kind: 'at'; isoTimestamp: string };
+  when: string;
+}
 
 type Rec = Record<string, unknown>;
 const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -133,6 +148,21 @@ export function parseWidget(data: unknown): WidgetData | null {
 export function widgetOf(tool: string, result: unknown): WidgetData | null {
   const data = (result as { data?: unknown } | null)?.data;
   if (tool === 'show_widget') return parseWidget(data);
+  if (tool === 'suggest_task' && isRec(data) && isRec(data.taskSuggestion)) {
+    // Read again, like every saved widget: a schedule the app cannot name is no card.
+    const t = data.taskSuggestion;
+    const s = isRec(t.schedule) ? t.schedule : null;
+    const schedule = s?.kind === 'cron' && str(s.expression) ? { kind: 'cron' as const, expression: s.expression as string }
+      : s?.kind === 'every' && num(s.intervalMs) ? { kind: 'every' as const, intervalMs: s.intervalMs as number }
+      : s?.kind === 'at' && str(s.isoTimestamp) ? { kind: 'at' as const, isoTimestamp: s.isoTimestamp as string }
+      : null;
+    const id = str(t.id); const title = str(t.title); const task = str(t.task); const when = str(t.when);
+    if (!schedule || !id || !title || !task || !when || (t.kind !== 'agent' && t.kind !== 'reminder' && t.kind !== 'watch')) return null;
+    const source = isRec(t.watch) ? t.watch : null;
+    const watch = source && https(source.sourceUrl) && str(source.contains) ? {sourceUrl:source.sourceUrl as string,contains:source.contains as string,official:source.official === true} : undefined;
+    if (t.kind === 'watch' && (!watch || schedule.kind === 'at')) return null;
+    return { kind: 'task', card: { id, title, task, when, kind: t.kind, schedule, ...(watch ? {watch,expiryDays:num(t.expiryDays) ?? 30} : {}) } };
+  }
   if (tool === 'todo_write' && isRec(data) && Array.isArray(data.items)) {
     // The store lists newest change first; a plan reads in the order it was written.
     const byCreation = (data.items as unknown[]).filter(isRec)

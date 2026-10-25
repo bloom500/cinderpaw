@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
-import { CinderpawMascot } from '../CinderpawMascot';
+import { CinderpawMascot, pickScene } from '../CinderpawMascot';
 import { VARIANTS, type MascotState } from '../frames';
 import { SCENES } from '../scenes';
 
@@ -71,14 +71,42 @@ describe('CinderpawMascot (SVG)', () => {
     }
   });
 
-  it('draws every traced pose whole: a body, a face window and two eyes, on the ground', () => {
+  it('draws every traced pose whole: a body, a face window and its open eyes, on the ground', () => {
+    // Open eyes only: in profile one shows, behind the lens one hides, and the
+    // happy closed ones are drawn as part of the pose and never blink.
+    const openEyes: Record<string, number> = { thinkProfile: 1, search: 1, doneFront: 0, doneProfile: 0 };
     for (const [name, scene] of Object.entries(SCENES)) {
       expect(scene.base.sil.length, name).toBeGreaterThan(200);
       expect(scene.face.length, name).toBeGreaterThan(50);
-      expect(scene.eyes, name).toHaveLength(2);
+      expect(scene.eyes, name).toHaveLength(openEyes[name] ?? 2);
       // Soles on the perch line: nothing drawn much below y=111.
       const ys = [...scene.base.sil.matchAll(/[ML](-?[\d.]+) (-?[\d.]+)/g)].map((m) => Number(m[2]));
       expect(Math.max(...ys), name).toBeLessThan(112);
     }
+  });
+
+  // The newer drawings first shipped without moving parts: a stiff Cubby next
+  // to the seven originals that wag (Darius, 23 Oct: "lame af").
+  it('every drawing has a tail of its own to wag, and the writing paw takes its pencil along', () => {
+    for (const [name, scene] of Object.entries(SCENES)) {
+      expect(scene.parts.tail?.sil.length, name).toBeGreaterThan(100);
+    }
+    expect(SCENES.write.parts.hand?.motion).toBe('scribble');
+    expect(SCENES.write.parts.hand?.items?.length).toBeGreaterThan(0);
+  });
+
+  it('a state that comes back shows another of its drawings, never the same one twice in a row', () => {
+    const seen = new Set<string>();
+    let last = '';
+    for (let i = 0; i < 60; i++) {
+      const s = pickScene('thinking');
+      expect(s).not.toBe(last);
+      last = s;
+      seen.add(s);
+    }
+    expect([...seen].sort()).toEqual(['think', 'think34l', 'think34r', 'thinkProfile']);
+    // A state with one drawing keeps it.
+    expect(pickScene('reading')).toBe('read');
+    expect(pickScene('reading')).toBe('read');
   });
 });

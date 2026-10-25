@@ -267,19 +267,19 @@ function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
  * A memory is a fact, and a fact is an EDGE of the graph: `language —is→ Romanian`.
  * The page used to list the graph's nodes, so the same fact showed up as two
  * bare rows, "language" and "Romanian", with the relation nowhere (20 Sep).
- * Each edge becomes one row in the shape the list already understands; a node
- * with no edge at all (there should be none) is kept as it was.
+ * Each edge becomes one row in the shape the list already understands. A node
+ * with no edge is left out: it is a value that was replaced or a subject whose
+ * fact was forgotten, and the engine prunes it after a week. Listed, it read as a
+ * bare key ("page_count_verification") that had no Forget button (124 of 234
+ * rows on 24 Oct).
  */
 export function factsOf(graph: { nodes: MemoryGraphNodeView[]; edges: { from: string; to: string; relation: string }[] }): MemoryGraphNodeView[] {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-  const linked = new Set<string>();
   const rows: MemoryGraphNodeView[] = [];
   for (const e of graph.edges) {
     const from = byId.get(e.from);
     const to = byId.get(e.to);
     if (!from || !to) continue;
-    linked.add(from.id);
-    linked.add(to.id);
     rows.push({
       id: `${e.from} ${e.relation} ${e.to}`,
       // "language has Romanian" read as a database row. `is` and `has` carry
@@ -292,7 +292,6 @@ export function factsOf(graph: { nodes: MemoryGraphNodeView[]; edges: { from: st
       edge: { from: e.from, to: e.to, relation: e.relation },
     });
   }
-  for (const n of graph.nodes) if (!linked.has(n.id)) rows.push(n);
   return rows;
 }
 

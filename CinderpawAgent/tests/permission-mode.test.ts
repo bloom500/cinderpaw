@@ -11,7 +11,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createShellExecTool } from "../src/tools/builtin/shell-exec.ts";
 import { createWriteFileTool } from "../src/tools/builtin/write-file.ts";
 import { permissionMode, resetPermissionModeCache } from "../src/core/permission-mode.ts";
@@ -177,6 +177,62 @@ describe("destruction outside the workspace is a human's call", () => {
     await tool.execute({ argv: ["sh", "-c", `rm -rf ${outside}`] }, ctx);
     expect(asked).toBe(1);
     expect(state.spawned).toBe(true);
+  });
+});
+
+/**
+ * Full access is really full (Darius, 22 Oct), but it is not "never ask": the
+ * file tools reach every folder, what cannot be undone still asks, and the
+ * keys folders stay walled.
+ */
+describe("full access", () => {
+  test("write_file reaches a folder outside the workspace", async () => {
+    process.env.CINDERPAW_PERMISSION_MODE = "full_access";
+    const root = await mkdtemp(join(tmpdir(), "cinderpaw-fa-root-"));
+    const elsewhere = await mkdtemp(join(tmpdir(), "cinderpaw-fa-else-"));
+    const tool = createWriteFileTool([root]);
+    const { ctx } = ctxFor(tool);
+    const res = await tool.execute({ path: join(elsewhere, "note.md"), content: "hi" }, ctx);
+    expect(res.ok).toBe(true);
+    expect(await readFile(join(elsewhere, "note.md"), "utf8")).toBe("hi");
+  });
+
+  test("outside full access the same write is refused", async () => {
+    process.env.CINDERPAW_PERMISSION_MODE = "workspace_write";
+    const root = await mkdtemp(join(tmpdir(), "cinderpaw-ws-root-"));
+    const elsewhere = await mkdtemp(join(tmpdir(), "cinderpaw-ws-else-"));
+    const tool = createWriteFileTool([root]);
+    const { ctx } = ctxFor(tool);
+    await expect(tool.execute({ path: join(elsewhere, "note.md"), content: "hi" }, ctx)).rejects.toThrow(/outside allowedPaths/);
+  });
+
+  test("the keys folder stays walled", async () => {
+    process.env.CINDERPAW_PERMISSION_MODE = "full_access";
+    const root = await mkdtemp(join(tmpdir(), "cinderpaw-fa-keys-"));
+    const tool = createWriteFileTool([root]);
+    const { ctx } = ctxFor(tool);
+    await expect(
+      tool.execute({ path: join(process.env.CINDERPAW_HOME!, "byok.json"), content: "{}" }, ctx),
+    ).rejects.toThrow(/protected/);
+  });
+
+  test("destruction outside the workspace still asks", async () => {
+    process.env.CINDERPAW_PERMISSION_MODE = "full_access";
+    delete process.env.CINDERPAW_AUTONOMOUS;
+    const outside = process.platform === "win32" ? "C:\\Users\\Someone\\Docs" : "/home/someone/Docs";
+    const root = await mkdtemp(join(tmpdir(), "cinderpaw-fa-warn-"));
+    const tool = createShellExecTool([root]);
+    let asked = 0;
+    const { ctx, state } = ctxFor(tool, {
+      ask: async () => {
+        asked++;
+        return [{ question: "", selected: ["No, skip it"] }];
+      },
+    });
+    const result = await tool.execute({ argv: ["sh", "-c", `rm -rf ${outside}`] }, ctx);
+    expect(asked).toBe(1);
+    expect(state.spawned).toBe(false);
+    expect(result.error).toBe("destructive_outside_workspace");
   });
 });
 

@@ -86,7 +86,7 @@ var BearCompact = `(=-._.=) ` + AppName + versionTag(AppVersion) + ` | Own your 
 // without being noisy.
 var Taglines = []string{
 	"Own your models. Own your agent.",
-	"It practices while you sleep.",
+	"It can practice while you sleep.",
 	"Run AI on your machine. Keep your keys.",
 	"Private by default. Powerful on demand.",
 	"Your models. Your data. Your rules.",

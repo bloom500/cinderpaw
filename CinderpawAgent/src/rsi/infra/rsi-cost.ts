@@ -123,6 +123,15 @@ function localPrice(target: SpendTarget): InferencePrice | null {
     if (host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]") {
       return { inputPerMillionUsd: 0, outputPerMillionUsd: 0 };
     }
+    // A model on another machine at home (Ollama on a second PC, WSL, a
+    // .local name) is the person's own hardware: free, not the dear cloud
+    // price that stopped a $5 task after a step (24 Oct review).
+    // ponytail: a paid gateway inside a company LAN reads as free; give it a
+    // CINDERPAW_AUTONOMOUS_PRICING_JSON row if one ever matters.
+    if (/^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|169\.254\.)/.test(host) || host.endsWith(".local")
+      || host === "host.docker.internal" || /^\[f[cd]/i.test(host)) {
+      return { inputPerMillionUsd: 0, outputPerMillionUsd: 0 };
+    }
   } catch {
     // Invalid cloud-looking URLs are unknown, never free.
   }

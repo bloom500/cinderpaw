@@ -178,3 +178,79 @@ describe("a key that must name its workspace", () => {
     expect(calls).toBe(1);
   });
 });
+
+// 23 Oct: a whole PDF table appeared in one burst after 3.5 s of an empty panel.
+// Without this field Anthropic buffers a tool's input and sends it at the end,
+// so live writing (which draws the tool's arguments as they arrive) had nothing to draw.
+describe("streamed tool input", () => {
+  test("every tool asks Anthropic to stream its input as it is written", async () => {
+    let body: { tools?: Record<string, unknown>[] } = {};
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      body = JSON.parse(init.body as string);
+      return new Response("{}", { status: 400 });
+    }) as typeof fetch;
+    const tool = { name: "artifact_create", description: "d", input_schema: { type: "object", properties: {} } };
+    const streaming = { ...req, onToken: () => {}, nativeTools: [tool] } as unknown as InferenceRequest;
+    await new AnthropicProvider().complete(target("claude-haiku-5-5"), streaming, false).catch(() => {});
+    expect(body.tools).toEqual([{ ...tool, eager_input_streaming: true }]);
+  });
+});
+
+// 24 Oct: every other provider drops the prose tool list when native tools go
+// out; Anthropic sent both, ~37k extra tokens on a "hello".
+describe("one copy of the tools", () => {
+  const system = "You are Cinderpaw.\n\n## Available tools\nartifact_create: {...}\n\n## Rules\n- Be concise.";
+  const withSystem = (extra: Record<string, unknown>) => ({
+    ...req,
+    messages: [{ role: "system", content: system }, { role: "user", content: "Hi" }],
+    ...extra,
+  }) as unknown as InferenceRequest;
+  const tool = { name: "artifact_create", description: "d", input_schema: { type: "object", properties: {} } };
+
+  for (const [name, extra] of [["streaming", { onToken: () => {} }], ["non-streaming", {}]] as const) {
+    test(`${name}: native tools strip the prose list, the rest of the prompt stays`, async () => {
+      let body: { system?: unknown } = {};
+      globalThis.fetch = (async (_url: string, init: RequestInit) => {
+        body = JSON.parse(init.body as string);
+        return new Response("{}", { status: 400 });
+      }) as typeof fetch;
+      await new AnthropicProvider().complete(target("claude-haiku-5-5"), withSystem({ ...extra, nativeTools: [tool] }), false).catch(() => {});
+      const sent = JSON.stringify(body.system);
+      expect(sent).not.toContain("## Available tools");
+      expect(sent).toContain("## Rules");
+    });
+  }
+
+  test("without native tools the prose list is the only copy, so it stays", async () => {
+    let body: { system?: unknown } = {};
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      body = JSON.parse(init.body as string);
+      return new Response("{}", { status: 400 });
+    }) as typeof fetch;
+    await new AnthropicProvider().complete(target("claude-haiku-5-5"), withSystem({}), false).catch(() => {});
+    expect(JSON.stringify(body.system)).toContain("## Available tools");
+  });
+});
+
+// 24 Oct: two chats 25 s apart each wrote ~38k tokens and read 0, because the
+// only breakpoint sat after a system prompt whose memory differs per chat.
+describe("tools cached on their own", () => {
+  const tool = (name: string) => ({ name, description: "d", input_schema: { type: "object", properties: {} } });
+  for (const [name, extra] of [["streaming", { onToken: () => {} }], ["non-streaming", {}]] as const) {
+    test(`${name}: the last tool carries the same breakpoint as the request`, async () => {
+      let body: { tools?: Record<string, unknown>[]; cache_control?: unknown } = {};
+      globalThis.fetch = (async (_url: string, init: RequestInit) => {
+        body = JSON.parse(init.body as string);
+        return new Response("{}", { status: 400 });
+      }) as typeof fetch;
+      const tools = [tool("a"), tool("b")];
+      const r = { ...req, ...extra, nativeTools: tools, cachePrefix: "short" } as unknown as InferenceRequest;
+      await new AnthropicProvider().complete(target("claude-haiku-5-5"), r, false).catch(() => {});
+      expect(body.tools?.[1]?.cache_control).toEqual({ type: "ephemeral" });
+      expect(body.tools?.[0]?.cache_control).toBeUndefined();
+      expect(body.cache_control).toEqual({ type: "ephemeral" });
+      // The caller's own definitions are not touched.
+      expect((tools[1] as Record<string, unknown>).cache_control).toBeUndefined();
+    });
+  }
+});

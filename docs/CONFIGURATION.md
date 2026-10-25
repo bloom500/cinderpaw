@@ -152,7 +152,7 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_DESKTOP_CONTROL_CONFIRM` | bool | `true` | yes | Per-action confirmation dialog for computer_use writes. On by default; set to "false" to disable (inverse-toggle var — see report for why this call site is not migrated to cfgBool). |
 | `CINDERPAW_DESKTOP_CONTROL_NO_PROMPT_OK` | bool | `false` | yes | Sidecar-internal escape hatch: when true, a transport with no askUser bridge may proceed without confirmation instead of failing closed. |
 | `CINDERPAW_FORGE_NO_PROMPT_OK` | bool | `false` | yes | Sidecar-internal escape hatch: when true, tool_forge may create/update a tool on a transport with no askUser bridge instead of failing closed. This approves running agent-written code unattended — headless deployments only. |
-| `CINDERPAW_PERMISSION_MODE` | string | `null` | yes | What the agent is allowed to change: "read_only" (reads anything, writes nothing — no file writes, no destructive/machine-level commands; the mode for audits and for surfaces where the speaker is not the owner), "workspace_write" (default: writes inside the workspace roots, where the safety point can undo them), or "full_access" (guards that prevent mistakes step aside; the catastrophic denylist still applies). Resolution order: this var, then CINDERPAW_SHELL_WHITELIST="*" (which still means full access), then `permission_mode` in ~/.cinderpaw/settings.json, then the default. The settings.json route is the only one that needs no relaunch — the sidecar reads it per command, so a change applies to the next one; an unknown value or an unparseable file means "not configured", never "deny everything". |
+| `CINDERPAW_PERMISSION_MODE` | string | `null` | yes | What the agent is allowed to change: "read_only" (reads anything, writes nothing — no file writes, no destructive/machine-level commands; the mode for audits and for surfaces where the speaker is not the owner), "workspace_write" (default: writes inside the workspace roots, where the safety point can undo them), or "full_access" (the file tools reach every folder and commands run anywhere; destruction outside the workspace still asks a person; the catastrophic denylist and the keys folders still refuse). Resolution order: this var, then CINDERPAW_SHELL_WHITELIST="*" (which still means full access), then `permission_mode` in ~/.cinderpaw/settings.json, then the default. The settings.json route is the only one that needs no relaunch — the sidecar reads it per command, so a change applies to the next one; an unknown value or an unparseable file means "not configured", never "deny everything". |
 | `CINDERPAW_AUTONOMOUS` | bool | `false` | yes | Walk-away mode: ask_user does not block for a human. It takes the recommended option (or the first) immediately and logs the decision, so a long task runs unattended. The end-of-turn summary reports every auto-decision. Off by default. |
 | `CINDERPAW_DESKTOP_CONTROL_ALLOWED_APPS` | list | `null` | yes | Comma-separated allowlist of app names computer_use may target. Empty = fail closed. (Read by the Rust host, not CinderpawAgent/src.) |
 | `CINDERPAW_FETCH_DOMAINS` | list | `null` | yes | Comma-separated domain allowlist for fetch_url. Unset = all public hosts (SSRF guard, rate limit and audit still apply); set to RESTRICT. |
@@ -167,6 +167,8 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_SHELL_PATH_EXTRA` | list | `null` | yes | Extra directories appended to the PATH every spawned child sees, on top of the well-known install locations (Git bin, nodejs, npm global on Windows; /usr/local/bin, homebrew, ~/.local/bin, ~/.bun/bin, ~/.cargo/bin elsewhere). Needed because the agent inherits whatever PATH launched the gateway, so a tool a terminal finds can be invisible here — that is what made `bash` fail with a permissions-sounding error. Appended, never prepended, so it cannot change which binary an already-working call resolves to. Directories that do not exist are ignored. |
 | `CINDERPAW_SHELL_DENYLIST` | list | `null` | yes | Overrides the built-in shell_exec denylist (dangerous binaries refused even in YOLO mode). |
 | `CINDERPAW_PROACTIVE_ENABLED` | bool | `false` | yes | Master enable for the proactive/mood-engine loop. |
+| `CINDERPAW_FOLLOWUPS_ENABLED` | bool | `true` |  | Event-driven suggestions for unfinished desktop work. Suggestions never resume work or call a model. |
+| `CINDERPAW_PROACTIVE_MONTHLY_USD` | string | `"1"` | yes | Monthly USD cap for automatic proactive inference only. Confirmed scheduled tasks have separate limits. Zero disables paid proactive inference; unknown route prices fail closed. |
 | `CINDERPAW_INNER_THOUGHTS_ENABLED` | bool | `false` | yes | Sub-flag enabling the inner-thoughts loop. |
 | `CINDERPAW_MODEL` | string | `"qwen2.5:7b"` |  | Model id sent to the inference provider. |
 | `CINDERPAW_PROVIDER` | string | `"openai_compatible"` |  | Provider family adapter to use. |
@@ -470,6 +472,8 @@ CINDERPAW_PERMISSION_MODE
 CINDERPAW_PEXELS_KEY
 CINDERPAW_PII_REDACTION
 CINDERPAW_PROACTIVE_ENABLED
+CINDERPAW_FOLLOWUPS_ENABLED
+CINDERPAW_PROACTIVE_MONTHLY_USD
 CINDERPAW_PROVIDER
 CINDERPAW_PUBLIC_JOURNAL_DIR
 CINDERPAW_PUBLIC_JOURNAL_LIMIT

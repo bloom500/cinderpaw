@@ -12,6 +12,11 @@
  * The card is drawn from this tool's `data`, like `show_widget`: the app never
  * parses the sentence the model reads.
  *
+ * 24 Oct: it had never been shown (0 calls in 30 days). Its description said
+ * "never for anything you will say in your reply anyway", and every real
+ * finding ends up in the reply, so the model always waited for the reply. It
+ * now says when: the moment it is found, before the task goes on.
+ *
  * Kept rare on purpose, because a card nobody needed teaches people to ignore
  * the one that matters: the same title is never shown twice in a chat, and a
  * second card within two minutes is refused with "say it in your reply".
@@ -68,13 +73,14 @@ export function createHeadsUpTool(ledger: HeadsUpLedger = headsUpLedger, now: ()
     manifest: {
       name: "heads_up",
       description:
-        "Show the person a short 'Something you should know' card while you keep working (it does not wait for an answer). " +
-        "Use it only for a core steering detail they would want right now: something you found that surprises, " +
-        "contradicts what they told you or assumed, or changes the plan (a file they named is missing, the data says " +
-        "the opposite of what they expect, a step will cost money, two of their requests conflict). " +
-        "Never for progress updates, routine findings, or anything you will say in your reply anyway. " +
-        "At most one or two in a task. title: one short line. detail: one or two plain sentences, what you found and " +
-        "what you are doing about it. more: optional, a few sentences of evidence, shown if they tap Learn more.",
+        "Show the person a short 'Something you should know' card NOW, while you keep working (it does not wait for an answer). " +
+        "Call it the moment you find something that surprises, contradicts what they told you or assumed, or changes the " +
+        "plan (a total that is not the number they gave, a file they named is missing, the data says the opposite of what " +
+        "they expect, a step will cost money, two of their requests conflict), BEFORE you continue the task. Your reply only " +
+        "comes at the end; the card lets them react while you work, so call it even if your reply will repeat it. " +
+        "Never for progress updates or routine findings. At most one or two in a task. title: one short line. detail: one " +
+        "or two plain sentences, what you found and what you are doing about it. more: optional, a few sentences of " +
+        "evidence, shown if they tap Learn more.",
       permissions: [],
       networkAccess: false,
     },

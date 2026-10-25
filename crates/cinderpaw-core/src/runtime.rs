@@ -119,6 +119,10 @@ pub struct RuntimeState {
     /// which only ever knows the *local* engine; for a cloud session that's
     /// `None` while this is the real answer. Reported by `/runtime/status`.
     pub active_agent_model: Arc<Mutex<Option<String>>>,
+    /// Who serves `active_agent_model` at boot: (provider id, base URL). The
+    /// desktop picker reads it until a model is picked by hand; without it the
+    /// app could not name the model after a restart and said "Automatic".
+    pub active_agent_route: Arc<Mutex<Option<(String, String)>>>,
     /// Faza 4.5 Slice 4: a graceful-shutdown signal. `POST /runtime/shutdown`
     /// fires it; the headless gateway selects on it alongside Ctrl+C to run the
     /// D7 drain. Cross-platform, so `cinderpaw gateway stop` doesn't depend on
@@ -189,6 +193,7 @@ impl RuntimeState {
             rsi_engine: Arc::new(Mutex::new(None)),
             rsi_request_registry: RsiRequestRegistry::default(),
             active_agent_model: Arc::new(Mutex::new(None)),
+            active_agent_route: Arc::new(Mutex::new(None)),
             shutdown: Arc::new(tokio::sync::Notify::new()),
             model_downloads: Arc::new(Mutex::new(HashMap::new())),
             events_tx,

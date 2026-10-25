@@ -8,6 +8,7 @@ import { Markdown } from '@/lib/markdown';
 import { AskUserCard } from './AskUserCard';
 import { MessageToolWidgets } from './MessageToolWidgets';
 import { ChatWidget } from './ChatWidget';
+import { TaskSuggestionCard } from './TaskSuggestionCard';
 import { SourcesContext, SourcesList } from './Sources';
 import { MemoryPeek } from './MemoryPeek';
 import { FollowUps } from './FollowUps';
@@ -275,7 +276,8 @@ export const MessageItem = memo(function MessageItem({
   const activity = message.toolActivity ?? [];
   const lastPlan = activity.map((a) => a.tool === 'todo_write' && !!a.widget).lastIndexOf(true);
   // Follow-ups are neither a step nor drawn in place: the last set closes the reply.
-  const isFollowUps = (a: (typeof activity)[number]) => a.widget?.kind === 'followups';
+  // A task card closes the reply too, after the answer it came with.
+  const isFollowUps = (a: (typeof activity)[number]) => a.widget?.kind === 'followups' || a.widget?.kind === 'task';
   const drawn = new Set(activity.filter((a, i) => a.widget && !isFollowUps(a) && (a.tool !== 'todo_write' || i === lastPlan)).map((a) => a.id));
   // A card is what the reply MADE: one per artifact, its last create or edit.
   // Reading, listing or exporting one is a step (every artifact tool returns
@@ -290,7 +292,8 @@ export const MessageItem = memo(function MessageItem({
   const isMade = (a: (typeof activity)[number]) => cards.has(a.id) || (MAKES.has(a.tool) && (a.status !== 'done' || !!a.error));
   const made = activity.filter(isMade);
   const isStep = (a: (typeof activity)[number]) => !isMade(a) && !drawn.has(a.id) && !isFollowUps(a);
-  const followUps = activity.filter(isFollowUps).at(-1)?.widget;
+  const followUps = activity.filter((a) => a.widget?.kind === 'followups').at(-1)?.widget;
+  const taskCards = activity.flatMap((a) => (a.widget?.kind === 'task' ? [a.widget.card] : []));
   // The pages this turn's searches found: a link to one is a source chip, and
   // the ones the answer cited close it as a list once it is done.
   const sources = useMemo(() => sourcesOf(activity), [activity]);
@@ -365,6 +368,7 @@ export const MessageItem = memo(function MessageItem({
           ...activity.filter((a) => a.kind === 'memory').flatMap((a) => a.facts.map((text) => ({ kind: 'fact' as const, text }))),
         ]} />
       )}
+      {!streaming && taskCards.map((c) => <TaskSuggestionCard key={c.id} card={c} sessionId={sessionId} />)}
       {!streaming && onFollowUp && followUps?.kind === 'followups' && (
         <FollowUps next={followUps.next} onPick={onFollowUp} />
       )}

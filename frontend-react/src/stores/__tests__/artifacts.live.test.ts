@@ -105,8 +105,24 @@ describe('when the call ends', () => {
     const open = useArtifacts.getState().open!;
     expect(open.content).toBe(dated);
     const line = dated.indexOf('_20');
-    expect(open.live!.runs).toEqual([expect.objectContaining({ from: line, to: expect.any(Number) })]);
-    expect(dated.slice(open.live!.runs[0]!.from, open.live!.runs[0]!.to)).toContain('Darius');
+    // The draft's own letters are paced, so they may still be arriving: they
+    // keep going beside the date line.
+    const dateRun = open.live!.runs.find((r) => r.from === line)!;
+    expect(dateRun).toBeTruthy();
+    expect(dated.slice(dateRun.from, dateRun.to)).toContain('Darius');
+  });
+
+  it('text the save adds after the draft is written after it, not all at once ahead of it', async () => {
+    draft('# Plan\n\nSection one is being written slowly.', { title: 'Plan' });
+    useArtifacts.getState().endDraft('turn-1', { artifactId: 'art-1' });
+    await Promise.resolve();
+    const full = '# Plan\n\nSection one is being written slowly.\n\n## Two\n\nSection two came only with the save.';
+    useArtifacts.getState().onResult({ id: idOf('get'), ok: true, items: [{ ...saved }], content: full });
+    const runs = useArtifacts.getState().open!.live!.runs;
+    const two = runs.find((r) => full.slice(r.from, r.to).includes('Section two'))!;
+    const one = runs.find((r) => full.slice(r.from, r.to).includes('Section one'))!;
+    // Section two starts where section one's letters stop.
+    expect(two.at).toBeGreaterThanOrEqual(one.at + Math.round((one.to - one.from) * one.per) - 1);
   });
 
   it('becomes the saved artifact and keeps the letters still arriving', async () => {

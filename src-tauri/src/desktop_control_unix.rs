@@ -810,6 +810,9 @@ mod live {
             let mut seen = String::new();
             for _ in 0..5 {
                 match windows_of(pid) {
+                    // An empty list is System Events not answering yet, like an
+                    // error: it failed macOS CI twice on 22 Oct with the window open.
+                    Ok(w) if w.is_empty() => seen = "[]".into(),
                     Ok(w) => return (w.iter().any(|(_, t)| t.contains(&name)), format!("{w:?}")),
                     Err(e) => seen = e,
                 }

@@ -18,7 +18,7 @@ export const MODES: Record<PermissionMode, { label: string; does: string; icon: 
   },
   full_access: {
     label: 'Full access',
-    does: 'Changes anything without asking. Still refuses commands that wipe a disk.',
+    does: 'Works in any folder and runs any command. Asks before deleting what it cannot undo. Refuses commands known to wipe a disk.',
     icon: ShieldAlert,
   },
 };

@@ -36,13 +36,21 @@ pub struct McpServerConfig {
     pub description: String,
     pub category: String,
     /// Executable + args. Built by the backend from the catalog entry —
-    /// never edited by the frontend directly (Developer level may set a
-    /// custom command via `mcp_install_custom`).
+    /// never edited by the frontend directly. Empty for a server on the web.
+    #[serde(default)]
     pub command: String,
+    #[serde(default)]
     pub args: Vec<String>,
     /// Env vars (API keys etc.). Stay in the backend; never sent to React.
     #[serde(default)]
     pub env: HashMap<String, String>,
+    /// A server on the web, added with `mcp_install_custom`: the sidecar
+    /// talks to it over HTTP and no command runs, so it needs no Node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Sent with every request to `url` (the key). Secret, like `env`.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub headers: HashMap<String, String>,
     pub enabled: bool,
 }
 
@@ -809,6 +817,28 @@ const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 fn humanize(raw: &str) -> String {
     tracing::warn!("MCP error: {raw}");
     let lower = raw.to_lowercase();
+    // A service added by link answers in HTTP; its status says which of three
+    // things went wrong, and each has a different fix.
+    if lower.contains("only lets apps it already knows") {
+        return "This service only lets apps it already knows sign in, so it cannot be added by its link.".into();
+    }
+    if lower.contains("sign-in:") {
+        return "Signing in did not finish. Press Connect again, and finish in the browser tab that opens.".into();
+    }
+    if lower.contains("browser-sign-in") {
+        return "This service needs you to sign in again. Turn it off and on here, and finish in the browser tab that opens.".into();
+    }
+    if lower.contains("http 401") || lower.contains("http 403") {
+        return "That service wants a key, or did not accept the one you gave. Check that you copied all of it, and that your plan with them includes connecting AI assistants.".into();
+    }
+    if lower.contains("http 404") || lower.contains("http 405") {
+        return "Nothing at that link answers AI assistants. Check the link the service gives for connecting one (it often ends in /mcp or /sse).".into();
+    }
+    if lower.contains("unable to connect") || lower.contains("connectionrefused") || lower.contains("enotfound")
+        || lower.contains("getaddrinfo") || lower.contains("certificate") || lower.contains("pointed to another site")
+    {
+        return "Cinderpaw could not reach that link. Check the link and your internet connection.".into();
+    }
     // Now that the sidecar forwards the server's own stderr, npm's real
     // complaint is readable here. A package that 404s will NEVER start, so
     // "try again in a minute" would be a lie — say it's gone instead.
@@ -965,18 +995,92 @@ pub async fn mcp_install(
         env.insert((*k).to_string(), (*v).to_string());
     }
 
+    // A hosted service behind `mcp-remote` (Linear, Jira, Intercom): the sidecar
+    // now reaches its link and signs in through the browser itself
+    // (mcp-oauth.ts), so the card works on a machine without Node.
+    let hosted = hosted_link(&args);
     let server = McpServerConfig {
         id: def.entry.id.clone(),
         name: def.entry.name.clone(),
         description: def.entry.description.clone(),
         category: def.entry.category.clone(),
-        command: def.command.to_string(),
-        args,
+        command: if hosted.is_some() { String::new() } else { def.command.to_string() },
+        args: if hosted.is_some() { Vec::new() } else { args },
         env,
+        url: hosted,
+        headers: HashMap::new(),
         enabled: true,
     };
     validate_config_tokens(&server.command, &server.args)?;
 
+    let budget = if def.entry.browser_login {
+        BROWSER_LOGIN_TIMEOUT
+    } else {
+        RELOAD_TIMEOUT
+    };
+    commit_and_start(&state, server, budget).await
+}
+
+/// The link of a hosted service a catalog card bridges with `mcp-remote`.
+fn hosted_link(args: &[String]) -> Option<String> {
+    args.iter().position(|a| a.starts_with("mcp-remote")).and_then(|i| args.get(i + 1).cloned())
+}
+
+/// "Add your own": a service's link for AI assistants, and its key if it has
+/// one. Reached over the web by the sidecar, so it works without Node.
+#[tauri::command]
+#[specta::specta]
+pub async fn mcp_install_custom(
+    state: tauri::State<'_, crate::AppState>,
+    name: String,
+    url: String,
+    key: String,
+) -> Result<McpServerView, String> {
+    let server = custom_server(&name, &url, &key)?;
+    // A service may answer "sign in in the browser" (Notion, Linear): the
+    // sidecar opens it and waits for the person, so this waits as long.
+    commit_and_start(&state, server, BROWSER_LOGIN_TIMEOUT).await
+}
+
+fn custom_server(name: &str, url: &str, key: &str) -> Result<McpServerConfig, String> {
+    let parsed = url::Url::parse(url.trim())
+        .map_err(|_| "That is not a web link. Paste the whole link, starting with https://".to_string())?;
+    let host = parsed.host_str().unwrap_or_default().to_string();
+    let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "[::1]");
+    // The key rides along with every request: never in the clear off this machine.
+    if parsed.scheme() != "https" && !(parsed.scheme() == "http" && local) {
+        return Err("The link has to start with https://, so your key travels encrypted.".to_string());
+    }
+    let key = key.trim();
+    if key.chars().any(char::is_control) {
+        return Err("The key has a line break in it. Copy it again, on its own.".to_string());
+    }
+    let mut headers = HashMap::new();
+    if !key.is_empty() {
+        let value = if key.to_lowercase().starts_with("bearer ") { key.to_string() } else { format!("Bearer {key}") };
+        headers.insert("Authorization".to_string(), value);
+    }
+    let name = name.trim();
+    Ok(McpServerConfig {
+        id: format!("custom-{}", host.replace(['.', ':', '[', ']'], "-")),
+        name: if name.is_empty() { host.clone() } else { name.to_string() },
+        description: format!("Added by you, from {host}."),
+        category: "Added by you".to_string(),
+        command: String::new(),
+        args: Vec::new(),
+        env: HashMap::new(),
+        url: Some(parsed.to_string()),
+        headers,
+        enabled: true,
+    })
+}
+
+/// Save `server`, bring it up, and undo the save if it does not come up.
+async fn commit_and_start(
+    state: &crate::AppState,
+    server: McpServerConfig,
+    budget: std::time::Duration,
+) -> Result<McpServerView, String> {
     let previous = load_config();
     let mut cfg = previous.clone();
     cfg.servers.retain(|s| s.id != server.id);
@@ -985,15 +1089,10 @@ pub async fn mcp_install(
 
     // An install that doesn't come up is NOT an install: undo the file so the
     // user is left exactly where they started instead of with a dead card.
-    let budget = if def.entry.browser_login {
-        BROWSER_LOGIN_TIMEOUT
-    } else {
-        RELOAD_TIMEOUT
-    };
-    let status = match reload_and_status(&state, budget).await {
+    let status = match reload_and_status(state, budget).await {
         Ok(s) => s,
         Err(e) => {
-            rollback(&state, &previous).await;
+            rollback(state, &previous).await;
             return Err(e);
         }
     };
@@ -1001,7 +1100,7 @@ pub async fn mcp_install(
         Some((true, _)) => Ok(view_of(&server, true)),
         other => {
             let raw = other.and_then(|(_, err)| err.clone());
-            rollback(&state, &previous).await;
+            rollback(state, &previous).await;
             Err(humanize(raw.as_deref().unwrap_or("closed")))
         }
     }
@@ -1169,6 +1268,61 @@ pub async fn mcp_call_tool(
 // character that survives this assertion would be a chain-into-arbitrary-
 // command hole on Windows — these tests must NEVER be relaxed without a
 // security review.
+
+#[cfg(test)]
+mod custom_server_tests {
+    use super::*;
+
+    #[test]
+    fn every_sign_in_card_installs_as_a_link_without_node() {
+        for def in catalog() {
+            let args: Vec<String> = def.args.iter().map(|a| a.to_string()).collect();
+            let link = hosted_link(&args);
+            assert_eq!(link.is_some(), def.entry.browser_login, "{}", def.entry.id);
+            if let Some(link) = link {
+                assert!(link.starts_with("https://"), "{}: {link}", def.entry.id);
+            }
+        }
+    }
+
+    #[test]
+    fn a_link_and_key_become_a_web_extension_with_a_bearer_header() {
+        let s = custom_server("", " https://mcp.publora.com ", "sk_123").unwrap();
+        assert_eq!(s.id, "custom-mcp-publora-com");
+        assert_eq!(s.name, "mcp.publora.com");
+        assert_eq!(s.url.as_deref(), Some("https://mcp.publora.com/"));
+        assert_eq!(s.headers["Authorization"], "Bearer sk_123");
+        assert!(s.command.is_empty());
+        // A key pasted with its "Bearer " already on is not doubled.
+        let s = custom_server("Publora", "https://mcp.publora.com", "Bearer sk_1").unwrap();
+        assert_eq!(s.headers["Authorization"], "Bearer sk_1");
+        // No key, no header.
+        assert!(custom_server("", "https://x.dev/mcp", "").unwrap().headers.is_empty());
+    }
+
+    #[test]
+    fn the_key_never_leaves_the_machine_unencrypted() {
+        assert!(custom_server("", "http://mcp.publora.com", "sk").is_err());
+        assert!(custom_server("", "mcp.publora.com", "sk").is_err());
+        assert!(custom_server("", "http://localhost:3000/mcp", "sk").is_ok());
+        assert!(custom_server("", "https://x.dev", "sk\nX-Evil: 1").is_err());
+    }
+
+    #[test]
+    fn an_old_config_without_url_still_loads_and_a_web_one_round_trips() {
+        let old: McpServerConfig = serde_json::from_str(
+            r#"{"id":"git","name":"Git","description":"","category":"","command":"npx","args":["-y","x"],"enabled":true}"#,
+        )
+        .unwrap();
+        assert!(old.url.is_none());
+        let line = serde_json::to_string(&old).unwrap();
+        assert!(!line.contains("url") && !line.contains("headers"));
+        let web = custom_server("", "https://x.dev/mcp", "k").unwrap();
+        let back: McpServerConfig = serde_json::from_str(&serde_json::to_string(&web).unwrap()).unwrap();
+        assert_eq!(back.url, web.url);
+        assert_eq!(back.headers, web.headers);
+    }
+}
 
 #[cfg(test)]
 mod cmd_denylist_tests {

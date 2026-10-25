@@ -854,6 +854,145 @@ fn heads_up_answer_line(session_id: &str, heads_up_id: &str, choice: &str) -> Re
     .to_string())
 }
 
+/// The Tasks page and the task card's one door to the scheduler: `list`,
+/// `add`, `remove` or `toggle`. Fire-and-forget like the others: the answer is
+/// a `cron_list_result` on the normal stream, matched by `request_id`, holding
+/// the whole list after the change. Checked here, so a compromised webview
+/// cannot send the sidecar a malformed job.
+#[tauri::command]
+#[specta::specta]
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn cinderpaw_cron_op(
+    state: State<'_, AppState>,
+    request_id: String,
+    action: String,
+    job_id: Option<String>,
+    name: Option<String>,
+    task: Option<String>,
+    schedule: Option<serde_json::Value>,
+    kind: Option<String>,
+    session_id: Option<String>,
+    enabled: Option<bool>,
+) -> Result<(), String> {
+    // Keep the existing command arity within Specta's supported function limit.
+    let mut schedule = schedule;
+    let options = schedule.as_mut().and_then(|s| s.as_object_mut()).and_then(|s| s.remove("taskOptions"));
+    let line = cron_op_line(&request_id, &action, job_id, name, task, schedule, kind, session_id, enabled)?;
+    let mut payload: serde_json::Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+    if let Some(options) = options {
+        if let Some(cap) = options.get("budgetUsd") {
+            let amount = cap.as_f64().ok_or("spending limit must be a number")?;
+            if !amount.is_finite() || amount < 0.0 { return Err("spending limit must be nonnegative".into()); }
+            payload["budgetUsd"] = cap.clone();
+        }
+        if let Some(days) = options.get("expiryDays") {
+            let value = days.as_f64().ok_or("expiry must be a number")?;
+            if !(1.0..=365.0).contains(&value) { return Err("expiry must be 1 to 365 days".into()); }
+            payload["expiryDays"] = days.clone();
+        }
+        if let Some(watch) = options.get("watch") { payload["watch"] = watch.clone(); }
+        if action == "limit" {
+            // The weekly limit for all scheduled tasks: a positive amount, or null for none.
+            let limit = options.get("weeklyLimitUsd").cloned().unwrap_or(serde_json::Value::Null);
+            if !limit.is_null() && !limit.as_f64().map(|v| v.is_finite() && v > 0.0).unwrap_or(false) {
+                return Err("the weekly limit must be more than $0".into());
+            }
+            payload["taskLimit"] = serde_json::json!({ "weeklyUsd": limit });
+        }
+    }
+    let line = payload.to_string();
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(line).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cron_op_line(
+    request_id: &str,
+    action: &str,
+    job_id: Option<String>,
+    name: Option<String>,
+    task: Option<String>,
+    schedule: Option<serde_json::Value>,
+    kind: Option<String>,
+    session_id: Option<String>,
+    enabled: Option<bool>,
+) -> Result<String, String> {
+    let present = |s: &Option<String>| s.as_deref().map(|v| !v.trim().is_empty()).unwrap_or(false);
+    let msg = match action {
+        "list" => serde_json::json!({ "type": "cron_list", "id": request_id }),
+        "followups" => serde_json::json!({ "type": "cron_list", "id": request_id, "followUps": true }),
+        "limit" => serde_json::json!({ "type": "cron_list", "id": request_id }),
+        "add" | "edit" => {
+            if action == "edit" && !present(&job_id) { return Err("no task selected".into()); }
+            if !present(&name) || !present(&task) {
+                return Err("a task needs a name and what to do".to_string());
+            }
+            let sched = schedule.ok_or("a task needs a schedule")?;
+            if !matches!(sched.get("kind").and_then(|k| k.as_str()), Some("cron" | "every" | "at")) {
+                return Err("unknown schedule".to_string());
+            }
+            let kind = kind.unwrap_or_else(|| "agent".to_string());
+            if kind != "agent" && kind != "reminder" && kind != "watch" {
+                return Err(format!("unknown task kind '{kind}'"));
+            }
+            serde_json::json!({
+                "type": "cron_add", "requestId": request_id, "name": name, "task": task,
+                "id": job_id,
+                "schedule": sched, "kind": kind,
+                // The result comes back to the chat that offered it.
+                "delivery": if action == "edit" { serde_json::Value::Null } else { serde_json::json!({ "kind": "chat", "sessionId": session_id.unwrap_or_else(|| "cron".to_string()) }) },
+            })
+        }
+        "remove" if present(&job_id) => serde_json::json!({ "type": "cron_remove", "requestId": request_id, "id": job_id }),
+        "toggle" if present(&job_id) && enabled.is_some() => {
+            serde_json::json!({ "type": "cron_toggle", "requestId": request_id, "id": job_id, "enabled": enabled })
+        }
+        "remove" | "toggle" => return Err("no task selected".to_string()),
+        other => return Err(format!("unknown task action '{other}'")),
+    };
+    Ok(msg.to_string())
+}
+
+#[cfg(test)]
+mod cron_op_tests {
+    use super::cron_op_line;
+
+    #[test]
+    fn add_carries_kind_schedule_and_the_chat_it_came_from() {
+        let line = cron_op_line(
+            "r1", "add", None, Some("Call the bank".into()), Some("Call them.".into()),
+            Some(serde_json::json!({ "kind": "at", "isoTimestamp": "2026-10-26T07:00:00.000Z" })),
+            Some("reminder".into()), Some("chat-9".into()), None,
+        )
+        .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(v["type"], "cron_add");
+        assert_eq!(v["requestId"], "r1");
+        assert_eq!(v["kind"], "reminder");
+        assert_eq!(v["delivery"]["sessionId"], "chat-9");
+    }
+
+    #[test]
+    fn refuses_what_the_sidecar_could_not_answer() {
+        assert!(cron_op_line("r", "add", None, Some("x".into()), Some(" ".into()), Some(serde_json::json!({"kind":"cron"})), None, None, None).is_err());
+        assert!(cron_op_line("r", "add", None, Some("x".into()), Some("y".into()), Some(serde_json::json!({"kind":"sometimes"})), None, None, None).is_err());
+        assert!(cron_op_line("r", "add", None, Some("x".into()), Some("y".into()), Some(serde_json::json!({"kind":"cron"})), Some("shell".into()), None, None).is_err());
+        assert!(cron_op_line("r", "remove", None, None, None, None, None, None, None).is_err());
+        assert!(cron_op_line("r", "toggle", Some("j".into()), None, None, None, None, None, None).is_err());
+        assert!(cron_op_line("r", "drop_table", None, None, None, None, None, None, None).is_err());
+        assert!(cron_op_line("r", "list", None, None, None, None, None, None, None).is_ok());
+        assert!(cron_op_line("r", "limit", None, None, None, None, None, None, None).unwrap().contains("cron_list"));
+        assert!(cron_op_line("r", "limit", None, None, None, None, None, None, None).unwrap().contains("cron_list"));
+    }
+}
+
 /// Cancel a pending `ask_user` request (user clicked Skip, or the UI is
 /// tearing down). The sidecar calls `AskUserBridge.cancel(id, reason)`
 /// which rejects the tool's `await ctx.askUser.ask(...)` with the

@@ -5,6 +5,7 @@ import { voiceToPersisted, voiceFromPersisted } from '@/lib/messageMapping';
 import { toolsFromPersisted } from '@/hooks/useLiveToolActivity';
 import { memoryUsedFrom, turnEndFrom, useChat, type ChatMessage } from './chat';
 import { useNotifications } from './notifications';
+import { useFollowUps } from './followUps';
 
 export type { ConversationSummary };
 
@@ -222,6 +223,7 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
     // prints the reason next to the button. Swallowing it here would close the
     // dialog on a delete that did not happen.
     await tauri.conversations.delete(id);
+    useFollowUps.getState().clearSession(id);
     if (openRequest?.id === id) {
       openRequest = null;
       set({ loadingConversation: false });

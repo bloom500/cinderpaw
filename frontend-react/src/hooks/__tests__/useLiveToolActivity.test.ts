@@ -89,6 +89,9 @@ describe('desktop activity', () => {
     });
     expect(tree.desktop).toMatchObject({ app: 'notepad.exe', windowTitle: 'Untitled - Notepad' });
     expect(tree.desktop?.elements.map((e) => e.id)).toEqual(['root', 'el-save', 'el-text']);
+    // A window or a control has a `name`; it is not a file (the step read "1 file", 23 Oct).
+    expect(tree.files).toEqual([]);
+    expect(list.files).toEqual([]);
 
     const click = startActivity('control_app', { action: 'click', pid: 42, element_id: 'el-save' });
     expect(click.desktop).toMatchObject({ app: 'notepad.exe', target: { name: 'Save', x: 10, w: 80 } });

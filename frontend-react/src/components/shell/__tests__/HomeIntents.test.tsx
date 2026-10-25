@@ -26,15 +26,23 @@ describe('HomeIntents', () => {
     expect(onPick).toHaveBeenCalledWith('Draft an email');
   });
 
-  it('fills the composer and stops there', async () => {
+  it('an intent opens five everyday jobs, and a job fills the composer and stops there', async () => {
     const user = userEvent.setup();
     const onPick = vi.fn();
     render(<HomeIntents onPick={onPick} />);
-    await user.click(screen.getByRole('button', { name: 'Research' }));
-    // A stem to continue, with the trailing space, not a whole sentence and not
-    // a send: the product does not guess what the user meant to ask.
-    expect(onPick).toHaveBeenCalledWith('Research ');
+    await user.click(screen.getByRole('button', { name: 'Automate' }));
+    // Opening is not picking: a lone verb in the composer left people stuck.
+    expect(onPick).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Automate' }).getAttribute('aria-expanded')).toBe('true');
+    expect(screen.queryByRole('button', { name: 'Plan my week' })).toBeNull();
+    const jobs = screen.getAllByRole('listitem');
+    expect(jobs).toHaveLength(5);
+    await user.click(screen.getByRole('button', { name: /Sort my Downloads folder/ }));
     expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onPick.mock.calls[0]![0]).toMatch(/^Sort my Downloads folder/);
+    // A second click on the intent closes it, and the suggestions come back.
+    await user.click(screen.getByRole('button', { name: 'Automate' }));
+    expect(screen.getByRole('button', { name: 'Plan my week' })).toBeTruthy();
   });
 
   // A fresh install: nothing on disk, no key. The chips would lead to a message

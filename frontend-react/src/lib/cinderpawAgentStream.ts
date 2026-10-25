@@ -23,6 +23,8 @@ import { useUI } from '@/stores/ui';
 import { useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
 import { useHeadsUp } from '@/stores/headsUp';
+import { useTasks } from '@/stores/tasks';
+import { announceWhenLive, isLive, useConnected } from '@/stores/connected';
 import { useRlmWorkers } from '@/stores/rlmWorkers';
 import { useCoworkTeam } from '@/stores/coworkTeam';
 import { notifyIfBackground, preview } from '@/lib/systemNotify';
@@ -65,6 +67,30 @@ interface InflightEntry extends CinderpawStreamHandlers {
 }
 
 const inflight = new Map<string, InflightEntry>();
+/** connectors_manage calls in flight: was that chat app online before the agent touched it? */
+const liveBefore = new Map<string, Promise<boolean>>();
+
+/**
+ * The agent connected something from the chat: the same moment as on the
+ * pages. A service (extension_connect) says so in its result; a chat app
+ * (connectors_manage) only once the engine reports it online, and WhatsApp
+ * gets minutes, because a phone has to scan the code first.
+ */
+function announceFromChat(tool: string, callId: string, result: unknown): void {
+  const r = result as { ok?: boolean; data?: Record<string, unknown> } | undefined;
+  const data = r?.data;
+  if (tool === 'extension_connect' && data?.connected === true) {
+    const name = typeof data.name === 'string' ? data.name : 'The service';
+    const tools = Array.isArray(data.tools) ? data.tools.filter((x): x is string => typeof x === 'string') : undefined;
+    useConnected.getState().show({ name, tools, prompt: `What can you do in ${name}?` });
+  }
+  if (tool !== 'connectors_manage') return;
+  const before = liveBefore.get(callId);
+  liveBefore.delete(callId);
+  if (!before || !r?.ok || data?.enabled !== true || typeof data.id !== 'string') return;
+  const id = data.id;
+  void before.then((was) => { if (!was) void announceWhenLive(id, id === 'whatsapp' ? 180_000 : 30_000); });
+}
 let unlisten: UnlistenFn | null = null;
 let initPromise: Promise<void> | null = null;
 
@@ -138,6 +164,11 @@ _${parsed.diagnostic}_`
         break;
       case 'tool_start':
         if (parsed.id) inflight.get(parsed.id)?.onToolStart?.(parsed.callId, parsed.tool, parsed.args ?? {});
+        // Was this chat app already online before the agent touched it? Then a
+        // save is not a new connection, and nothing is announced.
+        if (parsed.tool === 'connectors_manage' && typeof parsed.args?.id === 'string') {
+          liveBefore.set(parsed.callId, isLive(parsed.args.id));
+        }
         // A teammate's tool calls belong to the cowork transcript, not to a
         // chat bubble: `inflight` is keyed by the USER's message id and a
         // cowork turn has none, so without this the calls were dropped and
@@ -155,6 +186,7 @@ _${parsed.diagnostic}_`
         if (parsed.tool === 'suggest_skill') useUI.getState().setSkillTip(true);
         // "Something you should know": the card rides the tool's data.
         if (parsed.tool === 'heads_up' && parsed.sessionId) useHeadsUp.getState().show(parsed.sessionId, parsed.result);
+        announceFromChat(parsed.tool, parsed.callId, parsed.result);
         useCoworkTranscript.getState().ingestTool({
           sessionId: parsed.sessionId,
           tool: parsed.tool,
@@ -201,6 +233,9 @@ _${parsed.diagnostic}_`
         break;
       case 'cowork_team_result':
         useCoworkTeam.getState().receive(parsed);
+        break;
+      case 'cron_list_result':
+        useTasks.getState().receive(parsed);
         break;
       case 'cowork_event': {
         // Agent Cowork (S3.5): one A2A exchange, upserted by mailbox message

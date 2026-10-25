@@ -228,6 +228,9 @@ export function loadHostTools(path: string, bridge: HostToolBridge): Tool[] {
       // socket, reads a file or spawns anything on the tool's behalf.
       permissions: [],
       networkAccess: false,
+      // The host gets as long as the bridge waits; the registry's 60 s default
+      // would otherwise stop the call first.
+      timeoutMs: DEFAULT_TIMEOUT_MS,
     };
     const parameters = schemaToParameters(def.inputSchema ?? { type: "object" });
 

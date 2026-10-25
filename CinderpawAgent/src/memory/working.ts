@@ -452,7 +452,13 @@ export class WorkingMemory {
   }
 
   #systemContent(): string {
-    return [this.#system, this.#project, this.#snapshot].filter(Boolean).join("\n\n");
+    // The snapshot is the last thing read before the reply, and its notes are in
+    // whatever language the person usually writes: an English prompt got a
+    // Romanian reply and card three times on 24 Oct. Fixed text, cache-safe.
+    const snapshot = this.#snapshot
+      ? `${this.#snapshot}\n\n(These memories may be in another language. Reply in the language of the person's latest message.)`
+      : "";
+    return [this.#system, this.#project, snapshot].filter(Boolean).join("\n\n");
   }
 
   /**

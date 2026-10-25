@@ -11,6 +11,7 @@ import { ChatPage } from '@/pages/ChatPage';
 const ChatsPage       = lazy(() => import('@/pages/ChatsPage').then((m) => ({ default: m.ChatsPage })));
 const ProjectsPage    = lazy(() => import('@/pages/ProjectsPage').then((m) => ({ default: m.ProjectsPage })));
 const ArtifactsPage   = lazy(() => import('@/pages/ArtifactsPage').then((m) => ({ default: m.ArtifactsPage })));
+const TasksPage       = lazy(() => import('@/pages/TasksPage').then((m) => ({ default: m.TasksPage })));
 const ModelsPage      = lazy(() => import('@/pages/ModelsPage').then((m) => ({ default: m.ModelsPage })));
 const SettingsPage    = lazy(() => import('@/pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 
@@ -52,6 +53,7 @@ export const router = createMemoryRouter([
       { path: 'chats',    element: lazyPage(<ChatsPage />) },
       { path: 'projects', element: lazyPage(<ProjectsPage />) },
       { path: 'artifacts', element: lazyPage(<ArtifactsPage />) },
+      { path: 'tasks', element: lazyPage(<TasksPage />) },
       { path: 'models',     element: lazyPage(<ModelsPage />) },
       { path: 'settings', element: lazyPage(<SettingsPage />) },
       // Phase 5 S1. These three were top-level pages whose ONLY entry point was

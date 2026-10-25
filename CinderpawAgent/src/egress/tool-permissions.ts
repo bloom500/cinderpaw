@@ -368,6 +368,9 @@ export function resolveAllowedPath(
   );
 
   if (!match) {
+    // Full access (Darius, 22 Oct): the general file tools reach every folder.
+    // The deny wall above still holds, so the keys folders stay out of reach.
+    if (manifest.fullAccessReach && permissionMode() === "full_access") return target;
     throw new PermissionDeniedError(
       `path "${target}" is outside allowedPaths for "${manifest.name}"`,
     );

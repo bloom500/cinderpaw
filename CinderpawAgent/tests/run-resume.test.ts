@@ -55,6 +55,11 @@ function turn(seq: number, over: Partial<TurnRow> = {}): TurnRow {
 }
 
 describe("decideResume", () => {
+  test("an interrupted scheduled run cannot bypass occurrence claims or its spending cap on restart", () => {
+    const interrupted = run({ sessionId: "cron:job-1", delivery: { kind: "cron", target: "job-1", sessionId: "cron:job-1" } });
+    expect(decideResume(interrupted, [turn(1)], NOW)).toMatchObject({ action: "give_up", status: "needs_attention", reason: "process_died" });
+    expect(decideResume({ ...interrupted, delivery: null }, [turn(1)], NOW).action).toBe("give_up");
+  });
   test("a run whose process died inside its deadline is resumed", () => {
     const d = decideResume(run({ deadlineAt: NOW + 3_600_000 }), [turn(1)], NOW);
     expect(d.action).toBe("resume");

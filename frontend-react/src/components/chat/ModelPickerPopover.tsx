@@ -45,6 +45,7 @@ export function ModelPickerPopover() {
   const cinderpawSwitching = useCinderpawStore((s) => s.switching);
   const cinderpawSetModel = useCinderpawStore((s) => s.setModel);
   const cinderpawSetError = useCinderpawStore((s) => s.setModelError);
+  const cinderpawStarting = useCinderpawStore((s) => !s.isReady && !s.offline);
 
   const [localModels, setLocalModels]     = useState<ModelInfo[]>([]);
   const [cloudProviders, setCloudProviders] = useState<ByokProvider[]>([]);
@@ -164,7 +165,10 @@ export function ModelPickerPopover() {
    * the honest label is that the choice is automatic. With nothing installed
    * at all it becomes an invitation rather than a verdict.
    */
-  const unpinnedLabel = hasLocal || hasCloud ? t('model.automatic') : t('model.add');
+  // While the engine boots (10-17 s on a cloud key) its model is not known yet:
+  // "Automatic" there named a mode the list does not offer, and people re-picked
+  // the model they already had.
+  const unpinnedLabel = cinderpawStarting ? 'Starting…' : hasLocal || hasCloud ? t('model.automatic') : t('model.add');
 
   // The model shown with its maker's mark, and the route only in the tooltip.
   // It read "openrouter · meta/muse-spark-1.3-contributor": two ids and a dot.

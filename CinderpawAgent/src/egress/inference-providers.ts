@@ -932,7 +932,14 @@ export class AnthropicProvider implements InferenceProvider {
     req: InferenceRequest,
     isFallback: boolean,
   ): Promise<InferenceResponse> {
-    const { systemText, userMessages } = splitAnthropicMessages(req.messages);
+    const split = splitAnthropicMessages(req.messages);
+    const { userMessages } = split;
+    // Native tool definitions replace the prose copy, as on every other
+    // provider. Anthropic alone kept it: every tool's schema went out twice,
+    // the prose half for ALL tools, ~37k extra tokens a turn (24 Oct).
+    const systemText = split.systemText && req.nativeTools && req.nativeTools.length > 0
+      ? stripToolsFromSystemPrompt(split.systemText)
+      : split.systemText;
     const body: Record<string, unknown> = {
       model: target.model,
       // Anthropic requires max_tokens — the API returns 400 without it.
@@ -949,6 +956,7 @@ export class AnthropicProvider implements InferenceProvider {
     // A3: use native function calling when tool definitions are provided.
     if (req.nativeTools && req.nativeTools.length > 0) body.tools = req.nativeTools;
     Object.assign(body, anthropicCacheControl(req));
+    cacheToolsSeparately(body);
 
     const authHeaders = anthropicHeaders(target);
 
@@ -973,7 +981,12 @@ export class AnthropicProvider implements InferenceProvider {
     }
     const reportedPrompt = raw.usage?.input_tokens;
     const reportedCompletion = raw.usage?.output_tokens;
-    const promptTokens = reportedPrompt ?? estimateTokens(req.messages);
+    // The whole context, as every other provider reports it: Anthropic's
+    // input_tokens is only the uncached half, so a cached chat read "~453 of
+    // 200,000" on the context ring (24 Oct). Cost still uses the halves below.
+    const promptTokens = reportedPrompt === undefined
+      ? estimateTokens(req.messages)
+      : reportedPrompt + (raw.usage?.cache_read_input_tokens ?? 0) + (raw.usage?.cache_creation_input_tokens ?? 0);
     const completionTokens = reportedCompletion ?? estimateText(content);
     return {
       content,
@@ -1004,7 +1017,7 @@ export class AnthropicProvider implements InferenceProvider {
       // distinguishable from "nothing was cached".
       ...(raw.usage?.cache_read_input_tokens !== undefined ||
       raw.usage?.cache_creation_input_tokens !== undefined
-        ? { freshPromptTokens: promptTokens }
+        ? { freshPromptTokens: reportedPrompt ?? promptTokens }
         : {}),
     };
   }
@@ -1015,7 +1028,14 @@ export class AnthropicProvider implements InferenceProvider {
     req: InferenceRequest,
     isFallback: boolean,
   ): Promise<InferenceResponse> {
-    const { systemText, userMessages } = splitAnthropicMessages(req.messages);
+    const split = splitAnthropicMessages(req.messages);
+    const { userMessages } = split;
+    // Native tool definitions replace the prose copy, as on every other
+    // provider. Anthropic alone kept it: every tool's schema went out twice,
+    // the prose half for ALL tools, ~37k extra tokens a turn (24 Oct).
+    const systemText = split.systemText && req.nativeTools && req.nativeTools.length > 0
+      ? stripToolsFromSystemPrompt(split.systemText)
+      : split.systemText;
     const body: Record<string, unknown> = {
       model: target.model,
       max_tokens: req.maxTokens ?? 128_000,
@@ -1026,8 +1046,15 @@ export class AnthropicProvider implements InferenceProvider {
     };
     if (systemText) body.system = systemText;
     // A3: use native function calling when tool definitions are provided.
-    if (req.nativeTools && req.nativeTools.length > 0) body.tools = req.nativeTools;
+    // eager_input_streaming: without it Anthropic buffers a tool's input and
+    // sends it whole at the end, so a document written by artifact_create
+    // appeared in one burst instead of being written live. The API then stops
+    // validating the input; a cut-off one becomes a malformed call below.
+    if (req.nativeTools && req.nativeTools.length > 0) {
+      body.tools = req.nativeTools.map((t) => ({ ...t, eager_input_streaming: true }));
+    }
     Object.assign(body, anthropicCacheControl(req));
+    cacheToolsSeparately(body);
 
     const headers = anthropicHeaders(target);
 
@@ -1155,7 +1182,10 @@ export class AnthropicProvider implements InferenceProvider {
       dc.cleanup();
     }
 
-    const promptTokens = reportedPrompt ?? estimateTokens(req.messages);
+    // Whole context: input_tokens is only the uncached half (see the non-streaming path).
+    const promptTokens = reportedPrompt === undefined
+      ? estimateTokens(req.messages)
+      : reportedPrompt + (cacheReadTokens ?? 0) + (cacheWriteTokens ?? 0);
     const completionTokens = reportedCompletion ?? estimateText(content);
     return {
       content,
@@ -1179,7 +1209,7 @@ export class AnthropicProvider implements InferenceProvider {
       // Same Anthropic dialect as the non-streaming path above: `input_tokens`
       // is already the uncached half.
       ...(cacheReadTokens !== undefined || cacheWriteTokens !== undefined
-        ? { freshPromptTokens: promptTokens }
+        ? { freshPromptTokens: reportedPrompt ?? promptTokens }
         : {}),
     };
   }
@@ -1838,6 +1868,20 @@ function isLoopbackTarget(target: ModelTarget): boolean {
  * it earns that back only when turns are far enough apart that a short-lived
  * entry would have expired between them.
  */
+/**
+ * A second breakpoint on the last tool, so the tool schemas are cached on their
+ * own. The one automatic breakpoint sits after the system prompt, whose memory
+ * part differs in every chat, so a new chat matched nothing, not even the tools
+ * every chat shares: 25 s apart, two chats each wrote ~38k tokens to the cache
+ * at 1.25x and read 0 (24 Oct). Same TTL as the automatic one (a mismatch is a 400).
+ */
+function cacheToolsSeparately(body: Record<string, unknown>): void {
+  const tools = body.tools as Record<string, unknown>[] | undefined;
+  if (!body.cache_control || !tools || tools.length === 0) return;
+  // A copy: the array may be the caller's own list of tool definitions.
+  body.tools = [...tools.slice(0, -1), { ...tools[tools.length - 1], cache_control: body.cache_control }];
+}
+
 function anthropicCacheControl(req: InferenceRequest): Record<string, unknown> {
   if (!req.cachePrefix || req.cachePrefix === "none") return {};
   return {

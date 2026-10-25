@@ -192,6 +192,9 @@ export function createComputerUseTool(): Tool {
         "then presses Enter to SEND (chat apps submit on Enter, not a button). Named " +
         "keys use braces: {Enter} {Tab} {Esc} {Backspace} {Delete} {Up} {Down} {Left} " +
         "{Right}; chords like {Ctrl+A} (select all) work too. " +
+        "`send_keys` ADDS to whatever the field already holds: to replace it (a browser " +
+        "address bar, a search box), start with {Ctrl+L} in an address bar or {Ctrl+A} in a field, " +
+        "e.g. keys=\"{Ctrl+L}https://example.com{Enter}\". " +
         "State-changing actions ask the user to confirm first (unless YOLO mode is on). " +
         "Security-sensitive apps (password managers, OS credential dialogs, Cinderpaw itself) are blocked. " +
         "Requires desktop control to be enabled by the user. " +

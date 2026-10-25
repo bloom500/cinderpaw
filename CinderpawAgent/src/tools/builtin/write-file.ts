@@ -23,12 +23,13 @@ export function createWriteFileTool(allowedPaths: string[]): Tool {
       "Create or overwrite a UTF-8 text file. Creates intermediate directories if needed. " +
       (allowedPaths.length > 0
         ? `Writes are allowed ONLY inside these directories: ${allowedPaths.join(", ")}. ` +
-          "A path outside them is refused — never guess a directory; use one of these roots.\n" +
+          "A path outside them is refused, unless the person chose Full access (then any folder works except Cinderpaw's own keys) — never guess a directory; use one of these roots.\n" +
           scratchpadBrief()
         : "No writable directories are configured, so every write will be refused."),
     permissions: ["fs:write"],
     networkAccess: false,
     allowedPaths,
+    fullAccessReach: true,
   };
 
   return {

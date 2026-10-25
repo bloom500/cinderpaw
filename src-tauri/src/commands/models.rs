@@ -696,11 +696,23 @@ pub(crate) async fn cinderpaw_set_model(
 }
 
 /// Returns the display-safe model config currently active in the Cinderpaw Agent sidecar.
-/// Returns None until the first cinderpaw_set_model call this session.
+/// The model picked this session, else the one the engine booted on (None only before boot).
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn cinderpaw_get_model_config(state: State<'_, AppState>) -> Option<CinderpawModelConfigView> {
-    state.cinderpaw_model_config.lock().clone()
+    if let Some(picked) = state.cinderpaw_model_config.lock().clone() {
+        return Some(picked);
+    }
+    // Nothing picked this session: the model the engine booted on. Returning
+    // None here made the picker say "Automatic" after every restart (24 Oct).
+    let model = state.runtime.active_agent_model.lock().clone()?;
+    let (provider, base_url) = state.runtime.active_agent_route.lock().clone()?;
+    Some(CinderpawModelConfigView {
+        display_name: format!("{} · {}", provider, model),
+        provider,
+        model,
+        base_url,
+    })
 }
 
 /// Fetch the list of models available from a local Ollama instance.

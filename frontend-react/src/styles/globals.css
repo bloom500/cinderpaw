@@ -1919,3 +1919,16 @@ span.ember-caret {
   from { opacity: 1; filter: blur(0); transform: none; }
   to   { opacity: 0; filter: blur(8px); transform: translateY(-6px); }
 }
+
+/* The artifact panel is pure black in the dark theme (his ask, 23 Oct: more
+   elegant, more professional). The sheet tokens are redefined on the panel, so
+   every toolbar, card and hover inside it follows without a class per element.
+   Opaque on purpose: a document reads on a ground, not on glass, so the blur
+   behind it is switched off too. */
+:root[data-theme="dark"] .artifact-sheet {
+  --bg-surface: #000;
+  --bg-elevated: #0b0b0b;
+  --bg-hover: #171717;
+  background-color: #000;
+  backdrop-filter: none;
+}

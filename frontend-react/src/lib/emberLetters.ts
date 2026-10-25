@@ -32,6 +32,15 @@ const STAGGER_MS = 7;
 /** A chunk's whole stagger, at most: a document that arrives in one piece
  *  (Ollama, Gemini) would otherwise take 9 ms x 10,000 letters to appear. */
 const MAX_CHUNK_MS = 600;
+/** The fastest a stream is shown, about 80 letters a second. A fast model
+ *  (Haiku 5.5, 600 a second) otherwise put a whole table down in a blink and
+ *  nobody saw it written (23 Oct, his recording). At 200 a second it was still
+ *  too fast to follow, and the more letters glow at once the more the page
+ *  works (24 Oct): the text is all here, the page plays it back, like a reel. */
+const MIN_PER_MS = 12;
+/** ...but the letters never trail the model by more than this: past it they
+ *  keep pace again, so a long document does not keep writing for a minute. */
+const MAX_BEHIND_MS = 10_000;
 /** A letter counts as finished a little after its animation ends, so the span
  *  is never taken away while the last frame is still painting. */
 const SLACK_MS = 50;
@@ -64,8 +73,22 @@ export function chunkRun(from: number, text: string, at: number): Run {
  */
 export function streamRun(prev: Run | undefined, from: number, text: string, now: number, gap: number): Run {
   const at = prev ? Math.max(now, prev.at + Math.round((prev.to - prev.from) * prev.per)) : now;
-  const per = Math.min(STAGGER_MS, Math.min(gap, MAX_CHUNK_MS) / Math.max(1, text.length));
+  const len = Math.max(1, text.length);
+  const natural = Math.min(STAGGER_MS, Math.min(gap, MAX_CHUNK_MS) / len);
+  const room = (now + MAX_BEHIND_MS - at) / len;
+  const per = Math.max(natural, Math.min(MIN_PER_MS, room));
   return { from, to: from + text.length, at, per, dur: runDur(per) };
+}
+
+/** How far the letters have come by `now`: where the writing cursor belongs
+ *  while the text after it is still to appear. Undefined when nothing is moving. */
+export function revealedTo(runs: Run[], now: number): number | undefined {
+  let end: number | undefined;
+  for (const r of runs) {
+    const shown = now < r.at ? r.from : Math.min(r.to, r.from + Math.floor((now - r.at) / Math.max(r.per, 0.001)) + 1);
+    end = Math.max(end ?? 0, shown);
+  }
+  return end;
 }
 
 /** The letter's animation (delay, length) while it is still animating, else null. */

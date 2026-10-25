@@ -38,6 +38,7 @@ export type RunStopReason =
   | UnattendedResult["stoppedBecause"]
   | "process_died"
   | "resume_cap"
+  | "user_stopped"
   | "no_progress";
 
 /**

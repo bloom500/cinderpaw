@@ -5,6 +5,7 @@ import { Cloud, Laptop, SlidersHorizontal, Trophy } from 'lucide-react';
 import { useSystemInfo } from '@/stores/systemInfo';
 import { useModel } from '@/stores/model';
 import { useSettings } from '@/stores/settings';
+import { onCloudModel, useCinderpawStore } from '@/stores/cinderpaw';
 import { LocalModelsTab } from '@/components/models/LocalModelsTab';
 import { BrowseTab } from '@/components/models/BrowseTab';
 import { ByokTab } from '@/components/settings/ByokTab';
@@ -43,7 +44,10 @@ export function ModelsPage() {
   // "add a key" link has to land on the cards, not on a page above them.
   const [params, setParams] = useSearchParams();
   const raw = params.get('tab');
-  const tab: Tab = TABS.includes(raw as Tab) ? (raw as Tab) : 'local';
+  // Opens where the model in use lives: on a Claude key the Local tab said "No
+  // chat models on this computer yet", which read as something broken (24 Oct).
+  const onCloud = useCinderpawStore(onCloudModel);
+  const tab: Tab = TABS.includes(raw as Tab) ? (raw as Tab) : onCloud ? 'cloud' : 'local';
   const setTab = (next: Tab) => setParams({ tab: next }, { replace: true });
 
   useEffect(() => {

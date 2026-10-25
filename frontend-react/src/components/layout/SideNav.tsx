@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { panelMotionEnd, panelMotionStart } from '@/lib/panelMotion';
 import {
-  Plus, Search, Folder, Box, Settings, FileBox, Globe,
+  Plus, Search, Folder, Box, Settings, FileBox, Globe, CalendarClock,
   PanelLeftOpen, Loader2, FolderPlus, Star,
   ChevronDown, ChevronLeft, ChevronRight,
 } from 'lucide-react';
@@ -528,6 +528,7 @@ export function SideNav() {
               called workspace, and one word for two places confused the agent.
               It opens the gallery page; a card there opens the side panel. */}
           <Row icon={FileBox} label="Artifacts" collapsed={false} to="/artifacts" />
+          <Row icon={CalendarClock} label="Tasks" collapsed={false} to="/tasks" />
           <Row icon={Globe} label="Browser" collapsed={false} onClick={openBrowser} active={pathname === '/chat' && browserOpen} />
           {NAV.map((n) => (
             <Row key={n.to} icon={n.icon} label={n.label} collapsed={false} to={n.to} />

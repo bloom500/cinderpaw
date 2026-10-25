@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { IN_MS, chunkRun, editRuns, letterDelay, liveUntil, streamRun, type Run } from '@/lib/emberLetters';
+import { IN_MS, chunkRun, editRuns, letterDelay, liveUntil, revealedTo, streamRun, type Run } from '@/lib/emberLetters';
 
 describe('streamRun', () => {
   it('starts a piece where the letters of the piece before stop', () => {
@@ -8,27 +8,37 @@ describe('streamRun', () => {
     expect(streamRun(first, 4, 'efgh', 50, 50).at).toBe(50);
   });
 
-  it('spreads a piece over the time since the one before, so fast writing never piles up', () => {
-    // 24 letters every 40 ms is 600 a second; at 9 ms a letter they would fall
-    // further behind with every piece.
+  it('shows a fast model writing, then keeps pace once it trails by 10 s, so it never piles up', () => {
+    // 24 letters every 40 ms is 600 a second (Haiku 5.5): shown at that pace a
+    // table appeared in a blink (23 Oct). Paced to ~80 a second it falls
+    // behind, until the 10 s cap; from there it runs at the model's pace.
     let run = chunkRun(0, 'x'.repeat(24), 0);
+    expect(streamRun(run, 24, 'x'.repeat(24), 40, 40).per).toBe(12);
     const behind: number[] = [];
-    for (let k = 1; k <= 50; k++) {
+    for (let k = 1; k <= 600; k++) {
       run = streamRun(run, 24 * k, 'x'.repeat(24), 40 * k, 40);
       behind.push(run.at - 40 * k);
     }
-    expect(behind[49]).toBe(behind[1]);
+    expect(Math.max(...behind)).toBeLessThanOrEqual(10_000);
+    expect(behind[599]).toBe(behind[550]);
     expect(run.per).toBeCloseTo(40 / 24);
   });
 
-  it('keeps a steady 7 ms pace when the model writes slowly', () => {
-    expect(streamRun(undefined, 0, 'abc', 0, 500).per).toBe(7);
+  it('the cursor stands on the last letter shown, not at the end of the text', () => {
+    const r = streamRun(undefined, 0, 'x'.repeat(100), 0, 1000); // 12 ms a letter: letters 0..5 have started by 70 ms
+    expect(revealedTo([r], 70)).toBe(6);
+    expect(revealedTo([r], 5000)).toBe(100);
+    expect(revealedTo([], 70)).toBeUndefined();
+  });
+
+  it('shows a slow model at the readable 12 ms pace', () => {
+    expect(streamRun(undefined, 0, 'abc', 0, 500).per).toBe(12);
   });
 
   it('a letter settles while about 40 more arrive: a short trail, never hundreds', () => {
-    expect(streamRun(undefined, 0, 'abc', 0, 500).dur).toBe(280);
-    // 600 letters a second: as short as it goes.
-    expect(streamRun(undefined, 0, 'x'.repeat(24), 0, 40).dur).toBe(160);
+    expect(streamRun(undefined, 0, 'abc', 0, 500).dur).toBe(350);
+    // 600 letters a second: shown at the 12 ms pace, a 350 ms trail at most.
+    expect(streamRun(undefined, 0, 'x'.repeat(24), 0, 40).dur).toBe(350);
   });
 });
 
