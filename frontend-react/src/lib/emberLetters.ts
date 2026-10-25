@@ -32,15 +32,21 @@ const STAGGER_MS = 7;
 /** A chunk's whole stagger, at most: a document that arrives in one piece
  *  (Ollama, Gemini) would otherwise take 9 ms x 10,000 letters to appear. */
 const MAX_CHUNK_MS = 600;
-/** The fastest a stream is shown, about 80 letters a second. A fast model
+/** The fastest a stream is shown, about 110 letters a second. A fast model
  *  (Haiku 5.5, 600 a second) otherwise put a whole table down in a blink and
  *  nobody saw it written (23 Oct, his recording). At 200 a second it was still
- *  too fast to follow, and the more letters glow at once the more the page
- *  works (24 Oct): the text is all here, the page plays it back, like a reel. */
-const MIN_PER_MS = 12;
-/** ...but the letters never trail the model by more than this: past it they
- *  keep pace again, so a long document does not keep writing for a minute. */
-const MAX_BEHIND_MS = 10_000;
+ *  too fast to follow (24 Oct); 110 is his pick from a side-by-side of 45, 60,
+ *  80 and 110 on a real PDF (25 Oct): "fast enough and comfy". */
+const MIN_PER_MS = 9;
+/** ...until the letters trail the model by this much: past it they speed up,
+ *  so a very long document does not keep writing for minutes. At 10 s a
+ *  3,000-letter PDF from Haiku showed its first 800 letters at 80 a second and
+ *  dumped the other 2,000 at the model's 500 a second, a blink that also lit
+ *  a hundred letters at once and made the page lag (25 Oct, the release). */
+const MAX_BEHIND_MS = 60_000;
+/** Past the cap they still never go faster than about 200 a second (5 ms a
+ *  letter): the model's own pace was the blink and the lag. */
+const MAX_PER_MS = 5;
 /** A letter counts as finished a little after its animation ends, so the span
  *  is never taken away while the last frame is still painting. */
 const SLACK_MS = 50;
@@ -76,7 +82,7 @@ export function streamRun(prev: Run | undefined, from: number, text: string, now
   const len = Math.max(1, text.length);
   const natural = Math.min(STAGGER_MS, Math.min(gap, MAX_CHUNK_MS) / len);
   const room = (now + MAX_BEHIND_MS - at) / len;
-  const per = Math.max(natural, Math.min(MIN_PER_MS, room));
+  const per = Math.max(natural, Math.min(MIN_PER_MS, Math.max(MAX_PER_MS, room)));
   return { from, to: from + text.length, at, per, dur: runDur(per) };
 }
 
@@ -84,11 +90,27 @@ export function streamRun(prev: Run | undefined, from: number, text: string, now
  *  while the text after it is still to appear. Undefined when nothing is moving. */
 export function revealedTo(runs: Run[], now: number): number | undefined {
   let end: number | undefined;
+  let waiting: number | undefined;
   for (const r of runs) {
-    const shown = now < r.at ? r.from : Math.min(r.to, r.from + Math.floor((now - r.at) / Math.max(r.per, 0.001)) + 1);
-    end = Math.max(end ?? 0, shown);
+    // A piece still queued behind the others has shown nothing: counting its
+    // start put the cursor where the model was, seconds ahead of the letters.
+    if (now < r.at) { waiting = Math.min(waiting ?? r.from, r.from); continue; }
+    end = Math.max(end ?? 0, Math.min(r.to, r.from + Math.floor((now - r.at) / Math.max(r.per, 0.001)) + 1));
   }
-  return end;
+  return end ?? waiting;
+}
+
+/**
+ * Source offsets `[from, to)` whose letters have not started yet: the queue a
+ * fast model left behind. They are not drawn at all. Drawn invisible and
+ * blurred, each waiting for its turn, they were parsed again on every tick of
+ * the clock, so the page lagged more the longer the queue was (25 Oct).
+ */
+export function unshown(runs: Run[], now: number): [number, number] | undefined {
+  const at = revealedTo(runs, now);
+  if (at === undefined) return undefined;
+  const to = Math.max(...runs.map((r) => r.to));
+  return at < to ? [at, to] : undefined;
 }
 
 /** The letter's animation (delay, length) while it is still animating, else null. */
@@ -117,7 +139,10 @@ export function liveUntil(runs: Run[]): number {
 /** Whether anything in source offsets `[from, to)` is still moving. */
 export function emberActive(e: Ember, from: number, to: number): boolean {
   if (e.out?.some(([a, b]) => a < to && b > from)) return true;
-  return e.runs.some((r) => r.from < to && r.to > from && liveUntil([r]) + SLACK_MS > e.now);
+  // Until this range's own last letter has settled, not the run's: a document
+  // that arrives in one piece is one run, and every paragraph already written
+  // counted as moving and was parsed again on each tick, more as it grew (25 Oct).
+  return e.runs.some((r) => r.from < to && r.to > from && liveUntil([{ ...r, to: Math.min(to, r.to) }]) + SLACK_MS > e.now);
 }
 
 type Mark = 'out' | { delay: number; dur: number } | null;

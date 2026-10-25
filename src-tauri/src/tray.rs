@@ -14,7 +14,30 @@ static DRAINED: AtomicBool = AtomicBool::new(false);
 // ponytail: told once per run, not once ever; persist it if people find it noisy.
 static TOLD: AtomicBool = AtomicBool::new(false);
 
+/// Linux draws the tray through the appindicator library, which the package
+/// only recommends (Cargo.toml, `tray`). libappindicator-sys panics when it
+/// finds none, so look for it first, by the same four names it tries.
+#[cfg(target_os = "linux")]
+fn appindicator_present() -> bool {
+    [
+        "libayatana-appindicator3.so.1",
+        "libappindicator3.so.1",
+        "libayatana-appindicator3.so",
+        "libappindicator3.so",
+    ]
+    .iter()
+    .any(|name| unsafe { libloading::Library::new(name) }.is_ok())
+}
+
 pub fn install(app: &tauri::App) -> tauri::Result<()> {
+    // No library: no tray, and closing the window quits (on_window_event).
+    #[cfg(target_os = "linux")]
+    if !appindicator_present() {
+        return Err(tauri::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "no appindicator library (install libayatana-appindicator3-1 for the tray)",
+        )));
+    }
     let open = MenuItem::with_id(app, "runtime-open", "Open Cinderpaw", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "runtime-quit", "Quit Cinderpaw", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &quit])?;

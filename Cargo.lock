@@ -1023,7 +1023,7 @@ dependencies = [
 
 [[package]]
 name = "cinderpaw"
-version = "2026.10.25"
+version = "2026.10.26"
 dependencies = [
  "adblock",
  "anyhow",
@@ -1039,6 +1039,7 @@ dependencies = [
  "getrandom 0.2.17",
  "git2",
  "keyring",
+ "libloading 0.7.4",
  "log",
  "once_cell",
  "parking_lot",
@@ -1086,7 +1087,7 @@ dependencies = [
 
 [[package]]
 name = "cinderpaw-cli"
-version = "2026.10.25"
+version = "2026.10.26"
 dependencies = [
  "chrono",
  "cinderpaw-core",
@@ -1104,7 +1105,7 @@ dependencies = [
 
 [[package]]
 name = "cinderpaw-core"
-version = "2026.10.25"
+version = "2026.10.26"
 dependencies = [
  "aes-gcm",
  "anyhow",

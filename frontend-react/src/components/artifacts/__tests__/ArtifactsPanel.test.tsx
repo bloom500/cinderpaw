@@ -933,12 +933,13 @@ describe('live writing', () => {
   const draft = (append: string, title = 'Launch plan') =>
     act(() => useArtifacts.getState().onDraft({ id: 'turn-1', sessionId: 's1', draft: '0:0', title, append, onScreen: true }));
 
-  it('shows the document as it is written, with its title, and nothing to edit yet', () => {
+  it('shows the document as it is written, with its title, and nothing to edit yet', async () => {
     useArtifacts.setState({ loaded: true });
     render(<ArtifactsPanel onClose={() => {}} />);
     draft('# Launch plan\n\nSeven days.');
     expect(screen.getByText(/Cinderpaw is writing “Launch plan”/)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Launch plan' })).toBeInTheDocument();
+    // Letters come in at the reading pace: the heading is whole a moment later.
+    expect(await screen.findByRole('heading', { name: 'Launch plan' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Overview/ })).toBeNull();
@@ -961,20 +962,20 @@ describe('live writing', () => {
     expect(screen.queryByText(/Cinderpaw is writing/)).toBeNull();
   });
 
-  it('says why when the document was never saved, and keeps what was written', () => {
+  it('says why when the document was never saved, and keeps what was written', async () => {
     useArtifacts.setState({ loaded: true });
     const { container } = render(<ArtifactsPanel onClose={() => {}} />);
     draft('Seven days.');
     act(() => useArtifacts.getState().endDraft('turn-1', { reason: 'Cinderpaw stopped before saving this.' }));
     expect(screen.getByText('Cinderpaw stopped before saving this.')).toBeInTheDocument();
-    expect(container.querySelector('.prose')?.textContent).toBe('Seven days.');
+    await waitFor(() => expect(container.querySelector('.prose')?.textContent).toBe('Seven days.'));
   });
 
-  it('shows an app as its source while it is written', () => {
+  it('shows an app as its source while it is written', async () => {
     useArtifacts.setState({ loaded: true });
     const { container } = render(<ArtifactsPanel onClose={() => {}} />);
     act(() => useArtifacts.getState().onDraft({ id: 'turn-1', sessionId: 's1', draft: '0:0', kind: 'app', title: 'Timer', append: '<div>Hi</div>', onScreen: true }));
     expect(container.querySelector('iframe')).toBeNull();
-    expect(container.querySelector('pre')?.textContent).toBe('<div>Hi</div>');
+    await waitFor(() => expect(container.querySelector('pre')?.textContent).toBe('<div>Hi</div>'));
   });
 });

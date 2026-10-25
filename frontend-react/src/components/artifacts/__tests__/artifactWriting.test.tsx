@@ -93,8 +93,9 @@ describe('following a part written above the end of a document', () => {
       },
     });
     part(append);
-    // The placeholder has finished fading out; the writing cursor is visible.
-    vi.spyOn(Date, 'now').mockReturnValue(now + 300);
+    // The placeholder has finished fading out and the letters written so far
+    // have come in; the writing cursor is visible.
+    vi.spyOn(Date, 'now').mockReturnValue(now + 5000);
     const scrollIntoView = vi.fn();
     const previous = HTMLElement.prototype.scrollIntoView;
     HTMLElement.prototype.scrollIntoView = scrollIntoView;
