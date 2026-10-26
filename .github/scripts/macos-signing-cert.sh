@@ -21,8 +21,10 @@ fi
 # A secret set from Windows PowerShell arrives with a CRLF on the end, which
 # macOS base64 refuses and which would become part of the password. Neither
 # value can hold whitespace, so it all goes.
-MACOS_SIGNING_P12=$(printf %s "$MACOS_SIGNING_P12" | tr -d ' \r\n\t')
-MACOS_SIGNING_P12_PASSWORD=$(printf %s "$MACOS_SIGNING_P12_PASSWORD" | tr -d '\r\n')
+raw_length=${#MACOS_SIGNING_P12}
+MACOS_SIGNING_P12=$(printf %s "$MACOS_SIGNING_P12" | LC_ALL=C tr -cd 'A-Za-z0-9+/=')
+MACOS_SIGNING_P12_PASSWORD=$(printf %s "$MACOS_SIGNING_P12_PASSWORD" | LC_ALL=C tr -d '\r\n\357\273\277')
+echo "certificate text: $raw_length characters, $((raw_length - ${#MACOS_SIGNING_P12})) outside base64; password: ${#MACOS_SIGNING_P12_PASSWORD} characters"
 
 keychain="$RUNNER_TEMP/cinderpaw-signing.keychain-db"
 keychain_password=$(openssl rand -hex 16)
