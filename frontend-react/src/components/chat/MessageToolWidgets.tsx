@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import type { ToolActivity } from '@/hooks/useLiveToolActivity';
 import { Widget, summaryOf } from './CallToolScreen';
 import { ArtifactCard } from './ArtifactCard';
+import { GooeyCard } from './GooeyCard';
 
 /**
  * The tools a reply ran, drawn inside the reply.
@@ -31,11 +32,18 @@ function Row({ a, streaming }: { a: ToolActivity; streaming: boolean }) {
   // `null` is "nobody chose": open while the turn is live, folded after.
   const [choice, setChoice] = useState<boolean | null>(null);
   const open = choice ?? (streaming || a.status === 'running');
+  // Seen running here: the card that takes the row's place pours in (Sileo).
+  // A chat opened again mounts it done, and it is simply there.
+  const [seenRunning] = useState(a.status === 'running');
 
   // A finished artifact is the thing the person asked for, not a step: it is
   // a card with Open, and never folds away. Running or failed, it stays a tool
   // row, which is where progress and the error are drawn.
-  if (a.artifact && a.status === 'done' && !a.error) return <ArtifactCard f={a.artifact} />;
+  if (a.artifact && a.status === 'done' && !a.error) {
+    const card = <ArtifactCard f={a.artifact} />;
+    // Not a board: it breaks out of the column, wider than the box measured.
+    return seenRunning && a.artifact.kind !== 'board' ? <GooeyCard bare settle>{card}</GooeyCard> : card;
+  }
 
   if (open) {
     return (

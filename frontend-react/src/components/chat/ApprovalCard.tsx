@@ -3,6 +3,7 @@ import { Check, Globe, Send, ShieldAlert, ShoppingCart, Trash2, X, type LucideIc
 import { useChat } from '@/stores/chat';
 import type { CoworkExchange } from '@/stores/coworkTranscript';
 import { cn } from '@/lib/utils';
+import { GooeyCard } from './GooeyCard';
 
 /**
  * The escalation classes of `cowork/approval.ts`, with their words and weight.
@@ -68,12 +69,7 @@ export function ApprovalCard({ e }: { e: CoworkExchange }) {
     : e.outcome === 'denied' || e.status === 'error' ? 'Denied, so nothing was done'
     : 'Approved';
 
-  return (
-    <div
-      role="group"
-      aria-label={`${who} asks: ${cls?.label ?? 'approval'}`}
-      className={cn('rounded-2xl border bg-bg-surface p-4', pending ? 'border-warning/40' : 'border-border-default')}
-    >
+  const body = (
       <div className="flex items-start gap-3">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-bg-active text-brand"><Icon size={16} /></span>
         <div className="min-w-0 flex-1">
@@ -127,6 +123,14 @@ export function ApprovalCard({ e }: { e: CoworkExchange }) {
           {failed && <p className="mt-1.5 text-xs text-error">Not sent: {failed}</p>}
         </div>
       </div>
+  );
+  // While it waits on the person it pours in like the other cards that do
+  // (Sileo, GooeyCard); answered, it settles into the plain card.
+  return (
+    <div role="group" aria-label={`${who} asks: ${cls?.label ?? 'approval'}`}>
+      {pending
+        ? <GooeyCard>{body}</GooeyCard>
+        : <div className="rounded-2xl border border-border-default bg-bg-surface p-4">{body}</div>}
     </div>
   );
 }
