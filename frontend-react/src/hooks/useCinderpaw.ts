@@ -131,14 +131,17 @@ export function useCinderpawStream(chatSessionId: string) {
 
       let messageId: string;
       try {
-        // Controls-panel params (temperature / max tokens) now reach the
-        // agent too — previously they only applied to the plain chat tab.
-        const { temperature, max_tokens } = useModel.getState().inferParams;
+        // The Controls-panel temperature reaches the agent too. max_tokens does
+        // not: no slider sets it, so the stored 4096 was a hidden cap on every
+        // reply, and a long document written in one tool call was cut off and
+        // shown as "The model returned an empty response" (25 Oct). Without it
+        // the sidecar picks its own ceiling per provider.
+        const { temperature } = useModel.getState().inferParams;
         messageId = await invoke<string>('cinderpaw_send_message', {
           content,
           sessionId: chatSessionId,
           images: images && images.length > 0 ? images : null,
-          inferParams: { temperature, max_tokens: max_tokens },
+          inferParams: { temperature },
           // Declared per message, not per session: the same conversation is
           // spoken to and typed in alternately, and the format brief has to follow
           // whichever is happening right now. Typed is 'text': it also tells the

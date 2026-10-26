@@ -1249,7 +1249,11 @@ const SNAPSHOT: &str = r#"(() => {
       type: el.getAttribute('type') || undefined,
       role: el.getAttribute('role') || undefined,
       name,
-      value: ('value' in el && !secret && el.tagName !== 'BUTTON') ? String(el.value).slice(0, 80) : undefined,
+      // An editable div (the X, LinkedIn, Gmail, Slack composers) has no .value:
+      // its text is innerText. Without this the agent typed into it and then read
+      // it back as empty every time (25 Oct). 300 so a whole post can be checked.
+      value: el.isContentEditable ? el.innerText.slice(0, 300)
+        : ('value' in el && !secret && el.tagName !== 'BUTTON') ? String(el.value).slice(0, 300) : undefined,
       checked: ('checked' in el && (el.type === 'checkbox' || el.type === 'radio')) ? el.checked : undefined,
       inView: r.bottom > 0 && r.top < innerHeight,
     });
