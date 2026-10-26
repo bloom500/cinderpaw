@@ -18,6 +18,12 @@ if [ -z "${MACOS_SIGNING_P12:-}" ] || [ -z "${MACOS_SIGNING_P12_PASSWORD:-}" ]; 
   exit 0
 fi
 
+# A secret set from Windows PowerShell arrives with a CRLF on the end, which
+# macOS base64 refuses and which would become part of the password. Neither
+# value can hold whitespace, so it all goes.
+MACOS_SIGNING_P12=$(printf %s "$MACOS_SIGNING_P12" | tr -d ' \r\n\t')
+MACOS_SIGNING_P12_PASSWORD=$(printf %s "$MACOS_SIGNING_P12_PASSWORD" | tr -d '\r\n')
+
 keychain="$RUNNER_TEMP/cinderpaw-signing.keychain-db"
 keychain_password=$(openssl rand -hex 16)
 security create-keychain -p "$keychain_password" "$keychain"
