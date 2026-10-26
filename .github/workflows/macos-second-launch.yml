@@ -1,0 +1,55 @@
+# Opening Cinderpaw while it already runs must bring its window in front of
+# whatever the person is using. 26 Oct on his Mac it did not: the running copy
+# logged "focused main window" and stayed behind, and the new one quit, so to
+# him the app "would not open". Measured by the frontmost app, not by the log.
+name: macOS second launch
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release to test (empty = build this branch)
+        required: false
+  push:
+    branches: [fix/macos-second-launch-shows-window]
+    paths: [.github/workflows/macos-second-launch.yml]
+
+jobs:
+  second-launch:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Install the release
+        run: |
+          gh release download "${{ inputs.tag || 'v2026.10.26' }}" --repo "${{ github.repository }}" --pattern 'Cinderpaw_aarch64.app.tar.gz'
+          tar -xzf Cinderpaw_aarch64.app.tar.gz -C /Applications
+          xattr -cr /Applications/Cinderpaw.app
+      - name: Launch twice, measure who is in front
+        run: |
+          mkdir -p out
+          front() { lsappinfo info -only name "$(lsappinfo front)" | sed 's/.*="\(.*\)"/\1/'; }
+          open /Applications/Cinderpaw.app; sleep 40
+          echo "after first open: $(front)" | tee -a out/result.txt
+
+          # Like Finder or the Dock: a second launch while TextEdit is in front.
+          open -a TextEdit; sleep 4
+          echo "TextEdit opened: $(front)" | tee -a out/result.txt
+          open -n /Applications/Cinderpaw.app; sleep 6
+          echo "second launch (open -n): $(front)" | tee -a out/result.txt
+          screencapture -x out/after-open-n.png || true
+
+          # Like his Terminal: the binary run directly.
+          open -a TextEdit; sleep 4
+          /Applications/Cinderpaw.app/Contents/MacOS/cinderpaw > out/second-stdout.txt 2>&1 &
+          sleep 6
+          echo "second launch (binary): $(front)" | tee -a out/result.txt
+          screencapture -x out/after-binary.png || true
+
+          pgrep -lf Contents/MacOS/cinderpaw | tee out/processes.txt
+          grep "deep-link" ~/.cinderpaw/logs/cinderpaw.log | tail -5 | tee out/log.txt || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: second-launch
+          path: out
