@@ -37,6 +37,7 @@ import { Check, ChevronDown, Circle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { tauri } from '@/lib/tauri';
 import type { AskUserAnswer, AskUserOption, AskUserQuestion } from '@/stores/askUser';
+import { GooeyCard } from './GooeyCard';
 
 interface AskUserCardProps {
   requestId: string;
@@ -124,14 +125,19 @@ export function AskUserCard({
     onSubmit(answers as AskUserAnswer[]);
   }, [answers, isAnswered, onSubmit, questions.length]);
 
-  return (
+  const body = (
     <div
-      className="rounded-xl border border-border-default bg-bg-elevated/40 p-4 my-2 space-y-4"
+      className="space-y-4"
       data-ask-user-card={requestId}
       role="group"
       aria-label="Agent question"
     >
-      <div className="text-2xs uppercase tracking-wider text-text-muted font-medium">
+      <div className="flex items-center text-2xs uppercase tracking-wider text-text-muted font-medium">
+        {/* Waiting on the person, not working: the Claude app's "Needs your
+            input" (20 Oct) has a mark of its own, and so does this. */}
+        {!isAnswered && (
+          <span data-waiting aria-hidden className="mr-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand animate-pulse motion-reduce:animate-none" />
+        )}
         Cinderpaw needs your input
         {questions.length > 1 && (
           <span className="ml-2 font-mono text-text-muted/70 normal-case tracking-normal">
@@ -182,6 +188,11 @@ export function AskUserCard({
       )}
     </div>
   );
+  // While it waits on the person it pours in like the other cards that do
+  // (Sileo, GooeyCard); answered, it settles into the plain card.
+  return isAnswered
+    ? <div className="rounded-xl border border-border-default bg-bg-elevated/40 p-4 my-2">{body}</div>
+    : <GooeyCard className="my-2">{body}</GooeyCard>;
 }
 
 interface QuestionBlockProps {

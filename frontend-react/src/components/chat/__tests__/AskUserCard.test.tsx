@@ -246,6 +246,18 @@ describe('AskUserCard', () => {
     expect(screen.queryByText(/\/ 1/)).not.toBeInTheDocument();
   });
 
+  // 26 Oct: a card that waits on the person pours in like the other cards that
+  // do (Sileo), and says it is waiting; answered, it settles into the plain one.
+  it('pours in while it waits for an answer, and is the plain card once answered', () => {
+    const { container, rerender } = render(<AskUserCard requestId="req-1" questions={SINGLE_Q} onSubmit={() => {}} />);
+    expect(container.querySelector('[data-gooey-card]')).not.toBeNull();
+    expect(container.querySelector('[data-waiting]')).not.toBeNull();
+    rerender(<AskUserCard requestId="req-1" questions={SINGLE_Q} answered={[{ question: 'Pick a database', selected: ['SQLite'] }]} onSubmit={() => {}} />);
+    expect(container.querySelector('[data-gooey-card]')).toBeNull();
+    expect(container.querySelector('[data-waiting]')).toBeNull();
+    expect(container.querySelector('[data-ask-user-card="req-1"]')).not.toBeNull();
+  });
+
   it('renders the compact "answered" summary once `answered` is provided', () => {
     render(
       <AskUserCard
