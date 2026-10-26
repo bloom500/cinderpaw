@@ -80,7 +80,7 @@ cinderpaw-core = { path = "../crates/cinderpaw-core", default-features = false }
 
 # Utilities
 anyhow = "1"
-thiserror = "1"
+thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 sysinfo = "0.32"
