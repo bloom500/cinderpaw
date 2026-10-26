@@ -54,9 +54,18 @@ jobs:
           sleep 3
           echo "windows after cmd-W: $(wins)" | tee -a out/result.txt
           if [ "$(wins)" != "0" ]; then
-            osascript -e 'tell application "System Events" to tell process "cinderpaw" to click (first button of window 1 whose subrole is "AXCloseButton")' 2>&1 | tee -a out/result.txt
+            # Cinderpaw draws its own title bar: its X sits 21 px from the right
+            # edge, 15 px below the top (screenshot of the first run).
+            osascript <<'EOF' 2>&1 | tee -a out/result.txt
+          tell application "System Events" to tell process "cinderpaw"
+            set {x, y} to position of window 1
+            set {w, h} to size of window 1
+          end tell
+          tell application "System Events" to click at {x + w - 21, y + 15}
+          EOF
             sleep 3
-            echo "windows after close button: $(wins)" | tee -a out/result.txt
+            echo "windows after clicking its X: $(wins)" | tee -a out/result.txt
+            screencapture -x out/after-x.png || true
           fi
           open -a TextEdit; sleep 4
           open -n /Applications/Cinderpaw.app; sleep 6
