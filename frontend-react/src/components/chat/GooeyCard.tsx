@@ -1,7 +1,10 @@
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { BLUR_RATIO, DEFAULT_ROUNDNESS, HEIGHT, SPRING } from '@/components/ui/sileo/constants';
 import { cn } from '@/lib/utils';
+
+/** How long the liquid takes to fade once a `settle` card has poured in. */
+const FADE_MS = 300;
 
 /** Sileo's two merging shapes, adapted for a responsive card. The vendored
  * toast's button root cannot contain our buttons/links. Only the backdrop is
@@ -25,6 +28,16 @@ export function GooeyCard({ children, className, bare = false, settle = false }:
   // `settle`: pour, then fade the liquid out (gone at once, a glass card jumped
   // from the opaque fill to its own see-through one), then drop the filter.
   const [phase, setPhase] = useState<'pour' | 'fade' | 'done'>('pour');
+  // On time, not on the spring's end: a card that keeps growing (a tool row
+  // every few hundred ms) restarted the spring before it ended and kept the
+  // filter for the whole reply, 11 long frames in 2.5 s (26 Oct).
+  useEffect(() => {
+    if (!settle || reduced) return;
+    const pour = (SPRING.duration + 0.08) * 1000;
+    const fade = window.setTimeout(() => setPhase('fade'), pour);
+    const done = window.setTimeout(() => setPhase('done'), pour + FADE_MS);
+    return () => { window.clearTimeout(fade); window.clearTimeout(done); };
+  }, [settle, reduced]);
 
   useLayoutEffect(() => {
     const el = content.current;
@@ -51,8 +64,7 @@ export function GooeyCard({ children, className, bare = false, settle = false }:
       {!reduced && phase !== 'done' && (
         <motion.svg aria-hidden="true" focusable="false" className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
           width={size.width} height={size.height}
-          initial={false} animate={{ opacity: phase === 'fade' ? 0 : 1 }} transition={{ duration: 0.3 }}
-          onAnimationComplete={() => { if (phase === 'fade') setPhase('done'); }}>
+          initial={false} animate={{ opacity: phase === 'fade' ? 0 : 1 }} transition={{ duration: FADE_MS / 1000 }}>
           <defs>
             <filter id={id} filterUnits="userSpaceOnUse" x={-blur * 2} y={-blur * 2}
               width={size.width + blur * 4} height={size.height + blur * 4} colorInterpolationFilters="sRGB">
@@ -66,8 +78,7 @@ export function GooeyCard({ children, className, bare = false, settle = false }:
               animate={{ width: size.width, height: Math.min(size.height, HEIGHT + 4) }} transition={SPRING} />
             <motion.rect y={HEIGHT - 8} width={size.width} rx={DEFAULT_ROUNDNESS}
               initial={{ height: 0, opacity: 0 }} animate={{ height: Math.max(0, size.height - HEIGHT + 8), opacity: 1 }}
-              transition={{ ...SPRING, delay: 0.08 }}
-              onAnimationComplete={settle ? () => setPhase((p) => (p === 'pour' ? 'fade' : p)) : undefined} />
+              transition={{ ...SPRING, delay: 0.08 }} />
           </g>}
         </motion.svg>
       )}
