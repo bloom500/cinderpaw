@@ -15,7 +15,11 @@ on:
 
 jobs:
   second-launch:
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
       GH_TOKEN: ${{ github.token }}
@@ -28,6 +32,7 @@ jobs:
       - name: Launch twice, measure who is in front
         run: |
           mkdir -p out
+          sw_vers | tee out/result.txt
           front() { lsappinfo info -only name "$(lsappinfo front)" | sed 's/.*="\(.*\)"/\1/'; }
           open /Applications/Cinderpaw.app; sleep 40
           echo "after first open: $(front)" | tee -a out/result.txt
@@ -77,5 +82,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: second-launch
+          name: second-launch-${{ matrix.os }}
           path: out
