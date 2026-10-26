@@ -1967,6 +1967,18 @@ span.ember-caret {
   from { clip-path: inset(-48px -24px -24px 0 round 24px); }
   to { clip-path: inset(calc(100% - var(--radix-dropdown-menu-trigger-height)) calc(100% - var(--radix-dropdown-menu-trigger-width)) 0 0 round 16px); }
 }
+/* A tool row that arrives while the agent works drops in from the strip's
+   header with a small bounce (MessageChain, his pick C of the 26 Oct mockups).
+   Transform, opacity and a light blur, for under half a second, on one row. */
+.row-pop {
+  animation: row-pop 0.45s cubic-bezier(0.34, 1.4, 0.6, 1) backwards;
+}
+@keyframes row-pop {
+  from { opacity: 0; transform: translateY(-8px) scale(0.96); filter: blur(2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-pop { animation: none; }
+}
 @keyframes island-body-in {
   from { opacity: 0; transform: translateY(6px); }
 }
