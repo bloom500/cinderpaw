@@ -1,0 +1,60 @@
+# Dependency updates arrive as pull requests every Monday, instead of a manual
+# pass before each release. Each folder gets ONE pull request with all its minor
+# and patch bumps; a major version comes in a pull request of its own, because
+# those are the ones that break. CI runs on every one of them like on any PR.
+#
+# Security fixes (Dependabot alerts / security updates) are separate: they are
+# switched on in the repository's Settings > Code security, not here.
+#
+# Not covered on purpose: third_party/wry (a vendored fork, updated by hand)
+# and games/ember/tests/smoke (a test harness, not shipped).
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    commit-message: { prefix: "chore(deps)" }
+    open-pull-requests-limit: 5
+    groups:
+      rust-minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: bun
+    directories: ["/CinderpawAgent", "/web-app"]
+    schedule: { interval: weekly, day: monday }
+    commit-message: { prefix: "chore(deps)" }
+    open-pull-requests-limit: 5
+    groups:
+      bun-minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  # frontend-react installs with `npm ci` in CI, so its package-lock.json is
+  # the one that counts.
+  - package-ecosystem: npm
+    directory: /frontend-react
+    schedule: { interval: weekly, day: monday }
+    commit-message: { prefix: "chore(deps)" }
+    open-pull-requests-limit: 5
+    groups:
+      frontend-minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: gomod
+    directory: /tui
+    schedule: { interval: weekly, day: monday }
+    commit-message: { prefix: "chore(deps)" }
+    groups:
+      tui-minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    commit-message: { prefix: "ci(deps)" }
+    groups:
+      actions:
+        patterns: ["*"]
