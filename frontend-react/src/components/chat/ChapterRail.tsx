@@ -108,7 +108,9 @@ const ChapterRow = memo(function ChapterRow({
   );
 });
 
-export function ChapterRail() {
+// Memoized: it takes no props, and the transcript draws again for every
+// streamed piece; without this the rail redid every turn's preview each time.
+export const ChapterRail = memo(function ChapterRail() {
   // Your turns only, compared item by item (useShallow, which also keeps the
   // fresh filtered array from looping the store): a streamed reply changes no
   // turn, so the rail is not drawn again on every frame of it (26 Oct: 300
@@ -453,4 +455,4 @@ export function ChapterRail() {
       )}
     </>
   );
-}
+});

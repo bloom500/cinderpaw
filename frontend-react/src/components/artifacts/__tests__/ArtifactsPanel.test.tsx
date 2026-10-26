@@ -983,6 +983,26 @@ describe('live writing', () => {
     expect(screen.getByText(/2 lines written/)).toBeInTheDocument();
   });
 
+  // Review of PR #48: "Building" promised an app that was never going to come.
+  it('shows what was written, not "Building", when an app stops before it is saved', () => {
+    useArtifacts.setState({ loaded: true });
+    const { container } = render(<ArtifactsPanel onClose={() => {}} />);
+    act(() => useArtifacts.getState().onDraft({ id: 'turn-1', sessionId: 's1', draft: '0:0', kind: 'app', title: 'Timer', append: '<div>Hi</div>', onScreen: true }));
+    act(() => useArtifacts.getState().endDraft('turn-1', { reason: 'Cinderpaw stopped before saving this.' }));
+    expect(screen.getByText('Cinderpaw stopped before saving this.')).toBeInTheDocument();
+    expect(screen.queryByText(/lines? written/)).toBeNull();
+    expect(container.querySelector('pre')).not.toBeNull();
+  });
+
+  // A document is a page when it is HTML; the first tag can still be hidden
+  // behind the paced letters, and it read as markdown for that moment.
+  it('knows a document is a page before its first tag is on screen', () => {
+    useArtifacts.setState({ loaded: true });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    act(() => useArtifacts.getState().onDraft({ id: 'turn-1', sessionId: 's1', draft: '0:0', kind: 'document', title: 'Menu', append: '<h1>Menu</h1>\n<p>Soup</p>', onScreen: true }));
+    expect(screen.getByText(/2 lines written/)).toBeInTheDocument();
+  });
+
   it('runs the whole app the moment it is saved', async () => {
     useArtifacts.setState({ loaded: true });
     const { container } = render(<ArtifactsPanel onClose={() => {}} />);

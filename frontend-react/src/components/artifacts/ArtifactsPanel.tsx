@@ -771,8 +771,14 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
   const text = leaving ? leaving.content : queued ? content.slice(0, queued[0]) + content.slice(queued[1]) : content;
   // While it is written, a script or a table shows as its source. A page or a
   // board half written cannot be drawn, and a frame reloaded on every letter
-  // would flicker: it is built out of sight. A PDF is written as markdown.
-  const viewKind = draft ? (row.kind === 'pdf' || shownKind(row.kind, text) === 'markdown' ? 'markdown' : BUILT.has(shownKind(row.kind, text)) ? 'building' : 'code') : shownKind(row.kind, text);
+  // would flicker: it is built out of sight, unless it stopped before a save,
+  // when what was written is all there is. A PDF is written as markdown. Told
+  // apart by what arrived: a page's first tag can still wait behind the paced
+  // letters, and it read as markdown for that moment.
+  const arrived = shownKind(row.kind, content);
+  const viewKind = draft
+    ? (row.kind === 'pdf' || arrived === 'markdown' ? 'markdown' : BUILT.has(arrived) && !live?.stopped ? 'building' : 'code')
+    : shownKind(row.kind, text);
 
   if (editing) {
     return (
