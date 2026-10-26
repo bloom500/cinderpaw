@@ -46,6 +46,23 @@ jobs:
           echo "second launch (binary): $(front)" | tee -a out/result.txt
           screencapture -x out/after-binary.png || true
 
+          # His case: the window was closed (Close only hides it, the app stays in
+          # the menu bar), then the app was opened again.
+          wins() { osascript -e 'tell application "System Events" to count windows of process "cinderpaw"' 2>&1; }
+          echo "windows before close: $(wins)" | tee -a out/result.txt
+          osascript -e 'tell application "System Events" to keystroke "w" using command down' 2>&1 | tee -a out/result.txt
+          sleep 3
+          echo "windows after cmd-W: $(wins)" | tee -a out/result.txt
+          if [ "$(wins)" != "0" ]; then
+            osascript -e 'tell application "System Events" to tell process "cinderpaw" to click (first button of window 1 whose subrole is "AXCloseButton")' 2>&1 | tee -a out/result.txt
+            sleep 3
+            echo "windows after close button: $(wins)" | tee -a out/result.txt
+          fi
+          open -a TextEdit; sleep 4
+          open -n /Applications/Cinderpaw.app; sleep 6
+          echo "closed, then second launch: front=$(front) windows=$(wins)" | tee -a out/result.txt
+          screencapture -x out/after-closed.png || true
+
           pgrep -lf Contents/MacOS/cinderpaw | tee out/processes.txt
           grep "deep-link" ~/.cinderpaw/logs/cinderpaw.log | tail -5 | tee out/log.txt || true
       - uses: actions/upload-artifact@v4
