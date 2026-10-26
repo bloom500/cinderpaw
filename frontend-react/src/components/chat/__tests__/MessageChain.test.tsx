@@ -63,6 +63,23 @@ describe('MessageChain (the Activity Strip)', () => {
     expect(screen.getByText('2 steps · 0s')).toBeInTheDocument();
   });
 
+  // 26 Oct, his pick from three mockups (C): the strip pours in, and each tool
+  // row pops in, while the agent works; a chat opened again replays nothing.
+  it('pours in and pops its rows in while the agent works, not when a chat is reopened', () => {
+    const search = startActivity('web_search', { query: 'Rome flights' });
+    const live = render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[search]} streaming />);
+    expect(live.container.querySelector('[data-gooey-card]')).not.toBeNull();
+    expect(live.container.querySelector('.row-pop')).toHaveTextContent('Searching the web');
+    live.unmount();
+
+    const done = finishActivity(search, { ok: true, content: '' });
+    const old = render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[done]} streaming={false} />);
+    expect(old.container.querySelector('[data-gooey-card]')).toBeNull();
+    fireEvent.click(screen.getByText('Searched the web'));
+    expect(screen.getAllByText('Searched the web')).toHaveLength(2);
+    expect(old.container.querySelector('.row-pop')).toBeNull();
+  });
+
   it('draws nothing when there was no reasoning and no tool', () => {
     const { container } = render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[]} streaming />);
     expect(container).toBeEmptyDOMElement();

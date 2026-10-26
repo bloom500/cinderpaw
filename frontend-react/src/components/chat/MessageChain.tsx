@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, Ban, Check, ChevronDown, Loader2, X } from 'lucide-react';
 import { Streamdown } from 'streamdown';
@@ -10,9 +11,16 @@ import { displayName, type RlmWorker } from '@/stores/rlmWorkers';
 import logoUrl from '@/assets/logo.svg';
 import { Widget, summaryOf } from './CallToolScreen';
 import { CinderpawMascot } from './mascot/CinderpawMascot';
+import { GooeyCard } from './GooeyCard';
 
 /** How long the finished answer is on screen before the steps fold away. */
 const FOLD_DELAY_MS = 1000;
+
+/** A side chip ("Using memory") pops in when it starts and shrinks away when it
+ *  ends. No blur: a filter is repainted every frame, where scale is not. */
+const CHIP_AWAY = { scale: 0.3, opacity: 0 };
+const CHIP_HERE = { scale: 1, opacity: 1 };
+const CHIP_SPRING = { type: 'spring' as const, bounce: 0.45, duration: 0.45 };
 
 /** No Streamdown plugins, for the same bundle reason as reasoning.tsx. */
 const NO_PLUGINS = {};
@@ -166,13 +174,14 @@ function StatusRing({ status }: { status: ToolActivity['status'] }) {
   return <Check size={16} className="shrink-0 text-success" />;
 }
 
-/** One step: ring, what it did, its count. Click for the tool's own widget. */
-function StepRow({ a }: { a: ToolActivity }) {
+/** One step: ring, what it did, its count. Click for the tool's own widget.
+ *  `pop`: it arrived while the agent works, so it pops in (`.row-pop`). */
+function StepRow({ a, pop }: { a: ToolActivity; pop: boolean }) {
   // `null` is "nobody chose": the running step shows its widget, the rest fold.
   const [choice, setChoice] = useState<boolean | null>(null);
   const open = choice ?? a.status === 'running';
   return (
-    <div>
+    <div className={pop ? 'row-pop' : undefined}>
       <button
         type="button"
         aria-expanded={open}
@@ -270,6 +279,10 @@ export function MessageChain({
   helpers?: RlmWorker[];
 }) {
   const [open, setOpen] = useState(streaming);
+  // First drawn while the agent works: it pours in like Sileo's pills, and its
+  // chips and rows arrive with a little bounce (his pick of three mockups, 26
+  // Oct). A chat opened again draws it as it is: nothing is replayed.
+  const [live] = useState(streaming);
   const wasStreaming = useRef(streaming);
   const [reasoningOpen, setReasoningOpen] = useState(false);
   const now = useNow(streaming || helpers.some((w) => w.status === 'running'));
@@ -308,7 +321,7 @@ export function MessageChain({
   }
   const failed = !streaming && steps.some((a) => a.status === 'failed');
 
-  return (
+  const strip = (
     <Collapsible
       open={open}
       onOpenChange={setOpen}
@@ -319,9 +332,12 @@ export function MessageChain({
         {/* Done, it is a quiet line of what happened, not a green "finished":
             the answer may still be arriving below it. */}
         <span className={cn('min-w-0 flex-1 truncate text-sm', streaming ? 'font-semibold text-text-primary' : 'text-text-muted')}>{title}</span>
-        {chips.map((c) => (
-          <span key={c} className="shrink-0 rounded-full bg-bg-active px-2 py-0.5 text-2xs font-medium text-brand">{c}</span>
-        ))}
+        <AnimatePresence initial={false}>
+          {chips.map((c) => (
+            <motion.span key={c} initial={CHIP_AWAY} animate={CHIP_HERE} exit={CHIP_AWAY} transition={CHIP_SPRING}
+              className="shrink-0 rounded-full bg-bg-active px-2 py-0.5 text-2xs font-medium text-brand">{c}</motion.span>
+          ))}
+        </AnimatePresence>
         {detail && <span className="shrink-0 text-2xs text-text-disabled">{detail}</span>}
         <ChevronDown size={16} className={cn('shrink-0 text-text-muted transition-transform', open && 'rotate-180')} />
       </CollapsibleTrigger>
@@ -331,7 +347,7 @@ export function MessageChain({
           'data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down',
         )}
       >
-        {steps.map((a) => <StepRow key={a.id} a={a} />)}
+        {steps.map((a) => <StepRow key={a.id} a={a} pop={live && streaming} />)}
         {helpers.map((w) => <HelperRow key={w.childId} w={w} now={now} />)}
         {/* ponytail: reasoning is drawn after the tools. The stream keeps only the
             latest segment's reasoning, which is the one after the last tool, so
@@ -366,4 +382,5 @@ export function MessageChain({
       </CollapsibleContent>
     </Collapsible>
   );
+  return live ? <GooeyCard bare settle>{strip}</GooeyCard> : strip;
 }
