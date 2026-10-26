@@ -137,7 +137,7 @@ tokio-tungstenite = { version = "0.30.0", default-features = false, features = [
 # Listed LAST so the regular `[dependencies]` block above is unaffected.
 [target.'cfg(target_os = "linux")'.dependencies]
 aes-gcm = "0.10"
-hkdf = "0.12"
+hkdf = "0.13"
 
 [features]
 default = ["inference"]
