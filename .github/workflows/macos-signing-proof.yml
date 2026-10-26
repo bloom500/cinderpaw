@@ -5,8 +5,7 @@
 name: macOS signing proof
 on:
   workflow_dispatch:
-  push:
-    branches: [exp/macos-stable-signature]
+  pull_request:
     paths: [.github/workflows/macos-signing-proof.yml, .github/scripts/macos-signing-cert.sh]
 
 jobs:
