@@ -15,7 +15,7 @@
       "devDependencies": {
         "@larksuiteoapi/node-sdk": "1.76.0",
         "@slack/socket-mode": "^2.0.7",
-        "@slack/web-api": "^7.17.0",
+        "@slack/web-api": "^8.2.0",
         "@types/bun": "latest",
         "@types/qrcode-terminal": "^0.12.2",
         "@whiskeysockets/baileys": "^7.0.0-rc13",
@@ -227,9 +227,9 @@
 
     "@slack/socket-mode": ["@slack/socket-mode@2.0.7", "", { "dependencies": { "@slack/logger": "^4.0.1", "@slack/web-api": "^7.15.0", "@types/node": ">=18", "@types/ws": "^8", "eventemitter3": "^5", "ws": "^8" } }, "sha512-qYy07je71WnEHgRwmw12DlAnZLi5HXmdlI2WUzUK2LH/rYXQpP6uEg462S5CwfE8FoCKUdIigHtYnOOfzZH1lQ=="],
 
-    "@slack/types": ["@slack/types@2.21.1", "", {}, "sha512-I8vmSjNYWsaxuWPx6dz4yeh0h7vRBWbgAMK14LEmblbZ404BtrPbXs6jDPx4cYgGf8msDGF4A9opLZBu21FViQ=="],
+    "@slack/types": ["@slack/types@3.2.0", "", {}, "sha512-IN4gdtlzQt8UJoj+1v+qAHeR4TxHO0KMlIs841SFfDQAcFFnsrWaGsEAE4goxVt8O/JOAFaGGdrFTzhNBop/Fg=="],
 
-    "@slack/web-api": ["@slack/web-api@7.17.0", "", { "dependencies": { "@slack/logger": "^4.0.1", "@slack/types": "^2.21.0", "@types/node": ">=18", "@types/retry": "0.12.0", "axios": "^1.16.0", "eventemitter3": "^5.0.1", "form-data": "^4.0.4", "is-electron": "2.2.2", "is-stream": "^2", "p-queue": "^6", "p-retry": "^4", "retry": "^0.13.1" } }, "sha512-jejr34a8B4L5AS713wOAx1LAqNkW16HVMDEa6sYBvFDc/llUBl8hXaiI4BwF+Al+Sug19Vn2O7iokTVIhVvZ1Q=="],
+    "@slack/web-api": ["@slack/web-api@8.2.0", "", { "dependencies": { "@slack/logger": "^5.0.0", "@slack/types": "^3.2.0", "@types/node": ">=20", "@types/retry": "0.12.5", "eventemitter3": "^5.0.1", "p-queue": "^6.6.2", "p-retry": "^4.6.2", "retry": "^0.13.1" } }, "sha512-bIW8/8BLD/HLuHLIA2LfA7AhSokzui4swCbMJuwoRJxn/kzHVla6YEKLvN1nCFHK/DfX7g+4Wj3ess/ZSh/tWQ=="],
 
     "@tokenizer/inflate": ["@tokenizer/inflate@0.4.1", "", { "dependencies": { "debug": "^4.4.3", "token-types": "^6.1.1" } }, "sha512-2mAv+8pkG6GIZiF1kNg1jAjh27IDxEPKwdGul3snfztFerfPGI1LjDezZp3i7BElXompqEtPmoPx6c2wgtWsOA=="],
 
@@ -247,7 +247,7 @@
 
     "@types/qrcode-terminal": ["@types/qrcode-terminal@0.12.2", "", {}, "sha512-v+RcIEJ+Uhd6ygSQ0u5YYY7ZM+la7GgPbs0V/7l/kFs2uO4S8BcIUEMoP7za4DNIqNnUD5npf0A/7kBhrCKG5Q=="],
 
-    "@types/retry": ["@types/retry@0.12.0", "", {}, "sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA=="],
+    "@types/retry": ["@types/retry@0.12.5", "", {}, "sha512-3xSjTp3v03X/lSQLkczaN9UIEwJMoMCA1+Nb5HfbJEQWogdeQIyVtTvxPXDQjZ5zws8rFQfVfRdz03ARihPJgw=="],
 
     "@types/ws": ["@types/ws@8.18.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg=="],
 
@@ -767,6 +767,12 @@
 
     "@fast-csv/parse/@types/node": ["@types/node@14.18.63", "", {}, "sha512-fAtCfv4jJg+ExtXhvCkCqUKZ+4ok/JQk01qDKhL5BDDoS3AxKXhV5/MAVUZyQnSEd2GT92fkgZl0pz0Q0AzcIQ=="],
 
+    "@slack/socket-mode/@slack/web-api": ["@slack/web-api@7.17.0", "", { "dependencies": { "@slack/logger": "^4.0.1", "@slack/types": "^2.21.0", "@types/node": ">=18", "@types/retry": "0.12.0", "axios": "^1.16.0", "eventemitter3": "^5.0.1", "form-data": "^4.0.4", "is-electron": "2.2.2", "is-stream": "^2", "p-queue": "^6", "p-retry": "^4", "retry": "^0.13.1" } }, "sha512-jejr34a8B4L5AS713wOAx1LAqNkW16HVMDEa6sYBvFDc/llUBl8hXaiI4BwF+Al+Sug19Vn2O7iokTVIhVvZ1Q=="],
+
+    "@slack/web-api/@slack/logger": ["@slack/logger@5.0.0", "", { "dependencies": { "@types/node": ">=20" } }, "sha512-VGXhmmgsAo9shdQYh4tFDndd+7nsgp0Y5h0UPDaUp8K359pBasI6YdkMqFW3mCOxLQkq09qj7o7cq6f3DuXcJQ=="],
+
+    "@slack/web-api/@types/node": ["@types/node@26.6.5", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-uMzsv9stDdofIZBx4UGh4Z9ZgXnGC9seRDscilBcTHAeOFk67MZg/k9bWVfO+bk4qZmG+l52hRnLwUiH2LnJTg=="],
+
     "@whiskeysockets/baileys/p-queue": ["p-queue@9.3.0", "", { "dependencies": { "eventemitter3": "^5.0.4", "p-timeout": "^7.0.0" } }, "sha512-7NED7xhQ74Ngp4JP/2e0VZHp7vSWfJfqeiR92jPgxsz6m0Se4P03YoTKa9dDXyZ3r6P616gUXttrB6nnHYKang=="],
 
     "archiver-utils/readable-stream": ["readable-stream@2.3.8", "", { "dependencies": { "core-util-is": "~1.0.0", "inherits": "~2.0.3", "isarray": "~1.0.0", "process-nextick-args": "~2.0.0", "safe-buffer": "~5.1.1", "string_decoder": "~1.1.1", "util-deprecate": "~1.0.1" } }, "sha512-8p0AUk4XODgIewSi0l8Epjs+EVnWiK7NoDIEGU0HhE7+ZyY8D1IMY7odu5lRrFXGg71L15KG8QrPmum45RTtdA=="],
@@ -787,6 +793,8 @@
 
     "p-queue/eventemitter3": ["eventemitter3@4.0.7", "", {}, "sha512-8guHBZCwKnFhYdHr2ysuRWErTwhoN2X8XELRlrRwpmfeY2jjuUN4taQMsULKUVo1K4DvZl+0pgfyoysHxvmvEw=="],
 
+    "p-retry/@types/retry": ["@types/retry@0.12.0", "", {}, "sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA=="],
+
     "pdf-lib/tslib": ["tslib@1.14.1", "", {}, "sha512-Xni35NKzjgMrwevysHTCArtLDpPvye8zV/0E4EyYn43P7/7qvQwPh9BGkHewbMulVntbigmcT7rdX3BNo9wRJg=="],
 
     "postcss/nanoid": ["nanoid@3.3.20", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-uKdg2G3GNCKQn9byYOpxbGqrT2fGO5KRt5J/8b3pok8rT6qxGWF6hxMyJiEYtAf+FVyYuD9hRaDqX5uPFYJ4ZQ=="],
@@ -798,6 +806,12 @@
     "zca-js/pako": ["pako@2.2.0", "", {}, "sha512-zJq6RP/5q+TO2OpFV3FHzlPnFjmkb7Nc99a5SNjJE+uu/PkpChs+NIZSSzbBoD+6kjiISXjfYdwj1ZRQ81dz/w=="],
 
     "zip-stream/archiver-utils": ["archiver-utils@3.0.4", "", { "dependencies": { "glob": "^7.2.3", "graceful-fs": "^4.2.0", "lazystream": "^1.0.0", "lodash.defaults": "^4.2.0", "lodash.difference": "^4.5.0", "lodash.flatten": "^4.4.0", "lodash.isplainobject": "^4.0.6", "lodash.union": "^4.6.0", "normalize-path": "^3.0.0", "readable-stream": "^3.6.0" } }, "sha512-KVgf4XQVrTjhyWmx6cte4RxonPLR9onExufI1jhvw/MQ4BB6IsZD5gT8Lq+u/+pRkWna/6JoHpiQioaqFP5Rzw=="],
+
+    "@slack/socket-mode/@slack/web-api/@slack/types": ["@slack/types@2.21.1", "", {}, "sha512-I8vmSjNYWsaxuWPx6dz4yeh0h7vRBWbgAMK14LEmblbZ404BtrPbXs6jDPx4cYgGf8msDGF4A9opLZBu21FViQ=="],
+
+    "@slack/socket-mode/@slack/web-api/@types/retry": ["@types/retry@0.12.0", "", {}, "sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA=="],
+
+    "@slack/web-api/@types/node/undici-types": ["undici-types@8.9.0", "", {}, "sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg=="],
 
     "@whiskeysockets/baileys/p-queue/p-timeout": ["p-timeout@7.0.1", "", {}, "sha512-AxTM2wDGORHGEkPCt8yqxOTMgpfbEHqF51f/5fJCmwFC3C/zNcGT63SymH2ttOAaiIws2zVg4+izQCjrakcwHg=="],
 
