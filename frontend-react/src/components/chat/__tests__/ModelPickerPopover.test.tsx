@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { useModel } from '@/stores/model';
 import userEvent from '@testing-library/user-event';
 import { ModelPickerPopover } from '@/components/chat/ModelPickerPopover';
@@ -89,6 +89,17 @@ describe('the Model Switcher (spec 8)', () => {
     await userEvent.click(local);
     expect(load).toHaveBeenCalledWith('C:/models/Qwen3.8-4B-Q6_K.gguf');
     load.mockRestore();
+  });
+
+  // 26 Oct, Darius's pick from the mockups (C, Dynamic Island): the menu grows
+  // out of its own button, which stays in place as the island's last row.
+  it('opens as an island over its own button, and that last row closes it', async () => {
+    render(<ModelPickerPopover />);
+    await userEvent.click(screen.getByRole('button'));
+    const menu = await screen.findByRole('menu');
+    expect(menu).toHaveClass('model-island');
+    await userEvent.click(within(menu).getByRole('button', { name: /close the list/ }));
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
   });
 });
 

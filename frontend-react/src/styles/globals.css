@@ -1932,3 +1932,48 @@ span.ember-caret {
   background-color: #000;
   backdrop-filter: none;
 }
+
+/* The model switcher is a Dynamic Island (his pick of three mockups, 26 Oct):
+   the menu lies over its own button and grows out of it, bottom-left first.
+   A clip, not a size: the rows are laid out once at their final size and only
+   what shows of them grows, so no frame lays the menu out again. The clip ends
+   wider than the box (the head over the top edge, the shadow) and then goes
+   with the animation. Unlayered, so it wins over the menus' own enter/exit. */
+.model-island[data-state="open"] {
+  animation: island-in 0.5s cubic-bezier(0.34, 1.3, 0.5, 1) backwards;
+}
+.model-island[data-state="closed"] {
+  animation: island-out 0.22s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+.model-island[data-state="open"] .model-island-body {
+  animation: island-body-in 0.3s ease-out 0.15s backwards;
+}
+.model-island[data-state="closed"] .model-island-body {
+  animation: island-body-out 0.12s ease-in forwards;
+}
+@keyframes island-in {
+  from {
+    clip-path: inset(calc(100% - var(--radix-dropdown-menu-trigger-height)) calc(100% - var(--radix-dropdown-menu-trigger-width)) 0 0 round 16px);
+    transform: scale(0.97);
+  }
+  /* Left edge 0, not past it: a clip wider than the box on the left showed
+     the growing island with a square top-left corner. */
+  to {
+    clip-path: inset(-48px -24px -24px 0 round 24px);
+    transform: none;
+  }
+}
+@keyframes island-out {
+  from { clip-path: inset(-48px -24px -24px 0 round 24px); }
+  to { clip-path: inset(calc(100% - var(--radix-dropdown-menu-trigger-height)) calc(100% - var(--radix-dropdown-menu-trigger-width)) 0 0 round 16px); }
+}
+@keyframes island-body-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+@keyframes island-body-out {
+  to { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .model-island,
+  .model-island .model-island-body { animation-duration: 1ms !important; animation-delay: 0s !important; }
+}
