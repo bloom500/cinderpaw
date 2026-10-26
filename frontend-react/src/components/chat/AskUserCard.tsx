@@ -313,9 +313,11 @@ function QuestionBlock({
       className="space-y-2 outline-hidden"
       data-question-index={index}
     >
-      <div className="flex items-baseline gap-2">
+      {/* The label above, not beside: beside it, every line of the question
+          wrapped in a narrow column under nothing (26 Oct, the install card). */}
+      <div className="space-y-1">
         {question.header && (
-          <span className="text-micro uppercase tracking-wider text-text-muted font-mono">
+          <span className="block text-micro uppercase tracking-wider text-text-muted font-mono">
             {question.header}
           </span>
         )}

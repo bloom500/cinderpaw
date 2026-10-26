@@ -14,7 +14,9 @@ afterEach(() => {
   delete process.env.CINDERPAW_PERMISSION_MODE;
 });
 
-function ctx(answer: string | null, ran: string[][], asked: string[] = []): ToolContext {
+type Asked = { question: string; preview?: string; options: Array<{ label: string; description?: string }> };
+
+function ctx(answer: string | null, ran: string[][], asked: string[] = [], whole: Asked[] = []): ToolContext {
   return {
     sessionId: "chat",
     process: {
@@ -27,8 +29,9 @@ function ctx(answer: string | null, ran: string[][], asked: string[] = []): Tool
       ? {}
       : {
           askUser: {
-            ask: async (qs: Array<{ question: string }>) => {
+            ask: async (qs: Asked[]) => {
               asked.push(qs[0]!.question);
+              whole.push(qs[0]!);
               return [{ question: qs[0]!.question, selected: [answer] }];
             },
             cancel: () => {},
@@ -44,10 +47,23 @@ test("an install through the shell asks first, and 'No' runs nothing", async () 
     { argv: ["powershell", "-Command", "npm install @whiskeysockets/baileys"] },
     ctx("No, don't install", ran, asked),
   );
-  expect(asked[0]).toContain("Install software on this computer?");
+  expect(asked[0]).toBe("Install @whiskeysockets/baileys on this computer?");
   expect(res.ok).toBe(false);
   expect(res.error).toBe("install_declined");
   expect(ran).toEqual([]);
+});
+
+// 26 Oct, his screenshot: the whole command sat in the question, bold, and the
+// yes said "Run this one command" over five commands joined by &.
+test("the card names what is installed, shows the whole command apart, and says what yes runs", async () => {
+  const whole: Asked[] = [];
+  const command = "cmd /c mkdir C:\\w\\hf & cd /d C:\\w\\hf & npm init -y & npm install hyperframes & npx hyperframes --help";
+  await askBeforeInstall(ctx("No, don't install", [], [], whole), command);
+  expect(whole[0]!.question).toBe("Install hyperframes on this computer?");
+  expect(whole[0]!.preview).toBe(command);
+  expect(whole[0]!.options[0]!.description).toBe("Run the command above.");
+  await askBeforeInstall(ctx("No, don't install", [], [], whole), "npm ci");
+  expect(whole[1]!.question).toBe("Install software on this computer?");
 });
 
 test("with nobody there to answer, an install is refused", async () => {
