@@ -236,6 +236,20 @@ describe('chat tool widgets', () => {
     expect(screen.getByText(/v3/)).toBeInTheDocument();
   });
 
+  // 26 Oct: the card that replaces a running create row pours in (Sileo); a
+  // chat opened again shows it as it is, with nothing replayed.
+  it('pours the made card in when it replaces its running row, not when a chat reopens', () => {
+    const running = startActivity('artifact_create', { kind: 'app', title: 'Timer' });
+    const done = finishActivity(running, { ok: true, content: 'Created app "Timer".', data: { id: 'abc', kind: 'app', title: 'Timer', version: 1 } });
+    const live = render(<MessageToolWidgets activity={[running]} streaming />);
+    live.rerender(<MessageToolWidgets activity={[done]} streaming />);
+    expect(live.container.querySelector('[data-gooey-card]')).not.toBeNull();
+    live.unmount();
+    const reopened = render(<MessageToolWidgets activity={[done]} streaming={false} />);
+    expect(reopened.container.querySelector('[data-gooey-card]')).toBeNull();
+    expect(screen.getByText('Timer')).toBeInTheDocument();
+  });
+
   it('falls back to the generic body when a result carries no artifact data', () => {
     // An older sidecar returns the sentence and no `data`. The widget must not
     // draw a card headed "undefined" — it must degrade to what it does know.

@@ -7,12 +7,24 @@ import { cn } from '@/lib/utils';
  * toast's button root cannot contain our buttons/links. Only the backdrop is
  * filtered: text stays sharp, controls stay semantic, and content keeps its
  * natural height (including evidence/error messages and resized windows).
- * Based on hiaaryan/sileo (MIT, Aaryan); see ../ui/sileo/NOTICE.md. */
-export function GooeyCard({ children, className }: { children: ReactNode; className?: string }) {
+ * Based on hiaaryan/sileo (MIT, Aaryan); see ../ui/sileo/NOTICE.md.
+ *
+ * `bare` + `settle` is for a child that is a card already (its own surface and
+ * radius): no frame of ours, and the liquid only while it enters, so the card
+ * is exactly itself once it has arrived and nothing is filtered after. */
+export function GooeyCard({ children, className, bare = false, settle = false }: {
+  children: ReactNode;
+  className?: string;
+  bare?: boolean;
+  settle?: boolean;
+}) {
   const reduced = useReducedMotion();
   const id = `gooey-card-${useId().replace(/:/g, '')}`;
   const content = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
+  // `settle`: pour, then fade the liquid out (gone at once, a glass card jumped
+  // from the opaque fill to its own see-through one), then drop the filter.
+  const [phase, setPhase] = useState<'pour' | 'fade' | 'done'>('pour');
 
   useLayoutEffect(() => {
     const el = content.current;
@@ -36,9 +48,11 @@ export function GooeyCard({ children, className }: { children: ReactNode; classN
       data-reduced-motion={!!reduced}
       className={cn('relative isolate [--gooey-fill:rgb(54,48,43)] [[data-theme=light]_&]:[--gooey-fill:rgb(251,247,241)]', className)}
     >
-      {!reduced && (
-        <svg aria-hidden="true" focusable="false" className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
-          width={size.width} height={size.height}>
+      {!reduced && phase !== 'done' && (
+        <motion.svg aria-hidden="true" focusable="false" className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
+          width={size.width} height={size.height}
+          initial={false} animate={{ opacity: phase === 'fade' ? 0 : 1 }} transition={{ duration: 0.3 }}
+          onAnimationComplete={() => { if (phase === 'fade') setPhase('done'); }}>
           <defs>
             <filter id={id} filterUnits="userSpaceOnUse" x={-blur * 2} y={-blur * 2}
               width={size.width + blur * 4} height={size.height + blur * 4} colorInterpolationFilters="sRGB">
@@ -52,15 +66,16 @@ export function GooeyCard({ children, className }: { children: ReactNode; classN
               animate={{ width: size.width, height: Math.min(size.height, HEIGHT + 4) }} transition={SPRING} />
             <motion.rect y={HEIGHT - 8} width={size.width} rx={DEFAULT_ROUNDNESS}
               initial={{ height: 0, opacity: 0 }} animate={{ height: Math.max(0, size.height - HEIGHT + 8), opacity: 1 }}
-              transition={{ ...SPRING, delay: 0.08 }} />
+              transition={{ ...SPRING, delay: 0.08 }}
+              onAnimationComplete={settle ? () => setPhase((p) => (p === 'pour' ? 'fade' : p)) : undefined} />
           </g>}
-        </svg>
+        </motion.svg>
       )}
       <motion.div ref={content}
         initial={reduced ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
         transition={reduced ? { duration: 0 } : { ...SPRING, delay: 0.12 }}
-        className={cn('relative rounded-2xl border border-border-default px-3 py-2.5',
-          (reduced || !measured) && 'bg-(--gooey-fill)')}>
+        className={cn(bare ? 'relative' : 'relative rounded-2xl border border-border-default px-3 py-2.5',
+          !bare && (reduced || !measured) && 'bg-(--gooey-fill)')}>
         {children}
       </motion.div>
     </div>
