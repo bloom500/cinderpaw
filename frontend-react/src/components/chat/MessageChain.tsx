@@ -16,9 +16,10 @@ import { GooeyCard } from './GooeyCard';
 /** How long the finished answer is on screen before the steps fold away. */
 const FOLD_DELAY_MS = 1000;
 
-/** A side chip ("Using memory") pops in when it starts and shrinks away when it ends. */
-const CHIP_AWAY = { scale: 0.3, opacity: 0, filter: 'blur(3px)' };
-const CHIP_HERE = { scale: 1, opacity: 1, filter: 'blur(0px)' };
+/** A side chip ("Using memory") pops in when it starts and shrinks away when it
+ *  ends. No blur: a filter is repainted every frame, where scale is not. */
+const CHIP_AWAY = { scale: 0.3, opacity: 0 };
+const CHIP_HERE = { scale: 1, opacity: 1 };
 const CHIP_SPRING = { type: 'spring' as const, bounce: 0.45, duration: 0.45 };
 
 /** No Streamdown plugins, for the same bundle reason as reasoning.tsx. */
