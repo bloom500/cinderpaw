@@ -29,6 +29,8 @@ jobs:
           security set-keychain-settings "$RUNNER_TEMP/items.keychain-db"
           security unlock-keychain -p items "$RUNNER_TEMP/items.keychain-db"
           security default-keychain -s "$RUNNER_TEMP/items.keychain-db"
+          # Searched too, or a read finds nothing (-25300) instead of testing the ACL.
+          security list-keychains -d user -s "$RUNNER_TEMP/items.keychain-db" $(security list-keychains -d user | tr -d '"')
       - name: Build three versions of one small program
         run: |
           cat > kc.swift <<'EOF'
