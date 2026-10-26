@@ -1,0 +1,90 @@
+# Opening Cinderpaw while it already runs must bring its window in front of
+# whatever the person is using. 26 Oct on his Mac it did not: the running copy
+# logged "focused main window" and stayed behind, and the new one quit, so to
+# him the app "would not open". Measured by the frontmost app, not by the log.
+# Run by hand on a release candidate: it tests a published build, not a branch.
+# 26 Oct, v2026.10.26: in front in every case on macOS 15.7 and 26.6, including
+# a window closed by its X (15.7; 26.6's runner refuses synthetic clicks), so
+# his blocked launch came from an older Feral.app, not this build.
+name: macOS second launch
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to test, e.g. v2026.10.27-beta.1
+        required: true
+
+jobs:
+  second-launch:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Install the release
+        run: |
+          gh release download "${{ inputs.tag }}" --repo "${{ github.repository }}" --pattern 'Cinderpaw_aarch64.app.tar.gz'
+          tar -xzf Cinderpaw_aarch64.app.tar.gz -C /Applications
+          xattr -cr /Applications/Cinderpaw.app
+      - name: Launch twice, measure who is in front
+        run: |
+          mkdir -p out
+          sw_vers | tee out/result.txt
+          front() { lsappinfo info -only name "$(lsappinfo front)" | sed 's/.*="\(.*\)"/\1/'; }
+          open /Applications/Cinderpaw.app; sleep 40
+          echo "after first open: $(front)" | tee -a out/result.txt
+
+          # Like Finder or the Dock: a second launch while TextEdit is in front.
+          open -a TextEdit; sleep 4
+          echo "TextEdit opened: $(front)" | tee -a out/result.txt
+          open -n /Applications/Cinderpaw.app; sleep 6
+          echo "second launch (open -n): $(front)" | tee -a out/result.txt
+          screencapture -x out/after-open-n.png || true
+
+          # Like his Terminal: the binary run directly.
+          open -a TextEdit; sleep 4
+          /Applications/Cinderpaw.app/Contents/MacOS/cinderpaw > out/second-stdout.txt 2>&1 &
+          sleep 6
+          echo "second launch (binary): $(front)" | tee -a out/result.txt
+          screencapture -x out/after-binary.png || true
+
+          # His case: the window was closed (Close only hides it, the app stays in
+          # the menu bar), then the app was opened again.
+          wins() { osascript -e 'tell application "System Events" to count windows of process "cinderpaw"' 2>&1; }
+          echo "windows before close: $(wins)" | tee -a out/result.txt
+          osascript -e 'tell application "System Events" to keystroke "w" using command down' 2>&1 | tee -a out/result.txt
+          sleep 3
+          echo "windows after cmd-W: $(wins)" | tee -a out/result.txt
+          if [ "$(wins)" != "0" ]; then
+            # Cinderpaw draws its own title bar: its X sits 21 px from the right
+            # edge, 15 px below the top (screenshot of the first run).
+            osascript <<'EOF' 2>&1 | tee -a out/result.txt
+          tell application "System Events" to tell process "cinderpaw"
+            set {x, y} to position of window 1
+            set {w, h} to size of window 1
+          end tell
+          tell application "System Events" to click at {x + w - 21, y + 15}
+          EOF
+            sleep 3
+            echo "windows after clicking its X: $(wins)" | tee -a out/result.txt
+            screencapture -x out/after-x.png || true
+          fi
+          open -a TextEdit; sleep 4
+          open -n /Applications/Cinderpaw.app; sleep 6
+          echo "closed, then second launch: front=$(front) windows=$(wins)" | tee -a out/result.txt
+          screencapture -x out/after-closed.png || true
+
+          pgrep -lf Contents/MacOS/cinderpaw | tee out/processes.txt
+          grep "deep-link" ~/.cinderpaw/logs/cinderpaw.log | tail -5 | tee out/log.txt || true
+          if grep "second launch" out/result.txt | grep -v "Cinderpaw"; then
+            echo "::error::a second launch left another app in front"; exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: second-launch-${{ matrix.os }}
+          path: out
