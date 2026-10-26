@@ -38,13 +38,13 @@ jobs:
 
     steps:
       - name: Checkout livekit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: livekit/livekit
           ref: ${{ inputs.version }}
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -57,7 +57,7 @@ jobs:
         run: ./livekit-server --version
 
       - name: Upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: livekit-server-${{ matrix.arch }}-${{ inputs.version }}
           path: livekit-server
