@@ -1,4 +1,5 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   useMessageScroller,
   useMessageScrollerVisibility,
@@ -108,10 +109,12 @@ const ChapterRow = memo(function ChapterRow({
 });
 
 export function ChapterRail() {
-  // Subscribe to the stable array, derive in memo: a selector returning a
-  // fresh filtered array every snapshot loops the store forever.
-  const messages = useChat((s) => s.messages);
-  const turns = useMemo(() => messages.filter((m) => m.role === 'user'), [messages]);
+  // Your turns only, compared item by item (useShallow, which also keeps the
+  // fresh filtered array from looping the store): a streamed reply changes no
+  // turn, so the rail is not drawn again on every frame of it (26 Oct: 300
+  // ticks and their previews a frame, at 300 turns).
+  const turns = useChat(useShallow((s) => s.messages.filter((m) => m.role === 'user')));
+  const messageCount = useChat((s) => s.messages.length);
   const { scrollToMessage } = useMessageScroller();
   const { currentAnchorId, visibleMessageIds } = useMessageScrollerVisibility();
   const dockH = useChatDockHeight();
@@ -198,8 +201,8 @@ export function ChapterRail() {
   // observer walks that subtree. On a long transcript that is the whole
   // transcript, every frame — the most expensive thing on the page during a
   // reply, for an observer whose handler does nothing while `streaming`.
-  const msgCountRef = useRef(messages.length);
-  msgCountRef.current = messages.length;
+  const msgCountRef = useRef(messageCount);
+  msgCountRef.current = messageCount;
   useEffect(() => {
     let raf = 0;
     let dead = false;
