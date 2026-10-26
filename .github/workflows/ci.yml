@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The merge commit GitHub builds for a PR has no sign-off of its own,
           # and a shallow clone cannot see the branch's own commits. Fetch the
@@ -89,10 +89,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -143,10 +143,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: tui/go.mod
           cache-dependency-path: tui/go.sum
@@ -196,7 +196,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -207,7 +207,7 @@ jobs:
             librsvg2-dev cmake libclang-dev clang
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -264,7 +264,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install build dependencies
         run: |
@@ -287,10 +287,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -345,7 +345,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -365,8 +365,8 @@ jobs:
     name: campfire game (tests, export, Chromium + WebKit on Linux)
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Fetch Godot 4.7.2 and its web templates
@@ -386,7 +386,7 @@ jobs:
           npx playwright install --with-deps chromium webkit
           node smoke.mjs ../../../../frontend-react/public/games/ember chromium
           xvfb-run -a node smoke.mjs ../../../../frontend-react/public/games/ember webkit
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ember-web
           path: frontend-react/public/games/ember
@@ -397,11 +397,11 @@ jobs:
     needs: ember
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: ember-web
           path: frontend-react/public/games/ember

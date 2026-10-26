@@ -24,8 +24,8 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Fetch Godot 4.7.2 and its web templates
@@ -38,7 +38,7 @@ jobs:
         env:
           CINDERPAW_FORCE_GAME_BUILD: "1"
         run: node src-tauri/scripts/build-game.mjs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ember-web
           path: frontend-react/public/games/ember
@@ -134,16 +134,16 @@ jobs:
 
     steps:
       - name: Checkout Cinderpaw
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download the campfire game
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ember-web
           path: frontend-react/public/games/ember
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -231,7 +231,7 @@ jobs:
       # their default generators.
       - name: Setup MSVC dev environment (Windows)
         if: runner.os == 'Windows'
-        uses: TheMrMilchmann/setup-msvc-dev@v3.0.2
+        uses: TheMrMilchmann/setup-msvc-dev@v4.1.0
         with:
           arch: x64
 
@@ -336,7 +336,7 @@ jobs:
           Write-Host "Release notes extracted for v$version ($($notes.Length) chars, $end-$start lines)"
 
       - name: Build, sign and publish release
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # llama.cpp (llama-cpp-sys-2) uses std::filesystem, which needs a
@@ -414,14 +414,14 @@ jobs:
       - name: Upload unsigned installers (for SignPath)
         id: unsigned
         if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cinderpaw-windows-unsigned
           path: signpath-in/*
 
       - name: Sign with SignPath Foundation
         if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != ''
-        uses: signpath/github-action-submit-signing-request@v1
+        uses: signpath/github-action-submit-signing-request@v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -542,11 +542,11 @@ jobs:
       # push these are the same commit; on a manual re-run they are not, and
       # shipping a CUDA asset built from newer code than the release it is
       # attached to would be a quiet lie.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref_name }}
       - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
 
@@ -563,7 +563,7 @@ jobs:
       # CUDA Toolkit — provides nvcc, cudart and cuBLAS headers/libs that
       # llama.cpp's GGML_CUDA backend compiles against. ~3 GB, so it is cached.
       - name: Install CUDA Toolkit
-        uses: Jimver/cuda-toolkit@v0.2.19
+        uses: Jimver/cuda-toolkit@v0.2.36
         with:
           cuda: "12.6.0"
           method: "network"
@@ -573,7 +573,7 @@ jobs:
 
       - name: Setup MSVC dev environment (Windows)
         if: runner.os == 'Windows'
-        uses: TheMrMilchmann/setup-msvc-dev@v3.0.2
+        uses: TheMrMilchmann/setup-msvc-dev@v4.1.0
         with:
           arch: x64
 
@@ -616,7 +616,7 @@ jobs:
       # cannot clobber the Vulkan assets or touch latest.json. We rename and
       # upload the bundles ourselves below.
       - name: Build (CUDA)
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NO_STRIP: "true"

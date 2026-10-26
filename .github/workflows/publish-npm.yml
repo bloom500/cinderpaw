@@ -64,9 +64,9 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           registry-url: "https://registry.npmjs.org"
@@ -120,7 +120,7 @@ jobs:
       # `cinderpaw setup --classic`) are the Go TUI. Without it the CLI tells
       # the user the chat "isn't bundled", so a CLI release without this step
       # has no chat at all. Pure Go, CGO off: every target cross-compiles.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: tui/go.mod
           cache-dependency-path: tui/go.sum
@@ -157,7 +157,7 @@ jobs:
           fi
           ls -l out
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: archive-${{ matrix.node_os }}-${{ matrix.node_arch }}
           path: out/*
@@ -210,8 +210,8 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: archive-*
           path: serve
@@ -329,7 +329,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: archive-*
           path: out
@@ -361,8 +361,8 @@ jobs:
       run:
         working-directory: CinderpawAgent
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           registry-url: "https://registry.npmjs.org"
