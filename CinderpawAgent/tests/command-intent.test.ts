@@ -5,7 +5,7 @@
  * the report would look complete.
  */
 import { describe, expect, test } from "bun:test";
-import { classifyCommand, classifyCommandLine, installsSoftware } from "../src/core/command-intent.ts";
+import { classifyCommand, classifyCommandLine, installedPackages, installsSoftware } from "../src/core/command-intent.ts";
 
 describe("classifying what a command is for", () => {
   test("the obvious cases", () => {
@@ -72,5 +72,22 @@ describe("installsSoftware: the verb decides, not the package manager", () => {
       ["npm", "test"], ["bun", "run", "build"], ["cargo", "build"], ["go", "test", "./..."],
       ["git", "status"], ["powershell", "-Command", "Get-ChildItem D:/"], ["npm", "--version"],
     ]) expect(installsSoftware(argv)).toBe(false);
+  });
+});
+
+// 26 Oct: the install card asked "Install software on this computer? The command
+// is: cmd /c mkdir ... & npm install hyperframes & ...". It names the thing now.
+describe("installedPackages: what an install puts on the machine, by name", () => {
+  test("names after the install verb, through a shell's chained commands, flags left out", () => {
+    expect(installedPackages("cmd /c mkdir C:\\w\\hf & cd /d C:\\w\\hf & npm init -y & npm install hyperframes & npx hyperframes --help".split(" ")))
+      .toEqual(["hyperframes"]);
+    expect(installedPackages(["pip", "install", "-U", "requests", "numpy"])).toEqual(["requests", "numpy"]);
+    expect(installedPackages(["sudo", "apt-get", "install", "-y", "curl"])).toEqual(["curl"]);
+    expect(installedPackages(["python", "-m", "pip", "install", "x"])).toEqual(["x"]);
+  });
+  test("nothing named, nothing listed", () => {
+    expect(installedPackages(["npm", "ci"])).toEqual([]);
+    expect(installedPackages(["yarn"])).toEqual([]);
+    expect(installedPackages(["npm", "test"])).toEqual([]);
   });
 });

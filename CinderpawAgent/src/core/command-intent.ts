@@ -247,3 +247,26 @@ export function installsSoftware(argv: string[]): boolean {
   const verb = rest.find((t) => !t.startsWith("--"))?.toLowerCase();
   return verb !== undefined && INSTALL_VERBS.has(verb);
 }
+
+/**
+ * What an install puts on the machine, by name, for the question the person
+ * answers: "Install hyperframes?" rather than five chained commands (26 Oct).
+ * The words after the verb, flags left out; empty when the command names
+ * nothing (`npm ci`, a bare `yarn`), which the card then calls "software".
+ */
+export function installedPackages(argv: string[]): string[] {
+  const tokens = argv.filter((t) => typeof t === "string" && t.length > 0);
+  if (tokens.length === 0) return [];
+  const { stem, rest } = realFirstToken(tokens);
+  if (SHELLS.has(stem)) {
+    const flag = rest.findIndex((t) => /^([-/])c(ommand)?$/i.test(t));
+    const payload = flag >= 0 ? rest.slice(flag + 1).join(" ") : "";
+    return [...new Set(segments(payload).flatMap((part) => installedPackages(part.split(/\s+/))))];
+  }
+  if ((stem === "python" || stem === "python3" || stem === "py") && rest[0] === "-m") return installedPackages(rest.slice(1));
+  if (!installsSoftware(tokens)) return [];
+  const names = (from: string[]) => from.filter((t) => !t.startsWith("-"));
+  if (stem === "install-module" || stem === "install-package") return names(rest).slice(0, 1);
+  const verb = rest.findIndex((t) => !t.startsWith("--") && INSTALL_VERBS.has(t.toLowerCase()));
+  return verb < 0 ? [] : names(rest.slice(verb + 1));
+}

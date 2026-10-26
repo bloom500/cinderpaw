@@ -125,7 +125,12 @@ export function modelLabel(modelId: string | undefined): string {
   const known = cache ? lookupEntry(cache.limits, modelId)?.name : null;
   if (known) return known;
 
-  const bare = modelId.slice(modelId.lastIndexOf('/') + 1).replace(/\.gguf$/i, '');
+  const bare = modelId
+    .slice(modelId.lastIndexOf('/') + 1)
+    .replace(/\.gguf$/i, '')
+    // Anthropic writes the version with a dash: `claude-haiku-5-5` is Haiku 5.5,
+    // not "Haiku 5 5". Only right after a name word, so a date stays a date.
+    .replace(/(?<=[a-z][-_])(\d{1,2})-(\d{1,2})(?=$|[-_])/i, '$1.$2');
   // Not on the dot. A version number is one word to a reader: splitting there
   // turned `glm-4.6` into "Glm 4 6", which looks like two models.
   return bare

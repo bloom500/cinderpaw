@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chatContext } from '@/lib/chatContext';
+import { chatContext, createChatContextReader } from '@/lib/chatContext';
 import { finishActivity, startActivity, type ToolActivity } from '@/hooks/useLiveToolActivity';
 import type { ChatMessage } from '@/stores/chat';
 
@@ -13,8 +13,32 @@ const art = (id: string) => ({ id, title: id, kind: 'document', version: 1, path
 const msg = (m: Partial<ChatMessage>): ChatMessage => ({ id: crypto.randomUUID(), role: 'assistant', content: '', createdAt: 0, ...m });
 
 describe('chatContext', () => {
+  it('does not reparse settled history for every streamed chunk', () => {
+    let reads = 0;
+    const history = Array.from({ length: 1000 }, () => msg({
+      get content() { reads++; return 'A settled reply with [a source](https://a.com).'; },
+    }));
+    // Keep the getter: spreading a partial into msg would consume it.
+    for (const m of history) Object.defineProperty(m, 'content', { get: () => { reads++; return 'A settled reply.'; } });
+    const read = createChatContextReader();
+    read([...history, msg({ content: 'Starting' })]);
+    reads = 0;
+    for (let i = 0; i < 20; i++) read([...history, msg({ content: `Starting ${i}` })]);
+    expect(reads).toBe(0);
+  });
+
+  it('matches a full rebuild across appends, edits, removals and switches', () => {
+    const read = createChatContextReader();
+    const a = msg({ content: '[one](https://a.com)', memoryUsed: [{ kind: 'fact', text: 'first' }] });
+    const b = msg({ toolActivity: [done('artifact', {}, { artifact: art('a') })] });
+    const c = msg({ toolActivity: [done('artifact', {}, { artifact: art('b') }), done('artifact', {}, { artifact: art('a') })] });
+    for (const messages of [[a], [a, b], [a, b, c], [a, b], [a], [c, b], [], [a, c]]) {
+      expect(read(messages)).toEqual(chatContext(messages));
+    }
+  });
+
   it('is empty for a new chat', () => {
-    expect(chatContext([])).toEqual({ files: [], sources: [], memories: [], artifactIds: [] });
+    expect(chatContext([])).toEqual({ files: [], sources: [], memories: [], artifactIds: [], tools: [] });
   });
 
   it('lists each attached file once, by kind and name', () => {
@@ -28,6 +52,8 @@ describe('chatContext', () => {
     const page = done('read_webpage', { url: 'https://c.com/page' }, { subject: 'https://c.com/page' });
     const ctx = chatContext([msg({ content: 'See [one](https://a.com/one/).', toolActivity: [search, page] })]);
     expect(ctx.sources.map((s) => s.url)).toEqual(['https://a.com/one', 'https://c.com/page']);
+    // The tools stay listed after the reply: they are read from the saved steps.
+    expect(ctx.tools).toEqual(['web_search', 'read_webpage']);
   });
 
   it('gathers memories from the injected block and recall lookups, once each', () => {

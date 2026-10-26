@@ -115,6 +115,8 @@ describe("loadHostTools", () => {
     expect(tools.map((t) => t.manifest.name)).toEqual(["book_reservation"]);
     expect(tools[0]!.manifest.permissions).toEqual([]);
     expect(tools[0]!.manifest.networkAccess).toBe(false);
+    // Longer than the registry's 60 s default, or slow host tools die early.
+    expect(tools[0]!.manifest.timeoutMs).toBeGreaterThan(60_000);
   });
 
   test("nested $ref/$defs structure survives into ToolParameter.schema", () => {

@@ -9,9 +9,14 @@
 //! the browser app all call `plan` and `apply`, so they cannot disagree about
 //! what an import does.
 
+pub mod connections;
+pub mod conversations;
 pub mod detect;
+pub mod keys;
 pub mod ledger;
+pub mod memory;
 pub mod persona;
+pub mod schedules;
 pub mod skills;
 pub mod source;
 
@@ -19,7 +24,7 @@ use std::path::Path;
 
 pub use detect::{detect, Found, Source};
 pub use ledger::KeyLedger;
-pub use persona::{apply, plan_persona, Plan, PlanItem};
+pub use persona::{apply, plan_persona, Action, Plan, PlanItem};
 pub use source::{read_source, SourceData};
 
 /// Everything an import of `found` would do, without writing anything.
@@ -31,6 +36,27 @@ pub fn plan(found: &Found, overwrite: bool) -> Plan {
 pub fn plan_into(found: &Found, cinderpaw_dir: &Path, overwrite: bool) -> Plan {
     let mut plan = persona::plan_persona_into(found, cinderpaw_dir, overwrite);
     skills::plan_skills_into(found, cinderpaw_dir, overwrite, &mut plan);
+    memory::plan_memory_into(found, cinderpaw_dir, overwrite, &mut plan);
+    schedules::plan_schedules_into(found, cinderpaw_dir, overwrite, &mut plan);
+    conversations::plan_conversations_into(found, cinderpaw_dir, overwrite, &mut plan);
+    let catalog: Vec<String> = crate::byok::provider_catalog().into_iter().map(|e| e.id).collect();
+    keys::plan_keys_into(
+        found,
+        overwrite,
+        &|id| crate::byok::byok_get(id).is_some(),
+        &|id| catalog.iter().any(|c| c == id),
+        &mut plan,
+    );
+    connections::plan_connections_into(
+        found,
+        overwrite,
+        &|id| {
+            crate::connectors::resolved_connector_configs()
+                .iter()
+                .any(|c| c.id == id && (c.enabled || c.secrets.values().any(|v| !v.trim().is_empty())))
+        },
+        &mut plan,
+    );
     plan.not_imported.extend(leftovers(found));
     plan
 }
@@ -43,15 +69,58 @@ pub fn preview() -> serde_json::Value {
         detect(None)
             .iter()
             .map(|f| {
+                let plan = plan(f, false);
                 serde_json::json!({
                     "source": f.source.label(),
                     "root": f.root,
                     "version": f.version,
-                    "plan": plan(f, false),
+                    "summary": summary(&plan),
+                    "plan": plan,
                 })
             })
             .collect(),
     )
+}
+
+/// "its personality, its memory and 12 skills": what `plan` would bring, in the
+/// words every surface shows (desktop card, browser app, `cinderpaw setup`), so
+/// they cannot disagree. Empty when it brings nothing.
+pub fn summary(plan: &Plan) -> String {
+    let count = |prefix: &str| plan.will_import.iter().filter(|i| i.what.starts_with(prefix)).count();
+    let skills = count("skill: ");
+    let memory = count("memory: ") + count("about you: ");
+    let keys = count("key: ");
+    let chats = count("chat: ");
+    let schedules = count("schedule: ");
+    let chats_old = count("chats: ");
+    let persona = plan.will_import.iter().filter(|i| !i.what.contains(": ")).count();
+    let mut parts: Vec<String> = Vec::new();
+    if persona > 0 {
+        parts.push("its personality".into());
+    }
+    if memory > 0 {
+        parts.push("its memory".into());
+    }
+    if skills > 0 {
+        parts.push(format!("{skills} skill{}", if skills == 1 { "" } else { "s" }));
+    }
+    if chats > 0 {
+        parts.push(format!("{chats} chat app{}", if chats == 1 { "" } else { "s" }));
+    }
+    if schedules > 0 {
+        parts.push(format!("{schedules} scheduled task{}", if schedules == 1 { "" } else { "s" }));
+    }
+    if keys > 0 {
+        parts.push(format!("{keys} AI key{}", if keys == 1 { "" } else { "s" }));
+    }
+    if chats_old > 0 {
+        parts.push("its old chats".into());
+    }
+    match parts.len() {
+        0 => String::new(),
+        1 => parts.remove(0),
+        n => format!("{} and {}", parts[..n - 1].join(", "), parts[n - 1]),
+    }
 }
 
 /// Import from the install at `root` what `preview` showed for it. Only a root
@@ -84,11 +153,102 @@ pub fn leftovers(found: &Found) -> Vec<String> {
     // is not user data waiting to be migrated. Exactly that key, not the whole
     // `meta` subtree: over-consuming is how a real setting goes missing.
     ledger.consume("meta.lastTouchedVersion");
-    let mut out = ledger.leftovers();
+    // Chat channels are connections.rs's.
+    for id in connections::handled() {
+        ledger.consume_prefix(&format!("channels.{id}"));
+    }
+    // Inline keys are keys.rs's: imported, not left behind.
+    for (var, _) in keys::ENV_KEYS {
+        ledger.consume(&format!("env.{var}"));
+        ledger.consume(&format!("env.vars.{var}"));
+    }
+    // OpenClaw's own machinery, one plain line each instead of a line per key.
+    let mut out = Vec::new();
+    if found.source == Source::OpenClaw {
+        let present = ledger.leftovers();
+        for (prefix, why) in [
+            ("gateway", "OpenClaw's own server settings; Cinderpaw has its own"),
+            ("skills.entries", "which of OpenClaw's built-in skills were on; Cinderpaw has its own skills"),
+            ("wizard", "OpenClaw's setup history"),
+            ("meta", "OpenClaw's version stamps"),
+        ] {
+            let dotted = format!("{prefix}.");
+            if present.iter().any(|k| k == prefix || k.starts_with(&dotted)) {
+                ledger.consume_prefix(prefix);
+                out.push(format!("{prefix} — {why}"));
+            }
+        }
+    }
+    out.extend(ledger.leftovers());
     if let Some(err) = &data.env_error {
         out.push(format!(".env — could not be read, so its secrets are unknown: {err}"));
     }
     // Names only, never values (module contract).
-    out.extend(data.env.keys().map(|k| format!(".env {k} — keys are not copied; Cinderpaw's setup asks for its own")));
+    out.extend(
+        data.env
+            .keys()
+            .filter(|k| !keys::ENV_KEYS.iter().any(|(v, _)| v == k))
+            .filter(|k| !connections::env_vars().any(|v| v == k.as_str()))
+            .map(|k| format!(".env {k} — not an AI key Cinderpaw knows; set it by hand if a skill needs it")),
+    );
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn plan_of(whats: &[&str]) -> Plan {
+        Plan {
+            will_import: whats
+                .iter()
+                .map(|w| PlanItem { what: w.to_string(), target: String::new(), note: None, source: PathBuf::new(), action: Action::Copy })
+                .collect(),
+            not_imported: vec![],
+            conflicts: vec![],
+            backup_dir: PathBuf::new(),
+        }
+    }
+
+    #[test]
+    fn openclaw_machinery_is_one_line_per_kind_not_one_per_key() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join(".openclaw");
+        std::fs::create_dir_all(&root).unwrap();
+        // The shape of Darius's real openclaw.json, 18 Oct 2026 (values replaced).
+        std::fs::write(
+            root.join("openclaw.json"),
+            r#"{ gateway: { mode: "local", auth: { mode: "token", token: "x" } },
+                 meta: { lastTouchedVersion: "2026.6.11", lastTouchedAt: "t" },
+                 skills: { entries: { trello: { enabled: false }, summarize: { enabled: false } } },
+                 wizard: { lastRunAt: "t", lastRunCommand: "doctor" },
+                 custom: { thing: 1 } }"#,
+        )
+        .unwrap();
+        let found = detect::detect_openclaw_at(&root).unwrap();
+        assert_eq!(
+            leftovers(&found),
+            [
+                "gateway — OpenClaw's own server settings; Cinderpaw has its own",
+                "skills.entries — which of OpenClaw's built-in skills were on; Cinderpaw has its own skills",
+                "wizard — OpenClaw's setup history",
+                "meta — OpenClaw's version stamps",
+                "custom.thing",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_summary_names_each_kind_once() {
+        assert_eq!(summary(&plan_of(&[])), "");
+        assert_eq!(summary(&plan_of(&["skill: a"])), "1 skill");
+        assert_eq!(summary(&plan_of(&["SOUL.md", "IDENTITY.md", "skill: a", "skill: b"])), "its personality and 2 skills");
+        assert_eq!(
+            summary(&plan_of(&["SOUL.md", "memory: MEMORY.md (3 notes)", "about you: USER.md", "skill: a", "skill: b"])),
+            "its personality, its memory and 2 skills"
+        );
+        assert_eq!(summary(&plan_of(&["skill: a", "key: openrouter (from .env OPENROUTER_API_KEY)"])), "1 skill and 1 AI key");
+        assert_eq!(summary(&plan_of(&["chat: Discord", "chat: Telegram"])), "2 chat apps");
+    }
 }

@@ -56,7 +56,7 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
   { name: "CINDERPAW_FORGE_NO_PROMPT_OK", type: "bool", default: false,
     description: "Sidecar-internal escape hatch: when true, tool_forge may create/update a tool on a transport with no askUser bridge instead of failing closed. This approves running agent-written code unattended — headless deployments only.", security: true },
   { name: "CINDERPAW_PERMISSION_MODE", type: "string", default: null,
-    description: "What the agent is allowed to change: \"read_only\" (reads anything, writes nothing — no file writes, no destructive/machine-level commands; the mode for audits and for surfaces where the speaker is not the owner), \"workspace_write\" (default: writes inside the workspace roots, where the safety point can undo them), or \"full_access\" (guards that prevent mistakes step aside; the catastrophic denylist still applies). Resolution order: this var, then CINDERPAW_SHELL_WHITELIST=\"*\" (which still means full access), then `permission_mode` in ~/.cinderpaw/settings.json, then the default. The settings.json route is the only one that needs no relaunch — the sidecar reads it per command, so a change applies to the next one; an unknown value or an unparseable file means \"not configured\", never \"deny everything\".", security: true },
+    description: "What the agent is allowed to change: \"read_only\" (reads anything, writes nothing — no file writes, no destructive/machine-level commands; the mode for audits and for surfaces where the speaker is not the owner), \"workspace_write\" (default: writes inside the workspace roots, where the safety point can undo them), or \"full_access\" (the file tools reach every folder and commands run anywhere; destruction outside the workspace still asks a person; the catastrophic denylist and the keys folders still refuse). Resolution order: this var, then CINDERPAW_SHELL_WHITELIST=\"*\" (which still means full access), then `permission_mode` in ~/.cinderpaw/settings.json, then the default. The settings.json route is the only one that needs no relaunch — the sidecar reads it per command, so a change applies to the next one; an unknown value or an unparseable file means \"not configured\", never \"deny everything\".", security: true },
   { name: "CINDERPAW_AUTONOMOUS", type: "bool", default: false,
     description: "Walk-away mode: ask_user does not block for a human. It takes the recommended option (or the first) immediately and logs the decision, so a long task runs unattended. The end-of-turn summary reports every auto-decision. Off by default.", security: true },
   { name: "CINDERPAW_DESKTOP_CONTROL_ALLOWED_APPS", type: "list", default: null,
@@ -85,6 +85,10 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
     description: "Overrides the built-in shell_exec denylist (dangerous binaries refused even in YOLO mode).", security: true },
   { name: "CINDERPAW_PROACTIVE_ENABLED", type: "bool", default: false,
     description: "Master enable for the proactive/mood-engine loop.", security: true },
+  { name: "CINDERPAW_FOLLOWUPS_ENABLED", type: "bool", default: true,
+    description: "Event-driven suggestions for unfinished desktop work. Suggestions never resume work or call a model.", security: false },
+  { name: "CINDERPAW_PROACTIVE_MONTHLY_USD", type: "string", default: "1",
+    description: "Monthly USD cap for automatic proactive inference only. Confirmed scheduled tasks have separate limits. Zero disables paid proactive inference; unknown route prices fail closed.", security: true },
   { name: "CINDERPAW_INNER_THOUGHTS_ENABLED", type: "bool", default: false,
     description: "Sub-flag enabling the inner-thoughts loop.", security: true },
 
@@ -157,6 +161,8 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
       + "raise CINDERPAW_BUDGET_CONVERSATION instead.", security: false },
   { name: "CINDERPAW_RSI_MAX_COST_USD", type: "string", default: null,
     description: "RSI background USD cap (float). Unset = local-only.", security: false },
+  { name: "CINDERPAW_AUTONOMOUS_PRICING_JSON", type: "string", default: null,
+    description: "JSON array of exact provider/model/baseUrl price records for autonomous cloud inference, with inputPerMillionUsd/outputPerMillionUsd and optional cacheReadPerMillionUsd/cacheWritePerMillionUsd. Unknown or malformed routes fail closed.", security: false },
   { name: "CINDERPAW_CLOUD_TRANSCRIPT_BUDGET", type: "int", default: 200_000,
     description: "Cloud-specific transcript-size budget (AgentLoop.CLOUD_TRANSCRIPT_BUDGET fallback).", security: false },
 

@@ -160,6 +160,9 @@ describe("the dialects are normalized where they are spoken", () => {
     // This is the whole point of normalizing at the adapter: one number that
     // means the same thing regardless of who reported it.
     expect(anthropic.res.freshPromptTokens).toBe(openai.res.freshPromptTokens!);
+    // And the whole context too: the context ring reads promptTokens, and
+    // Anthropic's input_tokens alone is only the uncached 200.
+    expect(anthropic.res.promptTokens).toBe(openai.res.promptTokens);
     openai.close();
     anthropic.close();
   });

@@ -22,12 +22,14 @@ import { RealProcessSandbox } from "./egress/process-sandbox.ts";
 import { pathWithin } from "./egress/tool-permissions.ts";
 import { InferenceRouter } from "./egress/inference-router.ts";
 import { startUsageSender } from "./telemetry/usage-sender.ts";
+import { InferenceSpendAuthority } from "./egress/inference-spend-authority.ts";
 import { EpisodicMemory } from "./memory/episodic.ts";
 import { isRestrictedSession } from "./core/session-visibility.ts";
 import { SemanticMemory, memoryScope, setChatOwner, speakerScope } from "./memory/semantic.ts";
 import { RecallEngine } from "./memory/recall.ts";
 import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
 import { ObservationStore, importLegacyNotes } from "./memory/observations.ts";
+import { ingestImports } from "./memory/import-inbox.ts";
 import { buildSnapshot } from "./memory/snapshot.ts";
 import { Reflector, memoryIdleTick } from "./memory/reflector.ts";
 import { Reconciler } from "./memory/reconciler.ts";
@@ -115,6 +117,7 @@ import { createDeleteSkillTool } from "./tools/builtin/delete-skill.ts";
 import { createCapabilityTools } from "./tools/builtin/capability.ts";
 import { createCinderpawAdminTools } from "./tools/builtin/cinderpaw-admin.ts";
 import { createProductInfoTool } from "./tools/builtin/product-info.ts";
+import { createDesignGuideTool } from "./tools/builtin/design-guide.ts";
 import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
 import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
@@ -127,6 +130,7 @@ import { createCoworkCreateTool } from "./tools/builtin/cowork-create.ts";
 import { createTokenUsageTool } from "./tools/builtin/token-usage.ts";
 import { createConnectorsManageTool } from "./tools/builtin/connectors-manage.ts";
 import { createRequestSecretTool } from "./tools/builtin/request-secret.ts";
+import { createExtensionConnectTool } from "./tools/builtin/extension-connect.ts";
 import { createConnectorsPairTool, pairDepsFrom } from "./tools/builtin/connectors-pair.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
@@ -160,7 +164,9 @@ import { shouldAutostartPassive, isPlaceholderModel } from "./rsi/l1-config/pass
 import { createDreamCycle } from "./rsi/l1-config/dream-cycle.ts";
 import { defaultJournalPath } from "./rsi/infra/journal.ts";
 import { ActivityMonitor } from "./rsi/l1-config/activity-monitor.ts";
-import { resolveDreamConfig, dreamCloudGate } from "./rsi/l1-config/dream-config.ts";
+import { resolveDreamConfig, autonomousInferenceGate } from "./rsi/l1-config/dream-config.ts";
+import { priceResolverFromJson } from "./rsi/infra/rsi-cost.ts";
+import { FollowUpLedger, recordInteractiveTurn } from "./core/proactive-followups.ts";
 import { episodeStartOptions, episodeBudgetCaps } from "./rsi/l1-config/episode-options.ts";
 import { MetaEvolution } from "./rsi/l6-meta/meta-evolution.ts";
 import { effectiveGates, layerFrozen, loadPolicy } from "./rsi/l5-gov/governance.ts";
@@ -176,6 +182,11 @@ import { AskUserBridgeImpl } from "./core/ask-user-bridge.ts";
 import { HostToolBridge, loadHostTools } from "./core/host-tool-bridge.ts";
 import { setHostToolNames } from "./tools/tiers.ts";
 import { createAskUserTool } from "./tools/builtin/ask-user.ts";
+import { createHeadsUpTool } from "./tools/builtin/heads-up.ts";
+import { createSuggestTaskTool } from "./tools/builtin/suggest-task.ts";
+import { createTaskLimitTool } from "./tools/builtin/task-limit.ts";
+import { TaskLimit } from "./cron/limit.ts";
+import { refreshModelPrices, withModelPrices } from "./egress/model-prices.ts";
 import { DesktopControlBridgeImpl } from "./core/desktop-control-bridge.ts";
 import { RequestBridge } from "./core/request-bridge.ts";
 import { createComputerUseTool } from "./tools/builtin/computer-use.ts";
@@ -447,6 +458,14 @@ export async function boot(transportOverride?: Transport) {
   // because the boot-time resume pass below needs it before anything else can
   // start a new run.
   const runStore = new RunStore(db.raw);
+  const followUps = new FollowUpLedger(db.raw);
+  // Lifecycle events, never idle model polling. The card only opens prior work;
+  // it does not authorize a resumed task or any external action.
+  function offerUnfinishedWork(): void {
+    if (!cfgBool("CINDERPAW_FOLLOWUPS_ENABLED")) return;
+    const followUp = followUps.take();
+    if (followUp) transport.send({ type: "proactive", content: "You left something unfinished", followUp });
+  }
 
   // --- RSI bootstrap (Faza 0 — Keystone) ---
   // Boot the Bounded-RSI substrate. Two slices, two owners:
@@ -917,6 +936,8 @@ export async function boot(transportOverride?: Transport) {
   // product_info: bundled PRODUCT.md — the agent's factual reference about
   // Cinderpaw itself (setup, connectors, commands). Zero permissions.
   registry.register(createProductInfoTool());
+  // design_guide: bundled DESIGN.md, the brief a poster or post is made from.
+  registry.register(createDesignGuideTool());
 
   // F7 — code-quality tools. Auto-detect project type and run the
   // appropriate command (npm test, cargo test, pytest, go test, make test,
@@ -978,6 +999,10 @@ export async function boot(transportOverride?: Transport) {
   // ask_user — interactive questions (Claude.ai-style). No permissions;
   // pure event emission through the AskUserBridge in the tool context.
   registry.register(createAskUserTool());
+  registry.register(createHeadsUpTool());
+  registry.register(createSuggestTaskTool());
+  const taskLimit = new TaskLimit(db.raw);
+  registry.register(createTaskLimitTool(taskLimit));
 
   // computer_use — OS-level desktop control via the accessibility tree. This
   // is powerful (it can click/type into any non-denylisted app), so it is
@@ -1317,16 +1342,24 @@ export async function boot(transportOverride?: Transport) {
   );
   // What a new owner conversation already knows, frozen into its system prompt
   // on the first turn (memory/snapshot.ts).
-  agent.setMemorySnapshot((sessionId, budgetChars) =>
-    buildSnapshot({
+  agent.setMemorySnapshot((sessionId, budgetChars) => {
+    // Memory brought over from OpenClaw or Hermes waits in import/ until the
+    // next conversation starts (memory/import-inbox.ts).
+    try {
+      const filed = ingestImports(join(CINDERPAW_HOME, "import"), { notes: notesStore, cron: cronRepo });
+      if (filed) log(`memory import: filed ${filed} note(s) from another agent`);
+    } catch (err) {
+      log(`memory import failed (will retry next conversation): ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return buildSnapshot({
       now: Date.now(),
       card: notesStore.card("")?.text ?? null,
       facts: semantic.selectForPrompt("", ""),
       notes: notesStore.recent("", { excludeSessionId: sessionId }),
       digests: notesStore.digests(""),
       budgetChars,
-    }),
-  );
+    });
+  });
 
   // Memory Resume: persist what the user is working on so `resume_get` (the
   // WelcomeBack banner, the TUI last-task row) has something to read — before
@@ -1701,10 +1734,32 @@ export async function boot(transportOverride?: Transport) {
   }
 
   const cronRepo = new CronJobsRepo(db.raw);
+  const taskPrice = withModelPrices(priceResolverFromJson(cfgPath("CINDERPAW_AUTONOMOUS_PRICING_JSON")));
+  const watchEgress = new EgressProxy(audit.logger, { trustedLocalOrigins: [] });
+  // What an import left while the agent was not running is filed now, so its
+  // tasks show under Tasks before anyone starts a conversation.
+  try {
+    const filed = ingestImports(join(CINDERPAW_HOME, "import"), { notes: notesStore, cron: cronRepo });
+    if (filed) log(`import: filed ${filed} note(s) and task(s) from another agent`);
+  } catch (err) {
+    log(`import failed (will retry next conversation): ${err instanceof Error ? err.message : String(err)}`);
+  }
   const cronScheduler = new CronScheduler({
     repo: cronRepo,
+    limit: taskLimit,
+    catchUpOnStart: true,
+    stopJob: job => { agent.stop(`cron:${job.id}`); router.abort(`cron:${job.id}`); router.setSessionSpendAuthority(`cron:${job.id}`, null); },
+    watchFetch: (job) => watchEgress.forTool({name:"task_watch",description:"Verify a user-approved source condition",permissions:["network:outbound"],networkAccess:true,allowedDomains:[new URL(job.watch!.sourceUrl).hostname]}, `cron:${job.id}`),
     runJob: async (job) => {
+      // A reminder is its own text, said at the time it was asked for: no
+      // model call, no safety point, no cost.
+      if (job.kind === "reminder") return { text: job.task, finished: true };
       const sessionId = `cron:${job.id}`;
+      // The public price list, only for a cloud model: a local-only person's
+      // tasks never reach out for it.
+      if (!router.isPrimaryLocal) await refreshModelPrices();
+      const allowance = new InferenceSpendAuthority({maxCostUsd:taskLimit.remaining(),allowCloud:true,price:taskPrice});
+      router.setSessionSpendAuthority(sessionId, allowance);
       try {
         // `handleTurn()` never throws — on failure it emits an `error` event to
         // the sink and returns the error text. Capture that event and throw
@@ -1734,6 +1789,7 @@ export async function boot(transportOverride?: Transport) {
           doneWhen: job.doneWhen ?? null,
           delivery: { kind: "cron", target: job.id, sessionId },
         });
+        if (!runRow) throw new Error("A previous run is still active; this occurrence will not replay it.");
         // runUnattended, not handle(): a scheduled task that hits the turn
         // budget half-way gets continued rather than reported as finished.
         const run = await runUnattended(
@@ -1756,7 +1812,15 @@ export async function boot(transportOverride?: Transport) {
             verify: () => verifyIfAsserted(job.doneWhen ?? null, safety),
           },
         );
-        if (runError) throw new Error(runError);
+        if (runError) {
+          await concludeRun(runRow, "unfinished", "not_continuable", runError);
+          // Only the allowance's own refusal is the weekly limit, and only when
+          // one is set: a provider error that says "scope" or the router's day
+          // budget is not (24 Oct review).
+          const overLimit = taskLimit.view().weeklyUsd !== null
+            && (String(allowance.signal.reason ?? "").includes("cost cap exhausted") || /autonomous inference would exceed the \$/.test(runError));
+          return {text:overLimit ? "Stopped partway: this run reached your weekly limit for scheduled tasks. Ask Cinderpaw to raise or remove the limit, or change it on the Tasks page." : runError,finished:false,budgetExceeded:overLimit,costUsd:allowance.spentUsd + allowance.reservedUsd};
+        }
         const changed = await changedSince(safety);
         const check = await verifyDoneWhen(job.doneWhen, safety[0]?.root ?? null);
         const digest = renderDigest(run, changed, check, safety, undefined, intentSummary(sessionId));
@@ -1774,11 +1838,16 @@ export async function boot(transportOverride?: Transport) {
         }
         return {
           text: digest,
+          costUsd: allowance.spentUsd + allowance.reservedUsd,
           // The agent's own claim is not the authority. When a job declares a
           // done_when, that assertion decides whether the run finished.
           finished: run.finished && check.passed,
         };
+      } catch (error) {
+        throw Object.assign(error instanceof Error ? error : new Error(String(error)), {costUsd:allowance.spentUsd + allowance.reservedUsd});
       } finally {
+        allowance.stop("Scheduled task finished or stopped");
+        router.setSessionSpendAuthority(sessionId, null);
         // N2 fix: the synthetic `cron:${job.id}` sessionId would otherwise
         // grow the router's per-conversation-token map forever (one entry
         // per scheduled job for the life of the sidecar). Evict it after
@@ -1990,6 +2059,20 @@ export async function boot(transportOverride?: Transport) {
   }).catch((e) => {
     log(`migration: unexpected error: ${String(e)}`);
   });
+  const autonomousPrice = priceResolverFromJson(cfgPath("CINDERPAW_AUTONOMOUS_PRICING_JSON"));
+  const liveAutonomousTargets = () => {
+    const targets = [router.currentModel, router.currentFallback].filter(
+      (target): target is NonNullable<typeof target> => target !== null,
+    );
+    return targets.map((target) => {
+      const price = autonomousPrice(target);
+      return {
+        ...target,
+        priceKnown: price !== null,
+      };
+    });
+  };
+
   // RAPTOR tree build, in the background now that embed() can reach Rust.
   // `rebuildIfStale` is a no-op when init() already loaded a fresh tree from
   // disk, so we don't re-pay the (cloud) summary cost on every boot — it only
@@ -2112,7 +2195,14 @@ export async function boot(transportOverride?: Transport) {
     hasModel: async () => {
       try {
         const r = await rsiBridge.request<{ ready?: boolean }>("rsi_model_ready", {});
-        return r?.ready === true;
+        if (r?.ready !== true) return false;
+        const gate = autonomousInferenceGate(process.env, {
+          allowCloudEnv: "CINDERPAW_RSI_ALLOW_CLOUD",
+          maxCostUsd: episodeOpts.maxTotalCostUsd,
+          targets: liveAutonomousTargets(),
+        });
+        if (!gate.enabled) log(`rsi dream: wake refused (${gate.reason})`);
+        return gate.enabled;
       } catch (err) {
         log(`dream: model-ready probe failed (${String(err)}) — treating as no model`);
         return false;
@@ -2127,9 +2217,13 @@ export async function boot(transportOverride?: Transport) {
   // CINDERPAW_CODE_RSI_REPO (the source monorepo) and a LOCAL primary model
   // (spec §2.5: no network during proposal). At most one round in flight.
   let codeRsiBusy = false;
-  const maybeCodeRsiRound = async (): Promise<void> => {
+  const maybeCodeRsiRound = async (spendAuthority?: InferenceSpendAuthority): Promise<void> => {
     const repoRoot = cfgPath("CINDERPAW_CODE_RSI_REPO");
     if (!repoRoot || codeRsiBusy) return;
+    if (!spendAuthority || spendAuthority.signal.aborted) {
+      log("code-rsi: skipped — no remaining episode spend authority");
+      return;
+    }
     if (!router.isPrimaryLocal) {
       // A cloud proposer sends the agent's own source to a provider, so it is
       // opt-in, and a paid round needs a ceiling a human wrote (recursive
@@ -2216,6 +2310,8 @@ export async function boot(transportOverride?: Transport) {
             // and emitted nothing diff-shaped, which read as "nothing to
             // propose". Low effort, and say so when it still runs out.
             reasoningEffort: "low",
+            spendAuthority,
+            signal: spendAuthority.signal,
           });
           proposerTokens += res.totalTokens ?? 0;
           proposerText = res.content;
@@ -2368,9 +2464,13 @@ export async function boot(transportOverride?: Transport) {
     // L4 §5: the incumbent a retrieval module is paired against IS the live
     // ranking. `planner` needs none here — the sidecar binds its own builtin.
     seamBuiltins: { retrieval_strategy: retrievalBuiltin },
-    onIdle: (...args: Parameters<typeof dreamCycle.onEpisodeEnd>) => {
-      dreamCycle.onEpisodeEnd(...args);
-      void maybeCodeRsiRound();
+    onIdle: (stats, spendAuthority) => {
+      dreamCycle.onEpisodeEnd(stats);
+      void maybeCodeRsiRound(spendAuthority);
+      // L6 asks in chat: with enough dreams behind it, it prepares its next
+      // change as a card. Nothing changes until a person approves that card.
+      const asked = metaEvolution.propose();
+      if (asked?.created) transport.send({ type: "meta_proposal", proposal: asked.proposal });
     },
     // The Crux: a new ratcheted-best config is applied to the LIVE agent
     // (temperature today; the UI Controls override still wins per-session).
@@ -2524,6 +2624,9 @@ export async function boot(transportOverride?: Transport) {
   // The secure field for connector secrets (spec 2026-09-24 §6.2): only the
   // local web page can show it; everywhere else it says unsupported_surface.
   registry.register(createRequestSecretTool());
+  // Connecting a service by its link from the chat, so Capabilities > Add your
+  // own is a choice, not the only way. Same entry, same file.
+  registry.register(createExtensionConnectTool(mcpManager));
   // "Is that you?" (spec §6.4): the person messages their new bot, and the page
   // asks whether that was them, instead of asking for a user id.
   registry.register(createConnectorsPairTool(pairDepsFrom(connectors)));
@@ -2742,6 +2845,8 @@ export async function boot(transportOverride?: Transport) {
   // this shared, mutable `ctx` object rather than being destructured by
   // value on the other side.
   const ctx = {
+    offerUnfinishedWork,
+    recordInteractiveTurn: (sessionId: string, mission: string, outcome: string, report: string) => recordInteractiveTurn(runStore, sessionId, mission, outcome, report, db.raw),
     config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     // The semantic graph, for the memory page's Forget (dispatch `memory_forget`),
     // with the fact store it mirrors so Forget clears the fact too.
@@ -2885,10 +2990,11 @@ export async function boot(transportOverride?: Transport) {
     // in (CINDERPAW_DREAMS_ENABLED=true, the master switch from Settings)
     // AND a real model is configured. Off when CINDERPAW_RSI_PASSIVE=false or
     // only a placeholder model is present (avoids spinning on empty
-    // responses). On a cloud (non-loopback) endpoint, dreaming is
-    // additionally refused unless CINDERPAW_RSI_ALLOW_CLOUD is explicitly set
-    // (anti-burn). `start()` only arms the trigger poll — it does NOT
-    // launch an episode immediately.
+    // responses). `start()` only arms the trigger poll — it does NOT launch
+    // an episode immediately; `hasModel` re-evaluates the live
+    // primary/fallback, cloud opt-in, known pricing and USD cap on every
+    // wake, so a local-to-cloud switch after boot cannot dream on stale
+    // boot-time locality.
     //
     // The master switch is new and DEFAULTS OFF: dreaming used to arm on
     // every machine with a model configured, which is a background engine
@@ -2901,22 +3007,8 @@ export async function boot(transportOverride?: Transport) {
     if (!decision.enabled) {
       log(`rsi dream: not arming scheduler (${decision.reason})`);
     } else {
-      const baseUrl = cfgPath("CINDERPAW_BASE_URL") ?? "";
-      let isLoopback = baseUrl === "";
-      try {
-        const h = new URL(baseUrl).hostname;
-        isLoopback = h === "127.0.0.1" || h === "localhost" || h === "::1" || h === "[::1]";
-      } catch {
-        // Unparseable/empty baseUrl → keep the `baseUrl === ""` default
-        // (empty means the in-process loopback default).
-      }
-      const gate = dreamCloudGate(process.env, { isLoopback });
-      if (!gate.enabled) {
-        log(`rsi dream: not arming scheduler (${gate.reason})`);
-      } else {
-        log(`rsi dream: arming event-driven scheduler (${decision.reason}; ${gate.reason})`);
-        dream?.start();
-      }
+      log(`rsi dream: arming event-driven scheduler (${decision.reason}; live spend gate runs on every wake)`);
+      dream?.start();
     }
     }
   });

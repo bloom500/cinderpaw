@@ -81,6 +81,9 @@ import { buildNotebookSection, WORKER_BRIEF } from "../rlm/prompt.ts";
 import { toIdentifier } from "../rlm/repl.ts";
 import { isConnectorTool, isCoreTool, isOwnerOnlyTool } from "../tools/tiers.ts";
 import { selectTools } from "../tools/tool-intent.ts";
+import { createArtifactDraftTracker } from "./artifact-draft.ts";
+import { policyMessages, taskAcknowledgement, turnPolicy, type TurnPolicy } from "./turn-policy.ts";
+import type { TaskSuggestion } from "../tools/builtin/suggest-task.ts";
 // Vendored from OpenClaw (MIT) — see src/vendor/tool-call-repair/README.md.
 import {
   parseStandalonePlainTextToolCallBlocks,
@@ -486,7 +489,12 @@ export class AgentLoop {
    * gets a better-tuned agent over time without touching any config.
    * Set by `applyChampionParams` (on RSI ratchet + at boot).
    */
-  #championParams: { temperature?: number; maxTokens?: number; systemPromptAddendum?: string } = {};
+  #championParams: {
+    temperature?: number;
+    maxTokens?: number;
+    systemPromptAddendum?: string;
+    reasoningEffort?: "low" | "medium" | "high";
+  } = {};
   /**
    * Cached GBNF tool-call grammar, built once from the registry's tool names.
    * Null when grammar is disabled or there are no tools. See `tool-grammar.ts`.
@@ -866,6 +874,7 @@ export class AgentLoop {
     temperature?: number;
     maxTokens?: number;
     systemPromptAddendum?: string;
+    reasoningEffort?: "low" | "medium" | "high";
   }): void {
     this.#championParams = { ...params };
   }
@@ -1395,6 +1404,10 @@ export class AgentLoop {
         ctx,
         traceId,
         routeTargets,
+        // A scheduled run's message is the English task wrapper, so its
+        // language says nothing about the person: cron and background turns
+        // get no policy (a Romanian task was answered in English, 24 Oct).
+        isReplayableSession(sessionId) ? turnPolicy(userText, !this.#profileFor(sessionId)) : undefined,
       );
       toolCallCount = runToolCount;
       // The turn returned (completed, stopped, or out of time) — it is not a
@@ -1603,11 +1616,13 @@ export class AgentLoop {
      * unchanged for callers that don't opt into Brain.
      */
     routeTargets: { primary: ModelTarget; fallback?: ModelTarget } | null = null,
+    policy: TurnPolicy = { language: null, deferredOnly: false },
   ): Promise<{ text: string; toolCallCount: number; outcome: TurnOutcome; diagnostic?: string }> {
     // Reset stop flag at the start of every run (ctx is per-handle, so this
     // only affects this session — the P3 fix for shared #lastStopped).
     ctx.stopped = false;
     let toolCallCount = 0;
+    let policyRetries = 0;
     // Emergency backstop — prevents infinite loops from runaway tool calls.
     // Normal usage never approaches this ceiling; the loop self-terminates
     // whenever the model produces a text-only turn (no tool calls).
@@ -1727,9 +1742,11 @@ export class AgentLoop {
       // reply report, 2026-07-11). Held text that turns out to be plain
       // prose is flushed after parse, so nothing is ever lost.
       let streamedSoFar = "";
-      const hold = createStreamHoldback((content) =>
-        ctx.emit({ type: "chunk", id: messageId, content, traceId }),
-      );
+      // A future-only turn's prose never streams: its confirmation is built
+      // from the card's computed time below, so a guessed time cannot show.
+      const hold = createStreamHoldback((content) => {
+        if (!policy.deferredOnly) ctx.emit({ type: "chunk", id: messageId, content, traceId });
+      });
       // Where the time actually goes, because "it feels slow" has no answer and
       // is the third time this year the same question has been re-derived by
       // hand. Three numbers separate the three causes that look identical from
@@ -1740,11 +1757,23 @@ export class AgentLoop {
       const sentAt = Date.now();
       let firstTokenAt = 0;
       let streamedChunks = 0;
+      // The document an artifact_create call is writing, sent to the desktop
+      // while it is written so it can appear letter by letter. One tracker per
+      // model call: a retry is a new draft, never more of the old one.
+      const drafts = createArtifactDraftTracker(String(i), (u) =>
+        ctx.emit({ type: "artifact_draft", id: messageId, sessionId, ...u, traceId }),
+      );
+      // A call written as text is read from the stream itself, but only once
+      // the tool's name has shown up: re-reading every reply on every token
+      // would cost each answer for the few that write a document.
+      let writesDocument = false;
       const onToken = (token: string) => {
         if (firstTokenAt === 0) firstTokenAt = Date.now();
         streamedChunks++;
         streamedSoFar += token;
         hold.push(token);
+        writesDocument ||= !policy.deferredOnly && streamedSoFar.includes("artifact_create", Math.max(0, streamedSoFar.length - token.length - 20));
+        if (writesDocument) drafts.fromText(streamedSoFar);
       };
 
       const { content: completion, finishReason, promptTokens, completionTokens } = await this.#complete(
@@ -1755,6 +1784,8 @@ export class AgentLoop {
         ctx,
         messageId,
         traceId,
+        (call, name, args) => { if (!policy.deferredOnly) drafts.fromArgs(call, name, args); },
+        policy,
       );
       // Surface REAL token usage so the UI context ring reflects actual context
       // consumption (the latest call's prompt = full context fed to the model,
@@ -1802,6 +1833,16 @@ export class AgentLoop {
         completion,
         this.#registry.list().map((t) => t.manifest.name),
       );
+
+      // A future-only request cannot be fulfilled with a fictional "done".
+      // Retry the missing suggestion twice, then fail honestly without work.
+      if (policy.deferredOnly && parsed.toolCalls.length === 0 && !parsed.malformedToolCall) {
+        if (policyRetries++ < 2) {
+          memory.addUser("(system: no task card has been offered. Call suggest_task with the requested schedule, or ask_user if the time is missing. No future work has been executed or scheduled.)");
+          continue;
+        }
+        return { text: policy.language === "ro" ? "Nu am putut pregăti cardul. Nu am creat nicio sarcină." : "I couldn't prepare the task card. Nothing has been scheduled.", toolCallCount, outcome: "no_answer" };
+      }
 
 
       // Settle the stream holdback against the parser's own account of the
@@ -2059,6 +2100,7 @@ export class AgentLoop {
       if (
         parsed.toolCalls.length > 1 &&
         parsed.toolCalls.every((c) => c.name === "delegate_task") &&
+        !policy.deferredOnly &&
         (!profile?.allowed || profile.allowed.has("delegate_task"))
       ) {
         const toolSignal = this.#sessionToolSignals.get(sessionId)?.signal;
@@ -2095,6 +2137,11 @@ export class AgentLoop {
 
       for (const call of parsed.toolCalls) {
         toolCallCount++;
+        if (policy.deferredOnly && call.name !== "suggest_task" && call.name !== "ask_user") {
+          memory.addToolResult(call.name, "ERROR: Future-only request: do not execute work now. Only suggest_task or ask_user may run.");
+          if (++policyRetries > 3) return { text: policy.language === "ro" ? "Nu am putut pregăti cardul. Nu am creat nicio sarcină." : "I couldn't prepare the task card. Nothing has been scheduled.", toolCallCount, outcome: "no_answer" };
+          continue;
+        }
         ctx.emit({ type: "tool_start", id: messageId, tool: call.name, args: call.args, traceId, sessionId });
         // Advertising is not enforcement: a model can name a tool it was never
         // shown. Both conditions are checked here, and the owner-only one tests
@@ -2117,6 +2164,9 @@ export class AgentLoop {
           onInnerTool: (e) => ctx.emit({ ...e, id: messageId, traceId, sessionId }),
         });
         ctx.emit({ type: "tool_done", id: messageId, tool: call.name, result, traceId, sessionId });
+
+        const taskCard = call.name === "suggest_task" && result.ok
+          ? (result.data as { taskSuggestion?: TaskSuggestion } | undefined)?.taskSuggestion : undefined;
 
         // P0-#3: a `cancelled` result means the user invoked stop() during
         // this tool. Exit the iteration loop cleanly so the user's intent
@@ -2214,6 +2264,18 @@ export class AgentLoop {
         // Checkpoint after each tool call, not each batch: a crash between two
         // sequential calls should resume after the one that finished.
         checkpoint(i);
+        if (policy.deferredOnly && taskCard) {
+          return { text: taskAcknowledgement(taskCard.when, policy.language), toolCallCount, outcome: "completed" };
+        }
+        if (policy.deferredOnly && call.name === "suggest_task" && result.ok) {
+          const status = (result.data as { taskSuggestionStatus?: string } | undefined)?.taskSuggestionStatus;
+          if (status === "already_offered" || status === "rate_limited") {
+            const text = status === "already_offered"
+              ? policy.language === "ro" ? "Cardul a fost deja oferit în această conversație. Apasă Create pentru a crea sarcina." : "A task card was already offered in this chat. Use its Create button to schedule it."
+              : policy.language === "ro" ? "Un card a fost oferit recent. Așteaptă puțin înainte de a cere altul." : "A task card was offered recently. Wait a little before requesting another.";
+            return { text, toolCallCount, outcome: "completed" };
+          }
+        }
       }
 
       // Some calls in this batch never ran. Say so BEFORE the model reasons
@@ -2344,6 +2406,9 @@ export class AgentLoop {
     ctx?: SessionRunContext,
     messageId?: string,
     traceId?: string,
+    /** A native tool call's arguments as they stream (InferenceRequest.onToolArgs). */
+    onToolArgs?: (call: number, name: string, argsSoFar: string) => void,
+    policy?: TurnPolicy,
   ): Promise<CompletionOutcome> {
     // Pick up any tools registered since the last turn (MCP servers finish
     // connecting after boot) before deriving this turn's schemas from them.
@@ -2382,6 +2447,7 @@ export class AgentLoop {
     // through so a bad guess is recoverable via `load_tool`.
     const intentSelection = this.#toolIntentSelection.get(sessionId) ?? null;
     const advertise = (name: string): boolean => {
+      if (policy?.deferredOnly && name !== "suggest_task" && name !== "ask_user") return false;
       // Owner-only tools are withheld from every profiled session, including a
       // persona-only one whose `allowed` is null — see OWNER_ONLY_TOOLS. The
       // test is the PRESENCE of a profile, not the contents of its allow-list,
@@ -2502,11 +2568,12 @@ export class AgentLoop {
     ): Promise<InferenceResponse> => {
       const req = {
         sessionId,
-        messages: memory.render(),
+        messages: policy ? policyMessages(memory.render(), policy) : memory.render(),
         promptBreakdown: breakdown,
         maxTokens,
         temperature,
         onToken,
+        onToolArgs,
         cachePrompt: true,
         // The main loop is the one place in the product where this is
         // unambiguously true: system prompt and tool schemas are rebuilt only
@@ -2519,6 +2586,11 @@ export class AgentLoop {
         nativeTools,
         // A3 regression fix: native tool definitions for OpenAI-compatible providers.
         openAITools,
+        // The RSI champion's effort; the provider sends it only where the API
+        // takes it (inference-providers.ts anthropicEffort / openAIReasoning).
+        ...(this.#championParams.reasoningEffort
+          ? { reasoningEffort: this.#championParams.reasoningEffort }
+          : {}),
         ...grammarFields,
       };
       if (routeTargets) {
@@ -3007,9 +3079,13 @@ export function buildSystemPrompt(
     "- Be concise and direct.",
     "- If you cannot help or a tool fails, say so clearly.",
     "- Never output raw JSON outside a tool block as your final answer.",
+    // 24 Oct: "I can check what is set up with `self_connectors`" to a person.
+    "- Never write a tool's name or an id to the person; say what you will do in plain words.",
     // 10 Oct: an English request after a page full of other languages got a
     // Russian reply. Pages and tool results never pick the language.
-    "- Respond in the language of the user's latest message, never in the language of a page or tool result.",
+    // 23-24 Oct: English prompts got Romanian replies because a memory said
+    // "the user writes in Romanian". The message in front of you wins.
+    "- Respond in the language of the user's latest message, never in the language of a page, a tool result or a memory (even one saying which language they usually write in).",
   ].filter((s) => s.length > 0).join("\n");
 }
 

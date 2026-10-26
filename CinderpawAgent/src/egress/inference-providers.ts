@@ -330,6 +330,9 @@ export class OllamaProvider implements InferenceProvider {
                 };
               }
             }
+            if (acc.name) {
+              req.onToolArgs?.(idx, acc.name, acc.argumentsObject ? JSON.stringify(acc.argumentsObject) : acc.argumentsString);
+            }
           }
         }
 
@@ -438,12 +441,6 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       messages,
       temperature: cloudTemperature(target, req),
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
-      // See `InferenceRequest.reasoningMaxTokens`: on a reasoning model the
-      // thinking is spent out of `max_tokens` BEFORE the answer, so bounding
-      // the reply alone yields a long monologue and an empty `content`.
-      // `effort` wins when both are given: it survives OpenRouter's per-request
-      // routing, where a token cap is honoured by some upstreams and ignored by
-      // others.
       // Pin the upstream where the gateway routes per request — see
       // `InferenceRequest.providerOnly` for the measurements that make this
       // mandatory rather than tidy. `allow_fallbacks: false` is the point: a
@@ -451,11 +448,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       ...(req.providerOnly && req.providerOnly.length > 0
         ? { provider: { only: req.providerOnly, allow_fallbacks: false } }
         : {}),
-      ...(req.reasoningEffort
-        ? { reasoning: { effort: req.reasoningEffort } }
-        : req.reasoningMaxTokens
-          ? { reasoning: { max_tokens: req.reasoningMaxTokens } }
-          : {}),
+      ...openAIReasoning(target, req),
       ...cinderpawExtensionBody(target, req),
       ...openRouterUsageAccounting(target),
       stream: false,
@@ -587,6 +580,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       messages,
       temperature: cloudTemperature(target, req),
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
+      ...openAIReasoning(target, req),
       ...cinderpawExtensionBody(target, req),
       stream: true,
       // Without this, an OpenAI-compatible server sends NO usage block in a
@@ -802,6 +796,8 @@ export class OpenAICompatibleProvider implements InferenceProvider {
             if (tc.function?.arguments) {
               toolCallsAccumulator[idx].arguments += tc.function.arguments;
             }
+            const acc = toolCallsAccumulator[idx];
+            if (acc.name) req.onToolArgs?.(idx, acc.name, acc.arguments);
           }
         }
 
@@ -912,9 +908,22 @@ export class AnthropicProvider implements InferenceProvider {
     isFallback: boolean,
   ): Promise<InferenceResponse> {
     const url = `${trimSlash(target.baseUrl)}/v1/messages`;
-    return req.onToken
+    const run = () => req.onToken
       ? this.#stream(url, target, req, isFallback)
       : this.#nonStream(url, target, req, isFallback);
+    try {
+      return await run();
+    } catch (e) {
+      // A personal Anthropic key that works in several workspaces must name
+      // one on every request. Nobody setting up Cinderpaw knows that, so the
+      // first refusal looks the workspace up once and the request goes again.
+      const key = target.apiKey;
+      if (!key || anthropicWorkspaces.has(key) || !(e instanceof InferenceError)
+        || e.status !== 400 || !e.message.includes("anthropic-workspace-id")) throw e;
+      anthropicWorkspaces.set(key, await findAnthropicWorkspace(target.baseUrl, key, req.signal));
+      req.signal?.throwIfAborted();
+      return run();
+    }
   }
 
   async #nonStream(
@@ -923,7 +932,14 @@ export class AnthropicProvider implements InferenceProvider {
     req: InferenceRequest,
     isFallback: boolean,
   ): Promise<InferenceResponse> {
-    const { systemText, userMessages } = splitAnthropicMessages(req.messages);
+    const split = splitAnthropicMessages(req.messages);
+    const { userMessages } = split;
+    // Native tool definitions replace the prose copy, as on every other
+    // provider. Anthropic alone kept it: every tool's schema went out twice,
+    // the prose half for ALL tools, ~37k extra tokens a turn (24 Oct).
+    const systemText = split.systemText && req.nativeTools && req.nativeTools.length > 0
+      ? stripToolsFromSystemPrompt(split.systemText)
+      : split.systemText;
     const body: Record<string, unknown> = {
       model: target.model,
       // Anthropic requires max_tokens — the API returns 400 without it.
@@ -931,17 +947,18 @@ export class AnthropicProvider implements InferenceProvider {
       // 128K output, Sonnet 4.6 supports 8K. The model stops naturally
       // when it's done — max_tokens is just the ceiling, not a target.
       // The user's explicit override always wins.
-      max_tokens: req.maxTokens ?? 128_000,
+      max_tokens: anthropicMaxTokens(target, req),
       messages: userMessages,
-      temperature: cloudTemperature(target, req),
+      ...anthropicSampling(target, req),
+      ...anthropicEffort(target, req),
     };
     if (systemText) body.system = systemText;
     // A3: use native function calling when tool definitions are provided.
     if (req.nativeTools && req.nativeTools.length > 0) body.tools = req.nativeTools;
     Object.assign(body, anthropicCacheControl(req));
+    cacheToolsSeparately(body);
 
-    const authHeaders: Record<string, string> = { "anthropic-version": "2023-06-01" };
-    if (target.apiKey) authHeaders["x-api-key"] = target.apiKey;
+    const authHeaders = anthropicHeaders(target);
 
     const raw = (await postJson(url, body, authHeaders, req.signal, CLOUD_IDLE_MS)) as {
       content?: { type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }[];
@@ -964,7 +981,12 @@ export class AnthropicProvider implements InferenceProvider {
     }
     const reportedPrompt = raw.usage?.input_tokens;
     const reportedCompletion = raw.usage?.output_tokens;
-    const promptTokens = reportedPrompt ?? estimateTokens(req.messages);
+    // The whole context, as every other provider reports it: Anthropic's
+    // input_tokens is only the uncached half, so a cached chat read "~453 of
+    // 200,000" on the context ring (24 Oct). Cost still uses the halves below.
+    const promptTokens = reportedPrompt === undefined
+      ? estimateTokens(req.messages)
+      : reportedPrompt + (raw.usage?.cache_read_input_tokens ?? 0) + (raw.usage?.cache_creation_input_tokens ?? 0);
     const completionTokens = reportedCompletion ?? estimateText(content);
     return {
       content,
@@ -995,7 +1017,7 @@ export class AnthropicProvider implements InferenceProvider {
       // distinguishable from "nothing was cached".
       ...(raw.usage?.cache_read_input_tokens !== undefined ||
       raw.usage?.cache_creation_input_tokens !== undefined
-        ? { freshPromptTokens: promptTokens }
+        ? { freshPromptTokens: reportedPrompt ?? promptTokens }
         : {}),
     };
   }
@@ -1006,23 +1028,35 @@ export class AnthropicProvider implements InferenceProvider {
     req: InferenceRequest,
     isFallback: boolean,
   ): Promise<InferenceResponse> {
-    const { systemText, userMessages } = splitAnthropicMessages(req.messages);
+    const split = splitAnthropicMessages(req.messages);
+    const { userMessages } = split;
+    // Native tool definitions replace the prose copy, as on every other
+    // provider. Anthropic alone kept it: every tool's schema went out twice,
+    // the prose half for ALL tools, ~37k extra tokens a turn (24 Oct).
+    const systemText = split.systemText && req.nativeTools && req.nativeTools.length > 0
+      ? stripToolsFromSystemPrompt(split.systemText)
+      : split.systemText;
     const body: Record<string, unknown> = {
       model: target.model,
-      max_tokens: req.maxTokens ?? 128_000,
+      max_tokens: anthropicMaxTokens(target, req),
       messages: userMessages,
-      temperature: cloudTemperature(target, req),
+      ...anthropicSampling(target, req),
+      ...anthropicEffort(target, req),
       stream: true,
     };
     if (systemText) body.system = systemText;
     // A3: use native function calling when tool definitions are provided.
-    if (req.nativeTools && req.nativeTools.length > 0) body.tools = req.nativeTools;
+    // eager_input_streaming: without it Anthropic buffers a tool's input and
+    // sends it whole at the end, so a document written by artifact_create
+    // appeared in one burst instead of being written live. The API then stops
+    // validating the input; a cut-off one becomes a malformed call below.
+    if (req.nativeTools && req.nativeTools.length > 0) {
+      body.tools = req.nativeTools.map((t) => ({ ...t, eager_input_streaming: true }));
+    }
     Object.assign(body, anthropicCacheControl(req));
+    cacheToolsSeparately(body);
 
-    const headers: Record<string, string> = {
-      "anthropic-version": "2023-06-01",
-      ...(target.apiKey ? { "x-api-key": target.apiKey } : {}),
-    };
+    const headers = anthropicHeaders(target);
 
     // deadlineController, not idleAbortController — see the same swap in
     // OpenAICompatibleProvider#stream above: this is the streaming path for
@@ -1079,6 +1113,7 @@ export class AnthropicProvider implements InferenceProvider {
           activeBlockType = cb?.type ?? "";
           if (cb?.type === "tool_use" && cb.name) {
             toolBlocks.set(idx, { name: cb.name, json: "" });
+            req.onToolArgs?.(idx, cb.name, "");
           }
         } else if (type === "content_block_delta") {
           const delta = (chunk as { delta?: { type?: string; text?: string; partial_json?: string } }).delta;
@@ -1089,7 +1124,10 @@ export class AnthropicProvider implements InferenceProvider {
           } else if (delta.type === "input_json_delta") {
             // Accumulate partial JSON for the current tool_use block.
             const block = toolBlocks.get(activeBlockIndex);
-            if (block) block.json += delta.partial_json ?? "";
+            if (block) {
+              block.json += delta.partial_json ?? "";
+              req.onToolArgs?.(activeBlockIndex, block.name, block.json);
+            }
           }
         } else if (type === "content_block_stop") {
           if (activeBlockType === "tool_use") {
@@ -1144,7 +1182,10 @@ export class AnthropicProvider implements InferenceProvider {
       dc.cleanup();
     }
 
-    const promptTokens = reportedPrompt ?? estimateTokens(req.messages);
+    // Whole context: input_tokens is only the uncached half (see the non-streaming path).
+    const promptTokens = reportedPrompt === undefined
+      ? estimateTokens(req.messages)
+      : reportedPrompt + (cacheReadTokens ?? 0) + (cacheWriteTokens ?? 0);
     const completionTokens = reportedCompletion ?? estimateText(content);
     return {
       content,
@@ -1168,7 +1209,7 @@ export class AnthropicProvider implements InferenceProvider {
       // Same Anthropic dialect as the non-streaming path above: `input_tokens`
       // is already the uncached half.
       ...(cacheReadTokens !== undefined || cacheWriteTokens !== undefined
-        ? { freshPromptTokens: promptTokens }
+        ? { freshPromptTokens: reportedPrompt ?? promptTokens }
         : {}),
     };
   }
@@ -1702,6 +1743,113 @@ function cloudTemperature(target: ModelTarget, req: InferenceRequest): number {
   return isLoopbackTarget(target) ? t : Math.min(t, 1.0);
 }
 
+/**
+ * Claude models from Opus 4.7, Sonnet 5 and Haiku 5.5 on refuse sampling
+ * settings with a 400 (Haiku 5.5 and Sonnet 5.5 take only the defaults, so our
+ * 0.7 fails too). Only the older models that still accept a temperature get
+ * one; any model id this list does not know, including every future one, gets
+ * none, which is what the new models require.
+ */
+const ANTHROPIC_TAKES_TEMPERATURE = /^claude-(?:2|3|instant)(?:[-.]|$)|^claude-(?:opus|sonnet|haiku)-4(?:-[0156])?(?:-\d{8})?$/;
+
+export function anthropicSampling(target: ModelTarget, req: InferenceRequest): { temperature?: number } {
+  return ANTHROPIC_TAKES_TEMPERATURE.test(target.model) ? { temperature: cloudTemperature(target, req) } : {};
+}
+
+// Effort (output_config.effort) exists from Opus 4.5 and Sonnet 4.6 on; Haiku
+// 4.5, Sonnet 4.5 and older answer it with a 400, and so might a model we have
+// never seen, so an unknown name gets none.
+const ANTHROPIC_TAKES_EFFORT =
+  /^claude-(?:opus-4-[5-9]|sonnet-4-[6-9]|(?:opus|sonnet|haiku|fable|mythos)-[5-9](?:-\d+)?)(?:-\d{8})?$/;
+
+export function anthropicEffort(target: ModelTarget, req: InferenceRequest): { output_config?: { effort: string } } {
+  return req.reasoningEffort && ANTHROPIC_TAKES_EFFORT.test(target.model)
+    ? { output_config: { effort: req.reasoningEffort } }
+    : {};
+}
+
+// Anthropic requires max_tokens and answers a value above the model's own
+// output limit with a 400. Opus/Sonnet 4.6 and every 5-series model take 128K;
+// the older ones top out between 32K and 64K, so an older or unknown-old name
+// gets 32K, which all of them accept. The app used to send 4096 with every
+// message, which hid this and cut long documents off (25 Oct).
+const ANTHROPIC_128K_OUTPUT =
+  /^claude-(?:opus-4-[6-9]|sonnet-4-[6-9]|(?:opus|sonnet|haiku|fable|mythos)-[5-9](?:-\d+)?)(?:-\d{8})?$/;
+
+export function anthropicMaxTokens(target: ModelTarget, req: InferenceRequest): number {
+  return req.maxTokens ?? (ANTHROPIC_128K_OUTPUT.test(target.model) ? 128_000 : 32_000);
+}
+
+/**
+ * OpenRouter's `reasoning` field, sent only where it is understood: OpenRouter
+ * itself and a local server (which ignores what it does not know). OpenAI's own
+ * API refuses an unknown argument with a 400, so sending it everywhere would
+ * break every chat the moment an evolved champion carried an effort.
+ */
+export function openAIReasoning(target: ModelTarget, req: InferenceRequest): { reasoning?: Record<string, unknown> } {
+  if (!/openrouter\.ai/i.test(target.baseUrl ?? "") && !isLoopbackTarget(target)) return {};
+  // See `InferenceRequest.reasoningMaxTokens`: on a reasoning model the
+  // thinking is spent out of `max_tokens` BEFORE the answer, so bounding the
+  // reply alone yields a long monologue and an empty `content`. `effort` wins
+  // when both are given: it survives OpenRouter's per-request routing, where a
+  // token cap is honoured by some upstreams and ignored by others.
+  if (req.reasoningEffort) return { reasoning: { effort: req.reasoningEffort } };
+  if (req.reasoningMaxTokens) return { reasoning: { max_tokens: req.reasoningMaxTokens } };
+  return {};
+}
+
+/** API key -> the workspace its requests run in, for keys that must name one. */
+const anthropicWorkspaces = new Map<string, string>();
+
+function anthropicHeaders(target: ModelTarget): Record<string, string> {
+  const headers: Record<string, string> = { "anthropic-version": "2023-06-01" };
+  if (target.apiKey) {
+    headers["x-api-key"] = target.apiKey;
+    const workspace = anthropicWorkspaces.get(target.apiKey);
+    if (workspace) headers["anthropic-workspace-id"] = workspace;
+  }
+  return headers;
+}
+
+/**
+ * The workspace for a key that is not tied to one: the organization's Default
+ * Workspace, which every member can use, else the first open one. A key that is
+ * not tied to a workspace may read the workspace list itself.
+ */
+export async function findAnthropicWorkspace(baseUrl: string, apiKey: string, signal?: AbortSignal): Promise<string> {
+  // The person cancelling the chat cancels the lookup too; the timeout caps it otherwise.
+  const stop = signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
+  try {
+    type Page = { data?: { id: string; name?: string; archived_at?: string | null }[]; has_more?: boolean; last_id?: string | null };
+    const open: { id: string; name?: string }[] = [];
+    // Every page before choosing: the Default Workspace may sit on any of them.
+    for (let after = ""; ;) {
+      const res = await fetchFollowingSameOriginOnly(
+        `${trimSlash(baseUrl)}/v1/organizations/workspaces?include_default=true&limit=1000${after ? `&after_id=${encodeURIComponent(after)}` : ""}`,
+        { headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, signal: stop },
+      );
+      // A page that fails, or a cursor that does not move, leaves the list
+      // incomplete: choosing from half of it could pick the wrong workspace.
+      if (!res.ok) throw new Error(`workspace list returned ${res.status}`);
+      const page = (await res.json()) as Page;
+      open.push(...(page.data ?? []).filter((w) => !w.archived_at));
+      if (!page.has_more) break;
+      if (!page.last_id || page.last_id === after) throw new Error("workspace list cursor did not advance");
+      after = page.last_id;
+    }
+    const pick = open.find((w) => w.name === "Default") ?? open[0];
+    if (pick) return pick.id;
+  } catch (e) {
+    if (signal?.aborted) throw e;
+    // Falls through to the sentence below: the person needs a next step, not a stack.
+  }
+  throw new InferenceError(
+    "Your Anthropic key works in more than one workspace, and Cinderpaw could not find which one to use. " +
+      "Make a new key inside one workspace at platform.claude.com/settings/keys and paste that one instead.",
+    400,
+  );
+}
+
 /** True when the target is the bundled local engine (loopback address). */
 function isLoopbackTarget(target: ModelTarget): boolean {
   try {
@@ -1732,6 +1880,20 @@ function isLoopbackTarget(target: ModelTarget): boolean {
  * it earns that back only when turns are far enough apart that a short-lived
  * entry would have expired between them.
  */
+/**
+ * A second breakpoint on the last tool, so the tool schemas are cached on their
+ * own. The one automatic breakpoint sits after the system prompt, whose memory
+ * part differs in every chat, so a new chat matched nothing, not even the tools
+ * every chat shares: 25 s apart, two chats each wrote ~38k tokens to the cache
+ * at 1.25x and read 0 (24 Oct). Same TTL as the automatic one (a mismatch is a 400).
+ */
+function cacheToolsSeparately(body: Record<string, unknown>): void {
+  const tools = body.tools as Record<string, unknown>[] | undefined;
+  if (!body.cache_control || !tools || tools.length === 0) return;
+  // A copy: the array may be the caller's own list of tool definitions.
+  body.tools = [...tools.slice(0, -1), { ...tools[tools.length - 1], cache_control: body.cache_control }];
+}
+
 function anthropicCacheControl(req: InferenceRequest): Record<string, unknown> {
   if (!req.cachePrefix || req.cachePrefix === "none") return {};
   return {

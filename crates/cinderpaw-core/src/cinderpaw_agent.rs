@@ -230,6 +230,9 @@ async fn discover_active_model(base_url: &str, api_token: &str) -> Option<String
 /// slot — pre-populating would race against `try_wait()` polling.
 /// A cloud provider endpoint loaded from the user's BYOK config + OS keychain.
 struct ByokEndpoint {
+    /// Protocol family (`Provider::family`), so a cold boot speaks the same
+    /// dialect as a `set_model` hot-swap to the same provider.
+    family: &'static str,
     base_url: String,
     api_key: String,
     model: Option<String>,
@@ -269,6 +272,7 @@ fn load_byok_provider_endpoint(provider_id: &str) -> Option<ByokEndpoint> {
         .to_string();
     tracing::info!(provider = %provider_id, %base_url, "cinderpaw-agent: using BYOK cloud provider");
     Some(ByokEndpoint {
+        family: crate::byok::Provider::from_id(provider_id).family(),
         base_url,
         api_key: cfg.api_key.clone(),
         model: info.default_model,
@@ -421,11 +425,14 @@ pub async fn spawn(
     });
     let env_byok = crate::env::env_var("CINDERPAW_BYOK_PROVIDER");
     let route_is_source = env_byok.is_none() && persisted_route.is_some();
-    let byok = env_byok
-        .or_else(|| persisted_route.as_ref().map(|(pid, _)| pid.clone()))
-        .and_then(|pid| load_byok_provider_endpoint(&pid));
+    let byok_pid = env_byok.or_else(|| persisted_route.as_ref().map(|(pid, _)| pid.clone()));
+    let byok = byok_pid.as_deref().and_then(load_byok_provider_endpoint);
 
+    // Without the BYOK family an Anthropic key booted onto Anthropic's
+    // OpenAI-compatible door, which never names a workspace: every chat after a
+    // restart failed for multi-workspace keys, while a hot-swap worked.
     let provider = crate::env::env_var("CINDERPAW_PROVIDER")
+        .or_else(|| byok.as_ref().map(|b| b.family.to_string()))
         .unwrap_or_else(|| "openai_compatible".to_string());
     let base_url = crate::env::env_var("CINDERPAW_BASE_URL")
         .or_else(|| byok.as_ref().map(|b| b.base_url.clone()))
@@ -476,6 +483,11 @@ pub async fn spawn(
     };
     cmd.env("CINDERPAW_MODEL", &model_name);
     *runtime.active_agent_model.lock() = Some(model_name.clone());
+    let route_provider = match (&byok, byok_pid) {
+        (Some(_), Some(pid)) => pid,
+        _ => "cinderpaw-local".to_string(),
+    };
+    *runtime.active_agent_route.lock() = Some((route_provider, base_url.clone()));
     tracing::info!(model = %model_name, "cinderpaw-agent: using discovered model");
 
     // Where the bundled local engine lives, ALWAYS — even when the sidecar

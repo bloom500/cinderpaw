@@ -34,6 +34,8 @@ const CORE = [
   "todo_write", "cinderpaw_admin", "notebook",
   // `show_widget` (28 Sep): the chat's widgets, core and in ALWAYS_TOOLS.
   "show_widget",
+  // `heads_up` (19 Oct): "Something you should know", core and in ALWAYS_TOOLS.
+  "heads_up",
 ];
 
 describe("classifyToolIntents", () => {

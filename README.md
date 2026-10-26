@@ -45,10 +45,11 @@ the spreadsheet or the small app you asked for, and then actually sends it. You
 can call it and just say the thing out loud; while you talk it can open apps,
 play music, copy, paste and take screenshots.
 
-Here is the part that is different. When you stop working, Cinderpaw goes back
-over what happened and tries to find a better way to do it next time. It keeps
-what worked and throws away what did not. So the Cinderpaw you have in March is
-not the one you installed in January. It has been practising.
+Here is the part that is different. Turn on Dreams, and when you stop working,
+Cinderpaw goes back over what happened and tries to find a better way to do it
+next time. It keeps what worked and throws away what did not. So the Cinderpaw
+you have in March is not the one you installed in January. It has been
+practising.
 
 It also remembers you. Tell it once how you like your emails written, and you do
 not have to say it again in six weeks. Every fact it keeps is listed in plain
@@ -58,11 +59,12 @@ The little orange creature on the screen is Cubby, the face of your helper. Cubb
 shows you what is going on without a log to read: thinking, working, waiting for
 you, done. Playful on the outside, real work underneath.
 
-### Where it stands, 16 October 2026
+### Where it stands, 26 October 2026
 
-[**v2026.10.16**](https://github.com/bloom500/cinderpaw/releases/tag/v2026.10.16)
-is the first full Cinderpaw release, and it is the one marked *Latest* on
-GitHub. Every download link and install command below gets it.
+[**v2026.10.26**](https://github.com/bloom500/cinderpaw/releases/latest)
+is the newest release, and it is the one marked *Latest* on GitHub. Every
+download link and install command below gets it. What changed is in the
+[changelog](CHANGELOG.md).
 
 Cinderpaw used to be called Feral. The Feral desktop app offers this update by
 itself, and your things come with you: what was in `~/.feral` is brought over
@@ -78,10 +80,11 @@ model on your own machine and it flies without the internet. Run a tiny local
 model and it will stumble, and that is us being honest rather than you doing
 something wrong.
 
-**Practising costs something on a cloud model.** Thinking about its own work is
-still thinking, and on a paid model that is your money, so it is OFF until you
-say yes. Flip it on in **Settings → Learning**, where you can also cap what it may
-spend. On a model running on your own machine it is free, so it just does it.
+**Practising is off until you say yes.** Thinking about its own work is still
+thinking: on a paid model that is your money, and on your own machine it is your
+computer working while you are away. So it waits for your yes, on a cloud model
+and on a local one. Flip it on in **Settings → Learning**, where you can also cap
+what it may spend.
 
 **New here?** [Install it](#quick-install) · [How to use it](docs/USER_GUIDE.md) · [What we promise](PROMISES.md) · [Help build it](docs/CONTRIBUTING.md)
 
@@ -220,7 +223,8 @@ See [docs/HEADLESS.md](docs/HEADLESS.md) for running the gateway as a systemd se
 
 ## What's new
 
-*In [v2026.10.16](https://github.com/bloom500/cinderpaw/releases/tag/v2026.10.16)
+*The newest changes are in the [changelog](CHANGELOG.md). Below is what came in
+[v2026.10.16](https://github.com/bloom500/cinderpaw/releases/tag/v2026.10.16)
 (16 October 2026), the first full Cinderpaw release. We're looking for testers
 and contributors. [Start here](docs/CONTRIBUTING.md) if you want to help.*
 
@@ -468,7 +472,7 @@ The philosophy is **capable by default, restrictable by choice**: the agent can 
 
 - **Manifest validation** — tools declare `permissions: ["fs:read" | "fs:write" | "network:outbound" | "process:spawn"]` at registration; undeclared permissions are blocked
 - **Egress proxy** — built-in web tools use `ctx.fetch()` for SSRF checks, rate limits and audit attempts. Inference, connectors and external processes have separate I/O paths. `fetch_url` / `http_request` allow public hosts by default; set `CINDERPAW_FETCH_DOMAINS` / `CINDERPAW_HTTP_DOMAINS` to restrict them.
-- **Filesystem checks** — tool paths are checked against workspace roots and protected profile/SSH paths, with a scratch exception. Default roots are launch dir + home + scratch; `CINDERPAW_WORKSPACE` restricts configured roots. These checks do not confine spawned processes; see [SECURITY.md](SECURITY.md) for known gaps.
+- **Filesystem checks** — tool paths are checked against workspace roots and protected profile/SSH paths, with a scratch exception. Default roots are launch dir + home + scratch; `CINDERPAW_WORKSPACE` restricts configured roots. In **Full access** mode (picked under the box where you type) the general file tools also reach paths outside those roots; the protected paths still hold. These checks do not confine spawned processes; see [SECURITY.md](SECURITY.md) for known gaps.
 - **Audit log** — instrumented operations attempt SQLite writes; failures can leave gaps even when the retained chain verifies.
 
 ### Built-in tools

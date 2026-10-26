@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { ArrowUp, Square, Mic, Phone } from 'lucide-react';
+import { ArrowUp, Square, Mic, Phone, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -16,6 +16,7 @@ import { ComposerPlaceholder } from './ComposerPlaceholder';
 import { motion } from 'framer-motion';
 import { ModelPill } from './ModelPill';
 import { ContextRing } from './ContextRing';
+import { PermissionPill } from './PermissionPill';
 import { MascotPerch } from './mascot/MascotPerch';
 import { useMascotState } from './mascot/useMascotState';
 import { useEmberRun } from './ember/useEmberRun';
@@ -118,6 +119,11 @@ function ChatInput({ isEmpty, sendFn }, ref) {
   // `'new'` for a conversation that has not been saved yet — it still has a
   // draft, and it is the single most likely one to be interrupted.
   const convId = useConversations((s) => s.currentId) ?? 'new';
+  const sessionId = useChat((s) => s.sessionId);
+  const [queued, setQueued] = useState<string | null>(null);
+  const queuedRef = useRef(queued);
+  queuedRef.current = queued;
+  const liveDraft = useRef<{ id: string; sessionId: string } | null>(null);
   // The live text, readable from a cleanup that must not re-run on every
   // keystroke. Assigned during render on purpose: a ref is not state, and this
   // one only ever mirrors what was just rendered.
@@ -139,11 +145,17 @@ function ChatInput({ isEmpty, sendFn }, ref) {
    */
   useEffect(() => {
     const id = convId;
+    liveDraft.current = { id, sessionId };
     const typed = prefill.current;
     prefill.current = null;
+    setQueued(null);
     setText(typed ?? readDraft(id));
-    return () => writeDraft(id, textRef.current);
-  }, [convId]);
+    return () => {
+      writeDraft(id, [queuedRef.current, textRef.current].filter(Boolean).join('\n'));
+      queuedRef.current = null;
+      liveDraft.current = null;
+    };
+  }, [convId, sessionId]);
   // Declared after the restore on purpose: effects run in order, so a prefill
   // made together with a chat switch reaches the restore above first, and one
   // made without a switch is forgotten here before the next switch sees it.
@@ -158,7 +170,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
    * app — where `beforeunload` is unreliable and can prompt.
    */
   useEffect(() => {
-    const save = () => writeDraft(convId, textRef.current);
+    const save = () => writeDraft(convId, [queuedRef.current, textRef.current].filter(Boolean).join('\n'));
     window.addEventListener('pagehide', save);
     return () => window.removeEventListener('pagehide', save);
   }, [convId]);
@@ -432,11 +444,36 @@ function ChatInput({ isEmpty, sendFn }, ref) {
   };
 
   const isStreaming = status === 'streaming';
+  // A message written while a reply is still arriving. It waits here and goes
+  // out when the reply is done, like Claude's "type to queue for later"; before,
+  // Enter did nothing at all during a reply and nothing said why.
+  const lastStatus = useRef(status);
+  useEffect(() => {
+    const was = lastStatus.current;
+    lastStatus.current = status;
+    if (was !== 'streaming' || status === 'streaming' || queued === null || queuedRef.current === null) return;
+    queuedRef.current = null;
+    setQueued(null);
+    // Done: it goes. Stopped or failed: it comes back to the box, so the person
+    // decides, instead of a new turn starting on top of a problem.
+    if (status === 'done') {
+      const owner = liveDraft.current;
+      void sendFn(queued).catch(() => {
+        if (owner && liveDraft.current === owner) {
+          setText((cur) => cur ? `${queued}\n${cur}` : queued);
+        } else if (owner) {
+          writeDraft(owner.id, [queued, readDraft(owner.id)].filter(Boolean).join('\n'));
+        }
+      });
+    }
+    else setText((cur) => (cur ? `${queued}\n${cur}` : queued));
+  }, [status, queued, sendFn]);
   const agentPhase = useChat((s) => s.agentPhase);
   const mascotState = useMascotState({
     streamStatus: status,
     agentPhase,
     isUserTyping: text.trim().length > 0,
+    isUserRecording: rec.state === 'recording',
   });
   const ember = useEmberRun();
   // Kept as a name because several controls read it; nothing sets it from
@@ -487,6 +524,12 @@ function ChatInput({ isEmpty, sendFn }, ref) {
         else if (code === 'stt-cloud-failed') useNotifications.getState().push('error', t('voice.cloudFailed'));
         else useNotifications.getState().push('error', t('voice.emptyTranscript'));
       }
+      return;
+    }
+    if (isStreaming && text.trim() && attachedFiles.length === 0 && links.length === 0) {
+      const next = text;
+      setQueued((q) => (q ? `${q}\n${next}` : next));
+      setText('');
       return;
     }
     if ((!text.trim() && attachedFiles.length === 0 && links.length === 0) || isStreaming || disabled) return;
@@ -635,6 +678,21 @@ function ChatInput({ isEmpty, sendFn }, ref) {
               }}
             />
           )}
+          {queued !== null && (
+            <div className="flex items-center gap-2 px-4 pt-2.5 text-xs text-text-muted" role="status">
+              <Clock size={12} className="shrink-0 text-brand" />
+              <span className="min-w-0 flex-1 truncate">
+                Sends when this reply is done: <span className="text-text-secondary">{queued}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => { setText((cur) => (cur ? `${queued}\n${cur}` : queued)); setQueued(null); }}
+                className="shrink-0 rounded-md px-1.5 py-0.5 text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+              >
+                Edit
+              </button>
+            </div>
+          )}
           <div className="flex items-end gap-1 px-2 pt-2 pb-1.5">
             <div className="flex h-11 shrink-0 items-center">
               <FileAttachButton onFilesSelected={addFiles} />
@@ -666,7 +724,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                     // forty blurred letters every 3.2 s behind the transcript
                     // and every streamed reply; there the field says what it is.
                     active={!!isEmpty && !engaged && !disabled}
-                    fallback={t('chat.placeholder.agent')}
+                    fallback={isStreaming ? 'Write your next message. It sends when this reply is done.' : t('chat.placeholder.agent')}
                   />
                 </div>
               )}
@@ -738,6 +796,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
             <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
               <div className="flex min-w-0 items-center gap-1">
                 <ModelPill />
+                <PermissionPill />
                 <span
                   className={cn(
                     'hidden truncate text-2xs text-text-muted transition-opacity duration-150 sm:inline',

@@ -4,6 +4,7 @@ import { tauri, type Settings } from '@/lib/tauri';
 import { useOnboarding } from '@/stores/onboarding';
 import { useSettings } from '@/stores/settings';
 import { ShareUsageCard } from '../ShareUsageCard';
+import { useConversations } from '@/stores/conversations';
 
 // Final review M4: real stores, so the card sees what the wizard saved.
 describe('ShareUsageCard after the welcome wizard', () => {
@@ -13,9 +14,11 @@ describe('ShareUsageCard after the welcome wizard', () => {
     vi.spyOn(tauri.system, 'countInstall').mockResolvedValue(undefined);
     vi.spyOn(tauri.settings, 'get').mockImplementation(async () => ({ usage_sharing: saved }) as Settings);
     // First run: the home screen mounts under the wizard and loads "never asked".
+    // An install that already had a conversation, so the card would ask.
     useSettings.setState({ settings: { usage_sharing: null } as Settings });
+    useConversations.setState({ list: [{ id: 'c1' }] as never });
     render(<ShareUsageCard />);
-    expect(screen.getByText(/Help other people pick a model\?/)).toBeInTheDocument();
+    expect(await screen.findByText(/Help other people pick a model\?/)).toBeInTheDocument();
 
     useOnboarding.getState().setShareUsage(true);
     await act(() => useOnboarding.getState().finish());

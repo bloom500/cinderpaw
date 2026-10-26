@@ -76,6 +76,13 @@ export interface ToolManifest {
    */
   allowAnyCwd?: boolean;
   /**
+   * The general file tools (read, write, edit, list, search, grep): in
+   * `full_access` mode a path outside `allowedPaths` is accepted. The deny
+   * wall (~/.cinderpaw, ~/.ssh) still applies. Tools with their own folder
+   * (skills, artifacts, leads) never set it.
+   */
+  fullAccessReach?: boolean;
+  /**
    * Optional retry policy for transient failures. The registry retries the
    * tool up to `attempts` times after the initial call (so total calls =
    * 1 + attempts). Retries happen with linear backoff (250ms × attempt).
@@ -717,11 +724,26 @@ export interface InferenceRequest {
    */
   signal?: AbortSignal;
   /**
+   * Hard pre-request USD authority for autonomous/background inference.
+   * Foreground chat leaves this absent. The router reserves against every
+   * possible target before fetch, settles provider-reported usage afterward,
+   * and combines the authority's AbortSignal with the request signal.
+   */
+  spendAuthority?: import("./egress/inference-spend-authority.ts").InferenceSpendAuthority;
+  /**
    * When provided, the router streams tokens from the provider and calls this
    * callback for each partial token as it arrives. The full assembled content
    * is still returned in InferenceResponse at the end.
    */
   onToken?: (token: string) => void;
+  /**
+   * A native tool call's arguments as they stream: called when its name is
+   * first known (with `""`) and every time its argument text grows. `call`
+   * tells parallel calls apart within this completion. The finished call
+   * still reaches `content` as a `<tool_call>` exactly as before; this only
+   * lets the desktop show a document while it is being written.
+   */
+  onToolArgs?: (call: number, name: string, argsSoFar: string) => void;
   /**
    * Heartbeat progress callback fired by the sidecar's
    * `deadlineController` on a ~750 ms cadence (and once at start so the
@@ -1171,7 +1193,16 @@ export type DeliveryTarget =
 /** One row in a job's run history. Capped to the most recent 50 entries. */
 import type { DoneWhen } from "./cron/done-when.ts";
 
+export interface WatchCondition {
+  sourceUrl: string;
+  contains: string;
+  /** User-selected source preference, never inferred authority. */
+  official?: boolean;
+}
+
 export interface CronRunRecord {
+  costUsd?: number;
+  proof?: { sourceUrl: string; checkedAt: number; excerpt: string; contentHash: string };
   runAt: number;
   /**
    * `incomplete` = the agent ran but stopped with work outstanding (the turn
@@ -1179,7 +1210,7 @@ export interface CronRunRecord {
    * there IS usable partial output, and it is delivered — but the run must not
    * count as a success or a job could report finished work it never did.
    */
-  status: "success" | "incomplete" | "failed" | "timeout" | "budget_exceeded" | "skipped";
+  status: "success" | "incomplete" | "failed" | "timeout" | "budget_exceeded" | "skipped" | "waiting" | "expired" | "running";
   durationMs: number;
   result?: string;
   error?: string;
@@ -1206,6 +1237,12 @@ export interface CronJob {
   maxRetries: number;
   /** Current consecutive failure count; reset to 0 on success. */
   retryCount: number;
+  /** `reminder`: delivers `task` as written, no model call, no cost. Default `agent`. */
+  kind: "agent" | "reminder" | "watch";
+  watch?: WatchCondition;
+  expiresAt?: number;
+  budgetUsd?: number;
+  spentUsd?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -1221,6 +1258,10 @@ export interface CronJobInput {
   enabled?: boolean;
   doneWhen?: DoneWhen | null;
   maxRetries?: number;
+  kind?: "agent" | "reminder" | "watch";
+  watch?: WatchCondition;
+  expiryDays?: number;
+  budgetUsd?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -1265,6 +1306,8 @@ export interface InboundMessage {
   // type of its own rather than a flag on that one.
   type: "message" | "record_turn" | "ping" | "shutdown" | "set_model" | "stop"
     | "ask_user_response" | "ask_user_cancel"
+    // The person's answer to a heads_up card (tools/builtin/heads-up.ts).
+    | "heads_up_answer"
     // The host returning the result of a tool IT owns, paired to the
     // `tool_request` event by `requestId`. Carries `content` on success or
     // `error` on failure; see core/host-tool-bridge.ts.
@@ -1341,6 +1384,9 @@ export interface InboundMessage {
     // Faza 6 (L6) Meta Evolution — the host queries/drives the MetaGenome
     // engine; the sidecar replies with one `meta_result` paired by `id`.
     | "meta_status" | "meta_evolve" | "meta_rollback" | "meta_history"
+    // The L6 chat card: fetch the waiting proposal, or answer it. The
+    // proposal id rides the plain `id` field.
+    | "meta_proposal" | "meta_approve" | "meta_deny"
     // Slice A5 (L5 Governance) — host drives the policy FSM through the
     // `GovernanceLifecycle` (see `rsi/governance-lifecycle.ts`). Nine ops,
     // all reply with one `governance_result` paired by `id`. The transport
@@ -1412,6 +1458,8 @@ export interface InboundMessage {
   rsiGoal?: string;
   rsiMaxIterations?: number;
   rsiMaxTotalTokens?: number;
+  /** Explicit USD cap for the RSI run; independent from the token cap. */
+  rsiMaxTotalCostUsd?: number;
   rsiConcurrency?: number;
   /** RSI set_concurrency payload (type === "rsi_set_concurrency"). */
   rsiNewConcurrency?: number;
@@ -1541,8 +1589,15 @@ export interface InboundMessage {
    *  Rust API lazily re-load the multi-GB model the unload just released.
    *  Absent = unknown; the sidecar keeps its boot-time behaviour. */
   localFallbackAvailable?: boolean;
+  /** heads_up_answer: the card answered (its `data.headsUp.id`) and how. */
+  headsUpId?: string;
+  headsUpChoice?: "more" | "knew" | "dismiss";
   // ask_user_response fields (all present when type === "ask_user_response")
   /** Matches the id of the original "ask_user" outbound event. */
+  /** Explicit desktop task subscriber requesting unfinished-work suggestions. */
+  followUps?: boolean;
+  /** cron_list: set the weekly task limit first (number, or null = none). */
+  taskLimit?: { weeklyUsd: number | null };
   requestId?: string;
   answers?: AskUserAnswer[];
   // ask_user_cancel fields (all present when type === "ask_user_cancel")
@@ -1612,11 +1667,12 @@ export interface AskUserQuestion {
   preview?: string;
   /**
    * A secret the person types into a password card (request_secret, spec
-   * 2026-09-24 §6.2). Only a surface that renders cards (the local web page)
-   * is ever sent one; the page saves the value straight to the engine and
-   * answers "Saved" or "Cancel", so the value never reaches the agent.
+   * 2026-09-24 §6.2). Only a surface that renders cards (the local web page,
+   * the desktop app) is ever sent one; the card saves the value itself and
+   * answers "Saved" or "Cancel", so the value never reaches the agent. The
+   * extension form (a service's link + key) is sent to the desktop app only.
    */
-  secret?: { connector: string; field: string };
+  secret?: { connector: string; field: string } | { extensionUrl: string; extensionName?: string };
 }
 
 export interface AskUserAnswer {
@@ -1670,7 +1726,28 @@ export type OutboundEvent =
   | { type: "tool_start"; id: string; tool: string; args: Record<string, unknown>; traceId: string; sessionId?: string }
   | { type: "tool_progress"; sessionId: string; tool: string; stage: string; progress: number | null; message: string; data?: unknown; traceId?: string; id?: string }
   | { type: "tool_done"; id: string; tool: string; result: unknown; traceId?: string; sessionId?: string }
-  | { type: "proactive"; content: string; traceId?: string }
+  /**
+   * The document an `artifact_create` call is writing, while the model is
+   * still writing it, so the desktop can show it letter by letter. `append` is
+   * only the text added since the last event for this `draft`; a new `draft`
+   * value is a new document (a second call, a retry, a fallback model). The
+   * turn's own `tool_done` / `done` / `error` close it. Surfaces that cannot
+   * show it ignore it, as they do every type they do not know.
+   */
+  | {
+      type: "artifact_draft";
+      id: string;
+      sessionId: string;
+      draft: string;
+      kind?: string;
+      title?: string;
+      append: string;
+      /** An `artifact_edit` writing `append` in place of `find` in this artifact. */
+      editOf?: string;
+      find?: string;
+      traceId?: string;
+    }
+  | { type: "proactive"; content: string; followUp?: { id: string; sessionId: string; mission: string }; traceId?: string }
   | { type: "model_set"; provider: string; model: string }
   | { type: "model_error"; message: string; traceId?: string }
   /**
@@ -1946,6 +2023,8 @@ export type OutboundEvent =
   // Faza 6 (L6) Meta Evolution reply — payload shape depends on `op`
   // (status/evolve/rollback/history); `ok:false` carries a `reason`.
   | { type: "meta_result"; id: string; op: string; ok: boolean; [key: string]: unknown }
+  // The L6 change waiting for a person in chat; null when there is none.
+  | { type: "meta_proposal"; proposal: import("./rsi/l6-meta/meta-evolution.ts").MetaProposal | null }
   // /compact reply — `result` is "compacted" or "not needed"; `error` set
   // when the summarizer itself failed (ok=false).
   | { type: "compact_result"; id: string; ok: boolean; result?: string; error?: string }
@@ -2233,7 +2312,8 @@ export type OutboundEvent =
       id: string;
       ok: boolean;
       error?: string;
-      jobs: Array<{ id: string; name: string; task: string; schedule: Schedule; enabled: boolean; nextRunMs?: number; lastRunMs?: number }>;
+      jobs: Array<Pick<CronJob, "id" | "name" | "task" | "schedule" | "enabled" | "nextRunMs" | "lastRunMs" | "kind" | "history" | "watch" | "expiresAt" | "budgetUsd" | "spentUsd">>;
+      taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number };
     }
   // Dream Cycle lifecycle — emitted by the host when an evolutionary episode
   // starts (`phase:"started"`) and ends (`phase:"ended"`). Forwarded verbatim

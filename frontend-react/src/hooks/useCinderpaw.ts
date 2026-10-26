@@ -8,19 +8,21 @@
 import { useEffect, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import { useChat, type ChatMessage, type MemoryUsedItem, TOOL_CALL_LINGER_MS } from '@/stores/chat';
+import { useChat, type ChatMessage, type MemoryUsedItem, type TurnEnd, TOOL_CALL_LINGER_MS } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
 import { useAgent } from '@/stores/agent';
 import { useModel } from '@/stores/model';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { useNotifications } from '@/stores/notifications';
-import { useArtifacts } from '@/stores/artifacts';
+import { useFollowUps } from '@/stores/followUps';
+import { notifyIfBackground, preview } from '@/lib/systemNotify';
+import { failArtifactRequests, useArtifacts, type DraftEvent } from '@/stores/artifacts';
 import { t } from '@/lib/i18n';
 import { autoTitle } from '@/lib/autoTitle';
 import { titleConversation } from '@/lib/chatTitle';
 import { voiceToPersisted } from '@/lib/messageMapping';
 import { splitThinking, stripStreamingToolCalls } from '@/lib/parseThink';
-import { tauri, type CinderpawAgentEvent, type PersistedMessage } from '@/lib/tauri';
+import { events, tauri, type CinderpawAgentEvent, type PersistedMessage } from '@/lib/tauri';
 import {
   ensureCinderpawListener,
   registerCinderpawStream,
@@ -129,18 +131,22 @@ export function useCinderpawStream(chatSessionId: string) {
 
       let messageId: string;
       try {
-        // Controls-panel params (temperature / max tokens) now reach the
-        // agent too — previously they only applied to the plain chat tab.
-        const { temperature, max_tokens } = useModel.getState().inferParams;
+        // The Controls-panel temperature reaches the agent too. max_tokens does
+        // not: no slider sets it, so the stored 4096 was a hidden cap on every
+        // reply, and a long document written in one tool call was cut off and
+        // shown as "The model returned an empty response" (25 Oct). Without it
+        // the sidecar picks its own ceiling per provider.
+        const { temperature } = useModel.getState().inferParams;
         messageId = await invoke<string>('cinderpaw_send_message', {
           content,
           sessionId: chatSessionId,
           images: images && images.length > 0 ? images : null,
-          inferParams: { temperature, max_tokens: max_tokens },
+          inferParams: { temperature },
           // Declared per message, not per session: the same conversation is
           // spoken to and typed in alternately, and the format brief has to follow
-          // whichever is happening right now.
-          surface: surface ?? null,
+          // whichever is happening right now. Typed is 'text': it also tells the
+          // sidecar this window can show request_secret's password field.
+          surface: surface ?? 'text',
         });
       } catch (err) {
         callbacks.onError(String(err));
@@ -189,6 +195,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
       },
     ) => {
       const chat = useChat.getState();
+      useFollowUps.getState().clearSession(chatSessionId);
 
       const userMsg = {
         id: crypto.randomUUID(),
@@ -262,12 +269,22 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         // Built here, next to the mascot's bubbles, because this is the one
         // place that knows which reply a tool event belongs to.
         tools: [] as ToolActivity[],
+        // Set when the person stops the turn or it fails; saved with the reply.
+        ended: undefined as TurnEnd | undefined,
+        // The memories this turn was given, kept here so a reply that finishes
+        // while another chat is on screen still saves them.
+        memoryUsed: undefined as MemoryUsedItem[] | undefined,
       };
       /**
        * A turn that ends with a tool still open never gets that tool's result.
        * Its widget would spin forever; saying why it stopped is the honest
        * display, the same conclusion the mascot strip draws as `cancelled`.
        */
+      /** How the turn ended, on the reply on screen and in what persistFinal saves. */
+      const markEnded = (end: TurnEnd) => {
+        state.ended = end;
+        if (isActive()) useChat.getState().updateLastAssistantMessage({ ended: end });
+      };
       const settleTools = (why: string) => {
         if (!state.tools.some((a) => a.status === 'running')) return;
         state.tools = state.tools.map((a) =>
@@ -292,6 +309,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         const live = new Map(useChat.getState().messages.map((m) => [m.id, m] as const));
         const persisted: PersistedMessage[] = snapshot.map((s0) => {
           const m = live.get(s0.id) ?? s0;
+          const mem = m.id === asstId ? state.memoryUsed : m.memoryUsed;
           return {
           role: m.role,
           content: m.id === asstId ? joinSegments(state.committed, state.answer) : m.content,
@@ -307,6 +325,8 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
             ? (state.tools.length > 0 ? state.tools : undefined)
             : (m.toolActivity && m.toolActivity.length > 0 ? m.toolActivity : undefined),
           created_at: m.createdAt,
+          ended: m.id === asstId ? state.ended : m.ended,
+          memory_used: mem?.length ? mem : undefined,
           }; });
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted, agentId);
@@ -365,6 +385,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         // off `message.askUser`; without this the card never renders).
         chatMessageId: asstId,
         onToken: (token) => {
+          useConversations.getState().setProviderWait(sessionId, 0);
           state.buffer += token;
           // Once per frame, like the local chat's stream: a burst of tokens
           // was a burst of renders inside one frame. A hidden window paints no
@@ -478,6 +499,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         // Memory Peek: which memories this reply was given. Only while the
         // chat is on screen; a background turn keeps its answer, not this.
         onMemoryUsed: (items) => {
+          state.memoryUsed = items;
           if (isActive()) useChat.getState().updateLastAssistantMessage({ memoryUsed: items });
         },
         onUsage: (promptTokens, completionTokens) => {
@@ -493,6 +515,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           flushTokens();
           settleTools(stopped ? 'stopped' : 'no result');
           endLiveSession(sessionId);
+          if (stopped) markEnded({ kind: 'stopped' });
           if (joinSegments(state.committed, state.answer).trim().length === 0 && finalContent?.trim()) {
             const cleaned = splitThinking(finalContent).answer.trim();
             if (cleaned) {
@@ -515,7 +538,8 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
             // 5s post-done window before clearing the bubble strip.
             setTimeout(() => useChat.getState().clearToolCallStream(), 5000);
           }
-          if (joinSegments(state.committed, state.answer).trim().length > 0) await persistFinal();
+          // A stop before the first word still saves, so the line saying so survives a reload.
+          if (stopped || joinSegments(state.committed, state.answer).trim().length > 0) await persistFinal();
           if (state.toolCallCount > 3 && mascotSink) {
             mascotSink.setMascotState('cool');
           }
@@ -525,6 +549,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           flushTokens();
           settleTools('failed');
           endLiveSession(sessionId);
+          markEnded({ kind: 'error', raw: String(err) });
           if (isActive()) useChat.getState().setStreamStatus('error', err);
           if (mascotSink) mascotSink.setMascotState('error');
           void persistFinal().finally(() => {
@@ -535,6 +560,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           flushTokens();
           settleTools('stopped');
           endLiveSession(sessionId);
+          markEnded({ kind: 'stopped' });
           if (isActive()) useChat.getState().setStreamStatus('stopped');
           void persistFinal().finally(() => {
             useConversations.getState().unmarkStreaming(sessionId);
@@ -573,21 +599,64 @@ export function useCinderpawGlobal() {
   const fetchConfig   = useCinderpawStore((s) => s.fetchModelConfig);
 
   useEffect(() => {
-    let unlistenReady:  (() => void) | null = null;
-    let unlistenExit:   (() => void) | null = null;
-    let unlistenOutput: (() => void) | null = null;
-    let unlistenRevert: (() => void) | null = null;
+    let disposed = false;
+    const unlisteners: Array<() => void> = [];
+    // listen() resolves asynchronously: StrictMode, navigation or hot reload
+    // can clean up before it returns. Retire late registrations too, otherwise
+    // each leaked callback appends the same artifact letters again.
+    const subscribe = async <T,>(event: Parameters<typeof listen<T>>[0], callback: Parameters<typeof listen<T>>[1]) => {
+      if (disposed) return;
+      const unlisten = await listen<T>(event, (e) => { if (!disposed) callback(e); });
+      if (disposed) unlisten();
+      else unlisteners.push(unlisten);
+    };
+    // A document being written arrives one piece per model token, hundreds a
+    // part. Drawn one at a time, each piece cost the panel a whole render: it
+    // fell seconds behind the model, and the saved version then landed on a
+    // part still being shown as written (20 Oct). Pieces wait for the next
+    // frame and go in together, one longer piece per document.
+    let drafts: DraftEvent[] = [];
+    let draftFrame: number | null = null;
+    const flushDrafts = () => {
+      if (draftFrame !== null) cancelAnimationFrame(draftFrame);
+      draftFrame = null;
+      const batch: DraftEvent[] = [];
+      for (const d of drafts) {
+        const last = batch[batch.length - 1];
+        const same = last && last.id === d.id && last.draft === d.draft && last.editOf === d.editOf && last.find === d.find;
+        if (same) batch[batch.length - 1] = { ...d, append: last.append + d.append };
+        else batch.push(d);
+      }
+      drafts = [];
+      for (const d of batch) useArtifacts.getState().onDraft(d);
+    };
 
+    let outputSubscribed = false;
+    const requestFollowUp = () => {
+      if (!outputSubscribed || !useFollowUps.getState().enabled) return;
+      void tauri.raw.cinderpawCronOp(crypto.randomUUID(), 'followups').catch(() => {});
+    };
+    const offFollowUps = useFollowUps.subscribe((state, previous) => {
+      if (state.enabled && !previous.enabled) requestFollowUp();
+    });
+    unlisteners.push(offFollowUps);
     const setup = async () => {
+      const offWait = await events.onRateLimited.listen(({ sessionId, waitMs }) => {
+        useConversations.getState().setProviderWait(sessionId, waitMs);
+      });
+      if (disposed) { offWait(); return; }
+      unlisteners.push(offWait);
       // The stream listener is where ask_user questions are received, and it
       // used to be installed by the first chat SEND. A person whose first act
       // after launch was a voice call never had one: the agent asked, nothing
       // heard it, and the call waited out the question's timeout (18 Sep).
       void ensureCinderpawListener().catch(() => {});
-      unlistenReady = await listen('cinderpaw://agent-ready', () => {
+      await subscribe('cinderpaw://agent-ready', () => {
         setReady(true);
         void fetchConfig();
+        requestFollowUp();
       });
+      if (disposed) return;
 
       // The event fires once, and only reaches whoever is already listening.
       // The sidecar announces itself about eleven seconds in; a cold webview
@@ -599,7 +668,9 @@ export function useCinderpawGlobal() {
       // that lands between the two is caught by the listener rather than
       // falling into the gap the other order would open.
       try {
-        if (await tauri.raw.agentIsReady()) {
+        const ready = await tauri.raw.agentIsReady();
+        if (disposed) return;
+        if (ready) {
           setReady(true);
           void fetchConfig();
         }
@@ -610,7 +681,7 @@ export function useCinderpawGlobal() {
       // #11: the Rust supervisor emits this when the sidecar dies. While
       // `restarting` is true it will respawn with backoff and agent-ready
       // will clear the banner; when false, the supervisor gave up.
-      unlistenExit = await listen<{
+      await subscribe<{
         code: number | null;
         restarting: boolean;
         error?: string | null;
@@ -619,6 +690,8 @@ export function useCinderpawGlobal() {
         (event) => {
           const reason = event.payload.error?.trim() || null;
           setOffline(true, event.payload.restarting, reason);
+          failArtifactRequests('The engine stopped.');
+          useConversations.setState({ providerWaits: {} });
           if (!event.payload.restarting) {
             // The reason comes from Rust, which is the only side that knows
             // WHICH failure this was: the sidecar was never found, or it was
@@ -638,7 +711,7 @@ export function useCinderpawGlobal() {
 
       // Faza 3 watchdog: the Rust supervisor auto-reverted a live-applied
       // code patch that was crashing the agent.
-      unlistenRevert = await listen<{ patchId: string }>(
+      await subscribe<{ patchId: string }>(
         'cinderpaw://rsi-patch-reverted',
         (event) => {
           useNotifications.getState().push(
@@ -649,13 +722,23 @@ export function useCinderpawGlobal() {
         },
       );
 
-      unlistenOutput = await listen<{ data: string }>('cinderpaw://agent-output', (event) => {
+      await subscribe<{ data: string }>('cinderpaw://agent-output', (event) => {
         let parsed: CinderpawAgentEvent;
         try {
           parsed = JSON.parse(event.payload.data) as CinderpawAgentEvent;
         } catch {
           return;
         }
+
+        if (parsed.type === 'artifact_draft') {
+          // Live writing: the panel shows the document while Cinderpaw writes it.
+          drafts.push({ ...parsed, onScreen: parsed.sessionId === useChat.getState().sessionId });
+          if (document.hidden) flushDrafts();
+          else draftFrame ??= requestAnimationFrame(flushDrafts);
+          return;
+        }
+        // Nothing may overtake a piece of writing that arrived before it.
+        if (drafts.length) flushDrafts();
 
         if (parsed.type === 'model_set') {
           void fetchConfig();
@@ -683,6 +766,27 @@ export function useCinderpawGlobal() {
           });
         } else if (parsed.type === 'artifact_result') {
           useArtifacts.getState().onResult(parsed);
+        } else if (parsed.type === 'tool_done' && parsed.tool === 'artifact_edit') {
+          // A part written in place: saved, its new version follows; refused
+          // (the placeholder was not found), the document goes back as it was.
+          const r = parsed.result as { ok?: boolean; data?: { id?: unknown } } | null;
+          useArtifacts.getState().endDraft(parsed.id, r?.ok && typeof r.data?.id === 'string' ? { artifactId: r.data.id } : { reason: 'Not saved.' });
+        } else if (parsed.type === 'tool_done' && parsed.tool === 'artifact_create') {
+          const r = parsed.result as { ok?: boolean; data?: { id?: unknown }; content?: unknown; error?: unknown } | null;
+          const why = typeof r?.content === 'string' ? r.content : typeof r?.error === 'string' ? r.error : '';
+          useArtifacts.getState().endDraft(
+            parsed.id,
+            r?.ok && typeof r.data?.id === 'string'
+              ? { artifactId: r.data.id }
+              : { reason: `Not saved.${why ? ` ${why.slice(0, 200)}` : ''}` },
+          );
+        } else if ((parsed.type === 'done' || parsed.type === 'error') && parsed.id) {
+          // Every way a turn ends, including a stop or a broken stream: a draft
+          // still being written then was never saved, and says so.
+          useArtifacts.getState().endDraft(parsed.id, { reason: 'Cinderpaw stopped before saving this.' });
+          if (parsed.type === 'done') requestFollowUp();
+        } else if (parsed.type === 'proactive' && parsed.followUp) {
+          useFollowUps.getState().receive(parsed.followUp);
         } else if (parsed.type === 'cron_fired') {
           // X3: scheduled-job results were previously dropped on the floor.
           // Capped. Both strings are model output — a cron job's answer and the
@@ -693,26 +797,38 @@ export function useCinderpawGlobal() {
             'success',
             `Scheduled task: ${toastText(parsed.jobName, 80)}`,
             toastText(parsed.content, 2000),
+            undefined,
+            { sticky: true },
           );
+          // A reminder is for the moment it fires, which is rarely a moment the
+          // person is looking at this window: the toast alone lasted 5 s inside
+          // a window behind others (24 Oct). The OS shows it where they are.
+          void notifyIfBackground(toastText(parsed.jobName, 80), preview(parsed.content));
         } else if (parsed.type === 'cron_error') {
           useNotifications.getState().push(
             'error',
             `Scheduled task failed: ${toastText(parsed.jobName, 80)}`,
             toastText(parsed.message, 2000),
+            undefined,
+            { sticky: true },
           );
+          void notifyIfBackground(`Task failed: ${toastText(parsed.jobName, 80)}`, preview(parsed.message));
         }
       });
 
-      void fetchConfig();
+      outputSubscribed = true;
+      if (!disposed) {
+        void fetchConfig();
+        requestFollowUp();
+      }
     };
 
     void setup();
 
     return () => {
-      unlistenReady?.();
-      unlistenExit?.();
-      unlistenOutput?.();
-      unlistenRevert?.();
+      disposed = true;
+      if (draftFrame !== null) cancelAnimationFrame(draftFrame);
+      for (const unlisten of unlisteners) unlisten();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -6,7 +6,7 @@
  *     `StageHandlerDeps` (eval / bridge / ratchet leaves the caller supplies);
  *   - the already-live engine-half primitives — the confidence gate
  *     (`evaluateGate`), the Evolution Journal writer (`appendJournal`), and the
- *     per-phase budget assert (`assertCanSpend`).
+ *     stateful per-phase budget ledger (`assertCanSpend` + measurement).
  *
  * This is the ONE place that couples the Contract to IO. The runner
  * (contract-runner.ts) and the handlers (contract-stages.ts) stay pure and
@@ -38,7 +38,11 @@ import {
   zeroSpend,
   DEFAULT_BUDGET_CAPS,
   type BudgetCaps,
+  type CycleBudgetLedger,
+  type BudgetSpend,
+  type PhaseEstimate,
 } from "./budget.ts";
+import type { ContractStage, ContractState, StageResult } from "./contract.ts";
 
 /** Host-tunable knobs for the engine-half deps. All optional — the defaults
  *  are the production wiring (strict gate, per-UTC-day journal, §2.5 caps). */
@@ -48,12 +52,22 @@ export interface ContractDepsOptions {
    *  Default: `() => defaultJournalPath()`. */
   journalPath?: () => string;
   /** Per-cycle resource caps (BRSI §2.5). The host derives these from the live
-   *  SandboxBounds; default is §2.5. Used only on the explicit-estimate path
-   *  (fail-open today — see `assertBudget` below). */
+   *  SandboxBounds; default is §2.5. */
   budgetCaps?: BudgetCaps;
   /** Confidence gate override — inject a stub in tests. Default: the strict
    *  locked `evaluateGate`. */
   evaluateConfidence?: (samples: readonly PairedSample[]) => GateDecision;
+  /** Explicit per-stage estimate. Missing/null fails closed in the runner. */
+  estimateStage?: (stage: ContractStage, state: ContractState) => PhaseEstimate | null;
+  /** Actual resource measurement. Default records measured wall-clock only. */
+  measureStage?: (
+    stage: ContractStage,
+    state: ContractState,
+    result: StageResult,
+    elapsedMs: number,
+  ) => BudgetSpend;
+  /** Cycle-owned ledger shared by all candidate contracts in that cycle. */
+  budgetLedger?: CycleBudgetLedger;
 }
 
 /**
@@ -80,9 +94,9 @@ export interface ContractDepsOptions {
 export function budgetDep(
   caps: BudgetCaps = DEFAULT_BUDGET_CAPS,
 ): ContractDeps["assertBudget"] {
-  // ponytail: spend is a zero snapshot until an estimator lands — thread the
-  // live cycle spend through when the runner starts passing real estimates.
-  return (phase, estimate) => assertCanSpend(caps, zeroSpend(), phase, estimate);
+  // The runner passes the cycle's accumulated spend and refuses a null
+  // estimate before it gets here (fail-closed), so this is a real question.
+  return (phase, spent, estimate) => assertCanSpend(caps, spent, phase, estimate);
 }
 
 /**
@@ -95,7 +109,7 @@ export function contractDepsFrom(
   opts: ContractDepsOptions = {},
 ): ContractDeps {
   const journalPath = opts.journalPath ?? (() => defaultJournalPath());
-  const caps = opts.budgetCaps ?? DEFAULT_BUDGET_CAPS;
+  const caps = opts.budgetCaps ?? opts.budgetLedger?.caps ?? DEFAULT_BUDGET_CAPS;
   const evaluateConfidence = opts.evaluateConfidence ?? ((samples) => evaluateGate(samples));
 
   return {
@@ -108,10 +122,15 @@ export function contractDepsFrom(
     deploy: stageDeploy(stage),
     monitoring: stageMonitoring(stage),
 
-    // I5 — per-phase budget precheck. The runner passes `estimate: null` today
-    // (fail-open), so `assertCanSpend` returns allow:true regardless of spend;
-    // the caps + spend only bite once a per-stage estimator exists.
+    estimateBudget: opts.estimateStage ?? (() => null),
+    ...(opts.budgetLedger ? { budgetLedger: opts.budgetLedger } : {}),
+
+    // I5 — per-phase precheck against the runner's accumulated ledger.
     assertBudget: budgetDep(caps),
+    measureSpend: opts.measureStage ?? ((_stage, _state, _result, elapsedMs) => ({
+      ...zeroSpend(),
+      wallClockMin: elapsedMs / 60_000,
+    })),
     // I6 — confidence gate the runner calls after regression, before deploy.
     evaluateConfidence,
     // I3/I4 — one append-only Journal row per terminal (best-effort; the writer

@@ -21,7 +21,7 @@ describe('an agent reply with tools', () => {
     render(<MemoryRouter><MessageItem message={message} /></MemoryRouter>);
 
     const first = screen.getByText(said);
-    const tool = screen.getByText(/^Worked for/);
+    const tool = screen.getByText('Searched the web');
     const last = screen.getByText('Iată ce e real acum.');
     // DOCUMENT_POSITION_FOLLOWING: the second node comes after the first.
     expect(first.compareDocumentPosition(tool) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -50,5 +50,16 @@ describe('the artifacts a reply draws as cards', () => {
     expect(screen.getAllByRole('button', { name: 'Open New York, 7 days' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: 'Open New York, full details' })).toHaveLength(1);
     expect(screen.queryByRole('button', { name: 'Open An older document' })).toBeNull();
+  });
+});
+
+describe('a reply the person stopped', () => {
+  it('says so and offers to try again, even with no text yet', async () => {
+    const onRetry = vi.fn();
+    const message = { id: 's1', role: 'assistant', content: '', createdAt: 0, ended: { kind: 'stopped' } } as unknown as ChatMessage;
+    render(<MemoryRouter><MessageItem message={message} onRetry={onRetry} /></MemoryRouter>);
+    expect(screen.getByText('You stopped this reply.')).toBeTruthy();
+    screen.getAllByRole('button', { name: 'Try again' }).at(-1)!.click();
+    expect(onRetry).toHaveBeenCalled();
   });
 });

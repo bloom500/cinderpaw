@@ -64,6 +64,26 @@
 .cpm-tap--late { animation-delay: 0.21s; }
 @keyframes cpm-tap { 0%, 60%, 100% { transform: rotate(0deg); } 30% { transform: rotate(-4deg); } }
 
+/* A paw of the newer drawings, from its wrist or shoulder. Writing: short
+   strokes, then the pencil lifts. Talking on the phone: the free paw explains.
+   The raised fist pumps with the bounce, only ever toward the face. */
+.cpm-hand { transform-origin: var(--px) var(--py); }
+.cpm-hand--scribble { animation: cpm-hand-scribble 1.4s ease-in-out infinite; }
+.cpm-hand--gesture  { animation: cpm-hand-gesture 2.2s ease-in-out infinite; }
+.cpm-hand--pump     { animation: cpm-hand-pump 0.9s cubic-bezier(.3,.7,.4,1) infinite; }
+@keyframes cpm-hand-scribble {
+  0%, 100% { transform: rotate(0deg); }
+  10% { transform: rotate(-2.5deg); } 20% { transform: rotate(1deg); }
+  30% { transform: rotate(-2deg); }   40% { transform: rotate(1.5deg); }
+  50% { transform: rotate(-2.5deg); } 60% { transform: rotate(0.5deg); }
+  70%, 90% { transform: rotate(0deg) translateY(-0.6px); }
+}
+@keyframes cpm-hand-gesture {
+  0%, 100% { transform: rotate(0deg); }
+  30% { transform: rotate(-6deg); } 55% { transform: rotate(4deg); } 75% { transform: rotate(-3deg); }
+}
+@keyframes cpm-hand-pump { 0%, 100% { transform: rotate(0deg); } 45% { transform: rotate(-6deg); } }
+
 /* ── Eyes ───────────────────────────────────────────────────────────────── */
 .cpm-blink { animation: cpm-blink 5.2s ease-in-out infinite; }
 @keyframes cpm-blink {

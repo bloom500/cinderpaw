@@ -1,5 +1,6 @@
 import { onPanelMotionSettled, panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, Reorder } from 'framer-motion';
 import { ArrowLeft, ArrowRight, BookOpen, ChevronDown, ChevronUp, Download, Globe, History, Lock, LockOpen, Star, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, ScrollText, Search, Settings2, ShieldCheck, X } from 'lucide-react';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
@@ -76,15 +77,17 @@ function place(r: DOMRect | null) {
  * native view, and a native view is always on top of anything React draws, so
  * a chat floating over it would be hidden behind it.
  */
-export function BrowserPanel({ chat, onCompose }: {
+export function BrowserPanel({ chat, onCompose, compact = false }: {
+  compact?: boolean;
   chat?: React.ReactNode;
   /** Summarize this page: words for the composer, sent by the person (spec 7.5). */
   onCompose?: (text: string) => void;
 }) {
   const {
     url: rawUrl, loading, error, notice, open, go, setPanel, tabs, active, newTab, switchTab, closeTab, reopenTab,
-    wide, setWide, chatOpen, setChatOpen, engine, setEngine, agent, inCall, covered, orderTabs,
+    wide: preferredWide, setWide, chatOpen, setChatOpen, engine, setEngine, agent, inCall, covered, orderTabs,
   } = useBrowser();
+  const wide = preferredWide || compact;
   // Reader view is a page of our own; the chrome keeps showing the article's
   // original address (bookmarks, history and the star all take that one).
   // Wide with the nav folded away: the page takes the canvas edge to edge. The
@@ -347,7 +350,7 @@ export function BrowserPanel({ chat, onCompose }: {
     // A call frames the page itself; this re-runs and places it back here when the call ends.
     if (!el || !settled || inCall) return;
     // A modal is open: the page is parked until it closes, then placed again.
-    if (covered > 0) { place(null); return; }
+    if (covered > 0 || (compact && chatOpen)) { place(null); return; }
     let frame = 0;
     const report = () => {
       cancelAnimationFrame(frame);
@@ -370,7 +373,7 @@ export function BrowserPanel({ chat, onCompose }: {
       ro.disconnect();
       window.removeEventListener('resize', report);
     };
-  }, [settled, inCall, covered]);
+  }, [settled, inCall, covered, compact, chatOpen]);
 
   // Leaving by any route (route change, unmount) parks the page.
   useEffect(() => () => place(null), []);
@@ -404,6 +407,7 @@ export function BrowserPanel({ chat, onCompose }: {
   return (
     <motion.aside
       ref={asideRef}
+      data-browser-panel=""
       aria-label="Browser"
       initial={{ x: 32, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
@@ -418,7 +422,8 @@ export function BrowserPanel({ chat, onCompose }: {
         }
       }}
       className={cn(
-        'relative flex min-w-[360px] shrink flex-col overflow-hidden border-l border-border-default bg-bg-surface',
+        'relative flex shrink flex-col overflow-hidden border-l border-border-default bg-bg-surface',
+        compact ? 'min-w-0' : 'min-w-[360px]',
         wide && 'w-full flex-1',
         // Out of main's gutters (pl-60px for the nav toggle, pr-4).
         edge && '-ml-[60px] -mr-4 border-l-0',
@@ -470,7 +475,7 @@ export function BrowserPanel({ chat, onCompose }: {
             role="tab"
             aria-selected={t.id === active}
             tabIndex={0}
-            title={t.url === 'about:blank' ? 'New tab' : `${t.title || t.url}\n${t.url}`}
+            title={`${t.agent ? 'Cinderpaw opened this tab for its work\n' : ''}${t.url === 'about:blank' ? 'New tab' : `${t.title || t.url}\n${t.url}`}`}
             onClick={() => void switchTab(t.id)}
             // The wheel button closes a tab, as everywhere.
             onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); void closeTab(t.id); } }}
@@ -483,6 +488,8 @@ export function BrowserPanel({ chat, onCompose }: {
                 : 'border-transparent text-text-muted hover:bg-bg-hover hover:text-text-secondary',
             )}
           >
+            {/* Cinderpaw's own tabs carry its mark: the person's are never reused. */}
+            {t.agent && <img src={logoUrl} alt="" className="size-3 shrink-0" draggable={false} />}
             {t.loading
               ? <Loader2 size={12} className="shrink-0 animate-spin" />
               : t.url.startsWith('http') && <Favicon url={t.url} label={t.title || t.url} px={12} />}
@@ -517,7 +524,10 @@ export function BrowserPanel({ chat, onCompose }: {
         </button>
       </div>
       <form
-        className="flex items-center gap-1 border-t border-border-default px-2 py-2"
+        // A container: below 600 px the address takes its own row. Beside the
+        // chat at 1280x800 the eleven buttons left it 44 px wide, "Search or"
+        // and then only the lock (UX lab, 19 Oct, item 22).
+        className="@container flex flex-wrap items-center gap-1 border-t border-border-default px-2 py-2"
         onSubmit={(e) => {
           e.preventDefault();
           setEditing(false);
@@ -534,7 +544,7 @@ export function BrowserPanel({ chat, onCompose }: {
           icon={loading ? X : RotateCw}
           onClick={() => void go(loading ? 'stop' : 'reload')}
         />
-        <div className="relative min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1 @max-[600px]:order-last @max-[600px]:basis-full">
           {!editing && url && /^https?:/.test(url) && (
             <span
               className={cn('pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2', isSecure(url) ? 'text-text-muted' : 'text-(--warning)')}
@@ -638,11 +648,11 @@ export function BrowserPanel({ chat, onCompose }: {
           </button>
         )}
         <ChromeButton label="Browser settings" icon={Settings2} onClick={() => setSettingsOpen((v) => !v)} />
-        <ChromeButton
+        {!compact && <ChromeButton
           label={wide ? 'Back to split view' : 'Fill the window'}
           icon={wide ? Minimize2 : Maximize2}
           onClick={() => setWide(!wide)}
-        />
+        />}
         {wide && (
           // The bubble: the conversation, one press away while the page fills
           // the window. Brand-coloured so it reads as Cinderpaw, not as chrome.
@@ -760,7 +770,7 @@ export function BrowserPanel({ chat, onCompose }: {
           where no page is (20 Sep). The body starts after the handle's 6 px,
           so the page's rectangle, reported from this element, never covers it. */}
       <div className={cn('flex min-h-0 flex-1', !wide && 'pl-1.5')}>
-      <div ref={bodyRef} className="relative min-w-0 flex-1 bg-white">
+      <div ref={bodyRef} hidden={compact && chatOpen} className="relative min-w-0 flex-1 bg-white">
         {!url && (
           // The new-tab page, until the first address: a search and the usual
           // first stops. After that the native page covers this area.
@@ -868,13 +878,40 @@ export function BrowserPanel({ chat, onCompose }: {
         // layout while shut.
         <div
           hidden={!chatOpen}
-          className="flex w-[28rem] shrink-0 flex-col border-l border-border-default bg-bg-surface"
+          className={cn('flex shrink-0 flex-col border-l border-border-default bg-bg-surface', compact ? 'w-full min-w-0' : 'w-[28rem]')}
         >
           {chat}
         </div>
       )}
       </div>
+      <FullscreenCurtain />
     </motion.aside>
+  );
+}
+
+/**
+ * Black over the whole app while a page goes fullscreen or comes back
+ * (`browser://curtain`). The window changes size in steps, and without it the
+ * app showed between them: its layout stretched over the screen, then re-laid
+ * out (20 Oct, filmed). The page is a native view above this, so the video
+ * stays in sight. In a portal: the aside slides with a transform, and a fixed
+ * child of a transformed box covers only that box.
+ */
+function FullscreenCurtain() {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    const un = listen<{ on: boolean }>('browser://curtain', (e) => setOn(e.payload.on));
+    return () => { void un.then((f) => f()); };
+  }, []);
+  return createPortal(
+    <div
+      aria-hidden
+      className={cn(
+        'pointer-events-none fixed inset-0 z-[9999] bg-black transition-opacity ease-out',
+        on ? 'opacity-100 duration-0' : 'opacity-0 duration-150',
+      )}
+    />,
+    document.body,
   );
 }
 

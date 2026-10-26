@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RsiEngineStatusPanel } from '@/components/settings/RsiEngineStatusPanel';
 import { tauri } from '@/lib/tauri';
+import { useSettings } from '@/stores/settings';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -82,9 +83,27 @@ describe('RsiEngineStatusPanel', () => {
 
     render(<RsiEngineStatusPanel />);
 
-    expect(await screen.findByText(/safety stop \$5\.00/)).toBeInTheDocument();
-    expect(screen.getByText(/free only|limit \$/)).toBeInTheDocument();
+    // No budget: it spends nothing, and says only that ("free only · safety
+    // stop $25" read as both at once).
+    expect(await screen.findByText('free models only, spends nothing')).toBeInTheDocument();
     expect(screen.queryByText(/\bcap \$/)).toBeNull();
+  });
+
+  it('with a budget, names the limit and the safety stop as two things', async () => {
+    useSettings.setState({ settings: { rsi_max_cost_usd: 1, dreams_enabled: true } } as never);
+    vi.spyOn(tauri.rsi, 'status').mockResolvedValue(makeStatus({ max_total_cost_usd: 5.0 }) as any);
+    render(<RsiEngineStatusPanel />);
+    expect(await screen.findByText('limit $1.00 · never more than $5.00')).toBeInTheDocument();
+    useSettings.setState({ settings: null } as never);
+  });
+
+  it('says it is off while Dreaming is off, instead of "starting" for ever', async () => {
+    useSettings.setState({ settings: { dreams_enabled: false } } as never);
+    vi.spyOn(tauri.rsi, 'status').mockResolvedValue({ ...makeStatus(), engine: null } as any);
+    render(<RsiEngineStatusPanel />);
+    expect(await screen.findByText(/Off\. Turn on Dreaming below/)).toBeInTheDocument();
+    expect(screen.getByText('off')).toBeInTheDocument();
+    useSettings.setState({ settings: null } as never);
   });
 
   it('fires rsi_set_concurrency when a concurrency chip is clicked', async () => {

@@ -32,8 +32,8 @@
  * about it is the caller's decision.
  */
 
-import { stat } from "node:fs/promises";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { readdir, stat } from "node:fs/promises";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { claimedPaths } from "./unsourced.ts";
 
 /**
@@ -83,9 +83,24 @@ export async function unkeptWriteClaims(answer: string, cwd: string = process.cw
     // agent worked in a directory this process cannot resolve, every claim would
     // look broken. Pass the real workspace root as `cwd` to narrow it further.
     if (!(await exists(dirname(full)))) continue;
-    if (!(await exists(full))) missing.push(claimed);
+    if (!(await exists(full)) && !(await continuesPastSpace(full))) missing.push(claimed);
   }
   return missing;
+}
+
+/**
+ * A path shape stops at the first space, so "Plans\5-Day Dinner Plan.pdf" is
+ * read as "Plans\5-Day". When a file in that folder starts with the cut name
+ * and a space, the claim was about that file: not missing (25 Oct, a real PDF
+ * was reported absent and the agent had to defend it to the person).
+ */
+async function continuesPastSpace(full: string): Promise<boolean> {
+  const cut = `${basename(full)} `;
+  try {
+    return (await readdir(dirname(full))).some((name) => name.startsWith(cut));
+  } catch {
+    return false;
+  }
 }
 
 async function exists(path: string): Promise<boolean> {

@@ -26,7 +26,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { DEFAULT_BUDGET_CAPS } from "../infra/budget.ts";
+import { DEFAULT_BUDGET_CAPS, zeroSpend } from "../infra/budget.ts";
 import { evaluateGate } from "../infra/confidence.ts";
 import { budgetDep } from "../infra/contract-deps.ts";
 import { makeInitialState, type ContractDeps } from "../infra/contract.ts";
@@ -447,12 +447,17 @@ export class ModuleLifecycle {
       ),
       deploy: ok, // promotion itself is human-gated AFTER the FSM (§6.4)
       monitoring: ok,
+      // This FSM only classifies evidence already collected by module-eval;
+      // it performs no additional metered work, and says so explicitly
+      // (an empty estimate would halt, fail-closed).
+      estimateBudget: () => ({ unmetered: true }),
       // I5 — the real per-phase assert, not a constant. This used to answer
       // `allow: true` unconditionally on the grounds that "l4 eval ran inside
       // dream budget"; it does not. `dispatch.ts`'s `module_evaluate` refuses
       // to start while the RSI engine is running, so an L4 eval runs precisely
       // when there is no dream cycle and no cycle budget above it.
       assertBudget: budgetDep(),
+      measureSpend: () => zeroSpend(),
       evaluateConfidence: (samples) => evaluateGate(samples, thresholds),
       writeJournal: (entry) => appendJournal(this.journalPath(), entry),
     };

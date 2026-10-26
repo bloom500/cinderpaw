@@ -14,11 +14,13 @@ import { splitBlocks } from '../markdownBlocks';
  * The rendered HTML. A document parsed in one piece has a "\n" text node
  * between its top-level elements; blocks rendered apart do not. Whitespace
  * between block elements draws nothing and no `prose` selector sees it, so
- * those nodes, and only those, are dropped before comparing.
+ * those nodes, and only those, are dropped before comparing. The expand
+ * button of a table is a dialog trigger whose `aria-controls` id React makes
+ * per render; it names the same dialog in both, so it is compared without it.
  */
 function html(root: HTMLElement): string {
   for (const n of [...root.childNodes]) if (n.nodeType === Node.TEXT_NODE && !n.textContent?.trim()) n.remove();
-  return root.innerHTML;
+  return root.innerHTML.replace(/aria-controls="radix-[^"]*"/g, 'aria-controls="radix"');
 }
 
 /** The document parsed in one piece, the way it rendered before blocks. */
@@ -62,12 +64,14 @@ describe('a reply cut into blocks renders exactly as the whole reply', () => {
     });
   }
 
+  // Renders the reply twice per prefix, dozens of prefixes: 5.2 s on a busy dev
+  // machine against the 5 s default (verify.sh, 22 Oct), green on CI.
   it('at every point while it streams', () => {
     for (let i = 1; i <= SAMPLE.length; i += 23) {
       const md = SAMPLE.slice(0, i);
       expect(split(md), `prefix of ${i} characters`).toBe(whole(md));
     }
-  });
+  }, 30_000);
 
   it('is actually cut: a real reply is many blocks', () => {
     expect(splitBlocks(SAMPLE).length).toBeGreaterThan(8);

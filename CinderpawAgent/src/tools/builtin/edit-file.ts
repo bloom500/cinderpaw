@@ -36,6 +36,7 @@ export function createEditFileTool(allowedPaths: string[]): Tool {
     permissions: ["fs:read", "fs:write"],
     networkAccess: false,
     allowedPaths,
+    fullAccessReach: true,
   };
 
   return {

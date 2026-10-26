@@ -59,16 +59,16 @@ const renderStep = () => render(<MemoryRouter><ProviderStep /></MemoryRouter>);
 describe('ProviderStep', () => {
   it('offers Cloud, Hugging Face and Local, and recommends Cloud on a machine that cannot run 27B', () => {
     renderStep();
-    expect(screen.getByRole('button', { name: /^Cloud/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^Online/ })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: /^Hugging Face/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^Local/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^This computer/ })).toBeInTheDocument();
     expect(cubbyVoiceUrl).toHaveBeenCalledWith('onboarding.provider');
-    expect(screen.getByText(/start with Cloud/)).toBeInTheDocument();
+    expect(screen.getByText(/start with Online/)).toBeInTheDocument();
   });
 
   it('local download starts the recommended-tier model with the exact repo + file', async () => {
     renderStep();
-    await userEvent.click(screen.getByRole('button', { name: /^Local/ }));
+    await userEvent.click(screen.getByRole('button', { name: /^This computer/ }));
     await userEvent.click(await screen.findByRole('button', { name: /download qwen3\.5 9b/i }));
     expect(mockStart).toHaveBeenCalledWith(
       'bartowski/Qwen_Qwen3.5-9B-GGUF',

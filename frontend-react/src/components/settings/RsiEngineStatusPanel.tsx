@@ -32,6 +32,9 @@ export function RsiEngineStatusPanel() {
   const [stopping, setStopping] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
   const budget = useSettings((st) => st.settings?.rsi_max_cost_usd ?? 0);
+  // The Dreaming switch above. Off, nothing runs in the background, so this
+  // panel must not say "starting… Getting ready" for ever (UX lab, item 26).
+  const dreamsOn = useSettings((st) => st.settings?.dreams_enabled === true);
 
   useEffect(() => {
     let cancelled = false;
@@ -106,9 +109,12 @@ export function RsiEngineStatusPanel() {
   const hardLimit = (status.max_total_cost_usd ?? null) !== null
     ? `$${(status.max_total_cost_usd as number).toFixed(2)}`
     : 'none';
-  const spendLine = `${budget > 0 ? `limit $${budget.toFixed(2)}` : 'free only'} · safety stop ${hardLimit}`;
+  // "free only · safety stop $25.00" read as both free and $25 (UX lab, item 26).
+  const spendLine = budget > 0 ? `limit $${budget.toFixed(2)} · never more than ${hardLimit}` : 'free models only, spends nothing';
   const summary = !e
-    ? 'Getting ready.'
+    ? (dreamsOn
+        ? 'Waiting for a quiet moment. It practices while you are away.'
+        : 'Off. Turn on Dreaming below and it practices while you are away.')
     : `Tried ${e.iteration.toLocaleString()} ${e.iteration === 1 ? 'idea' : 'ideas'} so far${
         status.main_tip_score != null ? `. The version in use scores ${status.main_tip_score.toFixed(2)} out of 1.` : '.'
       }`;
@@ -119,7 +125,7 @@ export function RsiEngineStatusPanel() {
         <div className="flex items-center gap-2">
           <Activity size={14} className={running ? 'text-brand' : 'text-text-muted'} />
           <span className="text-sm font-medium text-text-primary">Practice</span>
-          <StatusPill running={running} stopReason={e?.stop_reason ?? null} engineKnown={e !== null} />
+          <StatusPill running={running} stopReason={e?.stop_reason ?? null} engineKnown={e !== null} dreamsOn={dreamsOn} />
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -202,7 +208,7 @@ export function RsiEngineStatusPanel() {
       )}
 
       <p className="text-micro text-text-muted">
-        Starts by itself when Cinderpaw opens. What it may spend is set in the section above.
+        {dreamsOn ? 'Runs by itself while Dreaming is on.' : 'Runs only when Dreaming is on.'} What it may spend is set in the section above.
       </p>
     </div>
   );
@@ -218,9 +224,9 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
   );
 }
 
-function StatusPill({ running, stopReason, engineKnown }: { running: boolean; stopReason: string | null; engineKnown: boolean }) {
+function StatusPill({ running, stopReason, engineKnown, dreamsOn }: { running: boolean; stopReason: string | null; engineKnown: boolean; dreamsOn: boolean }) {
   if (!engineKnown) {
-    return <span className="rounded-md bg-bg-elevated px-1.5 py-0.5 text-micro text-text-muted">starting…</span>;
+    return <span className="rounded-md bg-bg-elevated px-1.5 py-0.5 text-micro text-text-muted">{dreamsOn ? 'waiting' : 'off'}</span>;
   }
   if (running) {
     return <span className="rounded-md bg-brand/15 px-1.5 py-0.5 text-micro text-brand">practicing</span>;

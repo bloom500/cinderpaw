@@ -10,9 +10,11 @@ import { useDreamCycle } from '@/hooks/useDreamCycle';
 import { DownloadStatus } from './DownloadStatus';
 import { SideNav, NAV_W, NAV_COLLAPSED_W } from './SideNav';
 import { SearchOverlay } from '@/components/chat/SearchOverlay';
+import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
 import { UpdateToast } from '@/components/UpdateToast';
+import { ShareUsageCard } from '@/components/usage/ShareUsageCard';
 import { WhatsNew } from '@/components/WhatsNew';
-import { AlphaNotice } from '@/components/AlphaNotice';
+import { ConnectedDialog } from '@/components/ConnectedDialog';
 import { Toasts } from '@/components/Toasts';
 import { CoworkApprovalDock } from '@/components/CoworkApprovalDock';
 import { SkillHubDrawer } from '@/components/SkillHubDrawer';
@@ -83,7 +85,12 @@ export function AppShell() {
   return (
     <div className="app-pane h-screen w-screen relative bg-bg-primary text-text-primary overflow-hidden">
       <SideNav />
+      {/* The engine's own events (ready, stopped, artifacts, scheduled tasks)
+          on every page. It lived in the chat page: on the Artifacts page the
+          list never came back and the gallery loaded for good (20 Oct). */}
+      <CinderpawGlobalMount />
       <WhatsNew />
+      <ConnectedDialog />
       {/* pt-14 on main clears the floating nav. The nav is translucent and sits
           over the page by design, but "over" must not mean "on top of the chat
           title": the page starts below it, so what shows through the glass is
@@ -171,8 +178,9 @@ export function AppShell() {
               a page: it expires in minutes, and a missed one is lost work. */}
           <CoworkApprovalDock />
           {/* Persistent cards wait until the page stops covering; they are not lost. */}
-          {!overPage && <AlphaNotice />}
           {!overPage && <UpdateToast />}
+          {/* The usage question, in the same card and place as the update (21 Oct). */}
+          {!overPage && <ShareUsageCard />}
           <Toasts compact={overPage} />
         </div>,
         document.body,

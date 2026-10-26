@@ -1,0 +1,22 @@
+[package]
+name = "cinderpaw-tray"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+# Turns on Tauri's tray for the desktop app, and does nothing else.
+#
+# It lives here, not in src-tauri's own `tauri` features, because the Tauri CLI
+# (2.12.4, interface/rust.rs:1377) makes a Linux .deb/.rpm REQUIRE the
+# appindicator library whenever it sees `tray-icon` in the app's manifest: its
+# `tauri` dependency, any target table, or any feature it reaches from
+# `default` and `--features` (interface/mod.rs:55). The in-app updater installs
+# with `dpkg -i` / `rpm -U`, which bring no dependencies, so 2026.10.25 stopped
+# half-installed on Linux. Cargo still unifies this feature into the one
+# `tauri` the app builds; the CLI does not read other crates' manifests.
+# tauri.conf.json recommends the library instead, and src-tauri/src/tray.rs
+# checks for it before making the tray.
+[dependencies]
+tauri = { version = "2", default-features = false, features = ["tray-icon"] }

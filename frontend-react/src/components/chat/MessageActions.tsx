@@ -20,11 +20,13 @@ function Action({
   label,
   done,
   onClick,
+  className,
   children,
 }: {
   label: string;
   done?: string;
   onClick: () => void;
+  className?: string;
   children: ReactNode;
 }) {
   return (
@@ -34,9 +36,9 @@ function Action({
           type="button"
           onClick={onClick}
           aria-label={done ?? label}
-          className="p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-bg-elevated
+          className={cn(`p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-bg-elevated
                      opacity-0 group-hover:opacity-100 focus-visible:opacity-100
-                     max-md:opacity-100 transition-opacity outline-hidden"
+                     max-md:opacity-100 transition-opacity outline-hidden`, className)}
         >
           {children}
         </button>
@@ -45,6 +47,9 @@ function Action({
     </Tooltip>
   );
 }
+
+/** Hidden while the transcript says a reply is arriving (MessageList). */
+export const WHILE_IDLE = '[[data-replying]_&]:hidden';
 
 export function MessageActions({
   text,
@@ -85,13 +90,15 @@ export function MessageActions({
                 : <Copy size={14} />}
           </Action>
         )}
+        {/* Off while a reply is arriving (MessageList's `data-replying`): both
+            drop everything below, that reply too. */}
         {onEdit && (
-          <Action label="Edit" onClick={onEdit}>
+          <Action label="Edit" onClick={onEdit} className={WHILE_IDLE}>
             <Pencil size={14} />
           </Action>
         )}
         {onRetry && (
-          <Action label="Try again" onClick={onRetry}>
+          <Action label="Try again" onClick={onRetry} className={WHILE_IDLE}>
             <RotateCcw size={14} />
           </Action>
         )}

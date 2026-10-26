@@ -23,19 +23,17 @@ export function ImportCard() {
 
   if (!found) return null;
   const { willImport, notImported, conflicts } = found.plan;
-  const skills = willImport.filter((i) => i.what.startsWith('skill: ')).length;
-  const persona = willImport.length - skills;
-  const parts = [
-    persona > 0 && 'its personality',
-    skills > 0 && `${skills} skill${skills === 1 ? '' : 's'}`,
-  ].filter(Boolean);
 
   const bring = async () => {
     setState('busy');
     try {
       const done = await tauri.raw.migrateApply(found.root);
       setState('done');
-      setMessage(`Brought over ${done.length} item${done.length === 1 ? '' : 's'}. Your ${found.source} setup was only read, never changed.`);
+      // Chat apps and scheduled tasks arrive off: two programs running one bot or one job fight over it.
+      const off = done.some((w) => w.startsWith('chat: ') || w.startsWith('schedule: '))
+        ? ` Chat apps and scheduled tasks came over turned off; turn them on in Connectors and Tasks once ${found.source} is stopped.`
+        : '';
+      setMessage(`Brought over ${done.length} item${done.length === 1 ? '' : 's'}. Your ${found.source} setup was only read, never changed.${off}`);
     } catch (e) {
       setState('failed');
       setMessage(typeof e === 'string' ? e : String(e));
@@ -46,7 +44,7 @@ export function ImportCard() {
     <div className="mt-8 rounded-2xl border border-border-default bg-bg-surface p-5">
       <p className="font-medium text-text-primary">Coming from {found.source}?</p>
       <p className="mt-1 text-sm text-text-secondary">
-        I found it on this computer. I can bring over {parts.join(' and ')}, so you do not start from zero.
+        I found it on this computer. I can bring over {found.summary}, so you do not start from zero.
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         {state === 'done' ? (
@@ -68,7 +66,7 @@ export function ImportCard() {
       {state === 'failed' && <p className="mt-3 text-sm text-error">Could not bring it over: {message}</p>}
       {open && (
         <div className="mt-4 space-y-3 text-sm">
-          <List title="Brings" items={willImport.map((i) => i.what)} />
+          <List title="Brings" items={willImport.map((i) => (i.note ? `${i.what} (${i.note})` : i.what))} />
           {conflicts.length > 0 && <List title="Keeps yours" items={conflicts} />}
           {notImported.length > 0 && <List title="Leaves behind" items={notImported} />}
         </div>

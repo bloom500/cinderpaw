@@ -43,7 +43,7 @@ import { useSettings } from '@/stores/settings';
  * distinct wizard steps, add them here — `totalSteps`, the progress
  * dots, and the next/prev bounds all derive from this list.
  */
-const STEP_IDS = ['welcome', 'names', 'provider', 'connect', 'workspace', 'done'] as const;
+export const STEP_IDS = ['welcome', 'names', 'provider', 'connect', 'workspace', 'done'] as const;
 const TOTAL_STEPS: number = STEP_IDS.length;
 const FIRST_STEP: number = 0;
 const LAST_STEP: number = STEP_IDS.length - 1;
@@ -170,7 +170,10 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
       step: s.step <= FIRST_STEP ? FIRST_STEP : s.step - 1,
     })),
 
-  setUserName: (name) => set({ userName: name.trim() }),
+  // Only the front is trimmed while typing: trimming the end on every key ate
+  // the space before a second word, so nobody could type "Ana Maria" (UX lab,
+  // 20 Oct). The end is trimmed when the name is saved.
+  setUserName: (name) => set({ userName: name.trimStart() }),
   saveUserName: (name) => {
     set({ userName: name.trim() });
     const s = get();
@@ -187,7 +190,7 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
   // is applied at the use sites (Preview, DoneStep, agent prompt) via
   // `agentName.trim() || "Cinderpaw"`. Storing the raw value also means a
   // half-typed name ("F") doesn't get clobbered to "Cinderpaw".
-  setAgentName: (name) => set({ agentName: name.trim() }),
+  setAgentName: (name) => set({ agentName: name.trimStart() }),
 
   skip: () => {
     const completedAt = Date.now();
@@ -197,6 +200,7 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
       completedAt,
       hasOnboardedBefore: true,
     });
+    set({ userName: get().userName.trim(), agentName: get().agentName.trim() });
     const s = get();
     void persistAsync({
       completed: true,
@@ -228,6 +232,7 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
   // onboardingPersistence.ts and is invoked through the actions above.)
 
   finish: async () => {
+    set({ userName: get().userName.trim(), agentName: get().agentName.trim() });
     const s = get();
     const record: PersistedOnboarding = {
       completed: true,

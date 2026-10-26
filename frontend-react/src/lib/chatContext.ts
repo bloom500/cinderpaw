@@ -18,6 +18,10 @@ export interface ChatContext {
   memories: MemoryUsedItem[];
   /** Newest first. */
   artifactIds: string[];
+  /** Every tool this chat's replies ran, first use first. Read from the saved
+   *  steps: the live strip it came from before is wiped 5 s after a reply, so
+   *  "Tools in use" emptied the moment a reply ended (UX lab, item 19). */
+  tools: string[];
 }
 
 export function chatContext(messages: readonly ChatMessage[]): ChatContext {
@@ -28,6 +32,7 @@ export function chatContext(messages: readonly ChatMessage[]): ChatContext {
   const memories: MemoryUsedItem[] = [];
   const memoryKeys = new Set<string>();
   const artifactIds: string[] = [];
+  const tools: string[] = [];
 
   const addSource = (hit: ToolHit) => {
     const key = normalizeUrl(hit.url);
@@ -48,6 +53,7 @@ export function chatContext(messages: readonly ChatMessage[]): ChatContext {
     const activity = m.toolActivity ?? [];
     for (const hit of citedSources(m.content, sourcesOf(activity))) addSource(hit);
     for (const a of activity) {
+      if (!tools.includes(a.tool)) tools.push(a.tool);
       if (a.status !== 'done') continue;
       if (PAGE_TOOLS.has(a.tool) && normalizeUrl(a.subject)) {
         const host = (() => { try { return new URL(a.subject).hostname; } catch { return ''; } })();
@@ -63,5 +69,49 @@ export function chatContext(messages: readonly ChatMessage[]): ChatContext {
     }
     for (const u of m.memoryUsed ?? []) addMemory(u);
   }
-  return { files, sources, memories, artifactIds };
+  return { files, sources, memories, artifactIds, tools };
+}
+
+function mergeContext(earlier: ChatContext, later: ChatContext): ChatContext {
+  const unique = <T,>(items: T[], key: (item: T) => string): T[] => {
+    const seen = new Set<string>();
+    return items.filter((item) => {
+      const id = key(item);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  };
+  return {
+    files: unique([...earlier.files, ...later.files], (f) => `${f.kind}:${f.name}`),
+    sources: unique([...earlier.sources, ...later.sources], (s) => normalizeUrl(s.url) ?? s.url),
+    memories: unique([...earlier.memories, ...later.memories], (m) => m.text),
+    artifactIds: unique([...later.artifactIds, ...earlier.artifactIds], (id) => id),
+    tools: unique([...earlier.tools, ...later.tools], (tool) => tool),
+  };
+}
+
+/**
+ * Chat messages are immutable. Keep the settled prefix's context and parse
+ * only the changing tail. Editing history or switching chats rebuilds it.
+ * Checking object identities is cheap; parsing every old body on each token
+ * was not. This retains one prefix, not a snapshot for every message.
+ */
+export function createChatContextReader(): (messages: readonly ChatMessage[]) => ChatContext {
+  let previous: readonly ChatMessage[] = [];
+  let count = 0;
+  let prefix = chatContext([]);
+  return (messages) => {
+    const nextCount = Math.max(0, messages.length - 1);
+    let same = count <= nextCount;
+    for (let i = 0; same && i < count; i++) same = previous[i] === messages[i];
+    if (!same) {
+      count = 0;
+      prefix = chatContext([]);
+    }
+    if (nextCount > count) prefix = mergeContext(prefix, chatContext(messages.slice(count, nextCount)));
+    count = nextCount;
+    previous = messages;
+    return mergeContext(prefix, chatContext(messages.slice(count)));
+  };
 }

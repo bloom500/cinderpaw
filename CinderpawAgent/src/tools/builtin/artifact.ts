@@ -28,6 +28,7 @@
 import type { Database } from "bun:sqlite";
 import type { Tool, ToolManifest } from "../../types.ts";
 import { extname, resolve } from "node:path";
+import { PDFDocument } from "pdf-lib";
 import {
   PermissionDeniedError,
   pathWithin,
@@ -63,6 +64,7 @@ import {
   getActiveWorkspaceId,
   getWorkspace,
 } from "../../memory/workspaces.ts";
+import { loadUserConfig } from "../../core/user-loader.ts";
 
 /**
  * The workspace an artifact belongs to, on a machine that has never been set up.
@@ -175,13 +177,50 @@ export interface ArtifactToolDeps {
   workspaceRoots: string[];
 }
 
+/**
+ * Long writing in two passes, the way Claude fills a document (compared 20 Oct):
+ * the whole shape first, then each part in its place, with one plain line in
+ * the chat between parts. The desktop draws a [[...]] line as a grey "still to
+ * come" line and writes each part over it letter by letter, so a 30-second
+ * document is visible progress instead of a silent wait.
+ */
+export const DRAFT_IN_PARTS =
+  "Long writing (three or more parts: a plan, a report, a guide) is written the way a person drafts: " +
+  "first call this with the title, one opening line and every part's heading, each heading followed by " +
+  "a placeholder line on its own that says what the part will hold, written as [[...]] (for example " +
+  "[[Day 1: three places to see and one tip]]). Headings are real words, never a placeholder, and a " +
+  "placeholder is never inside a heading, a list or a sentence: one per part, on a line by itself. " +
+  "The user sees the whole shape at once. Then fill the parts " +
+  "in order with artifact_edit, find = that placeholder line exactly, replace = the finished part. Before " +
+  "each edit say one short plain line in the chat about what you are writing now (\"The outline is ready; " +
+  "now day 1.\"), and after the last one say in one line that it is ready and can be edited in the panel " +
+  "or changed by asking. Short writing (one or two parts, under about 300 words) is a single call.";
+
+/**
+ * A written document says when it was written and for whom, under its title,
+ * like a dated letter or a Claude doc's date and author (Darius, 20 Oct: "sa
+ * arate ca un document oficial"). In the computer's own language: "20 octombrie
+ * 2026 la 16:20" here, "October 20, 2026 at 4:20 PM" on an English Windows. No
+ * name before onboarding, then the date alone. Written into the text, so the
+ * panel, the chat card, a PDF, a Word file and Google Docs all carry it.
+ */
+export function withDateline(markdown: string, name: string, at = new Date()): string {
+  const when = new Intl.DateTimeFormat(undefined, { dateStyle: "long", timeStyle: "short" }).format(at);
+  const line = `_${name.trim() ? `${when} · ${name.trim()}` : when}_`;
+  const title = /^\s*# [^\n]*\n?/.exec(markdown);
+  if (!title) return `${line}\n\n${markdown}`;
+  return `${title[0].trimEnd()}\n\n${line}\n\n${markdown.slice(title[0].length).replace(/^\n+/, "")}`;
+}
+
 export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
   const manifest: ToolManifest = {
     name: "artifact_create",
     description:
       // The first sentence is all the drawer index shows, so "board" has to be in it (1 Oct:
       // asked for a board, the model never saw the word and drew a widget table instead).
-      "Make a document, chart, board or file (plan, itinerary, dashboard, diagram, CSV) the user keeps. " +
+      // "design" and "animation" too: list_tools filters on these words, and a
+      // drawer search for "animation" that finds nothing ends in "I can't" (17 Oct).
+      "Make a document, chart, board, design, animation or file (plan, itinerary, dashboard, poster, animated title, diagram, CSV) the user keeps. " +
       "Put the result HERE instead of in the reply whenever it is longer than " +
       "about 15 lines, stands on its own, or is something the user will want to " +
       "edit, re-read or reuse after this conversation: a report, a summary, a " +
@@ -200,9 +239,14 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       "file's text in content; it downloads under that name), pdf (write the content as markdown: # headings, " +
       "paragraphs, - lists; it becomes a real A4 PDF the user can sign and fill in the panel).\n\n" +
       "app = " + APP_AUTHORING_BRIEF + " Charts are apps: there is no separate " +
-      "chart kind, because a chart is an app with no controls.\n\n" +
+      "chart kind, because a chart is an app with no controls. So are designs (a poster, flyer, " +
+      "invitation, social post or page mockup: load the design_guide tool and read it first, every " +
+      "time; it has the artboard sizes, the skeleton that scales to fit the panel, type, colour and " +
+      "a checklist) and animations (an animated title, logo, explainer " +
+      "or loop: it plays by itself and loops, with CSS @keyframes or requestAnimationFrame, never a " +
+      "video file). Never answer that you cannot design or animate: make the app.\n\n" +
       "Prefer a board for anything the user will look at rather than read: a plan, a dashboard, a diagram, " +
-      "an itinerary, a campaign. " + BOARD_BRIEF,
+      "an itinerary, a campaign. " + BOARD_BRIEF + "\n\n" + DRAFT_IN_PARTS,
     permissions: ["fs:write", "fs:read"],
     networkAccess: false,
     allowedPaths: [deps.store.root],
@@ -216,6 +260,7 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
         description:
           "markdown | document | app | board | table | code | json | html | file | pdf. " +
           "Pick 'markdown' for anything the user will read; 'pdf' when they asked for a PDF; " +
+          "'app' for a chart, a tool, a design or an animation; " +
           "'file' with the extension in the title (leads.csv) when they asked for a CSV or any other file type.",
         required: true,
       },
@@ -233,9 +278,14 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       }
       // Prose sent as a 'document' in Markdown is stored as markdown, where it
       // renders and exports properly (see looksLikeHtml).
+      // A PDF asked for is written as markdown too: the panel shows it formatted,
+      // like a document, and its card's Download PDF makes the file. Shown as a
+      // PDF it was a white sheet in a page viewer (23 Oct, his ask). PDFs that
+      // arrive as files (downloads, uploads) stay PDFs.
+      const forPdf = asked === "pdf";
       const kind: ArtifactKind =
-        asked === "document" && typeof args.content === "string" && !looksLikeHtml(args.content) ? "markdown" : asked;
-      if (!ArtifactStore.isTextKind(kind) && kind !== "pdf") {
+        forPdf || (asked === "document" && typeof args.content === "string" && !looksLikeHtml(args.content)) ? "markdown" : asked;
+      if (!ArtifactStore.isTextKind(kind)) {
         return {
           ok: false,
           error: "bad_args",
@@ -266,11 +316,12 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
 
       const checked = kind === "board" ? boardContent(content, title) : null;
       if (checked?.error) return { ok: false, error: "bad_args", content: checked.error };
+      const prose = kind === "markdown" ? withDateline(content, loadUserConfig().userName) : content;
 
       const a = deps.store.create({
         kind,
         title,
-        content: kind === "pdf" ? await pdfFromMarkdown(content, title) : checked?.text ?? content,
+        content: checked?.text ?? prose,
         workspaceId: activeWorkspaceId(deps.db),
         sessionId: ctx.sessionId,
         // Provenance, so a later "the report I made on WhatsApp" has something
@@ -280,13 +331,22 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       // A PDF whose alphabet the bundled face cannot draw comes out blank on
       // the page while the text still copies out of it. Said here, once, so the
       // agent can tell the person rather than handing over an empty sheet.
-      const blank = kind === "pdf" ? await unsupportedChars(content) : [];
+      const blank = forPdf ? await unsupportedChars(content) : [];
+      // So "one page" can be answered from the file, not guessed.
+      const pages = forPdf ? (await PDFDocument.load(await pdfFromMarkdown(prose, title))).getPageCount() : 0;
+      // Said as the PDF it is. "Created markdown" read as a failure: the agent
+      // exported a second copy and spent turns counting its pages (23 Oct).
+      const pdfNote = forPdf
+        ? ` This IS the PDF that was asked for, and it is done: shown formatted in the panel, and the Download PDF button on its card saves it as a PDF of ${pages} page${pages === 1 ? "" : "s"} (counted from the file). Do not export or check it again; tell the person it is ready. To change it, edit this artifact.`
+        : "";
       const warning = blank.length > 0
         ? ` WARNING: these characters have no glyph in the bundled font and will be BLANK on the page: ${blank.slice(0, 20).join("")}. Tell the user, and offer a markdown or document artifact instead, which has no such limit.`
         : "";
       return {
         ok: true,
-        content: `Created ${a.kind} "${a.title}" — id ${a.id} (v1, ${a.bytes} bytes).${warning}${checked?.note ?? ""}`,
+        // The id is for later edits. Haiku read it out ("artifact id 541d8f5f-…")
+        // together with how the tool counted pages (24 Oct): noise to a person.
+        content: `Created ${forPdf ? "the PDF" : a.kind} "${a.title}" — id ${a.id} (v1, ${a.bytes} bytes).${pdfNote}${warning}${checked?.note ?? ""} Its card is already in the chat: do not write the id, or how a tool reported it, in your reply.`,
         data: { id: a.id, kind: a.kind, title: a.title, version: a.version },
       };
     },
@@ -435,7 +495,9 @@ export function createArtifactEditTool(deps: ArtifactToolDeps): Tool {
       "keeps the user's own edits to the rest of the document. A Word file takes " +
       "find/replace only, and keeps its layout. A PDF takes `fields` (fill its form) " +
       "and `place` (write text at a position from artifact_read layout). Never place " +
-      "a signature: signing is the user's, in the Artifacts panel.",
+      "a signature: signing is the user's, in the Artifacts panel. A [[...]] placeholder " +
+      "line from a draft in parts is filled the same way: `find` is that line exactly, " +
+      "written before `replace`.",
     permissions: ["fs:write", "fs:read"],
     networkAccess: false,
     allowedPaths: [deps.store.root],

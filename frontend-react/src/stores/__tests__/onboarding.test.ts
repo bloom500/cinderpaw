@@ -63,13 +63,16 @@ describe('useOnboarding', () => {
     expect(useOnboarding.getState().step).toBe(0);
   });
 
-  it('setUserName trims whitespace', () => {
-    useOnboarding.getState().setUserName('  Darius  ');
-    expect(useOnboarding.getState().userName).toBe('Darius');
+  it('setUserName keeps the space before a second word; the end is trimmed on save', async () => {
+    useOnboarding.getState().setUserName('  Ana ');
+    expect(useOnboarding.getState().userName).toBe('Ana ');
+    useOnboarding.getState().setUserName('Ana Maria ');
+    await useOnboarding.getState().finish();
+    expect(useOnboarding.getState().userName).toBe('Ana Maria');
   });
 
-  it('setAgentName trims whitespace and allows empty input', () => {
-    useOnboarding.getState().setAgentName('  Bob  ');
+  it('setAgentName trims the front while typing and allows empty input', () => {
+    useOnboarding.getState().setAgentName('  Bob');
     expect(useOnboarding.getState().agentName).toBe('Bob');
     // Empty input is allowed — the user must be able to fully clear the
     // field to retype. The "Cinderpaw" default is applied at use sites, not here.

@@ -28,7 +28,7 @@ const PROVIDER_DEFS: readonly ProviderDef[] = [
   { id: 'openai',     name: 'OpenAI',         hasBaseUrl: true,  baseUrlHint: 'https://api.openai.com/v1',     availableModels: undefined,                                                                                      keyPrefix: undefined  },
   { id: 'anthropic',  name: 'Anthropic',       hasBaseUrl: false, baseUrlHint: '',                              availableModels: undefined,                                                                                      keyPrefix: undefined  },
   { id: 'google',     name: 'Google Gemini',   hasBaseUrl: false, baseUrlHint: '',                              availableModels: undefined,                                                                                      keyPrefix: undefined  },
-  { id: 'kimi',       name: 'Kimi',            hasBaseUrl: false, baseUrlHint: '',                              availableModels: ['kimi-for-coding'] as const,                                                                    keyPrefix: 'sk-kimi-' },
+  { id: 'kimi',       name: 'Kimi Code',       hasBaseUrl: false, baseUrlHint: '',                              availableModels: ['kimi-for-coding'] as const,                                                                    keyPrefix: 'sk-kimi-' },
   { id: 'glm',        name: 'GLM (Z.ai)',      hasBaseUrl: false, baseUrlHint: '',                              availableModels: ['glm-5.1', 'glm-5', 'glm-5-turbo', 'glm-4.7', 'glm-4.5-air'] as const,                       keyPrefix: undefined  },
   { id: 'minimax',    name: 'MiniMax',         hasBaseUrl: false, baseUrlHint: '',                              availableModels: ['MiniMax-M3', 'MiniMax-M2.7', 'MiniMax-M2.7-highspeed', 'MiniMax-M2.5', 'MiniMax-M2.5-highspeed'] as const, keyPrefix: 'sk-cp-'   },
   { id: 'deepseek',   name: 'DeepSeek',        hasBaseUrl: false, baseUrlHint: '',                              availableModels: undefined,                                                                                      keyPrefix: undefined  },
@@ -46,7 +46,8 @@ const PROVIDER_BLURB: Record<string, string> = {
   openai: 'GPT models for general-purpose work.',
   anthropic: 'Claude models, strong at reasoning and writing.',
   google: 'Gemini models: multimodal, with long context.',
-  kimi: "Moonshot's Kimi, tuned for coding.",
+  kimi: "Kimi Code subscription. Its key starts with sk-kimi-; a Moonshot platform key goes in Kimi API.",
+  moonshot: "Kimi API, paid per use. A key from platform.moonshot.ai; a Kimi Code key goes in Kimi Code.",
   glm: "Z.ai's GLM family of open-weight models.",
   minimax: 'MiniMax models with very long context.',
   deepseek: 'DeepSeek chat and reasoning models.',
@@ -62,7 +63,7 @@ const PROVIDER_MARK: Record<string, Maker> = {
   openai: { key: 'openai', label: 'OpenAI' },
   anthropic: { key: 'anthropic', label: 'Anthropic', color: '#D97757' },
   google: { key: 'google', label: 'Google', color: '#3186FF' },
-  kimi: { key: 'moonshotai', label: 'Kimi' },
+  kimi: { key: 'moonshotai', label: 'Kimi Code' },
   glm: { key: 'z-ai', label: 'Z.ai' },
   minimax: { key: 'minimax', label: 'MiniMax', color: '#F23F5D' },
   deepseek: { key: 'deepseek', label: 'DeepSeek', color: '#4D6BFE' },
@@ -82,7 +83,7 @@ const PROVIDER_MARK: Record<string, Maker> = {
   huggingface: { key: 'huggingface', label: 'Hugging Face', color: '#FF9D00' },
   kilocode: { key: 'kilocode', label: 'Kilo Code' },
   longcat: { key: 'longcat', label: 'LongCat' },
-  moonshot: { key: 'moonshot', label: 'Moonshot AI' },
+  moonshot: { key: 'moonshot', label: 'Kimi API (Moonshot)' },
   novita: { key: 'novita', label: 'Novita' },
   opencode: { key: 'opencode', label: 'OpenCode Zen' },
   qianfan: { key: 'qianfan', label: 'Baidu Qianfan' },
@@ -112,7 +113,10 @@ function ProviderCard({ def, state, open, onToggle }: { def: ProviderDef; state?
   const removeByokProvider = useSettings((s) => s.removeByokProvider);
   const testByokProvider = useSettings((s) => s.testByokProvider);
 
-  const [enabled, setEnabled]       = useState(state?.enabled ?? false);
+  // A provider with no record starts ON: pasting a key and pressing Save is the
+  // whole job. Off by default, a tested, saved key stayed "Turned off" and
+  // nothing answered (UX lab, 19 Oct, item 3: the default nobody set).
+  const [enabled, setEnabled]       = useState(state?.enabled ?? true);
   const [apiKey, setApiKey]         = useState('');
   const [baseUrl, setBaseUrl]       = useState(state?.base_url ?? '');
   const [defaultModel, setDefModel] = useState(
@@ -132,7 +136,9 @@ function ProviderCard({ def, state, open, onToggle }: { def: ProviderDef; state?
     try {
       const p: ByokProviderUpdate = {
         providerId: def.id,
-        enabled,
+        // The first key for a provider turns it on, even one that was saved off
+        // before; switching it off again stays the person's choice.
+        enabled: enabled || (!state?.has_api_key && apiKey.trim() !== ''),
         apiKey,
         baseUrl: def.hasBaseUrl ? (baseUrl || null) : null,
         defaultModel: defaultModel || null,
@@ -309,7 +315,9 @@ function ProviderCard({ def, state, open, onToggle }: { def: ProviderDef; state?
                       type="text"
                       value={defaultModel}
                       onChange={(e) => setDefModel(e.target.value)}
-                      placeholder="gpt-4o"
+                      // "gpt-4o" here sent NVIDIA NIM users to a model NIM does not
+                      // serve (UX lab, item 16). A real example per provider, else words.
+                      placeholder={def.id === 'nvidia' ? 'meta/llama-3.3-70b-instruct' : 'The model name, as the provider writes it'}
                       className={inputCls}
                     />
                   )}

@@ -138,13 +138,78 @@ fn load_modelfile(gguf_path: &Path) -> Option<Modelfile> {
 
 pub fn delete_model(path: &Path) -> Result<()> {
     if path.exists() {
-        remove_file_with_retry(path)?;
+        if let Err(e) = remove_file_with_retry(path) {
+            if !is_sharing_violation(&e) {
+                return Err(e);
+            }
+            // A load llama.cpp refused can leave the GGUF open until the app
+            // quits (seen 21 Oct: still locked an hour after the failed load),
+            // so waiting longer does not help. Delete it at the next start.
+            queue_delete_at(&delete_on_start_list(), path)?;
+            return Err(anyhow!(
+                "Windows is still holding this file open, so it cannot be deleted right now. \
+                 Cinderpaw will delete it the next time it starts. To free the space now, \
+                 quit Cinderpaw (also from the tray) and open it again."
+            ));
+        }
     }
     let mf = path.with_extension("cinderpaw");
     if mf.exists() {
         let _ = remove_file_with_retry(&mf);
     }
     Ok(())
+}
+
+/// The list of models whose delete Windows refused. One list in the Cinderpaw
+/// home, read at every start: a model can sit in a subfolder of the models dir,
+/// or in the folder chosen in Settings, and the start must still find it.
+fn delete_on_start_list() -> PathBuf {
+    paths::cinderpaw_dir().join(".delete-on-start")
+}
+
+fn is_sharing_violation(e: &anyhow::Error) -> bool {
+    // os error 32 = ERROR_SHARING_VIOLATION on Windows
+    e.downcast_ref::<std::io::Error>().and_then(|io| io.raw_os_error()) == Some(32)
+}
+
+fn queue_delete_at(list: &Path, path: &Path) -> Result<()> {
+    use std::io::Write;
+    if let Some(dir) = list.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(list)?;
+    writeln!(f, "{}", path.display())?;
+    Ok(())
+}
+
+/// Deletes the models queued by `delete_model`, before anything loads one.
+pub fn delete_queued_at_startup() {
+    delete_queued_at(&delete_on_start_list());
+}
+
+/// Returns how many are still queued. Only `.gguf` files are touched, whatever
+/// the list says: it only ever holds models the person chose to delete.
+fn delete_queued_at(list: &Path) -> usize {
+    let Ok(text) = std::fs::read_to_string(list) else { return 0 };
+    let mut left = Vec::new();
+    for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        let path = Path::new(line);
+        let gguf = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("gguf"));
+        if !gguf || !path.is_file() {
+            continue;
+        }
+        if std::fs::remove_file(&path).is_ok() {
+            let _ = std::fs::remove_file(path.with_extension("cinderpaw"));
+        } else {
+            left.push(line.to_string());
+        }
+    }
+    if left.is_empty() {
+        let _ = std::fs::remove_file(list);
+    } else {
+        let _ = std::fs::write(list, left.join("\n") + "\n");
+    }
+    left.len()
 }
 
 /// Delete a file, retrying on Windows ERROR_SHARING_VIOLATION (os error 32).
@@ -171,11 +236,8 @@ fn remove_file_with_retry(path: &Path) -> Result<()> {
                         Err(retry_err) => return Err(retry_err.into()),
                     }
                 }
-                return Err(anyhow::anyhow!(
-                    "File is still locked after ~7 s of retries. \
-                     Restart the app and try again — this happens when a model \
-                     failed to load and Windows has not yet released the file handle."
-                ));
+                // Still the io error, so `delete_model` can tell a lock apart.
+                return Err(std::io::Error::from_raw_os_error(32).into());
             }
             Err(e.into())
         }
@@ -349,6 +411,37 @@ mod tests {
         for (name, expected) in cases {
             assert_eq!(parse_quant(name).as_deref(), Some(expected), "failed for: {}", name);
         }
+    }
+
+    #[test]
+    fn queued_deletes_run_once_wherever_the_model_sits_and_only_on_ggufs() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        let list = d.join("home").join(".delete-on-start");
+        // A split model from Hugging Face sits in its own subfolder.
+        std::fs::create_dir_all(d.join("models").join("IQ4_XS")).unwrap();
+        let model = d.join("models").join("IQ4_XS").join("m-00001-of-00002.gguf");
+        std::fs::write(&model, b"x").unwrap();
+        std::fs::write(model.with_extension("cinderpaw"), b"{}").unwrap();
+        let not_a_model = d.join("notes.txt");
+        std::fs::write(&not_a_model, b"keep").unwrap();
+        queue_delete_at(&list, &model).unwrap();
+        queue_delete_at(&list, &not_a_model).unwrap();
+        queue_delete_at(&list, &d.join("already-gone.gguf")).unwrap();
+
+        assert_eq!(delete_queued_at(&list), 0);
+        assert!(!model.exists());
+        assert!(!model.with_extension("cinderpaw").exists());
+        assert!(not_a_model.exists(), "only a .gguf is ever deleted");
+        assert!(!list.exists(), "the list goes once it is done");
+        assert_eq!(delete_queued_at(&list), 0, "no list, nothing to do");
+    }
+
+    #[test]
+    fn a_lock_is_told_apart_from_other_errors() {
+        assert!(is_sharing_violation(&std::io::Error::from_raw_os_error(32).into()));
+        assert!(!is_sharing_violation(&std::io::Error::from_raw_os_error(2).into()));
+        assert!(!is_sharing_violation(&anyhow!("other")));
     }
 
     #[test]

@@ -13,12 +13,23 @@ vi.mock('@/lib/tauri', () => ({ tauri: { system: { setUsageSharing }, usage: { s
 vi.mock('@/stores/settings', () => ({ useSettings: (sel: (s: typeof state) => unknown) => sel(state) }));
 
 import { ShareUsageCard } from '../ShareUsageCard';
+import { useConversations } from '@/stores/conversations';
+import { useAttention } from '@/lib/attention';
 
 describe('ShareUsageCard', () => {
   beforeEach(() => {
     setUsageSharing.mockClear();
     state.fetchSettings.mockClear();
     state.settings = { usage_sharing: null };
+    useConversations.setState({ list: [{ id: 'c1' }] as never });
+    useAttention.setState({ waiting: [], holder: null });
+  });
+
+  it('waits for a first conversation: no favour asked before the app did anything', async () => {
+    useConversations.setState({ list: [] });
+    const { container } = render(<ShareUsageCard />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('shows only when never asked', () => {
@@ -34,16 +45,23 @@ describe('ShareUsageCard', () => {
     expect(state.fetchSettings).toHaveBeenCalled();
   });
 
-  it('No thanks records false and hides', () => {
+  it('No thanks records false and hides', async () => {
     const { container } = render(<ShareUsageCard />);
-    fireEvent.click(screen.getByRole('button', { name: 'No thanks' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'No thanks' }));
     expect(setUsageSharing).toHaveBeenCalledWith(false);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('X closes it for now without answering, so it asks again next time', async () => {
+    const { container } = render(<ShareUsageCard />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Dismiss' }));
+    expect(setUsageSharing).not.toHaveBeenCalled();
     expect(container).toBeEmptyDOMElement();
   });
 
   it('on a machine with no tasks yet, "what is sent" shows an example day, not an empty box', async () => {
     render(<ShareUsageCard />);
-    fireEvent.click(screen.getByRole('button', { name: 'Show me what is sent' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Show me what is sent' }));
     expect(await screen.findByText(/No tasks yet/)).toBeInTheDocument();
     expect(await screen.findByText(/"tasks_main"/)).toBeInTheDocument();
   });
@@ -51,7 +69,7 @@ describe('ShareUsageCard', () => {
   it('when the agent is not running yet, the example day is still shown', async () => {
     summary.mockRejectedValueOnce(new Error('not running'));
     render(<ShareUsageCard />);
-    fireEvent.click(screen.getByRole('button', { name: 'Show me what is sent' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Show me what is sent' }));
     expect(await screen.findByText(/could not read this computer's numbers/)).toBeInTheDocument();
     expect(await screen.findByText(/"tasks_main"/)).toBeInTheDocument();
   });

@@ -20,6 +20,8 @@ mod migrate_webview;
 mod projects;
 mod rsi;
 mod skills;
+#[cfg(desktop)]
+mod tray;
 
 use commands::*;
 
@@ -587,6 +589,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             submit_bug_report,
             count_install,
             set_usage_sharing,
+            set_permission_mode,
             save_agent,
             get_agents,
             delete_agent,
@@ -710,7 +713,10 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             cinderpaw_set_model,
             cinderpaw_get_model_config,
             get_local_api_token,
+            get_local_api_port,
             cinderpaw_ask_user_response,
+            cinderpaw_heads_up_answer,
+            cinderpaw_cron_op,
             cinderpaw_ask_user_cancel,
             get_onboarding_record,
             set_onboarding_record,
@@ -718,6 +724,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             mcp::mcp_catalog,
             mcp::mcp_list,
             mcp::mcp_install,
+            mcp::mcp_install_custom,
             mcp::mcp_set_enabled,
             mcp::mcp_remove,
             mcp::mcp_list_tools,
@@ -725,6 +732,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             connectors::connectors_catalog,
             connectors::connectors_list,
             connectors::connectors_save,
+            connectors::connectors_save_secret,
             connectors::connectors_set_enabled,
             connectors::connectors_remove,
             connectors::connectors_whatsapp_qr,
@@ -909,6 +917,8 @@ Everything is there and nothing is at risk. Cinderpaw will                      
         // Not gated on the previous state, because there is no way to read it.
         // Setting the same backdrop twice is a no-op in DWM.
         .on_window_event(|window, event| {
+            #[cfg(desktop)]
+            tray::on_window_event(window, event);
             // The call pill never gets the backdrop (see on_page_load).
             if window.label() == call_pill::LABEL {
                 return;
@@ -976,6 +986,11 @@ Everything is there and nothing is at risk. Cinderpaw will                      
         .setup(move |app| {
             specta_builder_for_setup.mount_events(app);
             let _handle = app.handle().clone();
+
+            #[cfg(desktop)]
+            if let Err(error) = tray::install(app) {
+                tracing::warn!(%error, "tray: unavailable; closing the main window will quit Cinderpaw");
+            }
 
             WINDOW_SOLID.store(settings::load().window_solid, std::sync::atomic::Ordering::Relaxed);
             if let Ok(mut pending) = LAUNCH_FILES.lock() {
@@ -1181,8 +1196,19 @@ Everything is there and nothing is at risk. Cinderpaw will                      
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
+            #[cfg(desktop)]
+            if let tauri::RunEvent::ExitRequested { code, ref api, .. } = event {
+                tray::on_exit_requested(app_handle, code, api);
+            }
+            // macOS: a click on the Dock icon brings back the window that Close
+            // only hid (tray.rs). Without it the app looked frozen (24 Oct review).
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { has_visible_windows: false, .. } = event {
+                crate::deep_link::focus_main_window(app_handle);
+            }
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app_handle.try_state::<AppState>() {
+                    *state.cinderpaw_agent_planned_exit.lock() = Some(cinderpaw_core::runtime::PlannedExit::shutdown());
                     let mut fa_guard = state.cinderpaw_agent_process.lock();
                     if let Some(ref mut child) = *fa_guard {
                         let _ = child.start_kill();

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, Cloud, HardDrive, Settings2 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -21,11 +21,11 @@ import { BackendBadge } from '@/components/BackendBadge';
 import { ROLES, resolveRole, roleModelName, sameModel, type RoleModel } from '@/lib/modelRoles';
 import { cn } from '@/lib/utils';
 import logoUrl from '@/assets/logo.svg';
+import { isLocalEngineUrl, localApiBase } from '@/lib/localApi';
 
 // Cinderpaw's own model engine exposes an OpenAI-compatible API here. In agent mode
 // a local pick must target THIS (not external Ollama on 11434) so the agent uses
 // the model loaded in the Models tab.
-const CINDERPAW_API_BASE = 'http://localhost:11435';
 const LOCAL_PROVIDER_ID = 'cinderpaw-local';
 
 function formatBytes(n: number): string {
@@ -45,10 +45,12 @@ export function ModelPickerPopover() {
   const cinderpawSwitching = useCinderpawStore((s) => s.switching);
   const cinderpawSetModel = useCinderpawStore((s) => s.setModel);
   const cinderpawSetError = useCinderpawStore((s) => s.setModelError);
+  const cinderpawStarting = useCinderpawStore((s) => !s.isReady && !s.offline);
 
   const [localModels, setLocalModels]     = useState<ModelInfo[]>([]);
   const [cloudProviders, setCloudProviders] = useState<ByokProvider[]>([]);
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   /**
    * Every provider that HAS a key, enabled or not.
@@ -127,7 +129,7 @@ export function ModelPickerPopover() {
       await cinderpawSetModel({
         source: 'openai_compatible',
         model: m.name,
-        baseUrl: CINDERPAW_API_BASE,
+        baseUrl: await localApiBase(),
         providerId: LOCAL_PROVIDER_ID,
       });
     } catch (err) {
@@ -164,7 +166,10 @@ export function ModelPickerPopover() {
    * the honest label is that the choice is automatic. With nothing installed
    * at all it becomes an invitation rather than a verdict.
    */
-  const unpinnedLabel = hasLocal || hasCloud ? t('model.automatic') : t('model.add');
+  // While the engine boots (10-17 s on a cloud key) its model is not known yet:
+  // "Automatic" there named a mode the list does not offer, and people re-picked
+  // the model they already had.
+  const unpinnedLabel = cinderpawStarting ? 'Starting…' : hasLocal || hasCloud ? t('model.automatic') : t('model.add');
 
   // The model shown with its maker's mark, and the route only in the tooltip.
   // It read "openrouter · meta/muse-spark-1.3-contributor": two ids and a dot.
@@ -186,7 +191,7 @@ export function ModelPickerPopover() {
   // The model answering now, in the roles' terms: the check mark, and
   // Primary's default until one is chosen (lib/modelRoles.ts).
   const active: RoleModel | null = cinderpawConfig?.model
-    ? cinderpawConfig.provider === LOCAL_PROVIDER_ID || cinderpawConfig.base_url?.startsWith(CINDERPAW_API_BASE)
+    ? cinderpawConfig.provider === LOCAL_PROVIDER_ID || isLocalEngineUrl(cinderpawConfig.base_url)
       ? { kind: 'local', path: '', name: cinderpawConfig.model }
       : { kind: 'cloud', providerId: cinderpawConfig.provider, providerName: providerName(cinderpawConfig.provider), modelId: cinderpawConfig.model }
     : null;
@@ -300,21 +305,30 @@ export function ModelPickerPopover() {
     </>
   );
 
+  // The button's face, drawn twice: as the trigger, and as the island's last row.
+  const face = (
+    <>
+      {shown && <ModelLogo modelId={shown.modelId} provider={shown.provider} />}
+      <span className="truncate max-w-[150px]">{label}</span>
+      {/* Only meaningful when the agent answers on the local engine; a
+          GGUF left resident behind a cloud model is not where the answer
+          comes from. */}
+      {active?.kind === 'local' && !isLoading && <BackendBadge />}
+    </>
+  );
+
   return (
-    <DropdownMenu onOpenChange={setOpen}>
+    // Controlled: the island's last row closes it, and so does enabling a provider.
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <button
+          ref={triggerRef}
           // text-secondary, not muted: this is the name of the model that will answer,
           // and muted on the light typing bar read as a placeholder (20 Sep).
           className="flex min-w-0 items-center gap-1.5 h-full pl-2.5 pr-2 text-xs text-text-secondary hover:text-text-primary transition-colors outline-hidden"
           title={shown ? `${label} · via ${route}` : undefined}
         >
-          {shown && <ModelLogo modelId={shown.modelId} provider={shown.provider} />}
-          <span className="truncate max-w-[150px]">{label}</span>
-          {/* Only meaningful when the agent answers on the local engine; a
-              GGUF left resident behind a cloud model is not where the answer
-              comes from. */}
-          {active?.kind === 'local' && !isLoading && <BackendBadge />}
+          {face}
           <ChevronDown size={12} className="shrink-0 opacity-50" />
         </button>
       </DropdownMenuTrigger>
@@ -340,18 +354,25 @@ export function ModelPickerPopover() {
           not flipped or shifted under the cursor, and the offset keeps a gap
           between the cursor and the nearest row either way. The scroll is the
           other half of the same problem: a picker taller than the window is
-          not a picker. */}
+          not a picker.
+
+          A Dynamic Island now (Darius's pick from three mockups, 26 Oct): the
+          menu lies over its own button and grows out of it (`.model-island`,
+          globals.css), the button's face staying where it was as the last row.
+          That row is a plain button, not a menu item, because it is exactly
+          where the opening press is released: an item there would select
+          itself on that release and close the menu at once. */}
       <DropdownMenuContent
         side="top"
         align="start"
-        sideOffset={8}
+        sideOffset={-(triggerRef.current?.offsetHeight ?? 32)}
         collisionPadding={12}
-        className="relative w-[22rem] overflow-visible p-0"
+        className="model-island relative w-[22rem] overflow-visible rounded-3xl p-0"
       >
         {/* The Model Switcher (spec 8): roles first, the head peeking over the
             top edge. Not clipped: the scroll lives on the inner box. */}
         <img src={logoUrl} alt="" className="pointer-events-none absolute -top-9 right-6 h-12 w-12" />
-        <div className="max-h-[min(55vh,30rem)] overflow-y-auto thin-scrollbar p-2">
+        <div className="model-island-body max-h-[min(55vh,30rem)] overflow-y-auto thin-scrollbar p-2">
         <div className="px-2 pb-2 pt-1">
           <p className="font-display text-lg leading-tight text-text-primary">Model Switcher</p>
           <p className="text-xs text-text-muted">Choose the best model for your task.</p>
@@ -430,6 +451,19 @@ export function ModelPickerPopover() {
           <ChevronRight size={14} className="shrink-0 opacity-60" />
         </DropdownMenuItem>
         </div>
+        {/* Out of the Tab order like the rows (a menu moves by arrows); Escape
+            closes it from the keyboard. */}
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label={`${label}: close the list`}
+          onClick={() => setOpen(false)}
+          style={{ height: triggerRef.current?.offsetHeight ?? 32 }}
+          className="flex w-full items-center gap-1.5 pl-2.5 pr-2 text-xs text-text-secondary hover:text-text-primary transition-colors outline-hidden"
+        >
+          {face}
+          <ChevronDown size={12} className="shrink-0 rotate-180 opacity-50" />
+        </button>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -195,6 +195,7 @@ mod tests {
                 target: "/home/u/.cinderpaw/SOUL.md".into(),
                 note: None,
                 source: PathBuf::from("/home/u/.openclaw/workspace/SOUL.md"),
+                action: cinderpaw_core::migrate::Action::Copy,
             }],
             not_imported: vec!["channels.signal — no Cinderpaw connector for Signal yet".into()],
             conflicts: vec![],
@@ -262,7 +263,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().to_path_buf();
         std::fs::write(root.join("config.yaml"), "model: gpt\n").unwrap();
-        std::fs::write(root.join(".env"), "DISCORD_BOT_TOKEN=hunter2\n").unwrap();
+        std::fs::write(root.join(".env"), "SKILL_API_TOKEN=hunter2\nDISCORD_BOT_TOKEN=hunter3\n").unwrap();
         let f = Found {
             source: Source::Hermes,
             root: root.clone(),
@@ -273,9 +274,11 @@ mod tests {
         let lines = migrate::leftovers(&f);
         let joined = lines.join("\n");
 
-        assert!(joined.contains("DISCORD_BOT_TOKEN"), "got: {lines:?}");
-        assert!(!joined.contains("hunter2"), "secret value leaked: {lines:?}");
+        assert!(joined.contains("SKILL_API_TOKEN"), "got: {lines:?}");
+        // A chat token comes over as a connection, so it is not left behind too.
+        assert!(!joined.contains("DISCORD_BOT_TOKEN"), "got: {lines:?}");
+        assert!(!joined.contains("hunter2") && !joined.contains("hunter3"), "secret value leaked: {lines:?}");
         let out = render_report(&f, &plan_with(lines));
-        assert!(!out.contains("hunter2"), "secret value leaked into report:\n{out}");
+        assert!(!out.contains("hunter2") && !out.contains("hunter3"), "secret value leaked into report:\n{out}");
     }
 }

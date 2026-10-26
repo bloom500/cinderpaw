@@ -201,13 +201,16 @@ pub(crate) async fn cinderpaw_run_fractal_benchmark(state: State<'_, AppState>) 
 /// Faza 6 (L6) Meta Evolution: drive the sidecar's MetaGenome engine.
 /// Fire-and-forget like the other RSI commands — the sidecar replies with one
 /// `meta_result` line forwarded over `cinderpaw://agent-output`.
+/// `proposal` / `approve` / `deny` are the chat card; approve and deny name
+/// the card they answer in `proposal_id`, so an out-of-date card changes nothing.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cinderpaw_meta(state: State<'_, AppState>, op: String) -> Result<(), String> {
-    if !matches!(op.as_str(), "status" | "evolve" | "rollback" | "history") {
-        return Err(format!("invalid meta op '{op}'"));
-    }
-    let msg = serde_json::json!({ "type": format!("meta_{op}") }).to_string();
+pub(crate) async fn cinderpaw_meta(
+    state: State<'_, AppState>,
+    op: String,
+    proposal_id: Option<String>,
+) -> Result<(), String> {
+    let msg = meta_message(&op, proposal_id.as_deref())?;
     let tx = {
         let guard = state.cinderpaw_agent_tx.lock();
         guard
@@ -217,6 +220,22 @@ pub(crate) async fn cinderpaw_meta(state: State<'_, AppState>, op: String) -> Re
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// The sidecar line for one meta op, or why it is refused.
+fn meta_message(op: &str, proposal_id: Option<&str>) -> Result<String, String> {
+    match op {
+        "status" | "evolve" | "rollback" | "history" | "proposal" => {
+            Ok(serde_json::json!({ "type": format!("meta_{op}") }).to_string())
+        }
+        "approve" | "deny" => {
+            let id = proposal_id
+                .filter(|id| !id.trim().is_empty())
+                .ok_or_else(|| format!("meta {op} needs the id of the card it answers"))?;
+            Ok(serde_json::json!({ "type": format!("meta_{op}"), "id": id }).to_string())
+        }
+        _ => Err(format!("invalid meta op '{op}'")),
+    }
 }
 
 /// Slice A6 (L5 Governance) — drive the sidecar's GovernanceLifecycle from
@@ -796,6 +815,184 @@ pub(crate) async fn cinderpaw_ask_user_response(
     Ok(())
 }
 
+/// The person's answer to a `heads_up` card ("Learn more", "I already knew
+/// this", "Dismiss"). Fire-and-forget: the agent never waits on it, the sidecar
+/// only uses "knew" to flag less of the obvious in that chat.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cinderpaw_heads_up_answer(
+    state: State<'_, AppState>,
+    session_id: String,
+    heads_up_id: String,
+    choice: String,
+) -> Result<(), String> {
+    let line = heads_up_answer_line(&session_id, &heads_up_id, &choice)?;
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(line).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn heads_up_answer_line(session_id: &str, heads_up_id: &str, choice: &str) -> Result<String, String> {
+    if !matches!(choice, "more" | "knew" | "dismiss") {
+        return Err(format!("invalid heads-up choice '{choice}'"));
+    }
+    if heads_up_id.trim().is_empty() {
+        return Err("a heads-up answer needs the card's id".to_string());
+    }
+    Ok(serde_json::json!({
+        "type": "heads_up_answer",
+        "sessionId": session_id,
+        "headsUpId": heads_up_id,
+        "headsUpChoice": choice,
+    })
+    .to_string())
+}
+
+/// The Tasks page and the task card's one door to the scheduler: `list`,
+/// `add`, `remove` or `toggle`. Fire-and-forget like the others: the answer is
+/// a `cron_list_result` on the normal stream, matched by `request_id`, holding
+/// the whole list after the change. Checked here, so a compromised webview
+/// cannot send the sidecar a malformed job.
+#[tauri::command]
+#[specta::specta]
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn cinderpaw_cron_op(
+    state: State<'_, AppState>,
+    request_id: String,
+    action: String,
+    job_id: Option<String>,
+    name: Option<String>,
+    task: Option<String>,
+    schedule: Option<serde_json::Value>,
+    kind: Option<String>,
+    session_id: Option<String>,
+    enabled: Option<bool>,
+) -> Result<(), String> {
+    // Keep the existing command arity within Specta's supported function limit.
+    let mut schedule = schedule;
+    let options = schedule.as_mut().and_then(|s| s.as_object_mut()).and_then(|s| s.remove("taskOptions"));
+    let line = cron_op_line(&request_id, &action, job_id, name, task, schedule, kind, session_id, enabled)?;
+    let mut payload: serde_json::Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+    if let Some(options) = options {
+        if let Some(cap) = options.get("budgetUsd") {
+            let amount = cap.as_f64().ok_or("spending limit must be a number")?;
+            if !amount.is_finite() || amount < 0.0 { return Err("spending limit must be nonnegative".into()); }
+            payload["budgetUsd"] = cap.clone();
+        }
+        if let Some(days) = options.get("expiryDays") {
+            let value = days.as_f64().ok_or("expiry must be a number")?;
+            if !(1.0..=365.0).contains(&value) { return Err("expiry must be 1 to 365 days".into()); }
+            payload["expiryDays"] = days.clone();
+        }
+        if let Some(watch) = options.get("watch") { payload["watch"] = watch.clone(); }
+        if action == "limit" {
+            // The weekly limit for all scheduled tasks: a positive amount, or null for none.
+            let limit = options.get("weeklyLimitUsd").cloned().unwrap_or(serde_json::Value::Null);
+            if !limit.is_null() && !limit.as_f64().map(|v| v.is_finite() && v > 0.0).unwrap_or(false) {
+                return Err("the weekly limit must be more than $0".into());
+            }
+            payload["taskLimit"] = serde_json::json!({ "weeklyUsd": limit });
+        }
+    }
+    let line = payload.to_string();
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(line).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cron_op_line(
+    request_id: &str,
+    action: &str,
+    job_id: Option<String>,
+    name: Option<String>,
+    task: Option<String>,
+    schedule: Option<serde_json::Value>,
+    kind: Option<String>,
+    session_id: Option<String>,
+    enabled: Option<bool>,
+) -> Result<String, String> {
+    let present = |s: &Option<String>| s.as_deref().map(|v| !v.trim().is_empty()).unwrap_or(false);
+    let msg = match action {
+        "list" => serde_json::json!({ "type": "cron_list", "id": request_id }),
+        "followups" => serde_json::json!({ "type": "cron_list", "id": request_id, "followUps": true }),
+        "limit" => serde_json::json!({ "type": "cron_list", "id": request_id }),
+        "add" | "edit" => {
+            if action == "edit" && !present(&job_id) { return Err("no task selected".into()); }
+            if !present(&name) || !present(&task) {
+                return Err("a task needs a name and what to do".to_string());
+            }
+            let sched = schedule.ok_or("a task needs a schedule")?;
+            if !matches!(sched.get("kind").and_then(|k| k.as_str()), Some("cron" | "every" | "at")) {
+                return Err("unknown schedule".to_string());
+            }
+            let kind = kind.unwrap_or_else(|| "agent".to_string());
+            if kind != "agent" && kind != "reminder" && kind != "watch" {
+                return Err(format!("unknown task kind '{kind}'"));
+            }
+            serde_json::json!({
+                "type": "cron_add", "requestId": request_id, "name": name, "task": task,
+                "id": job_id,
+                "schedule": sched, "kind": kind,
+                // The result comes back to the chat that offered it.
+                "delivery": if action == "edit" { serde_json::Value::Null } else { serde_json::json!({ "kind": "chat", "sessionId": session_id.unwrap_or_else(|| "cron".to_string()) }) },
+            })
+        }
+        "remove" if present(&job_id) => serde_json::json!({ "type": "cron_remove", "requestId": request_id, "id": job_id }),
+        "toggle" if present(&job_id) && enabled.is_some() => {
+            serde_json::json!({ "type": "cron_toggle", "requestId": request_id, "id": job_id, "enabled": enabled })
+        }
+        "remove" | "toggle" => return Err("no task selected".to_string()),
+        other => return Err(format!("unknown task action '{other}'")),
+    };
+    Ok(msg.to_string())
+}
+
+#[cfg(test)]
+mod cron_op_tests {
+    use super::cron_op_line;
+
+    #[test]
+    fn add_carries_kind_schedule_and_the_chat_it_came_from() {
+        let line = cron_op_line(
+            "r1", "add", None, Some("Call the bank".into()), Some("Call them.".into()),
+            Some(serde_json::json!({ "kind": "at", "isoTimestamp": "2026-10-26T07:00:00.000Z" })),
+            Some("reminder".into()), Some("chat-9".into()), None,
+        )
+        .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(v["type"], "cron_add");
+        assert_eq!(v["requestId"], "r1");
+        assert_eq!(v["kind"], "reminder");
+        assert_eq!(v["delivery"]["sessionId"], "chat-9");
+    }
+
+    #[test]
+    fn refuses_what_the_sidecar_could_not_answer() {
+        assert!(cron_op_line("r", "add", None, Some("x".into()), Some(" ".into()), Some(serde_json::json!({"kind":"cron"})), None, None, None).is_err());
+        assert!(cron_op_line("r", "add", None, Some("x".into()), Some("y".into()), Some(serde_json::json!({"kind":"sometimes"})), None, None, None).is_err());
+        assert!(cron_op_line("r", "add", None, Some("x".into()), Some("y".into()), Some(serde_json::json!({"kind":"cron"})), Some("shell".into()), None, None).is_err());
+        assert!(cron_op_line("r", "remove", None, None, None, None, None, None, None).is_err());
+        assert!(cron_op_line("r", "toggle", Some("j".into()), None, None, None, None, None, None).is_err());
+        assert!(cron_op_line("r", "drop_table", None, None, None, None, None, None, None).is_err());
+        assert!(cron_op_line("r", "list", None, None, None, None, None, None, None).is_ok());
+        assert!(cron_op_line("r", "limit", None, None, None, None, None, None, None).unwrap().contains("cron_list"));
+        assert!(cron_op_line("r", "limit", None, None, None, None, None, None, None).unwrap().contains("cron_list"));
+    }
+}
+
 /// Cancel a pending `ask_user` request (user clicked Skip, or the UI is
 /// tearing down). The sidecar calls `AskUserBridge.cancel(id, reason)`
 /// which rejects the tool's `await ctx.askUser.ask(...)` with the
@@ -818,4 +1015,37 @@ pub(crate) async fn cinderpaw_ask_user_cancel(
     };
     tx.send(line).await.map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod meta_tests {
+    use super::meta_message;
+
+    #[test]
+    fn card_answers_carry_the_card_id_and_need_one() {
+        let v: serde_json::Value = serde_json::from_str(&meta_message("approve", Some("gen-3-42")).unwrap()).unwrap();
+        assert_eq!(v["type"], "meta_approve");
+        assert_eq!(v["id"], "gen-3-42");
+        assert!(meta_message("deny", None).is_err());
+        assert!(meta_message("deny", Some("  ")).is_err());
+    }
+
+    #[test]
+    fn heads_up_answers_name_the_card_and_a_known_choice() {
+        let v: serde_json::Value =
+            serde_json::from_str(&super::heads_up_answer_line("s1", "card-1", "knew").unwrap()).unwrap();
+        assert_eq!(v["type"], "heads_up_answer");
+        assert_eq!(v["headsUpId"], "card-1");
+        assert_eq!(v["headsUpChoice"], "knew");
+        assert!(super::heads_up_answer_line("s1", "card-1", "maybe").is_err());
+        assert!(super::heads_up_answer_line("s1", " ", "dismiss").is_err());
+    }
+
+    #[test]
+    fn plain_ops_pass_and_unknown_ops_are_refused() {
+        let v: serde_json::Value = serde_json::from_str(&meta_message("proposal", None).unwrap()).unwrap();
+        assert_eq!(v["type"], "meta_proposal");
+        assert!(meta_message("status", None).is_ok());
+        assert!(meta_message("wipe", None).is_err());
+    }
 }

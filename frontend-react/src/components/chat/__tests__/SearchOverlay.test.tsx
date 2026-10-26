@@ -4,7 +4,7 @@
  * contains both, so these cover the widened surface.
  */
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, useLocation } from 'react-router-dom';
@@ -12,6 +12,7 @@ import { SearchOverlay } from '../SearchOverlay';
 import { useConversations } from '@/stores/conversations';
 import { useProjects } from '@/stores/projects';
 import { useUI } from '@/stores/ui';
+import { tauri, type Conversation } from '@/lib/tauri';
 
 /**
  * The rows highlight the matched substring by wrapping it in <mark>, so the
@@ -67,6 +68,44 @@ beforeEach(() => {
 });
 
 describe('SearchOverlay', () => {
+  it('shares pending reads and never publishes results for an abandoned query', async () => {
+    let finish!: (value: Conversation) => void;
+    vi.mocked(tauri.conversations.load).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    setup();
+    useConversations.setState({ list: [{ id: 'slow', title: 'History', updated_at: 'today' }] });
+    const box = screen.getByRole('combobox');
+    fireEvent.change(box, { target: { value: 'old needle' } });
+    await waitFor(() => expect(tauri.conversations.load).toHaveBeenCalledTimes(1));
+    fireEvent.change(box, { target: { value: 'new needle' } });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 200)); });
+    expect(tauri.conversations.load).toHaveBeenCalledTimes(1);
+    await act(async () => finish({ messages: [{ content: 'old needle only' }] } as Conversation));
+    await waitFor(() => expect(screen.queryByText(/old needle only/)).toBeNull());
+    vi.mocked(tauri.conversations.load).mockImplementation(async (id) => ({ id, messages: [] } as unknown as Conversation));
+  });
+
+  it('bounds disk reads and stops requesting more after closing', async () => {
+    const finishes: Array<(value: Conversation) => void> = [];
+    vi.mocked(tauri.conversations.load).mockImplementation(() => new Promise((resolve) => { finishes.push(resolve); }));
+    const view = setup();
+    act(() => useConversations.setState({ list: Array.from({ length: 20 }, (_, i) => ({ id: `slow-${i}`, title: 'History', updated_at: 'today' })) }));
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'needle' } });
+    await waitFor(() => expect(finishes.length).toBeGreaterThan(0));
+    expect(finishes).toHaveLength(4);
+    view.unmount();
+    await act(async () => { finishes.forEach((finish) => finish({ messages: [] } as unknown as Conversation)); });
+    expect(tauri.conversations.load).toHaveBeenCalledTimes(4);
+    vi.mocked(tauri.conversations.load).mockImplementation(async (id) => ({ id, messages: [] } as unknown as Conversation));
+  });
+
+  it('renders long histories in pages without hiding access to older chats', async () => {
+    setup();
+    act(() => useConversations.setState({ list: Array.from({ length: 300 }, (_, i) => ({ id: `chat-${i}`, title: `Chat ${i}`, updated_at: '2026-10-20' })) }));
+    expect(screen.getAllByRole('option')).toHaveLength(50);
+    await userEvent.click(screen.getByRole('button', { name: /Show more/ }));
+    expect(screen.getAllByRole('option')).toHaveLength(100);
+  });
+
   it('finds a conversation by title', async () => {
     setup();
     await userEvent.type(screen.getByRole('combobox'), 'refactor');

@@ -19,7 +19,11 @@ tauri-build = { version = "2", features = [] }
 # `unstable`: multiwebview (Window::add_child), which the built-in browser needs
 # to put a web page inside the main window. See src/browser.rs.
 # `devtools`: the built-in browser has an Inspect button, like every browser.
+# The tray comes in through crates/cinderpaw-tray, not this list: the Tauri CLI
+# reads this manifest and then makes a Linux .deb/.rpm REQUIRE the appindicator
+# library (see that crate's Cargo.toml).
 tauri = { version = "2", features = ["protocol-asset", "unstable", "devtools"] }
+cinderpaw-tray = { path = "../crates/cinderpaw-tray" }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 # Native message box for the one failure that happens before a window exists
@@ -204,6 +208,20 @@ windows = { version = "0.58", features = [
 # downloaded or compiled.
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 zbus = "5"
+# The tray's appindicator library is optional on Linux: tray.rs looks for it the
+# way libappindicator-sys loads it (same crate, same version) before using it.
+libloading = "0.7"
+
+# A video's fullscreen button on a Mac: wry's `fullscreen` feature sets WebKit's
+# `fullScreenEnabled`, so the video gets WebKit's own fullscreen window, as in
+# Safari. Without it the video filled only the browser panel (21 Oct). Asked for
+# here alone, not through Tauri's `macos-private-api`, which would also make the
+# main window's configured transparency take effect: an untested change of look
+# (see call_pill.rs). Cargo unifies features, so Tauri's own wry gets it.
+# ponytail: a private WebKit key, which the Mac App Store refuses; Cinderpaw ships
+# as a DMG.
+[target.'cfg(target_os = "macos")'.dependencies]
+wry = { version = "0.55", default-features = false, features = ["fullscreen"] }
 
 [dev-dependencies]
 tempfile = "3"

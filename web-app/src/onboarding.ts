@@ -23,6 +23,8 @@ export type KeyResult = { ok: true; mask: string } | { ok: false; line: string; 
 export type MigrateFound = {
   source: string;
   root: string;
+  /** "its personality, its memory and 12 skills" (cinderpaw-core `migrate::summary`). */
+  summary: string;
   plan: { willImport: { what: string }[]; notImported: string[]; conflicts: string[] };
 };
 
@@ -74,15 +76,6 @@ export async function importOffer(api: Api): Promise<MigrateFound | null> {
   } catch {
     return null;
   }
-}
-
-/** "its personality and 12 skills", from what the import would bring. */
-export function whatWillCome(f: MigrateFound): string {
-  const skills = f.plan.willImport.filter((i) => i.what.startsWith("skill: ")).length;
-  const persona = f.plan.willImport.length > skills;
-  return [persona && "its personality", skills > 0 && (skills === 1 ? "1 skill" : `${skills} skills`)]
-    .filter(Boolean)
-    .join(" and ");
 }
 
 /** The few most people have; the rest sit behind "Show me more". */

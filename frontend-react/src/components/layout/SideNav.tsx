@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { panelMotionEnd, panelMotionStart } from '@/lib/panelMotion';
 import {
-  Plus, Search, Folder, Box, Settings, FileBox, Globe,
+  Plus, Search, Folder, Box, Settings, FileBox, Globe, CalendarClock,
   PanelLeftOpen, Loader2, FolderPlus, Star,
   ChevronDown, ChevronLeft, ChevronRight,
 } from 'lucide-react';
@@ -14,6 +14,7 @@ import {
 import { NewProjectDialog } from '@/components/items/NewProjectDialog';
 import { useUI } from '@/stores/ui';
 import { useConversations, type ConversationSummary } from '@/stores/conversations';
+import { useAskUser } from '@/stores/askUser';
 import { groupByRecency, type DatedGroup } from '@/lib/chatGroups';
 import { ConversationActions, ProjectActions } from '@/components/items/ItemActions';
 import { useProjects } from '@/stores/projects';
@@ -146,6 +147,11 @@ function Library({ collapsed }: { collapsed: boolean }) {
   const loaded = useConversations((s) => s.loaded);
   const currentId = useConversations((s) => s.currentId);
   const streamingIds = useConversations((s) => s.streamingIds);
+  const unreadIds = useConversations((s) => s.unreadIds);
+  // The chats with a question waiting on the person. A string, not an array:
+  // a new array from the selector on every store change would re-render forever.
+  const askingKey = useAskUser((s) => [s.pending, ...s.waiting].map((r) => r?.sessionId ?? '').join('\n'));
+  const asking = new Set(askingKey.split('\n').filter(Boolean));
   const projects = useProjects((s) => s.list);
   // Drag-and-drop: a chat row dragged onto a project row moves it there.
   // `draggingChat` drives the rail-wide affordances while a drag is alive;
@@ -226,9 +232,15 @@ function Library({ collapsed }: { collapsed: boolean }) {
                 : 'text-text-muted group-hover:text-text-secondary',
             )}
           >
-            {/* A chat can be generating while you are looking at another one. */}
-            {streamingIds[c.id] ? (
+            {/* A chat can be generating, waiting for you, or finished while you
+                were looking at another one. Each says so, in a different way. */}
+            {asking.has(c.id) ? (
+              <span role="img" aria-label="Waiting for your answer" title="Waiting for your answer"
+                className="size-2 shrink-0 rounded-full bg-brand ring-2 ring-brand/25" />
+            ) : streamingIds[c.id] ? (
               <Loader2 size={12} className="shrink-0 animate-spin text-brand" aria-label="Generating" />
+            ) : unreadIds[c.id] && c.id !== currentId ? (
+              <span role="img" aria-label="New reply" title="New reply" className="size-2 shrink-0 rounded-full bg-info" />
             ) : withStar && (
               <Star size={14} className="shrink-0 fill-current text-brand" aria-hidden />
             )}
@@ -377,18 +389,6 @@ export function SideNav() {
   const toggle = useUI((s) => s.toggleNav);
   const openSearch = useUI((s) => s.openSearch);
   const { pathname } = useLocation();
-  const panelOpen = useArtifacts((s) => s.panelOpen);
-  // The panel lives on the chat page, so from Models or Settings the row
-  // goes there and opens it, rather than toggling something off screen.
-  const openArtifacts = () => {
-    useBrowser.getState().setPanel(false);
-    // On the Context tab, the row switches to Artifacts rather than closing.
-    const st = useArtifacts.getState();
-    if (pathname === '/chat' && st.panelOpen && st.panelTab === 'artifacts') { st.togglePanel(); return; }
-    useArtifacts.setState({ panelOpen: true, panelTab: 'artifacts' });
-    if (pathname === '/chat') return;
-    navigate('/chat');
-  };
   const browserOpen = useBrowser((s) => s.panelOpen);
   // Same shape as Artifacts: it lives beside the chat, so from elsewhere the
   // row goes there. The two panels do not share the space.
@@ -525,8 +525,10 @@ export function SideNav() {
           {/* The artifacts' entrance. It sat in the chat header first, right
               under the window's maximize button, where a miss resizes the window.
               Named Artifacts, not Workspace: the agent's scratch folder is already
-              called workspace, and one word for two places confused the agent. */}
-          <Row icon={FileBox} label="Artifacts" collapsed={false} onClick={openArtifacts} active={pathname === '/chat' && panelOpen && !browserOpen} />
+              called workspace, and one word for two places confused the agent.
+              It opens the gallery page; a card there opens the side panel. */}
+          <Row icon={FileBox} label="Artifacts" collapsed={false} to="/artifacts" />
+          <Row icon={CalendarClock} label="Tasks" collapsed={false} to="/tasks" />
           <Row icon={Globe} label="Browser" collapsed={false} onClick={openBrowser} active={pathname === '/chat' && browserOpen} />
           {NAV.map((n) => (
             <Row key={n.to} icon={n.icon} label={n.label} collapsed={false} to={n.to} />

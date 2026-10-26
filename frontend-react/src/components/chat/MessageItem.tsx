@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import logoUrl from '@/assets/logo.svg';
 import { AlertTriangle, FileText, File as FileIcon, Image as ImageIcon, ThumbsUp, ThumbsDown } from 'lucide-react';
@@ -8,12 +9,13 @@ import { Markdown } from '@/lib/markdown';
 import { AskUserCard } from './AskUserCard';
 import { MessageToolWidgets } from './MessageToolWidgets';
 import { ChatWidget } from './ChatWidget';
+import { TaskSuggestionCard } from './TaskSuggestionCard';
 import { SourcesContext, SourcesList } from './Sources';
 import { MemoryPeek } from './MemoryPeek';
 import { FollowUps } from './FollowUps';
 import { citedSources, sourcesOf } from '@/lib/sources';
 import { MessageChain } from './MessageChain';
-import { MessageActions } from './MessageActions';
+import { MessageActions, WHILE_IDLE } from './MessageActions';
 import { VoiceBubble } from './VoiceBubble';
 import { LinkChip } from './LinkChip';
 import { splitLinks } from '@/lib/linkLabel';
@@ -70,7 +72,9 @@ function ZoomableImage({ src, alt }: { src: string; alt: string }) {
           className="max-h-52 max-w-full rounded-lg border border-border-subtle object-contain transition-transform duration-200 hover:scale-[1.02]"
         />
       </button>
-      {open && (
+      {/* In a portal: the message row clips and contains what it draws
+          (MessageList), so a fixed overlay inside it would fill only the row. */}
+      {open && createPortal(
         <div
           role="button"
           aria-label="Close image preview"
@@ -91,7 +95,8 @@ function ZoomableImage({ src, alt }: { src: string; alt: string }) {
               shown ? 'scale-100' : 'scale-75',
             )}
           />
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
@@ -275,7 +280,8 @@ export const MessageItem = memo(function MessageItem({
   const activity = message.toolActivity ?? [];
   const lastPlan = activity.map((a) => a.tool === 'todo_write' && !!a.widget).lastIndexOf(true);
   // Follow-ups are neither a step nor drawn in place: the last set closes the reply.
-  const isFollowUps = (a: (typeof activity)[number]) => a.widget?.kind === 'followups';
+  // A task card closes the reply too, after the answer it came with.
+  const isFollowUps = (a: (typeof activity)[number]) => a.widget?.kind === 'followups' || a.widget?.kind === 'task';
   const drawn = new Set(activity.filter((a, i) => a.widget && !isFollowUps(a) && (a.tool !== 'todo_write' || i === lastPlan)).map((a) => a.id));
   // A card is what the reply MADE: one per artifact, its last create or edit.
   // Reading, listing or exporting one is a step (every artifact tool returns
@@ -290,7 +296,8 @@ export const MessageItem = memo(function MessageItem({
   const isMade = (a: (typeof activity)[number]) => cards.has(a.id) || (MAKES.has(a.tool) && (a.status !== 'done' || !!a.error));
   const made = activity.filter(isMade);
   const isStep = (a: (typeof activity)[number]) => !isMade(a) && !drawn.has(a.id) && !isFollowUps(a);
-  const followUps = activity.filter(isFollowUps).at(-1)?.widget;
+  const followUps = activity.filter((a) => a.widget?.kind === 'followups').at(-1)?.widget;
+  const taskCards = activity.flatMap((a) => (a.widget?.kind === 'task' ? [a.widget.card] : []));
   // The pages this turn's searches found: a link to one is a source chip, and
   // the ones the answer cited close it as a list once it is done.
   const sources = useMemo(() => sourcesOf(activity), [activity]);
@@ -365,6 +372,7 @@ export const MessageItem = memo(function MessageItem({
           ...activity.filter((a) => a.kind === 'memory').flatMap((a) => a.facts.map((text) => ({ kind: 'fact' as const, text }))),
         ]} />
       )}
+      {!streaming && taskCards.map((c) => <TaskSuggestionCard key={c.id} card={c} sessionId={sessionId} />)}
       {!streaming && onFollowUp && followUps?.kind === 'followups' && (
         <FollowUps next={followUps.next} onPick={onFollowUp} />
       )}
@@ -405,6 +413,18 @@ export const MessageItem = memo(function MessageItem({
             cancelAskUser('user dismissed');
           }}
         />
+      )}
+      {!streaming && message.ended?.kind === 'stopped' && (
+        // Report item 10: a stopped reply used to end on a green check, as if done.
+        <div className="flex items-center gap-2 text-sm text-text-muted" role="status">
+          <span>You stopped this reply.</span>
+          {onRetry && (
+            <button type="button" onClick={onRetry}
+              className={cn('rounded-lg border border-border-default px-2.5 py-1 text-xs text-text-primary hover:bg-text-primary/5', WHILE_IDLE)}>
+              Try again
+            </button>
+          )}
+        </div>
       )}
       {isTruncated && (
         <div
@@ -486,18 +506,22 @@ export function scratchLabel(
  */
 const QUIET = 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100 transition-opacity';
 
+// Made once: building a date format is the slow part, and every message drew
+// two each time the transcript was drawn (~0.1 s at 300 turns, 26 Oct). The
+// second is what toLocaleString() prints with no options.
+const TIME = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
+const FULL = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' });
+
 function MessageMeta({ message, className }: { message: ChatMessage; className?: string }) {
   const at = message.completedAt ?? message.createdAt;
-  const parts = [
-    new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
-  ];
+  const parts = [TIME.format(at)];
   if (message.tokenCount) {
     parts.push(`${message.tokensEstimated ? '~' : ''}${message.tokenCount.toLocaleString()} tok`);
   }
   if (message.tokensPerSec) parts.push(`${message.tokensPerSec} tok/s`);
   const scratch = scratchLabel(message.scratch);
   if (scratch) parts.push(scratch);
-  const fullDate = new Date(at).toLocaleString();
+  const fullDate = FULL.format(at);
   return (
     <div className={cn('text-xs text-text-muted tabular-nums select-text cursor-text', className)} title={fullDate}>{parts.join(' · ')}</div>
   );

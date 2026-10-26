@@ -87,6 +87,20 @@ async function forceTick(loop: InnerThoughtsLoop): Promise<void> {
 }
 
 describe("InnerThoughtsLoop — proactive gates (P-#12)", () => {
+  test("a zero automatic monthly cap blocks inference even with open mood gates", async () => {
+    const previous = process.env.CINDERPAW_PROACTIVE_MONTHLY_USD;
+    process.env.CINDERPAW_PROACTIVE_MONTHLY_USD = "0";
+    const { loop, mood, fetchCalls, cleanup } = newLoop();
+    try {
+      mood.applyEvent("new_topic");
+      await forceTick(loop);
+      expect(fetchCalls()).toBe(0);
+    } finally {
+      if (previous === undefined) delete process.env.CINDERPAW_PROACTIVE_MONTHLY_USD;
+      else process.env.CINDERPAW_PROACTIVE_MONTHLY_USD = previous;
+      cleanup();
+    }
+  });
   test("gates pass when mood is high and user is idle → fetch is called", async () => {
     const { loop, mood, fetchCalls, cleanup } = newLoop();
     mood.applyEvent("new_topic"); // bumps curiosity +0.15, energy +0.05

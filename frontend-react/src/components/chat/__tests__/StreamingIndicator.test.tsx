@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { events, type StreamProgressEvent } from '@/lib/tauri';
 import { useChat, type AgentPhase } from '@/stores/chat';
 import { useModel } from '@/stores/model';
-import { StreamingIndicator } from '../StreamingIndicator';
+import { useCinderpawStore } from '@/stores/cinderpaw';
+import { StreamingIndicator, WAIT_LINES } from '../StreamingIndicator';
 
 let emitAgent: (event: StreamProgressEvent) => void;
 const progress = (patch: Partial<StreamProgressEvent> = {}): StreamProgressEvent => ({
@@ -16,6 +17,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   useChat.setState({ sessionId: 'active' });
   useModel.setState({ isLoading: false, loadProgress: null });
+  useCinderpawStore.setState({ modelConfig: null });
   vi.spyOn(events.onStreamProgress, 'listen').mockImplementation((cb) => {
     emitAgent = cb;
     return Promise.resolve(vi.fn());
@@ -53,24 +55,45 @@ describe('StreamingIndicator', () => {
     act(() => emitAgent(progress()));
     rerender(<StreamingIndicator phase="calling" tool="read_file" />);
     settle();
-    expect(screen.getByText('Calling read file…')).toBeInTheDocument();
+    expect(screen.getByText('Reading files…')).toBeInTheDocument();
     act(() => emitAgent(progress({ tokensPerSec: 99 })));
     rerender(<StreamingIndicator phase="thinking" />);
     settle();
     expect(screen.queryByText(/tok\/s/)).not.toBeInTheDocument();
   });
 
+  it('names a waiting question as waiting for the person, not a tool call', () => {
+    render(<StreamingIndicator phase="calling" tool="ask_user" />);
+    settle();
+    expect(screen.getByText('Waiting for your answer…')).toBeInTheDocument();
+  });
+
   it('omits invalid durations and rates while retaining valid progress', () => {
     render(<StreamingIndicator />);
     settle();
     act(() => emitAgent(progress({ tokensPerSec: Infinity })));
-    expect(screen.getByText('Generating…')).toBeInTheDocument();
+    expect(screen.getByText('Writing…')).toBeInTheDocument();
     act(() => emitAgent(progress({ phase: 'prefill', elapsedMs: NaN })));
-    expect(screen.getByText('Prefill…')).toBeInTheDocument();
+    expect(screen.getByText('Reading your message…')).toBeInTheDocument();
     act(() => emitAgent(progress({ phase: 'prefill', elapsedMs: -1000 })));
-    expect(screen.getByText('Prefill…')).toBeInTheDocument();
+    expect(screen.getByText('Reading your message…')).toBeInTheDocument();
     act(() => emitAgent(progress({ phase: 'prefill', elapsedMs: 65000 })));
-    expect(screen.getByText('Prefill · 1m 5s')).toBeInTheDocument();
+    expect(screen.getByText('Reading your message · 1m 5s')).toBeInTheDocument();
+  });
+
+  it('does not blame a model load on a cloud model', () => {
+    useCinderpawStore.setState({ modelConfig: { provider: 'anthropic', model: 'claude-haiku-5-5', base_url: 'https://api.anthropic.com', display_name: '' } });
+    render(<StreamingIndicator />);
+    act(() => vi.advanceTimersByTime(5000));
+    settle();
+    const first = screen.getByRole('status').textContent ?? '';
+    expect(first).not.toMatch(/loading a model/);
+    expect(WAIT_LINES).toContain(first);
+    // Seven seconds later the line has moved on, so a long wait never looks frozen.
+    act(() => vi.advanceTimersByTime(7000));
+    settle();
+    expect(screen.getByRole('status').textContent).not.toBe(first);
+    expect(WAIT_LINES).toContain(screen.getByRole('status').textContent);
   });
 
   it('restarts the slow-response grace period for a different chat', () => {

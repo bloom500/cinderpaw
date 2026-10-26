@@ -81,6 +81,12 @@ export function decideResume(
   now: number,
   maxResumes: number = DEFAULT_MAX_RESUMES,
 ): ResumeDecision {
+  // Cron owns its occurrence claim and spend authority. Restarting through
+  // this generic path could repeat external effects and bypass both guards.
+  if (run.delivery?.kind === "cron" || run.sessionId.startsWith("cron:")) {
+    return { action: "give_up", status: "needs_attention", reason: "process_died",
+      why: "a scheduled run was interrupted; check its last effects before explicitly resuming it" };
+  }
   // Deadline first, so a run that is both out of time AND out of resumes is
   // reported with the reason that actually ended it.
   //

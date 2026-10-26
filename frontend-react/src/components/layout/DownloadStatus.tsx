@@ -64,7 +64,7 @@ export function DownloadStatus() {
               side="bottom"
               align="end"
               sideOffset={8}
-              className="w-72 bg-bg-surface border border-border-subtle text-text-primary p-4"
+              className="w-72 border border-border-subtle text-text-primary p-4"
             >
               <p className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
                 Downloads

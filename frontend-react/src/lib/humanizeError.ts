@@ -95,7 +95,10 @@ const RULES: Rule[] = [
     action: null,
   },
   {
-    test: /econnrefused|connection refused|fetch failed|enotfound|network|dns|timed?.?out|unreachable/i,
+    // Bun says "Unable to connect. Is the computer able to access the url?"; without
+    // it here, an address that cannot be reached fell to the 5xx rule below and read
+    // "the provider is overloaded" (UX lab, report item 18).
+    test: /econnrefused|connection refused|fetch failed|enotfound|network|dns|timed?.?out|unreachable|unable to connect|econnreset|connection reset|socket hang up/i,
     title: 'Could not reach the model',
     message:
       'Could not reach the inference endpoint. Check your internet connection ' +

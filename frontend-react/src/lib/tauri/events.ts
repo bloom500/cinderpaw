@@ -79,6 +79,16 @@ export interface StreamProgressEvent {
 }
 
 /**
+ * The agent is waiting before it asks the model again: the provider said
+ * "too many requests" (429) or the local pace gate is full. The sidecar's
+ * `rate_limited` line (agent-loop.ts), one per wait.
+ */
+export interface RateLimitedEvent {
+  sessionId: string;
+  waitMs: number;
+}
+
+/**
  * One raw line from the Cinderpaw Agent sidecar, forwarded by Rust over
  * `cinderpaw://agent-output`. The `data` field is the sidecar's JSON
  * line verbatim — the React side parses it and dispatches by `type`.
@@ -288,9 +298,11 @@ export interface CodePatchResolvedLine {
 export interface MetaResultLine {
   type: 'meta_result';
   id: string;
-  op: 'status' | 'evolve' | 'rollback' | 'history';
+  op: 'status' | 'evolve' | 'rollback' | 'history' | 'approve' | 'deny';
   ok: boolean;
   reason?: string;
+  /** approve/deny: the card was out of date, so nothing changed. */
+  stale?: boolean;
   generation?: number;
   genome?: Record<string, number>;
   pendingCandidate?: boolean;
@@ -304,6 +316,30 @@ export interface MetaResultLine {
     reason: string;
     timestamp: number;
   }>;
+}
+
+/** One L6 change waiting for a person in chat. Mirrors `MetaProposal` in
+ *  `CinderpawAgent/src/rsi/l6-meta/meta-evolution.ts`. */
+export interface MetaProposal {
+  id: string;
+  kind: 'change' | 'undo';
+  field: 'mutation_rate' | 'exploration' | 'confidence_gate' | 'dream_batch' | 'selection_pressure';
+  from: number;
+  to: number;
+  settled: 'accepted' | 'rejected' | 'bootstrap';
+  score: number;
+  baselineScore: number | null;
+  cycles: number;
+  generation: number;
+  seed: number;
+  createdAt: number;
+}
+
+/** The L6 chat card's state: sent after a dream that made one, on request,
+ *  and after every answer. `proposal: null` means no card. */
+export interface MetaProposalLine {
+  type: 'meta_proposal';
+  proposal: MetaProposal | null;
 }
 
 /** Slice A6 (L5 Governance) reply. `op` says which request it answers;
@@ -666,6 +702,25 @@ export const events = {
       }),
   },
 
+  /** The L6 chat card (`meta_proposal`): request it with `tauri.rsi.meta('proposal')`. */
+  onMetaProposal: {
+    listen: (cb: (e: MetaProposalLine) => void): Promise<UnlistenFn> =>
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw.payload.data);
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            (parsed as Record<string, unknown>)['type'] === 'meta_proposal'
+          ) {
+            cb(parsed as MetaProposalLine);
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
+  },
+
 /**
    * Slice A6 (L5 Governance) replies (`governance_result`): status / verify /
    * approve / reject payloads, requested via `tauri.rsi.governance(op)`.
@@ -728,6 +783,20 @@ export const events = {
   liveKitEvent: {
     listen: (cb: (e: LiveKitAgentEvent) => void): Promise<UnlistenFn> =>
       listen<LiveKitAgentEvent>('cinderpaw://livekit-event', (raw) => cb(raw.payload)),
+  },
+
+  onRateLimited: {
+    listen: (cb: (e: RateLimitedEvent) => void): Promise<UnlistenFn> =>
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
+        try {
+          const parsed = JSON.parse(raw.payload.data) as Record<string, unknown> | null;
+          if (parsed?.type === 'rate_limited' && typeof parsed.waitMs === 'number' && typeof parsed.sessionId === 'string') {
+            cb({ sessionId: parsed.sessionId, waitMs: parsed.waitMs });
+          }
+        } catch {
+          // non-JSON sidecar lines — ignore
+        }
+      }),
   },
 
   onStreamProgress: {

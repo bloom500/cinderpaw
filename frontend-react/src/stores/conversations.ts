@@ -3,8 +3,9 @@ import { tauri, type PersistedMessage, type ConversationSummary } from '@/lib/ta
 import { rehydrateLiveSession } from '@/lib/cinderpawLiveSession';
 import { voiceToPersisted, voiceFromPersisted } from '@/lib/messageMapping';
 import { toolsFromPersisted } from '@/hooks/useLiveToolActivity';
-import { useChat, type ChatMessage } from './chat';
-import { reportFailure } from './notifications';
+import { memoryUsedFrom, turnEndFrom, useChat, type ChatMessage } from './chat';
+import { useNotifications } from './notifications';
+import { useFollowUps } from './followUps';
 
 export type { ConversationSummary };
 
@@ -33,6 +34,13 @@ interface ConversationsStore {
    * shallow-equality updates.
    */
   streamingIds: Record<string, true>;
+  /**
+   * Chats whose reply finished while you were in another chat: a dot in the
+   * rail until you open them, so a finished answer is not silent.
+   */
+  unreadIds: Record<string, true>;
+  providerWaits: Record<string, number>;
+  setProviderWait: (id: string, waitMs: number) => void;
 
   refresh:     () => Promise<void>;
   open:        (id: string) => Promise<void>;
@@ -60,6 +68,8 @@ function toChatMessage(p: PersistedMessage, idx: number): ChatMessage {
     // is nullable — a literal null would render as a present-but-empty stat.
     scratch: p.scratch ?? undefined,
     toolActivity: toolsFromPersisted(p.tools),
+    ended: turnEndFrom(p.ended),
+    memoryUsed: memoryUsedFrom(p.memory_used),
     // The real time, when the file has it. The fallback is the old fabricated
     // ladder, kept only for conversations saved before the field existed —
     // those genuinely have no timestamp to restore.
@@ -80,8 +90,14 @@ function toPersisted(m: ChatMessage): PersistedMessage {
     scratch: m.scratch,
     tools: m.toolActivity && m.toolActivity.length > 0 ? m.toolActivity : undefined,
     created_at: m.createdAt,
+    ended: m.ended,
+    memory_used: m.memoryUsed?.length ? m.memoryUsed : undefined,
   };
 }
+
+// A completed read may update the screen only while it is still the person's
+// latest choice. New chat and deleting that choice invalidate pending reads.
+let openRequest: { id: string } | null = null;
 
 export const useConversations = create<ConversationsStore>((set, get) => ({
   list: [],
@@ -89,6 +105,18 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   currentId: null,
   loadingConversation: false,
   streamingIds: {},
+  unreadIds: {},
+  providerWaits: {},
+  setProviderWait: (id, waitMs) => {
+    const waits = { ...get().providerWaits };
+    if (waitMs >= 1000 && Number.isFinite(waitMs) && get().streamingIds[id]) {
+      waits[id] = Date.now() + waitMs;
+    } else {
+      if (!(id in waits)) return;
+      delete waits[id];
+    }
+    set({ providerWaits: waits });
+  },
 
   refresh: async () => {
     try {
@@ -105,6 +133,13 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   },
 
   open: async (id) => {
+    const request = { id };
+    openRequest = request;
+    if (get().unreadIds[id]) {
+      const unread = { ...get().unreadIds };
+      delete unread[id];
+      set({ unreadIds: unread });
+    }
     // If this session is already resident in memory and still streaming,
     // skip the disk load entirely — the in-memory buffer is more complete
     // than the initial disk snapshot and overwriting it would cause a
@@ -112,7 +147,7 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
     const alreadyLive =
       useChat.getState().sessionId === id && Boolean(get().streamingIds[id]);
     if (alreadyLive) {
-      set({ currentId: id });
+      set({ currentId: id, loadingConversation: false });
       return;
     }
 
@@ -122,10 +157,8 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
       // in Chats, in Projects. A load that throws was an unhandled rejection
       // there: the click did nothing at all, with no clue whether the chat was
       // gone, corrupt, or the backend simply not up yet.
-      const conv = await reportFailure('Could not open the chat', () =>
-        tauri.conversations.load(id),
-      );
-      if (!conv) return;
+      const conv = await tauri.conversations.load(id);
+      if (openRequest !== request) return;
       const msgs = conv.messages.map(toChatMessage);
       // Preserve the streaming animation if the user re-enters the chat
       // that's currently mid-generation. Without this, `loadSession` would
@@ -144,17 +177,24 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
       // so the task doesn't look like it reset.
       if (isStreaming) rehydrateLiveSession(id);
       set({ currentId: id });
+    } catch (err) {
+      if (openRequest === request) {
+        useNotifications.getState().push('error', 'Could not open the chat', err instanceof Error ? err.message : String(err));
+      }
     } finally {
-      set({ loadingConversation: false });
+      if (openRequest === request) set({ loadingConversation: false });
     }
   },
 
   saveCurrent: async (title, agentId) => {
+    const request = openRequest;
     const chat = useChat.getState();
     const persisted = chat.messages.map(toPersisted);
     try {
       await tauri.conversations.save(chat.sessionId, title, persisted, agentId);
-      set({ currentId: chat.sessionId });
+      if (request === openRequest && useChat.getState().sessionId === chat.sessionId) {
+        set({ currentId: chat.sessionId });
+      }
     } catch (err) {
       console.error('[conversations] save failed:', err);
       throw err;
@@ -183,6 +223,11 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
     // prints the reason next to the button. Swallowing it here would close the
     // dialog on a delete that did not happen.
     await tauri.conversations.delete(id);
+    useFollowUps.getState().clearSession(id);
+    if (openRequest?.id === id) {
+      openRequest = null;
+      set({ loadingConversation: false });
+    }
     if (get().currentId === id) {
       useChat.getState().newSession();
       set({ currentId: null });
@@ -197,8 +242,9 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   },
 
   newChat: () => {
+    openRequest = null;
     useChat.getState().newSession();
-    set({ currentId: null });
+    set({ currentId: null, loadingConversation: false });
   },
 
   markStreaming: (id) => {
@@ -207,9 +253,12 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   },
 
   unmarkStreaming: (id) => {
+    get().setProviderWait(id, 0);
     if (!get().streamingIds[id]) return;
     const next = { ...get().streamingIds };
     delete next[id];
-    set({ streamingIds: next });
+    // Finished out of sight: mark it, so the rail says there is something to read.
+    const away = useChat.getState().sessionId !== id;
+    set({ streamingIds: next, ...(away ? { unreadIds: { ...get().unreadIds, [id]: true as const } } : {}) });
   },
 }));

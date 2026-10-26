@@ -1,6 +1,6 @@
 import { useMemo, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Download, ChevronDown, Heart, Monitor } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Download, ChevronDown, Heart, Loader2, Monitor } from 'lucide-react';
 import { HfDetailPanel } from './HfDetailPanel';
 import { StreamingIndicator } from '@/components/chat/StreamingIndicator';
 import { useDownload } from '@/stores/download';
@@ -47,13 +47,14 @@ function tagLabels(tags: string[]): string[] {
 interface Props {
   model: HfModelSummary;
   expanded: boolean;
+  /** Its files are being fetched before it opens. */
+  opening: boolean;
   detail: HfModelDetail | null;
-  detailLoading: boolean;
   onExpand: (repoId: string) => void;
   onRequestDetail: (repoId: string) => void;
 }
 
-export function HfModelCard({ model, expanded, detail, detailLoading, onExpand, onRequestDetail }: Props) {
+export function HfModelCard({ model, expanded, opening, detail, onExpand, onRequestDetail }: Props) {
   const sysInfo    = useSystemInfo((s) => s.info);
   const dlActive   = useDownload((s) => s.active);
 
@@ -114,13 +115,18 @@ export function HfModelCard({ model, expanded, detail, detailLoading, onExpand, 
         type="button"
         onClick={() => onExpand(model.id)}
         aria-expanded={expanded}
+        aria-busy={opening}
         aria-label={expanded ? 'Hide variants' : 'Show variants'}
-        title={expanded ? 'Hide variants' : 'Show variants'}
+        title={opening ? 'Loading the files…' : expanded ? 'Hide variants' : 'Show variants'}
         className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-text-muted hover:bg-bg-hover hover:text-text-primary"
       >
-        <motion.span animate={{ rotate: expanded ? 180 : 0 }} transition={{ duration: 0.18 }} className="inline-flex">
-          <ChevronDown size={16} />
-        </motion.span>
+        {opening ? (
+          <Loader2 size={16} className="animate-spin text-brand" />
+        ) : (
+          <motion.span animate={{ rotate: expanded ? 180 : 0 }} transition={{ duration: 0.18 }} className="inline-flex">
+            <ChevronDown size={16} />
+          </motion.span>
+        )}
       </button>
     </div>
   );
@@ -144,25 +150,28 @@ export function HfModelCard({ model, expanded, detail, detailLoading, onExpand, 
     </button>
   );
 
+  // The card never changes size or place when it opens. It used to span the
+  // whole row and every card animated to its new spot: the dense grid moved
+  // the next cards up into the gap, each piece flew on its own, and the text
+  // stretched while the box scaled (seen in the real app, 21 Oct). The
+  // details open as their own row under this one (HfVariantsRow).
   return (
-    <motion.article
-      layout
-      transition={{ layout: { duration: 0.25, ease: [0.2, 0.8, 0.2, 1] } }}
+    <article
       className={cn(
         CARD,
         'flex flex-col gap-3 p-4 transition-shadow hover:shadow-md',
-        expanded && 'sm:col-span-2 xl:col-span-3 shadow-md ring-1 ring-brand/15',
+        expanded && 'shadow-md ring-1 ring-brand/40',
       )}
     >
-      <motion.div layout="position">{header}</motion.div>
+      {header}
 
-      <motion.div layout="position" className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-1.5">
         <Chip accent>GGUF</Chip>
         {params && <Chip>{params}</Chip>}
         {labels.map((l) => <Chip key={l}>{l}</Chip>)}
-      </motion.div>
+      </div>
 
-      <motion.div layout="position" className="mt-auto flex items-center justify-between gap-3 pt-1">
+      <div className="mt-auto flex items-center justify-between gap-3 pt-1">
         <span className={cn('inline-flex min-w-0 items-center gap-1.5 text-xs', recCompat ? COMPAT[recCompat].cls : 'text-text-muted')}>
           <Monitor size={14} className="shrink-0" />
           <span className="truncate">
@@ -172,7 +181,7 @@ export function HfModelCard({ model, expanded, detail, detailLoading, onExpand, 
           </span>
         </span>
         {action}
-      </motion.div>
+      </div>
 
       {/* Download progress bar (full-width strip) */}
       {isThisDownloading && (
@@ -180,47 +189,54 @@ export function HfModelCard({ model, expanded, detail, detailLoading, onExpand, 
           <div className="h-full bg-brand transition-all duration-300" style={{ width: `${dlProgress}%` }} />
         </div>
       )}
+    </article>
+  );
+}
 
-      {/* ── Opened: every file in the repo, the best one for this machine first ── */}
-      <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22 }}
-            className="overflow-hidden"
-          >
-            <div className="grid gap-6 border-t border-border-subtle pt-4 lg:grid-cols-[240px_minmax(0,1fr)]">
-              <div className="space-y-4">
-                <dl className="grid grid-cols-3 gap-2 lg:grid-cols-1">
-                  <Stat label="Downloads" value={fmtNum(model.downloads)} />
-                  <Stat label="Likes" value={fmtNum(model.likes)} />
-                  <Stat label="Updated" value={fmtDate(model.last_modified)} />
-                </dl>
-                {model.tags.length > 0 && (
-                  <div>
-                    <p className="mb-1.5 text-micro uppercase tracking-wider text-text-muted">Tags</p>
-                    <div className="flex flex-wrap gap-1">
-                      {model.tags.slice(0, 10).map((t) => <Chip key={t}>{t}</Chip>)}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="min-w-0">
-                {detailLoading || !detail ? (
-                  <div className="flex justify-center py-6">
-                    <StreamingIndicator />
-                  </div>
-                ) : (
-                  <HfDetailPanel repoId={model.id} detail={detail} loading={false} />
-                )}
+/** An opened card: every file in the repo, the best one for this machine
+ *  first. A full-width grid row under the card's own row, so the cards stay
+ *  where they are and only what is below slides down. `mb-4` stands in for
+ *  the grid's row gap (BrowseTab drops it): a gap would appear at full size
+ *  the moment this row mounts, a margin inside the animated height grows
+ *  with it. */
+export function HfVariantsRow({ model, detail }: { model: HfModelSummary; detail: HfModelDetail | null }) {
+  const shortName = model.id.split('/').pop() ?? model.id;
+  return (
+    <motion.div
+      initial={{ height: 0, opacity: 0 }}
+      animate={{ height: 'auto', opacity: 1 }}
+      exit={{ height: 0, opacity: 0 }}
+      transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
+      className="col-span-full overflow-hidden"
+    >
+      <div className={cn(CARD, 'mb-4 grid gap-6 p-4 ring-1 ring-brand/40 lg:grid-cols-[240px_minmax(0,1fr)]')}>
+        <div className="space-y-4">
+          <h4 className="truncate text-base font-semibold text-text-primary" title={model.id}>{shortName}</h4>
+          <dl className="grid grid-cols-3 gap-2 lg:grid-cols-1">
+            <Stat label="Downloads" value={fmtNum(model.downloads)} />
+            <Stat label="Likes" value={fmtNum(model.likes)} />
+            <Stat label="Updated" value={fmtDate(model.last_modified)} />
+          </dl>
+          {model.tags.length > 0 && (
+            <div>
+              <p className="mb-1.5 text-micro uppercase tracking-wider text-text-muted">Tags</p>
+              <div className="flex flex-wrap gap-1">
+                {model.tags.slice(0, 10).map((t) => <Chip key={t}>{t}</Chip>)}
               </div>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.article>
+          )}
+        </div>
+        <div className="min-w-0">
+          {!detail ? (
+            <div className="flex justify-center py-6">
+              <StreamingIndicator />
+            </div>
+          ) : (
+            <HfDetailPanel repoId={model.id} detail={detail} loading={false} />
+          )}
+        </div>
+      </div>
+    </motion.div>
   );
 }
 

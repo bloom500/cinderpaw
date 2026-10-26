@@ -68,6 +68,13 @@ pub struct Settings {
     /// applies without a restart.
     #[serde(default)]
     pub usage_sharing: Option<bool>,
+    /// `read_only` / `workspace_write` / `full_access`, read by the sidecar
+    /// (permission-mode.ts) every 2 s. Set with `cinderpaw settings set`.
+    /// Declared here only so a save from the app keeps it: without it, any
+    /// toggle in Settings rewrote the file without the key and a read-only
+    /// agent silently became a writing one. `None` = the sidecar's default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
     /// One-time security acknowledgement (guided setup, OpenClaw parity):
     /// ISO timestamp of when the user confirmed the personal-by-default
     /// disclaimer. `Some(_)` = never re-prompt. Set via
@@ -127,6 +134,7 @@ impl Default for Settings {
             rsi_allow_cloud_dreams: false,
             dreams_enabled: false,
             usage_sharing: None,
+            permission_mode: None,
             security_acknowledged_at: None,
             active_route: None,
             cloud_fallback_enabled: false,
@@ -216,6 +224,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_save_from_the_app_keeps_the_permission_mode() {
+        let mut v = serde_json::to_value(Settings::default()).unwrap();
+        v.as_object_mut().unwrap().insert("permission_mode".into(), "read_only".into());
+        let loaded: Settings = serde_json::from_value(v).unwrap();
+        let saved = serde_json::to_value(&loaded).unwrap();
+        assert_eq!(saved["permission_mode"], "read_only");
+        // Never set: the key stays out of the file, so the sidecar's default applies.
+        assert!(serde_json::to_value(Settings::default()).unwrap().get("permission_mode").is_none());
+    }
+
+    #[test]
     fn usage_sharing_is_unasked_by_default_and_round_trips() {
         // A settings.json written before the field existed.
         let mut v = serde_json::to_value(Settings::default()).unwrap();
@@ -236,8 +255,12 @@ mod tests {
         let Some(home) = dirs::home_dir() else { return };
         let mut s = Settings::default();
         s.models_dir = home.join(crate::brand::LEGACY_HOME_DIR_NAME).join("models");
-        let repaired = repair_legacy_models_dir(s);
-        assert!(repaired.models_dir.starts_with(paths::cinderpaw_dir()));
+        // Under the RSI tests' lock: they point CINDERPAW_HOME elsewhere in
+        // parallel, and the home read twice here flaked on CI (#32, 21 Oct).
+        let (repaired, root) = crate::rsi::test_support::with_temp_cinderpaw_home(|root| {
+            (repair_legacy_models_dir(s), root.to_path_buf())
+        });
+        assert!(repaired.models_dir.starts_with(root));
         assert!(repaired.models_dir.ends_with("models"));
 
         let mut chosen = Settings::default();

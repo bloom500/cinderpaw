@@ -39,6 +39,7 @@ export function createGrepTool(allowedPaths: string[]): Tool {
     permissions: ["fs:read"],
     networkAccess: false,
     allowedPaths,
+    fullAccessReach: true,
   };
 
   return {

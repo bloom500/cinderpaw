@@ -52,6 +52,16 @@ describe('ApprovalCard', () => {
     expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy();
   });
 
+  // 26 Oct: waiting on the person, it pours in like the other waiting cards
+  // (Sileo); answered, it is the plain card again.
+  it('pours in while it waits, and is the plain card once answered', () => {
+    const { container, rerender } = render(<ApprovalCard e={ask()} />);
+    expect(container.querySelector('[data-gooey-card]')).not.toBeNull();
+    rerender(<ApprovalCard e={ask({ status: 'done', outcome: 'approved' })} />);
+    expect(container.querySelector('[data-gooey-card]')).toBeNull();
+    expect(screen.getByText('Approved')).toBeTruthy();
+  });
+
   it('an expired request says nothing was done', () => {
     render(<ApprovalCard e={ask({ status: 'error', outcome: 'expired' })} />);
     expect(screen.getByText('Timed out, so nothing was done')).toBeTruthy();

@@ -18,20 +18,22 @@ import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput';
 import { ArtifactsPanel } from '@/components/artifacts/ArtifactsPanel';
 import { useArtifacts } from '@/stores/artifacts';
 import { useBrowser } from '@/stores/browser';
+import { cn } from '@/lib/utils';
 import { BrowserPanel } from '@/components/browser/BrowserPanel';
-import { NewChatEmptyState } from '@/components/chat/EmptyStates';
 import { AgentOfflineBanner } from '@/components/chat/AgentOfflineBanner';
-import { StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
+import { HeadsUpCard } from '@/components/chat/HeadsUpCard';
+import { FollowUpCard } from '@/components/chat/FollowUpCard';
+import { ProviderWaitNotice, StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
 import { WorkersCard } from '@/components/chat/WorkersCard';
 import { ComposerTip, TEACH_PROMPT } from '@/components/chat/ComposerTip';
 import { AgentsOnboarding } from '@/components/agents/onboarding/AgentsOnboarding';
 import { useOnboarding } from '@/stores/onboarding';
-import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
 import { CoworkTranscriptPanel } from '@/components/chat/CoworkTranscriptPanel';
 import { CoworkerStrip } from '@/components/chat/CoworkerStrip';
 import { useCinderpawSendMessage } from '@/hooks/useCinderpaw';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { setChatDockHeight } from '@/lib/chatDock';
+import { localApiBase } from '@/lib/localApi';
 
 export function ChatPage() {
   const { id } = useParams();
@@ -87,10 +89,28 @@ export function ChatPage() {
     return () => { cancelled = true; unlisten?.(); };
   }, []);
   const [dropping, setDropping] = useState(false);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
+  useLayoutEffect(() => {
+    const el = workspaceRef.current;
+    if (!el) return;
+    const measure = () => {
+      if (el.clientWidth > 0) setCompact(el.clientWidth < 820);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const panelOpen       = useArtifacts((s) => s.panelOpen);
   const togglePanel     = useArtifacts((s) => s.togglePanel);
   const browserOpen     = useBrowser((s) => s.panelOpen);
-  const browserWide     = useBrowser((s) => s.wide);
+  const artifactsOnly   = compact && panelOpen && !browserOpen;
+  // Words or files put into the composer from the panel: narrow, the composer
+  // is hidden behind the panel, so the panel steps aside to show them.
+  const backToChat = () => { if (artifactsOnly) togglePanel(); };
+  const preferredBrowserWide = useBrowser((s) => s.wide);
+  const browserWide = preferredBrowserWide || compact;
   const browserChatOpen = useBrowser((s) => s.chatOpen);
   // True from the moment the browser is closed until its slide-out has
   // finished. In wide mode the panel is `flex-1`, and putting the chat column
@@ -261,12 +281,12 @@ export function ChatPage() {
       const cfg = useCinderpawStore.getState().modelConfig;
       const onCloud = !!cfg && cfg.provider !== 'openai_compatible' && cfg.provider !== 'ollama';
       if (!onCloud) {
-        void useCinderpawStore.getState().setModel({
+        void localApiBase().then((baseUrl) => useCinderpawStore.getState().setModel({
           source: 'openai_compatible',
           model: loaded.name,
-          baseUrl: 'http://localhost:11435',
+          baseUrl,
           providerId: 'cinderpaw-local',
-        }).catch(console.error);
+        })).catch(console.error);
       }
     }
   }, [loaded]);
@@ -284,7 +304,9 @@ export function ChatPage() {
   // panels or, in the browser's wide mode, inside the panel's own drawer,
   // without two copies of it in the tree.
   const chatColumn = (
-    <div className="flex flex-col h-full min-w-[28rem] flex-1">
+    // Narrow, the artifacts panel takes the whole row; the chat stays mounted
+    // (hidden) so its draft, queue and composer ref survive the switch.
+    <div className={cn('flex flex-col h-full flex-1', compact ? 'min-w-0' : 'min-w-[28rem]', artifactsOnly && 'hidden')}>
       {showAgentOnboarding && !wizardActive && (
         <AgentsOnboarding
           onDone={() => setShowAgentOnboarding(false)}
@@ -293,7 +315,6 @@ export function ChatPage() {
       )}
       {!showAgentOnboarding && <ChatHeader />}
 
-      <CinderpawGlobalMount />
       <AgentOfflineBanner />
       {!showAgentOnboarding && <CoworkerStrip />}
 
@@ -309,12 +330,9 @@ export function ChatPage() {
           <div className="absolute inset-x-0 top-0 h-0.5 bg-brand animate-pulse z-10" />
         )}
 
-        {/* Content: messages, no-model state, or empty overlay */}
-        {!isEmpty ? (
-          <MessageList onFollowUp={handleFollowUp} />
-        ) : (
-          <NewChatEmptyState isEmpty={isEmpty} />
-        )}
+        {/* Content: the messages. A new chat's notes live in the composer's
+            wrapper below, under the intent cards. */}
+        {!isEmpty && <MessageList onFollowUp={handleFollowUp} />}
 
         {/* Live agent-to-agent transcript (Agent Cowork). Self-hiding: with
             zero cowork traffic it renders nothing, so a fresh install sees
@@ -363,6 +381,10 @@ export function ChatPage() {
           <WorkersCard />
           {/* #10: humanized inference errors with a fix-it action */}
           <StreamErrorNotice />
+          <ProviderWaitNotice />
+          {/* "Something you should know", found while the agent works. */}
+          <HeadsUpCard />
+          <FollowUpCard />
           <ComposerTip
             isEmpty={isEmpty}
             // A new chat with the request typed in and the caret after it.
@@ -399,6 +421,7 @@ export function ChatPage() {
     // the composer: the page is the target people actually aim at. The
     // composer's own handler stops propagation by handling the drop first.
     <div
+      ref={workspaceRef}
       className="relative flex h-full"
       onDragOver={(e) => {
         if (!Array.from(e.dataTransfer.types).includes('Files')) return;
@@ -430,25 +453,29 @@ export function ChatPage() {
             working in it, an artifact it saves must not cover the page. The
             artifact is still one click away in the sidebar. */}
         {browserOpen && (
-          <BrowserPanel key="browser-panel" chat={chatColumn} onCompose={(text) => chatInputRef.current?.setText(text)} />
+          <BrowserPanel key="browser-panel" compact={compact} chat={chatColumn} onCompose={(text) => chatInputRef.current?.setText(text)} />
         )}
         {panelOpen && !browserOpen && (
           <ArtifactsPanel
             key="artifacts-panel"
+            compact={compact}
             onClose={togglePanel}
             // Not "send this to the agent": it fills the composer and leaves the
             // person holding the sentence, so they can say what they actually
             // want before spending a turn.
             onAsk={(row) => {
+              backToChat();
               chatInputRef.current?.setText(`About the artifact "${row.title}" (${row.id}): `);
-              chatInputRef.current?.focus();
+              setTimeout(() => chatInputRef.current?.focus());
             }}
             // Context's "Add": the same two gestures, words or files into the
             // composer, and they go with the next message.
-            onCompose={(text) => chatInputRef.current?.setText(text)}
+            onCompose={(text) => { backToChat(); chatInputRef.current?.setText(text); }}
             onAttach={() => {
               void openFileDialog({ multiple: true }).then((picked) => {
-                if (picked) chatInputRef.current?.attachPaths(Array.isArray(picked) ? picked : [picked]);
+                if (!picked) return;
+                backToChat();
+                chatInputRef.current?.attachPaths(Array.isArray(picked) ? picked : [picked]);
               });
             }}
           />

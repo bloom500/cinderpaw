@@ -12,13 +12,13 @@ import {
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { useNotifications } from '@/stores/notifications';
 import { tauri, type ByokProvider, type ModelInfo } from '@/lib/tauri';
+import { localApiBase } from '@/lib/localApi';
 
 // Cinderpaw's own model engine exposes an Ollama/OpenAI-compatible API here. The
 // agent must target THIS (not external Ollama on 11434) so it uses the model
 // loaded in the Models tab. We route local models through the OpenAI-compatible
 // path (/v1/chat/completions) — Cinderpaw's /api/chat emits SSE, which the agent's
 // `ollama` provider (expecting NDJSON) cannot parse.
-const CINDERPAW_API_BASE = 'http://localhost:11435';
 // Sentinel provider id — the backend ignores it for the openai_compatible
 // source (it keys off baseUrl), but the CinderpawModelSelection type requires one.
 const LOCAL_PROVIDER_ID = 'cinderpaw-local';
@@ -64,7 +64,7 @@ export function CinderpawModelSelector() {
       await setModel({
         source: 'openai_compatible',
         model: m.name,
-        baseUrl: CINDERPAW_API_BASE,
+        baseUrl: await localApiBase(),
         providerId: LOCAL_PROVIDER_ID,
       });
     } catch (err) {

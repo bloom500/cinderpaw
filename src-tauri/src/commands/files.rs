@@ -210,8 +210,8 @@ fn extract_zip_xml_text(path: &std::path::Path, ext: &str) -> Result<String, Str
 
     let mut wanted: Vec<String> = Vec::new();
     for i in 0..archive.len() {
-        let name = match archive.by_index(i) {
-            Ok(f) => f.name().to_string(),
+        let name = match archive.by_index(i).and_then(|f| f.name().map(|n| n.to_string())) {
+            Ok(n) => n,
             Err(_) => continue,
         };
         let keep = match ext {

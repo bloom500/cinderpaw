@@ -47,7 +47,7 @@ describe('What Cinderpaw remembers', () => {
     expect(await screen.findByText('Darius builds Cinderpaw.')).toBeInTheDocument();
     expect(screen.getByText('Flight to Lisbon')).toBeInTheDocument();
     expect(screen.getByText('for 2026-10-12')).toBeInTheDocument();
-    expect(screen.getByText(/Last note: 2h ago/)).toBeInTheDocument();
+    expect(screen.getByText(/Checked for new notes 2h ago/)).toBeInTheDocument();
 
     notes.mockResolvedValueOnce(reply());
     fireEvent.click(screen.getByRole('button', { name: 'Delete note: Flight to Lisbon' }));

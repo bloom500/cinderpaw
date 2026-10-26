@@ -33,6 +33,12 @@ describe('the name the save dialog suggests', () => {
     expect(suggested().filters).toEqual([{ name: 'Excel', extensions: ['xlsx'] }]);
   });
 
+  it('writing leaves as a PDF first, with Word and its own format still offered', async () => {
+    await useArtifacts.getState().exportArtifact('m1', { row: { title: 'Week plan', kind: 'markdown' } });
+    expect(suggested().defaultPath).toBe('Week plan.pdf');
+    expect(suggested().filters.map((f) => f.name)).toEqual(['PDF', 'Word', 'Markdown text']);
+  });
+
   it('a script keeps its own type', async () => {
     await useArtifacts.getState().exportArtifact('c1', { row: { title: 'scrape.py', kind: 'code' } });
     expect(suggested().defaultPath).toBe('scrape.py');

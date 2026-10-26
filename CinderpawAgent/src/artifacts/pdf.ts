@@ -139,8 +139,9 @@ function plain(s: string): string {
  * A PDF from markdown.
  *
  * ponytail: block-level only (headings, paragraphs, bullet and numbered lists,
- * rules). Inline bold/italic and tables are flattened to text. Add inline runs
- * when someone asks for a PDF where that matters.
+ * rules, tables). Inline bold/italic is flattened to text. Add inline runs
+ * when someone asks for a PDF where that matters. A table that crosses a page
+ * does not repeat its header there.
  */
 export async function pdfFromMarkdown(markdown: string, title: string): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
@@ -167,10 +168,58 @@ export async function pdfFromMarkdown(markdown: string, title: string): Promise<
     });
   };
 
+  /** Header row bold on grey; columns share the width by how much text each holds. */
+  const table = (rows: string[][]) => {
+    const cols = Math.max(...rows.map((r) => r.length));
+    const size = 9.5, lead = size * 1.35, pad = 4;
+    const want = Array.from({ length: cols }, (_, c) =>
+      Math.max(...rows.map((r, i) => (i ? regular : bold).widthOfTextAtSize(r[c] ?? "", size))) + pad * 2);
+    // A column that fits in an even share keeps its own width, so "Mon 26 Oct"
+    // stays on one line; the long columns split what is left by their length.
+    const even = width / cols;
+    const short = want.map((w) => w <= even);
+    const rest = width - want.reduce((a, w, c) => a + (short[c] ? w : 0), 0);
+    const long = want.reduce((a, w, c) => a + (short[c] ? 0 : w), 0);
+    const colW = long ? want.map((w, c) => (short[c] ? w : (w / long) * rest)) : want.map((w) => (w / want.reduce((a, b) => a + b, 0)) * width);
+    const rule = (at: number) =>
+      page.drawLine({ start: { x: MARGIN, y: at }, end: { x: MARGIN + width, y: at }, thickness: 0.5, color: rgb(0.75, 0.75, 0.75) });
+    y -= 4;
+    rows.forEach((row, i) => {
+      const font = i ? regular : bold;
+      const cells = colW.map((w, c) => wrap(row[c] ?? "", font, size, w - pad * 2));
+      const h = pad * 2 + size * 1.3 + (Math.max(...cells.map((l) => l.length)) - 1) * lead;
+      ensure(h);
+      if (i === 0) {
+        page.drawRectangle({ x: MARGIN, y: y - h, width, height: h, color: rgb(0.93, 0.93, 0.93) });
+        rule(y);
+      }
+      let x = MARGIN;
+      cells.forEach((ls, c) => {
+        ls.forEach((ln, k) => page.drawText(ln, { x: x + pad, y: y - pad - size - k * lead, size, font, color: rgb(0.1, 0.1, 0.1) }));
+        x += colW[c]!;
+      });
+      y -= h;
+      rule(y);
+    });
+  };
+  const cellsOf = (row: string) => row.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => plain(c.trim()));
+
   for (const para of markdown.replace(/\r\n/g, "\n").split(/\n{2,}/)) {
-    for (const line of para.split("\n")) {
-      const t = line.trim();
+    const lines = para.split("\n");
+    for (let n = 0; n < lines.length; n++) {
+      const t = lines[n]!.trim();
       if (!t) continue;
+      if (t.startsWith("|")) {
+        const rows: string[][] = [];
+        for (; n < lines.length && lines[n]!.trim().startsWith("|"); n++) {
+          const r = lines[n]!.trim();
+          // The "| --- | :---: |" row only says where the header ends.
+          if (!/^\|[\s:|-]+$/.test(r)) rows.push(cellsOf(r));
+        }
+        n--;
+        if (rows.length) table(rows);
+        continue;
+      }
       const h = /^(#{1,3})\s+(.*)$/.exec(t);
       if (h) {
         const size = [20, 16, 13][h[1]!.length - 1]!;

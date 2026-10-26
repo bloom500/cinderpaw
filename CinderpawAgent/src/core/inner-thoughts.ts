@@ -38,6 +38,10 @@ import type { InferenceRouter } from "../egress/inference-router.ts";
 import type { EpisodicMemory } from "../memory/episodic.ts";
 import type { MoodEngine } from "./mood.ts";
 import type { EventSink } from "./agent-loop.ts";
+import { cfgPath, readEnv } from "../config.ts";
+import { priceResolverFromJson } from "../rsi/infra/rsi-cost.ts";
+import { MonthlyProactiveBudget } from "./proactive-followups.ts";
+import type { InferenceSpendAuthority } from "../egress/inference-spend-authority.ts";
 
 export interface InnerThoughtsConfig {
   /** How often the loop ticks, in milliseconds. */
@@ -113,6 +117,7 @@ export class InnerThoughtsLoop {
   readonly #mood: MoodEngine;
   readonly #db: Database;
   readonly #config: InnerThoughtsConfig;
+  readonly #budget: MonthlyProactiveBudget;
   #emit: EventSink | null = null;
   #timer: ReturnType<typeof setTimeout> | null = null;
   #running = false;
@@ -129,6 +134,10 @@ export class InnerThoughtsLoop {
     this.#mood = mood;
     this.#db = db;
     this.#config = { ...DEFAULT_CONFIG, ...config };
+    this.#budget = new MonthlyProactiveBudget(db, {
+      price: priceResolverFromJson(cfgPath("CINDERPAW_AUTONOMOUS_PRICING_JSON")),
+      limitUsd: () => Number(readEnv("CINDERPAW_PROACTIVE_MONTHLY_USD") ?? 1),
+    });
   }
 
   /**
@@ -294,7 +303,8 @@ export class InnerThoughtsLoop {
 
     const moodDesc = this.#mood.describe();
 
-    const res = await this.#router.complete({
+    const complete = (spendAuthority: InferenceSpendAuthority) => this.#router.complete({
+      spendAuthority,
       sessionId: this.#config.sessionId,
       messages: [
         {
@@ -321,6 +331,7 @@ export class InnerThoughtsLoop {
       ],
       maxTokens: this.#config.maxTokens,
     });
+    const res = await this.#budget.run(complete);
 
     return res.content.trim();
   }

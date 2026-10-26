@@ -68,6 +68,11 @@ Every tool call passes a security layer before execution:
   have separate network paths; MCP manifest hints do not sandbox server I/O.
 - **Path containment** — filesystem tools resolve against declared roots with
   `realpath` symlink-following; traversal is rejected before any disk access.
+  In **Full access** mode (`permission_mode: "full_access"`, picked under the
+  box where you type) the general file tools (read, write, edit, list, search,
+  grep) also reach paths outside those roots. The deny wall for agent state and
+  credentials is checked first and still holds; destruction outside the
+  workspace still asks a person. The default mode is `workspace_write`.
 - **Process sandbox** — `shell_exec` is **on by default**; set
   `CINDERPAW_ENABLE_SHELL_EXEC=false` to unregister it. It is argv-only: the
   command is spawned directly. A caller can explicitly request `sh -c` or another

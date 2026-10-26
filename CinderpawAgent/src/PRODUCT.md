@@ -39,8 +39,31 @@ github.com/bloom500/cinderpaw, community Discord discord.gg/eqvfVRD6y7.
 - `cinderpaw setup --classic` — full step-by-step wizard (hardware probe, local
   vs cloud choice, model download, provider key, health checks).
 - The desktop app runs an equivalent onboarding wizard on first launch.
+- Coming from OpenClaw or Hermes Agent: setup offers to bring over the
+  personality, skills, memory, AI keys (only on the person's yes), chat
+  connections, scheduled tasks and old conversations (an archive to read in
+  the sidebar). Chat apps and tasks arrive turned off so the old agent and
+  Cinderpaw do not answer twice; they turn them on in Connectors and Tasks.
 - A one-time security acknowledgement is shown: Cinderpaw runs with the user's
   permissions, so shared/multi-user machines should be locked down.
+
+## Extensions (services connected by a link)
+
+Many services (Publora, Zapier, Notion and others) give a link "for AI
+assistants" (an MCP server link) and usually a key. **You support these and
+connect them yourself**; never say you have no MCP. Get the link from the
+person or the service's docs. In the desktop app, call `request_secret` with
+`extension_url` (and `extension_name`): the key goes in a secure field and
+saving it connects the service. If the key is already in the chat, or
+request_secret answers unsupported_surface, call `extension_connect` with
+`url`, `name` and `key`. Both ask the person to confirm. Once connected, the
+service's abilities are your tools, named `mcp_<tool>`. Adding it by hand in
+Capabilities > Add your own is the manual way, never required.
+
+Some services have no key and sign in through the browser instead (Notion,
+Linear and most big ones). Call `extension_connect` with just the `url`: after
+Connect, a sign-in page opens in the person's browser; tell them to finish
+there. Nothing to create on the service's side, and no Node needed.
 
 ## Connectors
 
@@ -53,7 +76,7 @@ memory or from this file WHICH platforms exist: call `connectors_manage`
 ids back. A list typed here rots: it named three while the build carried 21,
 and people were turned away from connectors we had the code for.
 `action:"configure"` saves the config and applies it immediately. Ask the user for the required secrets (e.g. the Discord bot
-token): on the Cinderpaw page, call `request_secret`, which opens a secure
+token): in the desktop app or on the Cinderpaw page, call `request_secret`, which opens a secure
 field so the value never enters the chat; elsewhere ask in the chat. Then configure it yourself — do not send them to the settings UI
 unless they prefer that. WhatsApp needs no secret: enable it, then tell the
 user to scan the QR code shown in the app (Connectors page or TUI). The first
@@ -144,6 +167,27 @@ like this" — it can keep that as a skill of its own.
   told to.
 - `delete_skill` removes one taught by mistake, after asking; it cannot be undone.
 
+## What you may change (permission modes)
+
+The person picks one of three modes under the box where they type; the
+default is **Can edit files**. A change applies to the next step, no restart.
+
+- **Look only** (`read_only`) — reads files and the web, changes nothing on
+  the computer: no file writes, no destructive or machine-level commands.
+- **Can edit files** (`workspace_write`, the default) — writes inside the
+  workspace, where the safety point can undo them; asks before anything outside.
+- **Full access** (`full_access`) — the file tools reach every folder and
+  commands run anywhere. Deleting what cannot be undone still asks a person,
+  the folders holding Cinderpaw's state and keys stay closed, and commands
+  known to wipe a disk are refused.
+
+In every mode, pressing the button that pays on a site in the browser (Place
+order, Pay, Buy now) asks the person first; with nobody there to answer, it is
+refused. Filling a cart or opening checkout does not ask.
+
+You cannot change the mode yourself. If a task needs more, say which mode it
+needs and where to pick it.
+
 ## Running its own installation
 
 Once Cinderpaw is set up, the person should not have to open a terminal again for
@@ -184,6 +228,8 @@ person).
   retrieval). The agent can use `recall` and `self_memory`; the TUI's `/memory`
   command does not implement statistics or search.
 - Dream cycles: background reflection that consolidates memory when idle.
+  Off on a new install, local and cloud alike, until the user turns on Dreams
+  in Settings → Learning.
   The TUI's `/dream` shows its last observed dream event; `/dream now` is unavailable.
 - LoRA personalization: on-device fine-tuning proposals gated by eval
   (never auto-applied blind). `/lora` shows training status.
@@ -231,6 +277,32 @@ what the commands actually did, then every file changed with a command to undo
 it, and the agent's own words LAST. It is assembled from what the runtime
 already recorded, so it costs no model call and cannot make things up.
 
+## Scheduled tasks and follow-ups
+
+Ask in chat for a reminder, recurring task or source watch. `suggest_task` offers
+a card with the computed schedule; nothing is created until the person presses
+Create. A request for later must not be executed now. The Tasks page lists jobs
+and their history, with edit, pause, resume, renew and delete controls.
+
+Reminders deliver their text without AI inference. Source watches fetch a public
+HTTPS page and verify configured text in its body; a link or a model's claim is
+not proof. They expire after 30 days by default and stop after a verified match.
+JavaScript-only or authenticated sources may not be verifiable this way.
+
+Agent tasks share one weekly spending limit, off by default; the first task card
+asks once whether to set one. `task_spending_limit` reads or changes it, only when
+the person asks in their own words. Cloud prices come from OpenRouter's public
+list; a model on this computer or another machine at home is free; an unknown
+cloud route counts at a high ceiling so a set limit still holds. Reminders and
+watches never count. Task spending is separate from the default $1/month limit
+for automatic proactive inference. Event-driven unfinished-work suggestions use
+no inference and never resume work by themselves; they can be disabled in Tasks.
+
+Closing the main window keeps tasks running in the tray. Quit stops the runtime.
+Safe missed reminders and watches can catch up once. A repeating agent task
+missed while Cinderpaw was closed waits for its next time; a missed one-off is
+paused, and Resume runs it. Interrupted runs are never replayed by themselves.
+
 ## Widgets in the chat
 
 `show_widget` draws data as a themed widget: `facts`, `checklist`, `cards`,
@@ -238,6 +310,8 @@ already recorded, so it costs no model call and cannot make things up.
 with up to four next-request chips. Never HTML; misfit data is a plain list. Card pictures (named, or a linked page's preview image)
 are fetched once through the egress door and kept in `~/.cinderpaw/cache/images`. A finished artifact is a card in the reply.
 `find_images` returns credited photos; Pexels/Unsplash need `CINDERPAW_PEXELS_KEY` / `CINDERPAW_UNSPLASH_KEY`.
+`heads_up` puts "something you should know" above the message box while work goes on: Learn more,
+I already knew this (the agent flags less of the obvious), Dismiss. One per chat every two minutes at most.
 
 ## Keeping its place on a long task
 
@@ -277,7 +351,9 @@ chart, table, code or PDF under a stable id; `artifact_download` saves a PDF or
 Word form from the web; `artifact_list`/`artifact_read` find them; `artifact_edit`
 changes a span or fills a form, as a new version; `artifact_export` writes a file;
 `artifact_delete` hides one; `artifact_send` puts one in your Telegram or Discord
-chat once you approve. You sign PDFs in the Artifacts panel.
+chat once you approve. You sign PDFs in the Artifacts panel. Before a poster, post,
+slide or card, `design_guide` gives the agent artboard sizes, type, palettes and a
+checklist, so a design looks finished without a design skill installed.
 
 ## Teammates (Agent Cowork)
 
@@ -360,9 +436,10 @@ token footnote), `/restart` (restart the runtime).
 - No telemetry of chat content. One install count at setup (version + OS + an optional button for where they heard about Cinderpaw,
   once, refusable) and an opt-in daily usage summary per model, no
   text; see PROMISES.md 4.
-- Not unsupervised in the user's project by default: writes are refused
-  outside the configured workspace roots, and the agent must read a file
-  before it may overwrite it.
+- Not unsupervised in the user's project by default: in the default mode,
+  writes are refused outside the configured workspace roots (Full access
+  widens that, see the permission modes above), and the agent must read a
+  file before it may overwrite it.
 - The agent cannot edit its own settings, memory database, or identity files
   under `~/.cinderpaw` — configuration changes go through the commands and
   surfaces above. The ONE exception is `~/.cinderpaw/workspace`, its scratchpad,

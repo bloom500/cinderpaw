@@ -36,11 +36,11 @@
   },
   {
     "id": "kimi",
-    "name": "Kimi (Moonshot AI)",
+    "name": "Kimi Code (subscription)",
     "provider": "kimi",
     "default_base_url": "https://api.kimi.com/coding/v1",
-    "default_model": "moonshot-v1-8k",
-    "console_url": "https://platform.moonshot.ai/console/api-keys",
+    "default_model": "kimi-for-coding",
+    "console_url": "https://www.kimi.com/code/console",
     "supports_custom_base_url": false,
     "auth_style": "bearer"
   },
@@ -233,10 +233,11 @@
   },
   {
     "id": "moonshot",
-    "name": "Moonshot AI",
+    "name": "Kimi API (Moonshot, pay per use)",
     "provider": "custom",
     "default_base_url": "https://api.moonshot.ai/v1",
     "default_model": "kimi-k3",
+    "console_url": "https://platform.moonshot.ai/console/api-keys",
     "supports_custom_base_url": true,
     "auth_style": "bearer"
   },

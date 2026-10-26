@@ -9,7 +9,7 @@ import { StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MotionConfig } from 'framer-motion';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { startFrameLog } from './lib/frameLog';
+import { installFrameMeter, startFrameLog } from './lib/frameLog';
 // Import through Vite so font URLs resolve relative to the package's CSS.
 // Tailwind's CSS import inlining otherwise leaves bare ./files URLs in dist.
 import '@fontsource-variable/geist';
@@ -62,6 +62,7 @@ const mount = (node: ReactNode) =>
   );
 
 startFrameLog();
+installFrameMeter();
 
 // Each window loads only what it draws. The pill imported the whole app (2.7
 // MB of script) to show one strip, every time a call was parked: 735 ms of

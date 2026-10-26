@@ -10,7 +10,7 @@
 //! only. Everything here reaches INTO the page (eval) and reads the answer back
 //! out of its URL fragment; nothing lets the page reach out.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -54,6 +54,10 @@ struct Tab {
     dormant: bool,
     /// When this tab was last the active one, for discarding.
     last_active: std::time::Instant,
+    /// Opened by the agent for its own work. Its pages go here, never into a
+    /// tab the person is using: he wants to watch a video "fara sa traiesc cu
+    /// frica ca agentul ma intrerupe deschizand alt site peste YouTube" (20 Oct).
+    agent: bool,
 }
 
 #[derive(Default)]
@@ -143,6 +147,7 @@ fn tabs_json() -> Value {
             "canBack": tab.cursor > 0,
             "canForward": tab.cursor + 1 < tab.history.len(),
             "blocked": crate::adblock::blocked_on(&tab.label),
+            "agent": tab.agent,
         })).collect::<Vec<_>>(),
     })
 }
@@ -629,10 +634,27 @@ fn watch_active_url(app: &AppHandle) {
     });
 }
 
+tokio::task_local! {
+    /// The tab an agent action works on: its own, or the person's when it asked
+    /// for `tab: "user"` (None). Not set for the panel's own calls.
+    static AGENT_TARGET: Option<u32>;
+}
+
+/// The agent's current tab, while it still exists.
+static AGENT_TAB: std::sync::Mutex<Option<u32>> = std::sync::Mutex::new(None);
+
+/// The tab an action works on: inside an agent action its target, otherwise
+/// (or when that tab is gone) the one in front.
+fn target_id(t: &Tabs) -> Option<u32> {
+    AGENT_TARGET.try_with(|x| *x).ok().flatten()
+        .filter(|id| t.list.iter().any(|tab| tab.id == *id))
+        .or(t.active)
+}
+
 fn page(app: &AppHandle) -> Option<Webview> {
     let label = {
         let t = tabs().lock();
-        let id = t.active?;
+        let id = target_id(&t)?;
         t.list.iter().find(|tab| tab.id == id)?.label.clone()
     };
     app.get_webview(&label)
@@ -721,6 +743,18 @@ fn open_or_navigate(app: &AppHandle, url: Url) -> Result<Webview, String> {
 static FULLSCREEN_TAB: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 /// The window was maximised when the page went fullscreen, to restore after.
 static WAS_MAXIMIZED: AtomicBool = AtomicBool::new(false);
+/// One number per fullscreen change. A page can leave and come straight back
+/// (X used to); the older change, still waiting, must not act after a newer one.
+static FS_GEN: AtomicU64 = AtomicU64::new(0);
+/// When the panel last reported where the page belongs (`set_bounds`).
+static LAST_BOUNDS: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+/// The window back from a page's fullscreen, as it was before.
+fn restore_window(window: &tauri::Window) {
+    let _ = window.set_always_on_top(false);
+    let _ = window.set_fullscreen(false);
+    if WAS_MAXIMIZED.swap(false, Ordering::SeqCst) { let _ = window.maximize(); }
+}
 
 /// A page asked for fullscreen, or left it. A child webview's fullscreen only
 /// fills the webview, so a YouTube video went "fullscreen" inside the panel
@@ -730,20 +764,40 @@ static WAS_MAXIMIZED: AtomicBool = AtomicBool::new(false);
 /// all arrive here the same way.
 fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
     let app = app.clone();
+    let gen = FS_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    let current = move || FS_GEN.load(Ordering::SeqCst) == gen;
     // Off the WebView2 callback: window calls from inside it can wait on the
     // same thread that is running it.
     tauri::async_runtime::spawn(async move {
         let (Some(window), Some(wv)) = (app.get_window("main"), app.get_webview(&label)) else { return };
         if on {
             if let Ok(mut f) = FULLSCREEN_TAB.lock() { *f = Some(label.clone()); }
+            // The app hides behind the curtain while the window changes size:
+            // without it the app showed stretched over the screen, then re-laid
+            // out (20 Oct, filmed). The page is a native view above it.
+            let _ = app.emit("browser://curtain", json!({ "on": true }));
             // A maximised undecorated window keeps its client area clipped to
             // the work area, and fullscreen inherited the clip: the page ended
             // 49 px short, exactly where the taskbar sat over it (23 Sep, his
             // window was maximised). Leave maximised first; put it back after.
+            // And WAIT until it has left: unmaximize is asynchronous, and a
+            // fullscreen asked for meanwhile was undone when the restore landed
+            // after it. tao then said fullscreen while the window sat at its
+            // restored size, 1296x809, and the video filled only that (his test,
+            // 20 Oct 01:01-01:15: was_max=true every time, in his host log).
             let was_max = window.is_maximized().unwrap_or(false);
             WAS_MAXIMIZED.store(was_max, Ordering::SeqCst);
-            if was_max { let _ = window.unmaximize(); }
-            let _ = window.set_fullscreen(true);
+            if was_max {
+                let maxed = window.inner_size().ok();
+                let _ = window.unmaximize();
+                for _ in 0..25 {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    if !window.is_maximized().unwrap_or(true) && window.inner_size().ok() != maxed { break; }
+                }
+            }
+            if !current() { return; }
+            let asked = window.set_fullscreen(true);
+            tracing::info!(%label, ?asked, was_max, fs = ?window.is_fullscreen(), size = ?window.inner_size().ok(), "browser: asked the window for fullscreen");
             // A transparent window in fullscreen stays under the Windows 11
             // taskbar (tauri#7328); he saw the bar over the video. Topmost for
             // as long as the page is fullscreen puts it above.
@@ -752,35 +806,117 @@ fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
             let _ = window.set_always_on_top(true);
             // The window's size once it has become fullscreen, not the monitor's
             // read at the call: sized that early the page stopped 49 px short of
-            // the bottom (23 Sep). Read until two reads agree.
+            // the bottom (23 Sep). tao goes fullscreen without waiting
+            // (SWP_ASYNCWINDOWPOS): on a busy PC two reads 60 ms apart both saw
+            // the OLD size, agreed, and the video filled only the window as it
+            // was (19 Oct, YouTube and X). Wait for the monitor's size; after
+            // ~2.4 s take whatever size the window has.
+            let monitor = window.current_monitor().ok().flatten();
+            let target = monitor.as_ref().map(|m| *m.size());
+            // The page at the screen's size at once, so the growing window
+            // reveals it instead of showing it small in a corner first.
+            if let (Some(m), Ok(scale)) = (&monitor, window.scale_factor()) {
+                let l = m.size().to_logical::<f64>(scale);
+                let _ = wv.set_bounds(tauri::Rect {
+                    position: LogicalPosition::new(0.0, 0.0).into(),
+                    size: LogicalSize::new(l.width, l.height).into(),
+                });
+            }
             let mut last = (0.0, 0.0);
-            for _ in 0..10 {
+            for i in 0..40 {
                 tokio::time::sleep(Duration::from_millis(60)).await;
                 let (Ok(px), Ok(scale)) = (window.inner_size(), window.scale_factor()) else { break };
                 let size = px.to_logical::<f64>(scale);
-                if (size.width, size.height) == last { break; }
                 last = (size.width, size.height);
+                if Some(px) == target { break; }
+                // Still not the screen's size after ~0.6 s although tao says
+                // fullscreen: cover the monitor ourselves, once (borderless
+                // fullscreen is exactly that), whatever undid the first ask.
+                // From a maximised window the ask never takes (21 Oct, filmed:
+                // 0.6 s of a black window, then a cut-off video), so there it is
+                // done at once.
+                if i == if was_max { 0 } else { 9 } {
+                    if let Some(m) = &monitor {
+                        tracing::warn!(%label, size = ?px, "browser: fullscreen did not take; covering the monitor directly");
+                        let _ = window.set_position(tauri::Position::Physical(*m.position()));
+                        let _ = window.set_size(tauri::Size::Physical(*m.size()));
+                    }
+                }
             }
+            if Some(last) != target.zip(window.scale_factor().ok()).map(|(t, s)| { let l = t.to_logical::<f64>(s); (l.width, l.height) }) {
+                tracing::warn!(%label, ?target, fs = ?window.is_fullscreen(), max = ?window.is_maximized(), "browser: the window never reached the monitor's size");
+            }
+            if !current() { return; }
+            let _ = wv.show();
             let _ = wv.set_bounds(tauri::Rect {
                 position: LogicalPosition::new(0.0, 0.0).into(),
                 size: LogicalSize::new(last.0, last.1).into(),
             });
             tracing::info!(%label, w = last.0, h = last.1, "browser: page fullscreen");
             let _ = wv.set_focus();
+            let _ = app.emit("browser://curtain", json!({ "on": false }));
         } else {
-            if let Ok(mut f) = FULLSCREEN_TAB.lock() { *f = None; }
             tracing::info!(%label, "browser: page left fullscreen");
-            let _ = window.set_always_on_top(false);
-            let _ = window.set_fullscreen(false);
-            if WAS_MAXIMIZED.swap(false, Ordering::SeqCst) { let _ = window.maximize(); }
-            if let Some(tab) = tabs().lock().list.iter_mut().find(|t| t.label == label) { tab.placed = None; }
+            // Out of sight until it can be placed once, at its final size.
+            // Placed while the window was still shrinking, the page went
+            // through 4-6 sizes in 1.3 s and X re-laid its whole site at each
+            // (20 Oct, filmed): first the panel rect measured while the window
+            // was fullscreen, then every report as it came back. The curtain
+            // covers the app re-laying out meanwhile.
+            let _ = app.emit("browser://curtain", json!({ "on": true }));
+            let _ = wv.hide();
+            // The screen's size: the window has left once it is any other size.
+            // Not the window's own size now, nor one remembered at entry: by the
+            // time WebView2 says the page left, the window is often already back
+            // (21 Oct, logged: 1280x800 at the first look).
+            let full = window.current_monitor().ok().flatten().map(|m| *m.size());
+            // A window that was maximised is back only once maximised again: it
+            // passes through its restored size first (21 Oct, filmed).
+            let to_max = WAS_MAXIMIZED.load(Ordering::SeqCst);
+            restore_window(&window);
+            // FULLSCREEN_TAB stays set while waiting, so the panel's reports do
+            // not place the page early (`place_all` skips it). Wait for the window
+            // to leave the screen's size, then for the panel to stop reporting new
+            // rects. It used to wait for the size remembered before fullscreen,
+            // a size the window had already left or never had: every exit sat
+            // 1.6 s on the black curtain until the timeout (21 Oct, filmed, logged).
+            // Bounded: a window that never changes size is placed anyway.
+            let start = std::time::Instant::now();
+            let mut sized: Option<std::time::Instant> = None;
+            while start.elapsed() < Duration::from_millis(1500) {
+                tokio::time::sleep(Duration::from_millis(30)).await;
+                let Some(at) = sized else {
+                    let left = full.is_none() || window.inner_size().ok() != full;
+                    if left && (!to_max || window.is_maximized().unwrap_or(true)) { sized = Some(std::time::Instant::now()); }
+                    continue;
+                };
+                let last = LAST_BOUNDS.lock().ok().and_then(|l| *l).unwrap_or(at).max(at);
+                if last.elapsed() >= Duration::from_millis(120) { break; }
+            }
+            // Back in fullscreen already: that change owns the page now.
+            if !current() { return; }
+            if let Ok(mut f) = FULLSCREEN_TAB.lock() { *f = None; }
+            // Sized while still hidden, so the page re-lays out out of sight;
+            // then shown, then the curtain lifts.
+            let b = *bounds().lock();
+            let rect = (b.x, b.y, b.w.max(1.0), b.h.max(1.0));
+            let _ = wv.set_bounds(tauri::Rect {
+                position: LogicalPosition::new(rect.0, rect.1).into(),
+                size: LogicalSize::new(rect.2, rect.3).into(),
+            });
+            if let Some(tab) = tabs().lock().list.iter_mut().find(|t| t.label == label) { tab.placed = Some(rect); }
+            tokio::time::sleep(Duration::from_millis(100)).await;
             let _ = place_all(&app);
+            tracing::info!(%label, waited_ms = start.elapsed().as_millis() as u64, "browser: page placed after fullscreen");
+            tokio::time::sleep(Duration::from_millis(60)).await;
+            let _ = app.emit("browser://curtain", json!({ "on": false }));
         }
     });
 }
 
-/// ponytail: Windows only. WKWebView (macOS) needs `elementFullscreenEnabled`
-/// and its own window handling; there a video's fullscreen stays in the panel.
+/// Windows only. On a Mac WebKit takes a video fullscreen in its own window
+/// (wry's `fullscreen` feature, see Cargo.toml), so nothing is hooked there.
+/// ponytail: Linux (WebKitGTK) untested; there it may stay in the panel.
 #[cfg(windows)]
 fn hook_fullscreen(wv: &Webview, app: AppHandle, label: String) {
     use webview2_com::ContainsFullScreenElementChangedEventHandler;
@@ -799,6 +935,11 @@ fn hook_fullscreen(wv: &Webview, app: AppHandle, label: String) {
 
 /// A new tab, in front, loading `url`.
 fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
+    new_tab_with(app, url, true)
+}
+
+/// A new tab loading `url`, in front or behind the one the person is on.
+fn new_tab_with(app: &AppHandle, url: Url, front: bool) -> Result<Webview, String> {
     let window = app
         .get_window("main")
         .ok_or_else(|| "browser: the main window is not open".to_string())?;
@@ -807,8 +948,8 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
         t.next_id += 1;
         let id = t.next_id;
         let label = format!("browser-tab-{id}");
-        t.list.push(Tab { id, label: label.clone(), title: String::new(), history: Vec::new(), cursor: 0, expecting: None, loading: true, placed: None, dormant: false, last_active: std::time::Instant::now() });
-        t.active = Some(id);
+        t.list.push(Tab { id, label: label.clone(), title: String::new(), history: Vec::new(), cursor: 0, expecting: None, loading: true, placed: None, dormant: false, last_active: std::time::Instant::now(), agent: false });
+        if front { t.active = Some(id); }
         (id, label)
     };
     LOADING.store(true, Ordering::SeqCst);
@@ -943,6 +1084,11 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
     hook_fullscreen(&wv, app.clone(), label.clone());
     place_all(app)?;
     watch_active_url(app);
+    if !front {
+        // The new page took the keyboard as it was created; behind the person's
+        // page it must not: Space would stop pausing their video.
+        if let Some(wv) = page(app) { let _ = wv.set_focus(); }
+    }
     if at_home {
         // A new tab is for typing into. The child takes the keyboard focus the
         // moment it is created, parked or not, and the panel's search box kept
@@ -960,7 +1106,8 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
 fn go_to(app: &AppHandle, url: &str) -> Result<(), String> {
     {
         let mut t = tabs().lock();
-        if let Some(tab) = t.active.and_then(|id| t.list.iter_mut().find(|x| x.id == id)) {
+        let id = target_id(&t);
+        if let Some(tab) = id.and_then(|id| t.list.iter_mut().find(|x| x.id == id)) {
             tab.expecting = Some(url.to_string());
             tab.loading = url != HOME;
         }
@@ -1102,7 +1249,11 @@ const SNAPSHOT: &str = r#"(() => {
       type: el.getAttribute('type') || undefined,
       role: el.getAttribute('role') || undefined,
       name,
-      value: ('value' in el && !secret && el.tagName !== 'BUTTON') ? String(el.value).slice(0, 80) : undefined,
+      // An editable div (the X, LinkedIn, Gmail, Slack composers) has no .value:
+      // its text is innerText. Without this the agent typed into it and then read
+      // it back as empty every time (25 Oct). 300 so a whole post can be checked.
+      value: el.isContentEditable ? el.innerText.slice(0, 300)
+        : ('value' in el && !secret && el.tagName !== 'BUTTON') ? String(el.value).slice(0, 300) : undefined,
       checked: ('checked' in el && (el.type === 'checkbox' || el.type === 'radio')) ? el.checked : undefined,
       inView: r.bottom > 0 && r.top < innerHeight,
     });
@@ -1242,11 +1393,47 @@ fn find_script(query_json: &str, direction_json: &str) -> String {
 }})()"#)
 }
 
+/// The element is there and on screen: the answer round-trip before an action
+/// that may navigate. The action itself goes through `fire`.
+fn locate_script(reference: &str) -> String {
+    element_script(reference, "return { ok: true };")
+}
+
 fn click_script(reference: &str) -> String {
     element_script(reference, "el.focus(); el.click(); return { ok: true };")
 }
 
-fn type_script(reference: &str, text: &str, submit: bool) -> String {
+fn submit_script(reference: &str) -> String {
+    element_script(
+        reference,
+        "if (el.form && el.form.requestSubmit) el.form.requestSubmit(); \
+         else el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return { ok: true };",
+    )
+}
+
+/// An action that may navigate, run with no answer written into the page.
+///
+/// `run` writes its answer into the address and then puts the old address
+/// back. Inside the same script as a click, that undid the click's own
+/// navigation on every single-page site: the router had already moved to the
+/// thread, and the host moved the address back to the feed (Reddit, 23 Oct:
+/// the agent "clicked" a thread three times and stayed on /new/). A route
+/// change loads no page, so `settle` cannot see it; the address can.
+async fn fire(wv: &Webview, script: &str) -> Result<Value, String> {
+    let before = wv.url().map_err(|e| e.to_string())?;
+    wv.eval(script).map_err(|e| e.to_string())?;
+    // A download needs a moment to start and be filed; a route change, to show.
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    for _ in 0..9 {
+        if wv.url().map_err(|e| e.to_string())? != before { break; }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    settle(Duration::from_secs(15)).await;
+    let now = wv.url().map_err(|e| e.to_string())?;
+    Ok(json!({ "ok": true, "url": now.as_str() }))
+}
+
+fn type_script(reference: &str, text: &str) -> String {
     let t = serde_json::to_string(text).unwrap_or_else(|_| "\"\"".into());
     element_script(
         reference,
@@ -1263,8 +1450,6 @@ fn type_script(reference: &str, text: &str, submit: bool) -> String {
                      const setter = proto && Object.getOwnPropertyDescriptor(proto, 'value'); \
                      if (setter && setter.set) setter.set.call(el, text); else el.value = text; \
                      el.dispatchEvent(new Event('input', {{ bubbles: true }})); el.dispatchEvent(new Event('change', {{ bubbles: true }})); }} \
-             if ({submit}) {{ if (el.form && el.form.requestSubmit) el.form.requestSubmit(); \
-                     else el.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', bubbles: true }})); }} \
              return {{ ok: true }};"
         ),
     )
@@ -1304,16 +1489,61 @@ pub async fn handle_from_agent(app: AppHandle, op: &str, params: &Value) -> Resu
         let _ = app.emit("browser://agent", json!({ "op": "paused", "busy": false, "ok": false }));
         return Err(format!("browser: {}", crate::call_pill::OUT_OF_SIGHT));
     }
-    if acts && person_took_over(&app).await {
-        *AGENT_LAST_MS.lock() = now_ms();
-        let _ = app.emit("browser://agent", json!({ "op": "paused", "busy": false, "ok": false }));
-        return Err("browser: the user took over this page since your last action (they clicked or typed in it). Do not continue on your own: take a snapshot to see where they are, and ask them before acting again.".into());
+    // The agent works in tabs of its own (20 Oct): `open` makes a new one, and
+    // every other action works there, or on the person's page when the agent
+    // asked for it (`tab: "user"`, "summarize this page"). Never on a page the
+    // person opened, unasked.
+    let opening = matches!(op, "open" | "navigate");
+    let target = if params.get("tab").and_then(|v| v.as_str()) == Some("user") { None } else { live_agent_tab() };
+    AGENT_TARGET.scope(target, async move {
+        // Opening touches no page of theirs, so a take-over cannot block it.
+        if acts && !opening && person_took_over(&app).await {
+            *AGENT_LAST_MS.lock() = now_ms();
+            let _ = app.emit("browser://agent", json!({ "op": "paused", "busy": false, "ok": false }));
+            return Err("browser: the user took over this page since your last action (they clicked or typed in it). Do not continue on your own: take a snapshot to see where they are, and ask them before acting again.".into());
+        }
+        let _ = app.emit("browser://agent", json!({ "op": op, "url": params.get("url"), "ref": params.get("ref"), "busy": true }));
+        let out = if opening { agent_open(&app, params).await } else { handle(app.clone(), op, params).await };
+        if acts { *AGENT_LAST_MS.lock() = now_ms(); }
+        let _ = app.emit("browser://agent", json!({ "op": op, "busy": false, "ok": out.is_ok() }));
+        out
+    }).await
+}
+
+/// The agent's current tab, while it still exists.
+fn live_agent_tab() -> Option<u32> {
+    let id = AGENT_TAB.lock().ok().and_then(|g| *g)?;
+    tabs().lock().list.iter().any(|t| t.id == id).then_some(id)
+}
+
+/// The agent opens a page: always in a new tab of its own. In front, unless
+/// the person is on a page of their own in the open panel; then behind it, and
+/// their page keeps the screen and the keyboard. The agent's previous tab is
+/// done and closes, unless the person has it in front.
+async fn agent_open(app: &AppHandle, params: &Value) -> Result<Value, String> {
+    restore_once(app);
+    let url = parse_address(param_str(params, "url")?)?;
+    let behind = {
+        let b = *bounds().lock();
+        let t = tabs().lock();
+        b.visible && t.active.and_then(|id| t.list.iter().find(|x| x.id == id))
+            .is_some_and(|tab| !tab.agent && tab.history.get(tab.cursor).is_some_and(|u| u != HOME))
+    };
+    if !behind {
+        // Ask the panel to show itself: the person should see what the agent opens.
+        let _ = app.emit("browser://open", json!({ "url": url.as_str() }));
     }
-    let _ = app.emit("browser://agent", json!({ "op": op, "url": params.get("url"), "ref": params.get("ref"), "busy": true }));
-    let out = handle(app.clone(), op, params).await;
-    if acts { *AGENT_LAST_MS.lock() = now_ms(); }
-    let _ = app.emit("browser://agent", json!({ "op": op, "busy": false, "ok": out.is_ok() }));
-    out
+    let previous = live_agent_tab();
+    let wv = new_tab_with(app, url, !behind)?;
+    let id = tabs().lock().list.iter_mut().find(|x| x.label == wv.label()).map(|tab| { tab.agent = true; tab.id });
+    if let Ok(mut g) = AGENT_TAB.lock() { *g = id; }
+    if let Some(old) = previous.filter(|old| tabs().lock().active != Some(*old)) {
+        let _ = handle(app.clone(), "close_tab", &json!({ "id": old })).await;
+    }
+    emit_state(app);
+    settle(Duration::from_secs(20)).await;
+    let now = wv.url().map_err(|e| e.to_string())?;
+    Ok(json!({ "ok": true, "url": now.as_str(), "loading": LOADING.load(Ordering::SeqCst), "background": behind }))
 }
 
 /// One entry point for the agent (`browser.<op>` over desktop control) and the
@@ -1338,22 +1568,19 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
         }
         "click" => {
             let wv = open_page(&app)?;
-            let out = run(&wv, &click_script(param_str(params, "ref")?)).await?;
-            // A click often navigates; let the next snapshot see the new page.
-            // A download needs a moment longer to start and be filed.
-            tokio::time::sleep(Duration::from_millis(600)).await;
-            settle(Duration::from_secs(15)).await;
-            Ok(with_downloads(out))
+            let reference = param_str(params, "ref")?;
+            let found = run(&wv, &locate_script(reference)).await?;
+            if found.get("ok") != Some(&json!(true)) { return Ok(found); }
+            // A click often navigates; the next snapshot sees the new page.
+            Ok(with_downloads(fire(&wv, &click_script(reference)).await?))
         }
         "type" => {
             let wv = open_page(&app)?;
+            let reference = param_str(params, "ref")?;
             let submit = params.get("submit").and_then(|v| v.as_bool()).unwrap_or(false);
-            let out = run(&wv, &type_script(param_str(params, "ref")?, param_str(params, "text")?, submit)).await?;
-            if submit {
-                tokio::time::sleep(Duration::from_millis(300)).await;
-                settle(Duration::from_secs(15)).await;
-            }
-            Ok(out)
+            let out = run(&wv, &type_script(reference, param_str(params, "text")?)).await?;
+            if !submit || out.get("ok") != Some(&json!(true)) { return Ok(out); }
+            fire(&wv, &submit_script(reference)).await
         }
         "scroll" => {
             let wv = open_page(&app)?;
@@ -1364,7 +1591,8 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
         "back" | "forward" => {
             let target = {
                 let mut t = tabs().lock();
-                let tab = t.active.and_then(|id| t.list.iter_mut().find(|x| x.id == id))
+                let id = target_id(&t);
+                let tab = id.and_then(|id| t.list.iter_mut().find(|x| x.id == id))
                     .ok_or_else(|| "browser: no tab is open".to_string())?;
                 if op == "back" {
                     if tab.cursor == 0 { return Ok(json!({ "ok": true, "note": "already at the first page" })); }
@@ -1542,6 +1770,18 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
                 }
                 label
             };
+            // Closed while it had the screen (Ctrl+W reaches the host from the
+            // page): its "left fullscreen" never comes, and the window stayed
+            // fullscreen and topmost over an empty app.
+            let was_fullscreen = FULLSCREEN_TAB.lock().map(|mut f| {
+                let hit = f.as_deref() == Some(label.as_str());
+                if hit { *f = None; }
+                hit
+            }).unwrap_or(false);
+            if was_fullscreen {
+                if let Some(window) = app.get_window("main") { restore_window(&window); }
+                let _ = app.emit("browser://curtain", json!({ "on": false }));
+            }
             if let Some(wv) = app.get_webview(&label) {
                 let _ = wv.close();
             }
@@ -1583,6 +1823,7 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
                 b.h = params.get("height").and_then(|v| v.as_f64()).unwrap_or(b.h);
                 b.visible = params.get("visible").and_then(|v| v.as_bool()).unwrap_or(b.visible);
             }
+            if let Ok(mut l) = LAST_BOUNDS.lock() { *l = Some(std::time::Instant::now()); }
             place_all(&app)?;
             Ok(json!({ "ok": true }))
         }
@@ -1652,6 +1893,16 @@ mod tests {
         .await
         .expect("returns when the bus closes");
         assert!(waited.is_err());
+    }
+
+    #[test]
+    fn nothing_that_navigates_rides_on_an_answer() {
+        // `run` rewrites the address after its script: a navigation started
+        // in that script is undone (single-page sites, 23 Oct).
+        assert!(!locate_script("1").contains("click()"));
+        assert!(!type_script("1", "x").contains("requestSubmit"));
+        assert!(click_script("1").contains("el.click()"));
+        assert!(submit_script("1").contains("requestSubmit"));
     }
 
     #[test]

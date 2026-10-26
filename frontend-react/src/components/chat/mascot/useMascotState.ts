@@ -31,9 +31,11 @@ export interface MascotInputs {
   streamStatus: StreamStatus;
   agentPhase: AgentPhase;
   isUserTyping: boolean;
+  /** A voice message is being recorded in the composer. */
+  isUserRecording?: boolean;
 }
 
-export function useMascotState({ streamStatus, agentPhase, isUserTyping }: MascotInputs): MascotState {
+export function useMascotState({ streamStatus, agentPhase, isUserTyping, isUserRecording = false }: MascotInputs): MascotState {
   const [doneActive, setDoneActive] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
   const runStart = useRef(0);
@@ -98,6 +100,7 @@ export function useMascotState({ streamStatus, agentPhase, isUserTyping }: Masco
       default:          return 'thinking';
     }
   }
+  if (isUserRecording) return 'listening';
   if (isUserTyping) return 'typing';
   return 'idle';
 }

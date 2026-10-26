@@ -89,7 +89,7 @@ function CompatPopover({ filename, modelTags, compat }: CompatPopoverProps) {
         sideOffset={8}
         onMouseEnter={() => setOpen(true)}
         onMouseLeave={() => setOpen(false)}
-        className="w-64 bg-bg-surface border border-border-subtle text-text-primary p-4 space-y-3"
+        className="w-64 border border-border-subtle text-text-primary p-4 space-y-3"
       >
         {/* Header */}
         <div>

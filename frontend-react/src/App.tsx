@@ -2,11 +2,12 @@ import { useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
 import { Download } from 'lucide-react';
 import { router } from './router';
-import { tauri, events } from './lib/tauri';
+import { events } from './lib/tauri';
 import { useEmbeddingDownloadStatus } from '@/hooks/useEmbeddingDownloadStatus';
 import { useNotifications } from '@/stores/notifications';
 import { useModel } from '@/stores/model';
 import { useConversations } from '@/stores/conversations';
+import { useDeferredMemoryModel } from '@/hooks/useDeferredMemoryModel';
 import { useUiSounds } from '@/hooks/useUiSounds';
 
 /**
@@ -25,8 +26,11 @@ function EmbeddingDownloadBanner({ state }: { state: ReturnType<typeof useEmbedd
       aria-live="polite"
     >
       <Download size={14} className="shrink-0 text-brand animate-pulse" />
+      {/* What, why and how big: "Downloading embedding model 6%" told a stranger
+          none of it while 634 MB came down unasked (UX lab, item 7). The size is
+          bge-m3 Q8_0 (paths::EMBED_FILENAME); change it with the file. */}
       <span>
-        Downloading embedding model… {pct}%
+        Setting up memory, a one-time download (about 630 MB) · {pct}%
       </span>
       {/* `bg-bg-muted` was not a token in tailwind.config.ts — the bg scale has
           `elevated`, `hover` and `active`, and no `muted` — so the class
@@ -68,11 +72,7 @@ export default function App() {
     );
   }, [embedding.kind]);
 
-  // Tell the host process we're here; surfaces download progress / errors
-  // in the right place. (Idempotent — no-op when the model is already on disk.)
-  useEffect(() => {
-    void tauri.raw.downloadEmbeddingModel().catch(() => {});
-  }, []);
+  useDeferredMemoryModel();
 
   // Auto-reload: when the Rust startup task finishes loading the last model,
   // it emits model-load-progress at 100% while isLoading=false. Sync the store.

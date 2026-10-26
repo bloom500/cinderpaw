@@ -55,6 +55,8 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
 
 ## Topic files
 
+- **`project_scheduled_tasks.md`** — conversational task cards, verified source-text watches, task spending caps, restart claims, tray lifecycle and event-driven unfinished-work follow-ups. **Read before changing scheduled tasks, follow-up cards or their budget/recovery boundaries.**
+
 - **`project_fractal_bench_blockers.md`** — what's actually blocking the
   Fractal bench from producing live numbers on this dev box (GPU crash
   on embed, rebuild thrashing). Pipeline is correct.

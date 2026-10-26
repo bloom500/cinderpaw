@@ -5,6 +5,7 @@ import { tauri } from '@/lib/tauri';
 import type { MemoryGraphNodeView, DreamEpisode, MemoryNotesLine } from '@/lib/tauri';
 import { stopReasonWords, triggerWords } from '@/lib/rsiWords';
 import { cn } from '@/lib/utils';
+import { useSettings } from '@/stores/settings';
 import { rsiState, type RsiSnapshot, type RsiPhase } from './rsiState';
 
 /**
@@ -152,7 +153,9 @@ function NotesPanel({
             {observer && observer.failures > 0 ? (
               <p className="text-error-text">Could not write notes: {observer.lastError}</p>
             ) : observer?.lastOkAt ? (
-              <p className="text-text-muted">Last note: {formatTimeAgo(now, observer.lastOkAt)}</p>
+              // The time of the last successful look, which can find nothing:
+              // "Last note: 8m ago" sat beside "No notes yet" (UX lab, item 28).
+              <p className="text-text-muted">Checked for new notes {formatTimeAgo(now, observer.lastOkAt)}</p>
             ) : null}
             {reflector && reflector.failures > 0 && (
               <p className="text-error-text">Could not update the summary: {reflector.lastError}</p>
@@ -264,19 +267,19 @@ function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
  * A memory is a fact, and a fact is an EDGE of the graph: `language —is→ Romanian`.
  * The page used to list the graph's nodes, so the same fact showed up as two
  * bare rows, "language" and "Romanian", with the relation nowhere (20 Sep).
- * Each edge becomes one row in the shape the list already understands; a node
- * with no edge at all (there should be none) is kept as it was.
+ * Each edge becomes one row in the shape the list already understands. A node
+ * with no edge is left out: it is a value that was replaced or a subject whose
+ * fact was forgotten, and the engine prunes it after a week. Listed, it read as a
+ * bare key ("page_count_verification") that had no Forget button (124 of 234
+ * rows on 24 Oct).
  */
 export function factsOf(graph: { nodes: MemoryGraphNodeView[]; edges: { from: string; to: string; relation: string }[] }): MemoryGraphNodeView[] {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-  const linked = new Set<string>();
   const rows: MemoryGraphNodeView[] = [];
   for (const e of graph.edges) {
     const from = byId.get(e.from);
     const to = byId.get(e.to);
     if (!from || !to) continue;
-    linked.add(from.id);
-    linked.add(to.id);
     rows.push({
       id: `${e.from} ${e.relation} ${e.to}`,
       // "language has Romanian" read as a database row. `is` and `has` carry
@@ -289,7 +292,6 @@ export function factsOf(graph: { nodes: MemoryGraphNodeView[]; edges: { from: st
       edge: { from: e.from, to: e.to, relation: e.relation },
     });
   }
-  for (const n of graph.nodes) if (!linked.has(n.id)) rows.push(n);
   return rows;
 }
 
@@ -298,6 +300,7 @@ export default function MemoryLayersPage() {
   const [notesReply, setNotesReply] = useState<MemoryNotesLine | null>(null);
   const [dreamLast, setDreamLast] = useState<DreamEpisode[]>([]);
   const [bestScore, setBestScore] = useState<number | null>(null);
+  const dreamsOn = useSettings((s) => s.settings?.dreams_enabled === true);
   // True from the first paint. Starting false made the hero announce
   // "Cinderpaw hasn't remembered anything yet" to someone with hundreds of
   // memories, every single time the tab was opened, for as long as the read
@@ -513,8 +516,11 @@ export default function MemoryLayersPage() {
           </header>
           {dreamLast.length === 0 ? (
             <p className="text-xs text-text-muted">
-              No dreams yet. Leave Cinderpaw alone for about 5 minutes and it starts
-              practicing on its own. Each practice shows up here.
+              {/* It promised a dream in 5 minutes while Dreaming was off, the
+                  default (UX lab, item 26). */}
+              {dreamsOn
+                ? 'No dreams yet. Leave Cinderpaw alone for about 5 minutes and it starts practicing on its own. Each practice shows up here.'
+                : 'No dreams yet. Dreaming is off, so Cinderpaw does not practice in the background. Turn it on in Settings, under Learning.'}
             </p>
           ) : (
             <ul className="space-y-2">

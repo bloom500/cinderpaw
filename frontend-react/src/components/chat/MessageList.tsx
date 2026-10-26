@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState, type ComponentProps } from 'react';
 import {
   MessageScroller,
   useMessageScrollerScrollable,
@@ -10,6 +10,7 @@ import { ChapterRail } from './ChapterRail';
 import { useResendTurn } from '@/hooks/useResendTurn';
 import { StreamingIndicator } from './StreamingIndicator';
 import { ApprovalCard } from './ApprovalCard';
+import { MetaProposalCard } from './MetaProposalCard';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
 import { SYSTEM_FONT, useUI } from '@/stores/ui';
 import { useChatDockHeight } from '@/lib/chatDock';
@@ -52,7 +53,8 @@ export function MessageList({ onFollowUp }: {
   const actionsFor = (id: string) => {
     let pair = actions.current.get(id);
     if (!pair) {
-      const at = () => latest.current.messages.findIndex((m) => m.id === id);
+      // -1 while a reply is arriving: both drop everything below, that reply too.
+      const at = () => (useChat.getState().streamStatus === 'streaming' ? -1 : latest.current.messages.findIndex((m) => m.id === id));
       pair = {
         retry: () => { const i = at(); if (i > 0) void latest.current.resend(i - 1); },
         edit: (text) => { const i = at(); if (i >= 0) void latest.current.resend(i, text); },
@@ -101,6 +103,7 @@ export function MessageList({ onFollowUp }: {
               and a flat pad let the last reply slide under it. */}
           {/* 748 = the spec's 700 px reading column plus the 24 px gutters. */}
           <MessageScroller.Content
+            data-replying={status === 'streaming' ? '' : undefined}
             className="max-w-[748px] mx-auto px-6 py-6 flex flex-col gap-7"
             style={{
               paddingBottom: dockH === null ? '12rem' : `${dockH + 32}px`,
@@ -108,43 +111,25 @@ export function MessageList({ onFollowUp }: {
             }}
           >
             {messages.map((m, i) => (
-              // A message arrives, it does not blink into existence. Keyed on
-              // the id so only genuinely new rows animate; a streamed token must
-              // never replay it.
-              <MessageScroller.Item
+              <Row
                 key={m.id}
-                messageId={m.id}
-                scrollAnchor={m.role === 'user'}
-                className={cn(
-                  'message-row',
-                  !quiet.current.has(m.id) && (m.role === 'user'
-                    // Yours rises out of the composer's corner: it came from there.
-                    ? 'animate-in fade-in-0 slide-in-from-bottom-4 zoom-in-95 origin-bottom-right duration-300'
-                    : 'animate-in fade-in-0 slide-in-from-bottom-2 duration-200'),
-                )}
-              >
-                <MessageItem
-                  message={m}
-                  streaming={status === 'streaming' && i === messages.length - 1 && m.role === 'assistant'}
-                  head={i === messages.length - 1 ? head : undefined}
-                  onFollowUp={i === messages.length - 1 && m.role === 'assistant' ? onFollowUp : undefined}
-                  // Retry under a reply resends the question above it; Send under
-                  // an edited question resends that one. Both drop everything
-                  // below, which is why they are off while a reply is arriving.
-                  onRetry={
-                    status === 'streaming' || m.role !== 'assistant' || i === 0
-                      ? undefined
-                      : actionsFor(m.id).retry
-                  }
-                  onEdit={
-                    status === 'streaming' || m.role !== 'user'
-                      ? undefined
-                      : actionsFor(m.id).edit
-                  }
-                />
-              </MessageScroller.Item>
+                message={m}
+                quiet={quiet.current.has(m.id)}
+                streaming={status === 'streaming' && i === messages.length - 1 && m.role === 'assistant'}
+                head={i === messages.length - 1 ? head : undefined}
+                onFollowUp={i === messages.length - 1 && m.role === 'assistant' ? onFollowUp : undefined}
+                // Retry under a reply resends the question above it; Send under
+                // an edited question resends that one. Both drop everything
+                // below, which is why they are off while a reply is arriving:
+                // hidden by `data-replying` below and refused in actionsFor.
+                // Not taken away: that drew every row twice per reply (26 Oct).
+                onRetry={m.role !== 'assistant' || i === 0 ? undefined : actionsFor(m.id).retry}
+                onEdit={m.role !== 'user' ? undefined : actionsFor(m.id).edit}
+              />
             ))}
             {approvals.map((e) => <ApprovalCard key={e.id} e={e} />)}
+            {/* L6 asks here before it changes how Cinderpaw practices. */}
+            <MetaProposalCard />
             {waitingForFirstToken && (
               <StreamingIndicator phase={agentPhase ?? 'thinking'} tool={agentTool} icon={<ReplyHead writing />} />
             )}
@@ -157,6 +142,42 @@ export function MessageList({ onFollowUp }: {
     </MessageScroller.Provider>
   );
 }
+
+/**
+ * One message in the transcript. Memoized as a whole, scroller item included:
+ * every streamed frame re-renders the list, and drawing every row's item to
+ * reach MessageItem's own memo cost ~14 ms a frame at 300 turns (26 Oct,
+ * Edge, production build): a long chat streamed at 30 fps. Now an unchanged
+ * row is one props compare.
+ *
+ * `contain: layout paint` keeps the browser's own per-frame pass out of rows
+ * that did not change; without it, the growing reply had it walk every code
+ * block and table of the chat (~20 ms a frame at 300 turns). The row is always
+ * laid out, never sized by a guess as content-visibility did (removed 6 Oct,
+ * test/scroll-stability.test.ts). Paint is clipped at the row's edge, so the
+ * row reaches 16px past its content on each side and 8px above and below
+ * (actions pulled left, card shadows, the chain's mascot), and anything that
+ * must leave the row (the image viewer) is drawn in a portal.
+ */
+const Row = memo(function Row({ message: m, quiet, ...item }: ComponentProps<typeof MessageItem> & { quiet: boolean }) {
+  return (
+    // A message arrives, it does not blink into existence. Keyed on the id so
+    // only genuinely new rows animate; a streamed token must never replay it.
+    <MessageScroller.Item
+      messageId={m.id}
+      scrollAnchor={m.role === 'user'}
+      className={cn(
+        'message-row [contain:layout_paint] -mx-4 px-4 -my-2 py-2',
+        !quiet && (m.role === 'user'
+          // Yours rises out of the composer's corner: it came from there.
+          ? 'animate-in fade-in-0 slide-in-from-bottom-4 zoom-in-95 origin-bottom-right duration-300'
+          : 'animate-in fade-in-0 slide-in-from-bottom-2 duration-200'),
+      )}
+    >
+      <MessageItem message={m} {...item} />
+    </MessageScroller.Item>
+  );
+});
 
 /**
  * Shown only while there is transcript below the fold, with how many messages

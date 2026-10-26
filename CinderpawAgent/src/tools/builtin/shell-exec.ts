@@ -55,7 +55,7 @@ import { resolve, join, sep } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { resolveExecutables } from "../../core/executables.ts";
 import { cinderpawHome, readEnv } from "../../config.ts";
-import { classifyCommand, installsSoftware, recordIntent } from "../../core/command-intent.ts";
+import { classifyCommand, installedPackages, installsSoftware, recordIntent } from "../../core/command-intent.ts";
 import { readMaxTimeoutMs } from "../../egress/process-sandbox.ts";
 import { deniedPaths } from "../../egress/tool-permissions.ts";
 import { snapshottable } from "../../core/safety-point.ts";
@@ -428,7 +428,7 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
       // point snapshots it and can put it back.
       const outside = destructiveOutsideRoots(argv, allowedPaths);
       if (outside) {
-        const call = decideOutsideWorkspace(outside, mode);
+        const call = decideOutsideWorkspace(outside);
         if (call.kind === "warn") {
           // A human decides. With nobody there this refuses rather than
           // auto-approving — an agent that can approve its own irreversible
@@ -553,14 +553,22 @@ export async function askBeforeInstall(ctx: ToolContext, command: string): Promi
       error: "install_needs_approval",
     };
   }
+  // Named in the question, the command whole beneath it. It sat in the
+  // question, bold, and "Run this one command" said yes to five commands
+  // joined by & (26 Oct, his screenshot).
+  const names = installedPackages(command.split(/\s+/));
+  const what = names.length === 0 ? "software"
+    : names.length <= 3 ? names.join(", ")
+    : `${names.slice(0, 3).join(", ")} and ${names.length - 3} more`;
   const [answer] = await ctx.askUser!.ask(
     [{
-      question: `Install software on this computer? The command is: ${shown}`,
+      question: `Install ${what} on this computer?`,
       header: "Install",
+      preview: command.slice(0, 2000),
       multiSelect: false,
       forceEscalate: true,
       options: [
-        { label: "Yes, install it", description: "Run this one command." },
+        { label: "Yes, install it", description: "Run the command above." },
         { label: "No, don't install", description: "Nothing is installed." },
       ],
     }],

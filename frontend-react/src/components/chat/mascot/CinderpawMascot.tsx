@@ -1,7 +1,8 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import type { MascotState } from './frames';
 import { SCENES, type Layers, type Part, type Scene, type SceneName } from './scenes';
-import './mascot.css';
+import MASCOT_CSS from './mascot.css?raw';
 
 /**
  * The creature, drawn as vectors.
@@ -21,6 +22,14 @@ import './mascot.css';
  *
  * The drawing is 128x132 with the soles at y=110, the same footprint the
  * sprite had, so the perch's placement above the composer still holds.
+ *
+ * It is shown as an <img> of its own SVG, not as inline SVG. A CSS transform
+ * moving a part INSIDE an inline <svg> (the breathing, the wag) made Chromium
+ * walk the whole page again in PrePaint and CompositingInputs on every frame
+ * anything else changed. The cost grew with the chat: at 600 messages a
+ * keystroke took 24-35 ms and a scroll step 34-49 ms, with one mascot moving
+ * anywhere on the page (17 Oct 2026). Inside an image the same animation runs
+ * in a document of its own and the page never sees it.
  */
 
 /** Width at scale 1, and the drawing's own width. Height follows at 132/128. */
@@ -68,6 +77,10 @@ type Fx =
 
 interface Pose {
   scene: SceneName;
+  /** Other drawings of the same state; one is picked each time the state comes
+   *  back, never the one shown last time (a single drawing seen fifty times a
+   *  day is what wears a mascot out, Darius 22 Oct). `scene` is one of them. */
+  variants?: SceneName[];
   motion: Motion;
   /** The drawing's own eyes, narrowed to concentrate, or hearts in their place. */
   eyes?: Eyes;
@@ -81,13 +94,18 @@ interface Pose {
 
 // Seven drawings: sit (calm, hand to the mouth), think (hand at the chin),
 // wave, cheer (both arms up), surprised (hands on the cheeks), laptop (lying at
-// the keys) and sleep (lying, eyes shut).
+// the keys) and sleep (lying, eyes shut). Sixteen more (v2, 23 Oct) turn him
+// other ways and draw what he holds into the pose: the states seen most often
+// rotate between several, and the book, lens, notepad and headset are no
+// longer drawn over him.
 const POSES: Record<MascotState, Pose> = {
-  idle:       { scene: 'sit', motion: 'breathe', wag: true },
+  idle:       { scene: 'sit', variants: ['sit', 'idle34l', 'idleFront', 'restFront'], motion: 'breathe', wag: true },
+  // The person typing: he types along at his laptop (Darius, 23 Oct: the
+  // more intuitive picture). Leaning in to listen is for a voice message.
   typing:     { scene: 'laptop', motion: 'breathe', wag: true },
-  thinking:   { scene: 'think', motion: 'sway', look: 'up', fx: ['thought'] },
-  calling:    { scene: 'think', motion: 'bob', props: ['headset'], fx: ['talkwaves'] },
-  done:       { scene: 'cheer', motion: 'bounce', fx: ['check'], wag: true },
+  thinking:   { scene: 'think', variants: ['think', 'think34l', 'think34r', 'thinkProfile'], motion: 'sway', look: 'up', fx: ['thought'], wag: true },
+  calling:    { scene: 'call1', variants: ['call1', 'call2'], motion: 'bob', fx: ['talkwaves'], wag: true },
+  done:       { scene: 'cheer', variants: ['cheer', 'doneFront', 'doneProfile'], motion: 'bounce', fx: ['check'], wag: true },
   running:    { scene: 'laptop', motion: 'breathe', eyes: 'focused', fx: ['gear'], wag: true },
   // No marks on the wave scene: its two dashes beside the raised paw read as fingers (2 Oct).
   wave:       { scene: 'wave', motion: 'breathe', wag: true },
@@ -95,10 +113,11 @@ const POSES: Record<MascotState, Pose> = {
   surprised:  { scene: 'surprised', motion: 'jolt', marks: true },
   curious:    { scene: 'think', motion: 'breathe', look: 'side', wag: true },
   celebrate:  { scene: 'cheer', motion: 'jump', fx: ['confetti'], wag: true },
-  reading:    { scene: 'sit', motion: 'breathe', props: ['book'] },
-  searching:  { scene: 'think', motion: 'breathe', look: 'scan', props: ['magnifier'] },
+  // The eyes run along the lines.
+  reading:    { scene: 'read', motion: 'breathe', look: 'scan', wag: true },
+  searching:  { scene: 'search', motion: 'breathe', wag: true },
   building:   { scene: 'laptop', motion: 'breathe', eyes: 'focused', fx: ['blocks'] },
-  writing:    { scene: 'sit', motion: 'breathe', props: ['notepad'] },
+  writing:    { scene: 'write', motion: 'breathe', wag: true },
   stretching: { scene: 'cheer', motion: 'stretch' },
   gaming:     { scene: 'sit', motion: 'bob', eyes: 'focused', props: ['gamepad'] },
   love:       { scene: 'surprised', motion: 'bounce', eyes: 'heart', fx: ['hearts'], wag: true },
@@ -109,7 +128,8 @@ const POSES: Record<MascotState, Pose> = {
   asking:     { scene: 'think', motion: 'breathe', fx: ['question'], wag: true },
   waiting:    { scene: 'think', motion: 'breathe', look: 'up', fx: ['hourglass'], wag: true },
   speaking:   { scene: 'wave', motion: 'bob', fx: ['talkwaves'] },
-  listening:  { scene: 'sit', motion: 'breathe', props: ['headset'], fx: ['listenwaves'] },
+  // The person records a voice message: he leans in and listens.
+  listening:  { scene: 'listen34l', variants: ['listen34l', 'listenFront', 'listen34r'], motion: 'breathe', fx: ['listenwaves'], wag: true },
   blocked:    { scene: 'think', motion: 'breathe', fx: ['lock'] },
   scheduling: { scene: 'think', motion: 'breathe', look: 'up', fx: ['calendar'] },
   storing:    { scene: 'cheer', motion: 'breathe', fx: ['database'] },
@@ -144,12 +164,13 @@ function Tones({ layers, colors }: { layers: Layers; colors: Scene['colors'] }) 
   );
 }
 
-/** A part that moves: its own group, turning about its pivot. */
+/** A part that moves: its own group, turning about its pivot, with what it holds. */
 function Moving({ part, colors, className }: { part?: Part; colors: Scene['colors']; className?: string }) {
   if (!part) return null;
   return (
     <g className={className} style={origin(part.pivot[0], part.pivot[1])}>
       <Tones layers={part} colors={colors} />
+      {part.items?.map((it, i) => <path key={i} d={it.d} fill={it.color} fillRule="evenodd" />)}
     </g>
   );
 }
@@ -436,32 +457,88 @@ const LOOK: Record<Exclude<Look, 'scan'>, string> = {
   center: 'translate(0px, 0px)', side: 'translate(1.8px, 0.4px)', up: 'translate(-1.2px, -1.8px)',
 };
 
+/** Room around the drawing, in its own units: confetti, the sleeper's tail
+ *  and a jump reach past the 128x132 box, which an image would cut off. */
+const PAD = 24;
+
+/** The motion, without its comments: one of them says "<g>", and a stray tag
+ *  inside the image's XML stops it from loading at all. */
+export const IMAGE_CSS = MASCOT_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+
+/** One image per look: every cover in a long chat shares the same few. */
+const urls = new Map<string, string>();
+
+/** The drawing each state showed last, so the next time it comes back it is another one. */
+const lastDrawn = new Map<MascotState, SceneName>();
+
+/** One of the state's drawings, never the one it showed last time. */
+export function pickScene(state: MascotState, random: () => number = Math.random): SceneName {
+  const pose = POSES[state] ?? POSES.idle;
+  const all = pose.variants ?? [pose.scene];
+  const pool = all.length > 1 ? all.filter((s) => s !== lastDrawn.get(state)) : all;
+  const next = pool[Math.floor(random() * pool.length)] ?? pose.scene;
+  lastDrawn.set(state, next);
+  return next;
+}
+
 /** `width` is the rendered width in px; the height follows at 132/128. Not
  *  `size`: that name is kept for icons, which come in four fixed sizes. */
 export function CinderpawMascot({ state, flip = false, width = BASE_W }: { state: MascotState; flip?: boolean; width?: number }) {
+  const still = usePrefersReducedMotion();
+  // Picked when the state arrives and kept while it lasts.
+  const sceneName = useMemo(() => pickScene(state), [state]);
+  const key = `${state}|${sceneName}|${flip}|${width}|${still}`;
+  let src = urls.get(key);
+  if (!src) {
+    // The page's reduced-motion rule, applied unconditionally: an image does
+    // not have to follow the page's media queries.
+    const css = still ? IMAGE_CSS.replace('@media (prefers-reduced-motion: reduce)', '@media all') : IMAGE_CSS;
+    src = `data:image/svg+xml,${encodeURIComponent(renderToStaticMarkup(<MascotSvg state={state} sceneName={sceneName} flip={flip} width={width} css={css} />))}`;
+    urls.set(key, src);
+  }
+  const scale = width / BASE_W;
+  return (
+    <img
+      src={src}
+      alt=""
+      aria-hidden="true"
+      data-mascot-state={state}
+      width={Math.round((BASE_W + 2 * PAD) * scale)}
+      height={Math.round((BASE_H + 2 * PAD) * scale)}
+      draggable={false}
+      // The padding hangs outside the footprint: laid out, it is still width
+      // by width*132/128, exactly where the inline SVG sat.
+      style={{ display: 'block', pointerEvents: 'none', maxWidth: 'none', margin: -PAD * scale }}
+    />
+  );
+}
+
+export function MascotSvg({ state, sceneName, flip, width, css }: {
+  state: MascotState; sceneName: SceneName; flip: boolean; width: number; css: string;
+}) {
   const pose = POSES[state] ?? POSES.idle;
-  const scene = SCENES[pose.scene];
+  const scene = SCENES[sceneName];
   const colors = scene.colors;
   const eyes = pose.eyes ?? 'drawn';
   const look = pose.look ?? 'center';
   // Only open, oval eyes blink; the cheer's and the sleeper's are drawn shut.
-  const blink = eyes !== 'heart' && pose.scene !== 'cheer' && pose.scene !== 'sleep';
-  const hands = HANDS[pose.scene];
-  const [sx, sy] = fxShift(pose.scene, scene);
-  const drift = pose.scene === 'sleep';
+  const blink = eyes !== 'heart' && sceneName !== 'cheer' && sceneName !== 'sleep';
+  const hands = HANDS[sceneName];
+  const [sx, sy] = fxShift(sceneName, scene);
+  const drift = sceneName === 'sleep';
 
   return (
     <svg
-      aria-hidden="true"
+      xmlns="http://www.w3.org/2000/svg"
       data-mascot-state={state}
       className={`cpm cpm--${pose.motion}`}
-      width={width}
-      height={Math.round((width * BASE_H) / BASE_W)}
-      viewBox={`0 0 ${BASE_W} ${BASE_H}`}
-      style={{ display: 'block', pointerEvents: 'none' }}
+      width={Math.round(((BASE_W + 2 * PAD) * width) / BASE_W)}
+      height={Math.round(((BASE_H + 2 * PAD) * width) / BASE_W)}
+      viewBox={`${-PAD} ${-PAD} ${BASE_W + 2 * PAD} ${BASE_H + 2 * PAD}`}
     >
+      <style>{css}</style>
       <g transform={flip ? `translate(${BASE_W} 0) scale(-1 1)` : undefined}>
-        <ellipse cx={64} cy={111} rx={pose.scene === 'laptop' || drift ? 50 : 26} ry={2.6} fill="#000" opacity={0.07} />
+        <ellipse cx={64} cy={111} rx={sceneName === 'laptop' || drift ? 50 : 26} ry={2.6} fill="#000" opacity={0.07} />
 
         <g className="cpm-creature">
           <Tones layers={scene.base} colors={colors} />
@@ -495,6 +572,12 @@ export function CinderpawMascot({ state, flip = false, width = BASE_W }: { state
                 );
               })}
           </g>
+
+          {/* What a v2 pose holds (book, lens, headset), drawn over him, holes and all. */}
+          {scene.items?.map((it, i) => <path key={i} d={it.d} fill={it.color} fillRule="evenodd" />)}
+          {/* A paw of a v2 pose that moves on its own sits in front of the face and
+              the items: the pencil over the notepad, the fist over the head. */}
+          <Moving part={scene.parts.hand} colors={colors} className={`cpm-hand cpm-hand--${scene.parts.hand?.motion}`} />
 
           {scene.laptop && <path d={scene.laptop.base} fill={C.lidDark} />}
           <Moving part={scene.parts.pawR} colors={colors} className="cpm-tap" />
