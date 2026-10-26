@@ -1,0 +1,114 @@
+# Proof, before the release depends on it: two different builds signed with the
+# Cinderpaw certificate read the same keychain item with no password prompt,
+# and an ad-hoc signed build (what releases shipped until now) is refused.
+# Prompts are switched off, so "would ask" shows up as an error, not a hang.
+name: macOS signing proof
+on:
+  workflow_dispatch:
+  push:
+    branches: [exp/macos-stable-signature]
+    paths: [.github/workflows/macos-signing-proof.yml, .github/scripts/macos-signing-cert.sh]
+
+jobs:
+  proof:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import the certificate (the release's own script)
+        env:
+          MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
+          MACOS_SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+        run: |
+          [ -n "$MACOS_SIGNING_P12" ] || { echo "::error::secret MACOS_SIGNING_P12 missing"; exit 1; }
+          bash .github/scripts/macos-signing-cert.sh
+          grep -q "APPLE_SIGNING_IDENTITY=Cinderpaw" "$GITHUB_ENV"
+      - name: A keychain for the stored secret, like the person's login keychain
+        run: |
+          security create-keychain -p items "$RUNNER_TEMP/items.keychain-db"
+          security set-keychain-settings "$RUNNER_TEMP/items.keychain-db"
+          security unlock-keychain -p items "$RUNNER_TEMP/items.keychain-db"
+          security default-keychain -s "$RUNNER_TEMP/items.keychain-db"
+      - name: Build three versions of one small program
+        run: |
+          cat > kc.swift <<'EOF'
+          import Foundation
+          import Security
+          let version = "VERSION"
+          SecKeychainSetUserInteractionAllowed(false)
+          let base: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "cinderpaw-signing-proof",
+            kSecAttrAccount as String: "probe",
+          ]
+          if CommandLine.arguments[1] == "write" {
+            SecItemDelete(base as CFDictionary)
+            var add = base
+            add[kSecValueData as String] = "secret".data(using: .utf8)!
+            let s = SecItemAdd(add as CFDictionary, nil)
+            print("\(version) write: \(s)")
+            exit(s == errSecSuccess ? 0 : 1)
+          }
+          var q = base
+          q[kSecReturnData as String] = true
+          var out: AnyObject?
+          let s = SecItemCopyMatching(q as CFDictionary, &out)
+          print("\(version) read: \(s)")
+          exit(s == errSecSuccess ? 0 : 2)
+          EOF
+          for v in v1 v2 v3; do
+            mkdir -p $v; sed "s/VERSION/$v/" kc.swift > $v/kc.swift
+            swiftc -O $v/kc.swift -o $v/kc
+          done
+          codesign --force -s "$APPLE_SIGNING_IDENTITY" --options runtime v1/kc
+          codesign --force -s "$APPLE_SIGNING_IDENTITY" --options runtime v2/kc
+          codesign --force -s - --options runtime v3/kc
+          for v in v1 v2 v3; do echo "== $v"; codesign -dv $v/kc 2>&1 | grep -E "CDHash=|Authority|Signature"; codesign -dr - $v/kc 2>&1 | tail -1; done
+      - name: v1 stores, v2 (same certificate) reads, v3 (ad-hoc) is refused
+        run: |
+          v1/kc write
+          v2/kc read
+          if v3/kc read; then
+            echo "::error::the ad-hoc build read it too, so this test cannot tell the two apart"; exit 1
+          fi
+          echo "PROVEN: a new build with the same certificate reads without asking; an ad-hoc one would ask"
+
+  # The real app, re-signed the way Tauri signs it (sidecar first, then the
+  # bundle, hardened runtime, our entitlements), must still open and start its
+  # agent: a certificate without an Apple team could trip runtime checks that
+  # an ad-hoc signature does not.
+  real-app:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import the certificate
+        env:
+          MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
+          MACOS_SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+        run: bash .github/scripts/macos-signing-cert.sh
+      - name: Re-sign the released app, open it, look
+        run: |
+          mkdir -p out
+          gh release download v2026.10.26 --repo "${{ github.repository }}" --pattern 'Cinderpaw_aarch64.app.tar.gz'
+          tar -xzf Cinderpaw_aarch64.app.tar.gz -C /Applications
+          app=/Applications/Cinderpaw.app
+          for bin in "$app/Contents/MacOS/cinderpaw-agent" "$app"; do
+            codesign --force -s "$APPLE_SIGNING_IDENTITY" --options runtime --entitlements src-tauri/entitlements.plist "$bin"
+          done
+          codesign --verify --deep --strict "$app" && echo "signature valid"
+          codesign -dv "$app" 2>&1 | grep -E "Authority|Signature|TeamIdentifier" | tee out/signature.txt
+          xattr -cr "$app"
+          open "$app"
+          sleep 45
+          screencapture -x out/first-run.png || true
+          pgrep -lf Cinderpaw | tee out/processes.txt
+          pgrep -f cinderpaw-agent > /dev/null || { echo "::error::the agent is not running"; tail -50 ~/.cinderpaw/logs/cinderpaw.log || true; exit 1; }
+          tail -20 ~/.cinderpaw/logs/cinderpaw.log > out/log-tail.txt || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-app
+          path: out
