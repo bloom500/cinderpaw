@@ -2,16 +2,17 @@
 # whatever the person is using. 26 Oct on his Mac it did not: the running copy
 # logged "focused main window" and stayed behind, and the new one quit, so to
 # him the app "would not open". Measured by the frontmost app, not by the log.
+# Run by hand on a release candidate: it tests a published build, not a branch.
+# 26 Oct, v2026.10.26: in front in every case on macOS 15.7 and 26.6, including
+# a window closed by its X (15.7; 26.6's runner refuses synthetic clicks), so
+# his blocked launch came from an older Feral.app, not this build.
 name: macOS second launch
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release to test (empty = build this branch)
-        required: false
-  push:
-    branches: [fix/macos-second-launch-shows-window]
-    paths: [.github/workflows/macos-second-launch.yml]
+        description: Release tag to test, e.g. v2026.10.27-beta.1
+        required: true
 
 jobs:
   second-launch:
@@ -26,7 +27,7 @@ jobs:
     steps:
       - name: Install the release
         run: |
-          gh release download "${{ inputs.tag || 'v2026.10.26' }}" --repo "${{ github.repository }}" --pattern 'Cinderpaw_aarch64.app.tar.gz'
+          gh release download "${{ inputs.tag }}" --repo "${{ github.repository }}" --pattern 'Cinderpaw_aarch64.app.tar.gz'
           tar -xzf Cinderpaw_aarch64.app.tar.gz -C /Applications
           xattr -cr /Applications/Cinderpaw.app
       - name: Launch twice, measure who is in front
@@ -79,6 +80,9 @@ jobs:
 
           pgrep -lf Contents/MacOS/cinderpaw | tee out/processes.txt
           grep "deep-link" ~/.cinderpaw/logs/cinderpaw.log | tail -5 | tee out/log.txt || true
+          if grep "second launch" out/result.txt | grep -v "Cinderpaw"; then
+            echo "::error::a second launch left another app in front"; exit 1
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
