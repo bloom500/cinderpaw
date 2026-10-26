@@ -971,11 +971,29 @@ describe('live writing', () => {
     await waitFor(() => expect(container.querySelector('.prose')?.textContent).toBe('Seven days.'));
   });
 
-  it('shows an app as its source while it is written', async () => {
+  // 26 Oct (Darius): an app showed as raw code while it was written, and ran
+  // only once the code's letters had finished, up to a minute after the save.
+  it('builds an app out of sight: no code on screen, only how far it got', async () => {
     useArtifacts.setState({ loaded: true });
     const { container } = render(<ArtifactsPanel onClose={() => {}} />);
-    act(() => useArtifacts.getState().onDraft({ id: 'turn-1', sessionId: 's1', draft: '0:0', kind: 'app', title: 'Timer', append: '<div>Hi</div>', onScreen: true }));
+    act(() => useArtifacts.getState().onDraft({ id: 'turn-1', sessionId: 's1', draft: '0:0', kind: 'app', title: 'Timer', append: '<div>Hi</div>\n<p>Go</p>', onScreen: true }));
     expect(container.querySelector('iframe')).toBeNull();
-    await waitFor(() => expect(container.querySelector('pre')?.textContent).toBe('<div>Hi</div>'));
+    expect(container.querySelector('pre')).toBeNull();
+    expect(screen.queryByText(/<div>/)).toBeNull();
+    expect(screen.getByText(/2 lines written/)).toBeInTheDocument();
+  });
+
+  it('runs the whole app the moment it is saved', async () => {
+    useArtifacts.setState({ loaded: true });
+    const { container } = render(<ArtifactsPanel onClose={() => {}} />);
+    const page = `<html><body>${'<p>row</p>\n'.repeat(200)}</body></html>`;
+    act(() => useArtifacts.getState().onDraft({ id: 'turn-1', sessionId: 's1', draft: '0:0', kind: 'app', title: 'Timer', append: page, onScreen: true }));
+    act(() => useArtifacts.getState().endDraft('turn-1', { artifactId: 'a1' }));
+    await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'get')).toBe(true));
+    act(() => {
+      useArtifacts.getState().onResult({ id: idOfAction('get'), ok: true, items: [row({ id: 'a1', kind: 'app', version: 1, title: 'Timer' })], content: page });
+    });
+    await waitFor(() => expect(container.querySelector('iframe')?.getAttribute('srcdoc')).toBe(page));
+    expect(useArtifacts.getState().open?.live).toBeUndefined();
   });
 });

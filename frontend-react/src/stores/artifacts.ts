@@ -962,6 +962,9 @@ const TEXT_SHOWN = new Set(['markdown', 'code', 'json', 'table', 'file']);
 function liveAfter(prev: OpenArtifact, row: ArtifactRow, content: string, encoding: 'base64' | undefined, editing: boolean): LiveArtifact | undefined {
   if (encoding === 'base64' || prev.encoding === 'base64') return undefined;
   if (prev.row.version === 0 && prev.live && !prev.live.stopped) {
+    // An app or a board runs whole the moment it is saved. Its letters still
+    // pacing in cut the page short, and it ran only when they were done (26 Oct).
+    if (!TEXT_SHOWN.has(shownKind(row.kind, content))) return undefined;
     if (prev.content === content) return { runs: prev.live.runs };
     if (prev.content === '') return content ? { runs: [streamRun(undefined, 0, content, Date.now(), 0)] } : undefined;
     // Saved with a little more than was written: the date and name the engine
