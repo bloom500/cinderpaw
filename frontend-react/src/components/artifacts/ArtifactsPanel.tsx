@@ -628,6 +628,27 @@ function deleteWithUndo(row: Pick<ArtifactRow, 'id' | 'title'>) {
   });
 }
 
+/** Kinds that mean nothing as source to most people: shown only once saved. */
+const BUILT = new Set(['app', 'html', 'document', 'docx', 'board']);
+
+/**
+ * An app, a page or a board while Cinderpaw writes it. Its code read as noise,
+ * and the app then ran only after the code's letters finished (Darius, 26 Oct).
+ * The line count moves, so it never looks stuck.
+ */
+function Building({ content }: { content: string }) {
+  const lines = content ? content.split('\n').length : 0;
+  return (
+    <div role="status" className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+      <CinderpawMascot state="building" width={96} />
+      <p className="text-sm text-text-primary">Building it now</p>
+      <p className="text-xs tabular-nums text-text-muted">
+        {`${lines.toLocaleString()} ${lines === 1 ? 'line' : 'lines'} written. It opens here when it is ready.`}
+      </p>
+    </div>
+  );
+}
+
 /** Text the person can change. A pdf, an image or an uploaded file is not. */
 const EDITABLE_KINDS = new Set(['document', 'markdown', 'app', 'table', 'code', 'json', 'html', 'pdf']);
 
@@ -748,10 +769,16 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
     : undefined;
   const queued = live && !leaving ? unshown(live.runs, now) : undefined;
   const text = leaving ? leaving.content : queued ? content.slice(0, queued[0]) + content.slice(queued[1]) : content;
-  // While it is written, anything that is not prose shows as its source: a page
-  // or a board half written cannot be drawn, and a frame reloaded on every
-  // letter would flicker. A PDF is written as markdown.
-  const viewKind = draft ? (row.kind === 'pdf' || shownKind(row.kind, text) === 'markdown' ? 'markdown' : 'code') : shownKind(row.kind, text);
+  // While it is written, a script or a table shows as its source. A page or a
+  // board half written cannot be drawn, and a frame reloaded on every letter
+  // would flicker: it is built out of sight, unless it stopped before a save,
+  // when what was written is all there is. A PDF is written as markdown. Told
+  // apart by what arrived: a page's first tag can still wait behind the paced
+  // letters, and it read as markdown for that moment.
+  const arrived = shownKind(row.kind, content);
+  const viewKind = draft
+    ? (row.kind === 'pdf' || arrived === 'markdown' ? 'markdown' : BUILT.has(arrived) && !live?.stopped ? 'building' : 'code')
+    : shownKind(row.kind, text);
 
   if (editing) {
     return (
@@ -903,7 +930,8 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
         </Suspense>
       ) : (
         <div ref={viewer} className="contents">
-          <Preview kind={viewKind} title={row.title} content={text} id={row.id} ember={ember} />
+          {/* Built out of sight: what arrived, not the letters paced so far. */}
+          <Preview kind={viewKind} title={row.title} content={viewKind === 'building' ? content : text} id={row.id} ember={ember} />
         </div>
       )}
     </>
@@ -925,6 +953,7 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
  * wanted.
  */
 function Preview({ kind, title, content, id = '', ember }: { kind: string; title: string; content: string; id?: string; ember?: Ember }) {
+  if (kind === 'building') return <Building content={content} />;
   const image = kind === 'image' ? artifactImageSource(content) : null;
   if (image) {
     return (

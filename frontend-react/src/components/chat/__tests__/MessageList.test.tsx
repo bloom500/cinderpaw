@@ -67,6 +67,41 @@ describe('retry and edit under a message', () => {
   });
 });
 
+// 26 Oct: a long chat streamed at 30 fps because every streamed frame drew
+// every row again (300 turns: ~14 ms of a 16 ms frame).
+describe('a long chat while a reply arrives', () => {
+  const turn = (id: string, role: 'user' | 'assistant') => ({ id, role, content: id, createdAt: 1 });
+  const chat = () => [...Array(20)].flatMap((_, i) => [turn(`q${i}`, 'user'), turn(`a${i}`, 'assistant')]);
+
+  it('draws only the reply being written for each new piece of it', () => {
+    useChat.setState({ streamStatus: 'streaming', messages: chat() });
+    render(<MessageList />);
+    handed.length = 0;
+    act(() => useChat.getState().updateLastAssistantMessage({ content: 'a19 and more' }));
+    expect(handed.map((h) => h.id)).toEqual(['a19']);
+  });
+
+  // Retry and Edit came and went on every row when a reply started and ended:
+  // the whole chat drawn twice per reply, a 0.3 and a 0.5 s freeze at 300 turns.
+  it('draws only the reply itself when it starts and when it ends', () => {
+    useChat.setState({ streamStatus: 'idle', messages: chat() });
+    render(<MessageList />);
+    handed.length = 0;
+    act(() => useChat.setState({ streamStatus: 'streaming' }));
+    act(() => useChat.setState({ streamStatus: 'idle' }));
+    expect(new Set(handed.map((h) => h.id))).toEqual(new Set(['a19']));
+  });
+
+  it('does not resend a turn while a reply is still arriving', () => {
+    resend.mockClear();
+    useChat.setState({ streamStatus: 'streaming', messages: chat() });
+    render(<MessageList />);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry a3' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit q3' }));
+    expect(resend).not.toHaveBeenCalled();
+  });
+});
+
 describe('chat tool widgets', () => {
   it('draws the call widget open while the reply streams, folds it after, and reopens on click', () => {
     const running = startActivity('web_search', { query: 'Cinderpaw guide' });
