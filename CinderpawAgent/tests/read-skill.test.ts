@@ -77,6 +77,72 @@ describe("Cinderpaw-WIP #9: skill content validation", () => {
     }
   });
 
+  test("a skill's other files are named with SKILL.md and read by path, never outside its folder", async () => {
+    const { createReadSkillTool } = await import("../src/tools/builtin/read-skill.ts");
+    const home = tempHome();
+    try {
+      const skillsDir = join(home, "skills");
+      mkdirSync(join(skillsDir, "pdf", "reference"), { recursive: true });
+      writeFileSync(join(skillsDir, "pdf", "SKILL.md"), "# PDF\n\nFor forms, see reference/forms.md.");
+      writeFileSync(join(skillsDir, "pdf", "reference", "forms.md"), "Fill each field by its name.");
+      writeFileSync(join(home, "secret.md"), "do not read");
+      const tool = createReadSkillTool(skillsDir);
+      const ctx = { sessionId: "s", manifest: tool.manifest, fetch: (() => Promise.reject(new Error("not used"))) as never, audit: () => {} };
+
+      const main = await tool.execute({ id: "pdf" }, ctx);
+      expect(main.content).toContain("Files in this skill");
+      expect(main.content).toContain("reference/forms.md");
+
+      const ref = await tool.execute({ id: "pdf", file: "reference/forms.md" }, ctx);
+      expect(ref.ok).toBe(true);
+      expect(ref.content).toBe("Fill each field by its name.");
+
+      const out = await tool.execute({ id: "pdf", file: "../../secret.md" }, ctx);
+      expect(out.ok).toBe(false);
+      expect(out.error).toBe("bad_args");
+
+      const missing = await tool.execute({ id: "pdf", file: "reference/none.md" }, ctx);
+      expect(missing.error).toBe("not_found");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("a program the skill runs but did not come with it is named, with an order never to make up its result", async () => {
+    const { createReadSkillTool } = await import("../src/tools/builtin/read-skill.ts");
+    const home = tempHome();
+    try {
+      const skillsDir = join(home, "skills");
+      const body = [
+        "---", "name: trader-timemachine", "description: Replays a trade 10,000 times.", "---",
+        "Needs Node.js 22 for the chart, or bun.",
+        'python3 "${CLAUDE_SKILL_DIR}/timemachine.py" run --write',
+        "Then run `chart.py --from` and `node scripts/fan.js`.",
+      ].join("\n");
+      mkdirSync(join(skillsDir, "tm"), { recursive: true });
+      writeFileSync(join(skillsDir, "tm", "SKILL.md"), body);
+      writeFileSync(join(skillsDir, "tm", "chart.py"), "print(1)");
+      const tool = createReadSkillTool(skillsDir);
+      const ctx = { sessionId: "s", manifest: tool.manifest, fetch: (() => Promise.reject(new Error("not used"))) as never, audit: () => {} };
+
+      const res = await tool.execute({ id: "tm" }, ctx);
+      expect(res.ok).toBe(true);
+      expect(res.content).toContain("Not installed with this skill: timemachine.py, fan.js.");
+      expect(res.content).toContain("never estimate, simulate or make up what they would have produced");
+      // What is there is not missing, and a product name is not a file.
+      expect(res.content).not.toMatch(/Not installed[^\n]*chart\.py/);
+      expect(res.content).not.toMatch(/Not installed[^\n]*Node\.js/);
+
+      // Everything present: no warning at all.
+      writeFileSync(join(skillsDir, "tm", "timemachine.py"), "print(2)");
+      mkdirSync(join(skillsDir, "tm", "scripts"), { recursive: true });
+      writeFileSync(join(skillsDir, "tm", "scripts", "fan.js"), "1");
+      expect((await tool.execute({ id: "tm" }, ctx)).content).not.toContain("Not installed with this skill");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("read_skill tool returns ok for clean body", async () => {
     const { createReadSkillTool } = await import("../src/tools/builtin/read-skill.ts");
     const home = tempHome();
