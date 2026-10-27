@@ -238,6 +238,34 @@ function FirstLook({ src }: { src: string }) {
   );
 }
 
+/** Kinds whose widget is a picture of the work: a terminal, a results page, an
+ *  app window, the files, the memories. A generic tool's widget is one line. */
+const MINI_KINDS = new Set<ToolActivity['kind']>(['browser', 'terminal', 'desktop', 'files', 'memory']);
+/** Widget tiles under the folded line, newest last; the rest are counted. */
+const MINI_WIDGETS = 3;
+
+/**
+ * A step's own widget, shrunk to a tile under the folded line (27 Oct, his ask:
+ * the widgets stay in the chat even when the line is closed). Laid out at
+ * 400 px and drawn at half, so it is the same widget, live while it runs, not a
+ * summary of it. A click opens the steps, where it is full size.
+ */
+function MiniWidget({ a, onOpen }: { a: ToolActivity; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={stepTitle(a)}
+      aria-label={`${stepTitle(a)}, open the steps`}
+      className="relative h-[110px] w-[200px] shrink-0 overflow-hidden rounded-xl text-left transition-transform hover:-translate-y-0.5"
+    >
+      <span aria-hidden className="pointer-events-none absolute left-0 top-0 block w-[400px] origin-top-left scale-50">
+        <Widget activity={a} flat />
+      </span>
+    </button>
+  );
+}
+
 /** One step: ring, what it did, its count. Click for the tool's own widget.
  *  `pop`: it arrived while the agent works, so it pops in (`.row-pop`).
  *  `big`: its first picture is a first look at a new place (`firstLooks`). */
@@ -395,6 +423,9 @@ export function MessageChain({
   const others = steps.flatMap((a) => (looks.has(a.id) ? (a.images ?? []).slice(1) : (a.images ?? [])));
   const lineImages = open ? [] : others.slice(-LINE_THUMBS);
   const more = open ? 0 : others.length - lineImages.length;
+  // A step with pictures already shows them; the rest show their widget.
+  const withWidget = open ? [] : steps.filter((a) => MINI_KINDS.has(a.kind) && !a.images?.length);
+  const minis = withWidget.slice(-MINI_WIDGETS);
 
   // 27 Oct, his ask: no card, no pill, no chips. The steps are a quiet line of
   // text over the answer (Claude's "Clicked, waited, captured page 4 times ›"),
@@ -419,6 +450,14 @@ export function MessageChain({
         {more > 0 && <span className="shrink-0 text-2xs text-text-muted">+{more}</span>}
         {lineImages.length > 0 && <Thumbs images={lineImages} small />}
       </div>
+      {minis.length > 0 && (
+        <div className="mb-1 mt-1.5 flex items-center gap-2" data-testid="mini-widgets">
+          {minis.map((a) => <MiniWidget key={a.id} a={a} onOpen={() => setOpen(true)} />)}
+          {withWidget.length > minis.length && (
+            <span className="shrink-0 text-2xs text-text-muted">+{withWidget.length - minis.length}</span>
+          )}
+        </div>
+      )}
       {!open && firstPictures.length > 0 && (
         // Two places in one line sit side by side: stacked, they were a wall.
         <div className={cn('mb-1 mt-1.5 grid gap-2', firstPictures.length > 1 && 'grid-cols-2')}>

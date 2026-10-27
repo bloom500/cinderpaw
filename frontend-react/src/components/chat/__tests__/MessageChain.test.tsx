@@ -46,6 +46,26 @@ describe('MessageChain (the Activity Strip)', () => {
     expect(screen.getByText('Caut ce mananca')).toBeInTheDocument();
   });
 
+  it('keeps the widgets in view when folded, as tiles of the real widget, newest three', () => {
+    const done = (tool: string, args: Record<string, unknown>, id: string, content = '') =>
+      ({ ...finishActivity(startActivity(tool, args), { ok: true, content }), id });
+    const steps = [
+      done('shell_exec', { command: 'npm ci' }, 'c0', 'added 12 packages'),
+      done('web_search', { query: 'lalele' }, 'w1'),
+      done('shell_exec', { command: 'npm test' }, 'c1', '12 passed'),
+      done('read_file', { path: 'a.md' }, 'f1'),
+      done('some_tool', {}, 'g1'), // a generic step has no picture of its work
+    ];
+    render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={steps} streaming={false} />);
+    const tiles = screen.getByTestId('mini-widgets');
+    expect(tiles.querySelectorAll('button')).toHaveLength(3);
+    expect(tiles).toHaveTextContent('+1');
+    expect(tiles).toHaveTextContent('12 passed');
+    // A tile opens the steps, where each widget is full size; the tiles go.
+    fireEvent.click(tiles.querySelector('button')!);
+    expect(screen.queryByTestId('mini-widgets')).toBeNull();
+  });
+
   it('counts a step done more than once, like "captured page 5 times"', () => {
     const shot = (n: number) => ({ ...finishActivity(startActivity('browser', { action: 'screenshot' }), { ok: true, content: '', images: ['data:image/png;base64,AA'] }), id: `b${n}` });
     expect(doneSentence([shot(1), shot(2), shot(3)])).toBe('Took a picture of the page 3 times');
