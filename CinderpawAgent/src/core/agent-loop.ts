@@ -381,12 +381,19 @@ export class AgentLoop {
    */
   static readonly ANTHROPIC_REQUIRED_MAX_TOKENS = 128_000;
 
-  // Cloud models have huge contexts (Kimi 128K, Claude 200K, MiniMax 1M);
-  // bound the transcript only to control cost and latency, not to avoid a
-  // crash. Default is conservative for Claude-class 200K models; users on
-  // 1M models (or anyone wanting zero compression) override with
-  // CINDERPAW_CLOUD_TRANSCRIPT_BUDGET=900000 (or higher).
-  static readonly CLOUD_TRANSCRIPT_BUDGET = 200_000;
+  // Cloud models send no context size, so this one number bounds the
+  // transcript for all of them. It was 200K: a transcript that size PLUS the
+  // ~40K of system prompt, tool schemas and memory overflows a 128K or 200K
+  // model before it ever compacts, and every tool step before that resends it
+  // all (27 Oct, a real chat: 54K -> 154K tokens per call over one evening,
+  // never compacted, on Haiku 5.5). 80K keeps the whole prompt under a 128K
+  // window and long tasks still fit; past it the older turns are summarised.
+  // 1M-context users who want less compression raise
+  // CINDERPAW_CLOUD_TRANSCRIPT_BUDGET.
+  static readonly CLOUD_TRANSCRIPT_BUDGET = 80_000;
+  /** What rides on top of the transcript in every call: system prompt, tool
+   *  schemas, memory, skill menu. Measured ~39K on a fresh chat, 27 Oct. */
+  static readonly CLOUD_PROMPT_OVERHEAD = 40_000;
 
   readonly #router: InferenceRouter;
   readonly #registry: ToolRegistry;
