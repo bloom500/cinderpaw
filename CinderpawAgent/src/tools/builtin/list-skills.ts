@@ -1,12 +1,10 @@
 /**
  * list_skills — discover locally-installed skills on demand.
  *
- * The drawer index for the skills system. The system prompt no longer carries
- * a full "Available skills" menu (it cost tokens on every single turn even when
- * the model never touched a skill). Instead the model calls this tool to list
- * installed skills — optionally filtered by a query — gets back a compact
- * `id — name: description` table, and then calls `read_skill` to load the body
- * of the one it wants.
+ * Every turn carries a short "Available skills" menu of the first installed
+ * skills (WorkingMemory.setSkillMenu). This tool is the rest: the full list,
+ * optionally filtered by a query, as a compact `id — name: description` table,
+ * and then `read_skill` loads the body of the one it wants.
  *
  * Self-contained: it scans the skills directory on disk (the same dir
  * `read_skill` reads from), so it needs no per-turn roster plumbing from the

@@ -110,7 +110,23 @@ describe("install_skill_from_link", () => {
     );
     expect(seen[0]!.question).toContain("Be careful");
     expect(seen[0]!.question).toContain("runs curl");
-    expect(seen[0]!.question).toContain("1 other file");
+    // In words a person who has never seen a script still reads: what stays behind, and what that costs.
+    expect(seen[0]!.question).toContain("Not installed with it: scripts/run.sh. The steps that need these files will not work here.");
+  });
+
+  test("files that come with the skill are named in the question, shown in full, and told to the agent", async () => {
+    const files = [{ path: "reference/forms.md", content: "Fill each field by its name." }];
+    const { bridge } = bridgeWith({ ...PREVIEW, files });
+    const seen: AskUserQuestion[] = [];
+    const res = await installSkillFromLinkTool.execute(
+      { url: "https://github.com/acme/skills/tree/main/pdf-tools" },
+      { capabilities: bridge, askUser: answering("Install it", seen) } as never,
+    );
+    expect(seen[0]!.question).toContain("1 more file(s) come with it: reference/forms.md");
+    // What is installed is what the person read: SKILL.md and every file with it.
+    expect(seen[0]!.preview).toContain("Use qpdf.");
+    expect(seen[0]!.preview).toContain("--- reference/forms.md ---\nFill each field by its name.");
+    expect(res.content).toContain("reference/forms.md");
   });
 
   test("replacing a skill already installed is said before the yes", async () => {

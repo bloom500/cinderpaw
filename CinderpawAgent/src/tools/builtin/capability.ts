@@ -258,6 +258,8 @@ interface LinkPreview {
   /** "safe" | "caution" | "dangerous", from the host's own scan. */
   verdict: string;
   findings: string[];
+  /** Text files beside SKILL.md that come with it, as fetched and scanned. */
+  files?: Array<{ path: string; content: string }>;
   /** Files beside SKILL.md that a link install does not bring (scripts, assets). */
   left_out: string[];
   /** A skill with this id is already installed and would be replaced. */
@@ -351,8 +353,12 @@ export const installSkillFromLinkTool: Tool = {
       preview.verdict === "caution"
         ? ` Be careful: the safety check found something to look at.${findings}`
         : " The safety check found nothing wrong.";
+    const files = preview.files ?? [];
+    const named = files.slice(0, 12).map((f) => f.path).join(", ") + (files.length > 12 ? ` and ${files.length - 12} more` : "");
+    const brings = files.length ? ` ${files.length} more file(s) come with it: ${named}.` : "";
+    // Said so a person with no idea what a .py file is still knows what they lose.
     const leftOut = preview.left_out.length
-      ? ` It comes with ${preview.left_out.length} other file(s) that will not be installed, so parts of it may not work.`
+      ? ` Not installed with it: ${preview.left_out.join(", ")}. The steps that need these files will not work here.`
       : "";
     const replaces = preview.replaces ? ` It replaces the "${preview.meta.id}" skill you already have.` : "";
     let chose = "";
@@ -364,6 +370,7 @@ export const installSkillFromLinkTool: Tool = {
               `Install the skill "${name}" from ${preview.source}?` +
               reason +
               warning +
+              brings +
               leftOut +
               replaces,
             header: "Install",
@@ -373,7 +380,7 @@ export const installSkillFromLinkTool: Tool = {
               { label: "Not now", description: "Nothing is installed." },
             ],
             // All of it: what is installed is exactly this text, so the person reads all of it.
-            preview: preview.content,
+            preview: preview.content + files.map((f) => `\n\n--- ${f.path} ---\n${f.content}`).join(""),
             // Same as install_capability: walk-away mode never approves an install.
             forceEscalate: true,
           },
@@ -397,6 +404,7 @@ export const installSkillFromLinkTool: Tool = {
         ok: true,
         content:
           `Installed ${preview.meta.name}. Use read_skill('${id}') to read how it works.` +
+          (files.length ? ` Its other files are read with read_skill and \`file\`: ${named}.` : "") +
           (preview.left_out.length ? ` Not installed with it: ${preview.left_out.join(", ")}.` : ""),
         data: { id },
       };

@@ -12,7 +12,8 @@
  * directory — both layers reject directory traversal before any disk read.
  */
 
-import { readFile } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import { resolveAllowedPath } from "../../egress/tool-permissions.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
@@ -89,9 +90,19 @@ export function createReadSkillTool(skillsDir: string): Tool {
           "The skill id (from the 'Available skills' menu). Lowercase letters, digits, hyphens, underscores only.",
         required: true,
       },
+      file: {
+        type: "string",
+        description:
+          "Optional: one of the files beside SKILL.md (e.g. reference/forms.md), as listed when the skill is read. Omit to read SKILL.md.",
+        required: false,
+      },
     },
     async execute(args, ctx) {
       const id = args.id;
+      const file = typeof args.file === "string" && args.file.trim() ? args.file.trim().replace(/\\/g, "/") : "SKILL.md";
+      if (!safeRel(file)) {
+        return { ok: false, content: `invalid file "${file}": use a path as listed when the skill is read.`, error: "bad_args" };
+      }
       if (typeof id !== "string" || !id.trim()) {
         return {
           ok: false,
@@ -114,7 +125,7 @@ export function createReadSkillTool(skillsDir: string): Tool {
       const safePath = resolveAllowedPath(
         ctx.manifest,
         "fs:read",
-        `${skillsDir.replace(/\/+$/, "")}/${id}/SKILL.md`,
+        `${skillsDir.replace(/\/+$/, "")}/${id}/${file}`,
       );
 
       let buf: Buffer;
@@ -125,7 +136,9 @@ export function createReadSkillTool(skillsDir: string): Tool {
         if (code === "ENOENT") {
           return {
             ok: false,
-            content: `skill "${id}" is not installed (no SKILL.md found).`,
+            content: file === "SKILL.md"
+              ? `skill "${id}" is not installed (no SKILL.md found).`
+              : `skill "${id}" has no file "${file}".`,
             error: "not_found",
           };
         }
@@ -151,13 +164,64 @@ export function createReadSkillTool(skillsDir: string): Tool {
           error: "invalid_content",
         };
       }
+      // SKILL.md points at its other files by relative path ("see
+      // reference/forms.md"); name them so the model can ask for one.
+      const beside = file === "SKILL.md" ? await besideFiles(`${skillsDir.replace(/\/+$/, "")}/${id}`) : [];
+      // A link install leaves a skill's programs behind. Told only "run
+      // timemachine.py", a model with no timemachine.py printed odds for a
+      // trade anyway (27 Oct review of the day-trader Reel): so name what is
+      // missing, and forbid the made-up result in the same breath.
+      const missing = file === "SKILL.md" ? missingPrograms(text, beside) : [];
+      let content = truncated ? `${text}\n\n[truncated at ${MAX_BYTES} bytes]` : text;
+      if (beside.length) content += `\n\n---\nFiles in this skill (read one with read_skill and \`file\`): ${beside.join(", ")}`;
+      if (missing.length) {
+        content +=
+          `\n\n---\nNot installed with this skill: ${missing.join(", ")}. Steps that run these files cannot be done here. ` +
+          "Tell the person so in plain words, and never estimate, simulate or make up what they would have produced " +
+          "(numbers, odds, prices, results).";
+      }
       return {
         ok: true,
-        content: truncated
-          ? `${text}\n\n[truncated at ${MAX_BYTES} bytes]`
-          : text,
-        data: { id, path: safePath, bytes: buf.byteLength, truncated },
+        content,
+        data: { id, path: safePath, bytes: buf.byteLength, truncated, missing },
       };
     },
   };
+}
+
+/**
+ * Programs SKILL.md tells the model to run that are not in its folder. Script
+ * names count anywhere (`python3 "$DIR/scan.py"`, `` `scan.py universe` ``);
+ * .js/.ts only after a path or a runner, so "Node.js" is not a missing file.
+ * Matched by name, since skills write their paths in many ways.
+ */
+function missingPrograms(text: string, beside: string[]): string[] {
+  const present = new Set(beside.map((p) => p.split("/").pop()!.toLowerCase()));
+  const refs = new Set<string>();
+  for (const m of text.matchAll(/(?:^|[\s"'`(/])([\w-]+\.(?:py|sh|ps1|rb|mjs|cjs))\b/gm)) refs.add(m[1]!);
+  for (const m of text.matchAll(/(?:\/|\b(?:node|bun|deno|tsx)\s+["']?)([\w-]+\.(?:js|ts))\b/g)) refs.add(m[1]!);
+  return [...refs].filter((r) => !present.has(r.toLowerCase())).slice(0, 12);
+}
+
+/** Relative path inside a skill's folder: plain names, no `.` or `..`. */
+function safeRel(p: string): boolean {
+  return p.split("/").every((s) => s !== "" && s !== "." && s !== ".." && /^[A-Za-z0-9._-]+$/.test(s));
+}
+
+/** Files beside SKILL.md, relative with forward slashes. ponytail: 3 levels, 50 names. */
+async function besideFiles(dir: string, rel = "", depth = 0, out: string[] = []): Promise<string[]> {
+  if (depth > 3) return out;
+  let entries: Dirent[];
+  try {
+    entries = await readdir(rel ? `${dir}/${rel}` : dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const e of entries) {
+    if (out.length >= 50) break;
+    const p = rel ? `${rel}/${e.name}` : e.name;
+    if (e.isDirectory()) await besideFiles(dir, p, depth + 1, out);
+    else if (e.isFile() && p !== "SKILL.md") out.push(p);
+  }
+  return out;
 }

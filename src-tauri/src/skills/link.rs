@@ -2,7 +2,8 @@
 //!
 //! The agent hands over the URL and nothing else. The host works out where
 //! SKILL.md is (a github.com page, a folder, a repo, or a raw file), fetches
-//! it, scans it, and HOLDS those exact bytes under a token. The person is
+//! it and the text files beside it, scans them all, and HOLDS those exact
+//! bytes under a token. The person is
 //! shown the source, the scan and the text; their yes sends the token back and
 //! the held bytes are installed. Nothing is fetched twice, so what is installed
 //! is what they read.
@@ -26,10 +27,18 @@ const MAX_SKILL_BYTES: usize = 256 * 1024;
 const HOLD: Duration = Duration::from_secs(15 * 60);
 /// Files listed by name in the question; the rest are counted.
 const LEFT_OUT_NAMED: usize = 12;
+/// Files beside SKILL.md that come with it: text the agent reads (references,
+/// examples, templates). Scripts and binaries stay behind: nothing here runs them.
+const DOC_EXTS: &[&str] = &["md", "markdown", "mdx", "txt", "rst", "json", "jsonl", "yaml", "yml", "csv", "tsv", "xml", "toml"];
+/// ponytail: caps on what comes with a skill; a folder past them is a library, not a skill.
+const MAX_FILES: usize = 40;
+const MAX_FILES_BYTES: usize = 1024 * 1024;
 
 struct Held {
     meta: SkillMeta,
     content: String,
+    /// The files that come with it, relative to its folder, as fetched and scanned.
+    files: Vec<(String, String)>,
     dangerous: bool,
     at: Instant,
 }
@@ -46,6 +55,10 @@ struct Found {
     raw: String,
     /// The folder the skill lives in, which names it (None: a repo-root SKILL.md).
     folder: Option<String>,
+    /// Raw address of that folder, ending in `/` (empty when nothing comes with it).
+    raw_dir: String,
+    /// Text files in that folder that come with the skill, relative to it.
+    bring: Vec<String>,
     /// Other files in that folder, relative to it.
     left_out: Vec<String>,
 }
@@ -86,6 +99,20 @@ fn parent(path: &str) -> &str {
 
 fn is_skill_md(path: &str) -> bool {
     path.rsplit('/').next().is_some_and(|f| f.eq_ignore_ascii_case("SKILL.md"))
+}
+
+/// A path that is safe to write under the skill's folder: plain names, no `.`
+/// or `..`, nothing absolute, and never a second SKILL.md that a
+/// case-insensitive disk would write over the real one.
+fn safe_rel(p: &str) -> bool {
+    !p.eq_ignore_ascii_case("SKILL.md")
+        && p.split('/').all(|s| {
+            !s.is_empty() && s != "." && s != ".." && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        })
+}
+
+fn is_doc(p: &str) -> bool {
+    p.rsplit_once('.').is_some_and(|(_, ext)| DOC_EXTS.contains(&ext.to_ascii_lowercase().as_str()))
 }
 
 /// Pick the SKILL.md for a link from the repo's file list (`blobs`, paths from
@@ -138,16 +165,25 @@ fn choose(owner: &str, repo: &str, rf: &str, want: &GitHub, blobs: &[String]) ->
     };
     let folder = parent(&path).to_string();
     let prefix = if folder.is_empty() { String::new() } else { format!("{folder}/") };
-    let left_out = if folder.is_empty() {
+    let (mut bring, mut left_out): (Vec<String>, Vec<String>) = if folder.is_empty() {
         // A repo-root skill: the whole repo sits beside it, which says nothing
         // about what the skill needs. Name nothing rather than the repo.
-        Vec::new()
+        (Vec::new(), Vec::new())
     } else {
-        blobs.iter().filter(|p| p.starts_with(&prefix) && **p != path).map(|p| p[prefix.len()..].to_string()).collect()
+        blobs
+            .iter()
+            .filter(|p| p.starts_with(&prefix) && **p != path)
+            .map(|p| p[prefix.len()..].to_string())
+            .partition(|p| is_doc(p) && safe_rel(p))
     };
+    if bring.len() > MAX_FILES {
+        left_out.extend(bring.drain(MAX_FILES..));
+    }
     Ok(Found {
         raw: format!("https://raw.githubusercontent.com/{owner}/{repo}/{rf}/{path}"),
         folder: (!folder.is_empty()).then(|| folder.rsplit('/').next().unwrap_or(&folder).to_string()).or(Some(repo.to_string())),
+        raw_dir: if bring.is_empty() { String::new() } else { format!("https://raw.githubusercontent.com/{owner}/{repo}/{rf}/{prefix}") },
+        bring,
         left_out,
     })
 }
@@ -203,6 +239,8 @@ pub async fn preview(link: &str) -> Result<Value, String> {
             Found {
                 raw: url.to_string(),
                 folder: parent(&path).rsplit('/').next().filter(|f| !f.is_empty()).map(str::to_string),
+                raw_dir: String::new(),
+                bring: Vec::new(),
                 left_out: Vec::new(),
             }
         }
@@ -218,8 +256,8 @@ pub async fn preview(link: &str) -> Result<Value, String> {
         _ => return Err(ONLY_GITHUB.into()),
     };
 
-    let res = super::content_client()
-        .map_err(|e| e.to_string())?
+    let client = super::content_client().map_err(|e| e.to_string())?;
+    let res = client
         .get(&found.raw)
         .send()
         .await
@@ -242,8 +280,31 @@ pub async fn preview(link: &str) -> Result<Value, String> {
     meta.content_url = Some(found.raw.clone());
     let replaces = super::skill_exists(&meta.id).unwrap_or(false);
 
-    let (verdict, findings) = super::scan::scan(&content);
+    let (mut verdict, mut findings) = super::scan::scan(&content);
     let mut left_out = found.left_out;
+
+    // The files that come with it are fetched, held and scanned like SKILL.md:
+    // a reference file is read by the agent as instructions too. One that
+    // cannot be fetched as text, or would pass the size cap, stays behind
+    // and is named with the rest.
+    let fetched = futures::future::join_all(found.bring.iter().map(|rel| fetch_text(&client, format!("{}{rel}", found.raw_dir)))).await;
+    let mut files: Vec<(String, String)> = Vec::new();
+    let mut total = 0usize;
+    for (rel, text) in found.bring.into_iter().zip(fetched) {
+        match text {
+            Some(text) if total + text.len() <= MAX_FILES_BYTES => {
+                total += text.len();
+                let (v, f) = super::scan::scan(&text);
+                if rank(v) > rank(verdict) {
+                    verdict = v;
+                }
+                findings.extend(f.into_iter().map(|f| format!("{f} in {rel}")));
+                files.push((rel, text));
+            }
+            _ => left_out.push(rel),
+        }
+    }
+
     let more = left_out.len().saturating_sub(LEFT_OUT_NAMED);
     left_out.truncate(LEFT_OUT_NAMED);
     if more > 0 {
@@ -255,17 +316,42 @@ pub async fn preview(link: &str) -> Result<Value, String> {
     {
         let mut h = held().lock();
         h.retain(|_, v| v.at.elapsed() < HOLD);
-        h.insert(token.clone(), Held { meta: meta.clone(), content: content.clone(), dangerous: verdict == "dangerous", at: Instant::now() });
+        h.insert(
+            token.clone(),
+            Held { meta: meta.clone(), content: content.clone(), files: files.clone(), dangerous: verdict == "dangerous", at: Instant::now() },
+        );
     }
+    let files: Vec<Value> = files.into_iter().map(|(path, content)| json!({ "path": path, "content": content })).collect();
     Ok(json!({
-        "token": token, "meta": meta, "source": source, "content": content,
+        "token": token, "meta": meta, "source": source, "content": content, "files": files,
         "verdict": verdict, "findings": findings, "left_out": left_out, "replaces": replaces,
     }))
 }
 
+fn rank(verdict: &str) -> u8 {
+    match verdict {
+        "dangerous" => 2,
+        "caution" => 1,
+        _ => 0,
+    }
+}
+
+/// One file beside SKILL.md as text, or None (missing, too big, not text).
+async fn fetch_text(client: &reqwest::Client, url: String) -> Option<String> {
+    let res = client.get(&url).send().await.ok()?;
+    if !res.status().is_success() {
+        return None;
+    }
+    let bytes = res.bytes().await.ok()?;
+    if bytes.len() > MAX_SKILL_BYTES {
+        return None;
+    }
+    String::from_utf8(bytes.to_vec()).ok()
+}
+
 /// Install the bytes a preview held. The token is single-use.
 pub fn install(token: &str) -> Result<SkillMeta, String> {
-    let Held { meta, content, dangerous, at } =
+    let Held { meta, content, files, dangerous, at } =
         held().lock().remove(token).ok_or("That preview is gone. Ask for the link to be checked again.")?;
     if at.elapsed() >= HOLD {
         return Err("That preview waited too long. Ask for the link to be checked again.".into());
@@ -277,6 +363,18 @@ pub fn install(token: &str) -> Result<SkillMeta, String> {
     // to the skills module, and this is its child.
     super::validate_skill_body(&content).map_err(|e| e.to_string())?;
     super::do_install(&meta, &content, true).map_err(|e| e.to_string())?;
+    let dir = super::skill_path(&meta.id).map_err(|e| e.to_string())?;
+    for (rel, text) in &files {
+        // Checked when the list was made, and again where it is written.
+        if !safe_rel(rel) {
+            continue;
+        }
+        let path = dir.join(rel);
+        if let Some(p) = path.parent() {
+            std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    }
     Ok(meta)
 }
 
@@ -311,11 +409,44 @@ mod tests {
 
     #[test]
     fn a_folder_link_finds_its_skill_and_lists_what_is_left_out() {
-        let repo = files(&["README.md", "pdf/SKILL.md", "pdf/scripts/split.sh", "xls/SKILL.md"]);
+        let repo = files(&["README.md", "pdf/SKILL.md", "pdf/scripts/split.sh", "pdf/reference/forms.md", "xls/SKILL.md"]);
         let f = choose("acme", "skills", "main", &gh("https://github.com/acme/skills/tree/main/pdf"), &repo).unwrap();
         assert_eq!(f.raw, "https://raw.githubusercontent.com/acme/skills/main/pdf/SKILL.md");
         assert_eq!(f.folder.as_deref(), Some("pdf"));
+        // Text the skill points to comes with it; a script stays behind.
+        assert_eq!(f.bring, vec!["reference/forms.md".to_string()]);
+        assert_eq!(f.raw_dir, "https://raw.githubusercontent.com/acme/skills/main/pdf/");
         assert_eq!(f.left_out, vec!["scripts/split.sh".to_string()]);
+    }
+
+    #[test]
+    fn only_plain_text_files_with_plain_names_come_with_a_skill() {
+        let repo = files(&[
+            "s/SKILL.md",
+            "s/guide.MD",
+            "s/data/table.csv",
+            "s/logo.png",
+            "s/run.py",
+            "s/skill.md",
+            "s/odd name.md",
+            "s/../escape.md",
+        ]);
+        let f = choose("a", "b", "main", &gh("https://github.com/a/b/tree/main/s"), &repo).unwrap();
+        assert_eq!(f.bring, vec!["guide.MD".to_string(), "data/table.csv".to_string()]);
+        // A lookalike SKILL.md would overwrite the real one on a case-insensitive disk.
+        assert!(f.left_out.contains(&"skill.md".to_string()));
+        assert!(f.left_out.contains(&"odd name.md".to_string()));
+        assert!(f.left_out.contains(&"../escape.md".to_string()));
+        assert!(f.left_out.contains(&"run.py".to_string()));
+    }
+
+    #[test]
+    fn a_folder_past_the_cap_brings_the_first_files_and_names_the_rest() {
+        let mut repo = vec!["s/SKILL.md".to_string()];
+        repo.extend((0..MAX_FILES + 3).map(|i| format!("s/ref/{i:02}.md")));
+        let f = choose("a", "b", "main", &gh("https://github.com/a/b/tree/main/s"), &repo).unwrap();
+        assert_eq!(f.bring.len(), MAX_FILES);
+        assert_eq!(f.left_out.len(), 3);
     }
 
     #[test]
@@ -345,7 +476,7 @@ mod tests {
     #[test]
     fn a_token_installs_once_and_a_dangerous_one_never() {
         let meta = super::super::parse_frontmatter("x", "---\nname: X\ndescription: d\n---\n");
-        held().lock().insert("bad".into(), Held { meta, content: String::new(), dangerous: true, at: Instant::now() });
+        held().lock().insert("bad".into(), Held { meta, content: String::new(), files: Vec::new(), dangerous: true, at: Instant::now() });
         assert!(install("bad").unwrap_err().contains("refused"));
         // Single use: the refused token is gone too.
         assert!(install("bad").unwrap_err().contains("gone"));

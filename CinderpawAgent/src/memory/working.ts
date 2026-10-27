@@ -60,6 +60,9 @@ export function defangToolCallTags(content: string): string {
 /** Tokens the objective drawer may occupy. One request, not an essay. */
 const OBJECTIVE_MAX_TOKENS = 200;
 
+/** Installed skills listed by name in the per-turn menu; the rest are counted. */
+const SKILL_MENU_MAX = 30;
+
 /**
  * How many of the most recent tool results survive at full size. Everything
  * the model is actively reasoning over is in the last couple of steps; older
@@ -472,12 +475,19 @@ export class WorkingMemory {
       this.#skillMenu = "";
       return;
     }
-    const lines = skills.map(
-      (s) => `- \`${s.id}\` — ${s.name}: ${s.description || "(no description)"}`,
-    );
+    // ponytail: the first SKILL_MENU_MAX, one line each (~1.5K tokens at the cap).
+    // A roster past that is a curation problem, and list_skills still finds the rest.
+    const lines = skills.slice(0, SKILL_MENU_MAX).map((s) => {
+      const d = (s.description || "(no description)").replace(/\s+/g, " ").trim();
+      return `- \`${s.id}\` — ${s.name}: ${d.length > 200 ? `${d.slice(0, 199)}…` : d}`;
+    });
+    if (skills.length > SKILL_MENU_MAX) {
+      lines.push(`- …and ${skills.length - SKILL_MENU_MAX} more: call \`list_skills\` to see them.`);
+    }
     this.#skillMenu =
       "## Available skills (locally installed)\n" +
-      "Use the `read_skill` tool to load the full body of any skill before applying it.\n\n" +
+      "When the request matches one of these, call `read_skill` with its id before you answer, " +
+      "and follow it. A skill the person names is always loaded.\n\n" +
       lines.join("\n");
   }
 
