@@ -59,9 +59,9 @@ The little orange creature on the screen is Cubby, the face of your helper. Cubb
 shows you what is going on without a log to read: thinking, working, waiting for
 you, done. Playful on the outside, real work underneath.
 
-### Where it stands, 26 October 2026
+### Where it stands, 28 October 2026
 
-[**v2026.10.26**](https://github.com/bloom500/cinderpaw/releases/latest)
+[**v2026.10.28**](https://github.com/bloom500/cinderpaw/releases/latest)
 is the newest release, and it is the one marked *Latest* on GitHub. Every
 download link and install command below gets it. What changed is in the
 [changelog](CHANGELOG.md).

@@ -5,6 +5,42 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
+## 2026.10.28
+
+> Skills you install are used without you naming them, and long answers are no
+> longer cut off.
+
+### Fixed
+
+- **Long answers are no longer cut off.** Every message carried a hidden limit
+  of about 3,000 words, so a long document written in one go could stop and
+  show "The model returned an empty response". The limit now follows what your
+  AI model can really write.
+- **A skill you installed is used when it fits**, without you typing its name.
+  Before, a skill added from a link sat unused unless you named it.
+- **An app or web page Cinderpaw makes runs the moment it is saved.** While it
+  is written you see "Building it now" and a line count, instead of raw code
+  that made you wait up to a minute after the app was ready.
+- **Cinderpaw can check what it typed into a post box** on X, LinkedIn, Gmail
+  and Slack. Before, it read those boxes back as empty and asked you to check.
+- **A file with spaces in its name is no longer reported missing** after
+  Cinderpaw saved it.
+- **The install card says what it installs** ("Install hyperframes on this
+  computer?") and shows the full command in its own box.
+- **A long chat stays smooth while a reply is written**, up to twice as smooth
+  in chats with hundreds of messages.
+- **Safer zip downloads.** The part that unpacks the tools Cinderpaw downloads
+  on Windows moved to a fixed version (RUSTSEC-2026-0367, 0368 and 0369).
+
+### New
+
+- **A skill from a link brings its whole folder of text files**, not only
+  SKILL.md, and the card says how many come with it. Programs inside a skill
+  are still left out, and the card names them: Cinderpaw says those steps
+  cannot run here instead of guessing what they would have produced.
+- **The model switcher opens like a Dynamic Island**, and cards that wait for
+  you pour in smoothly.
+
 ## 2026.10.26
 
 > Documents are written calmly to the end, and Linux updates by itself again.
