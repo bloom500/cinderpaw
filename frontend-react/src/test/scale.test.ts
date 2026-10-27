@@ -29,9 +29,10 @@ function hits(re: RegExp, keep: (m: RegExpMatchArray) => boolean = () => true): 
 }
 
 describe('type', () => {
-  test('the smallest step is 11 px and the next is 12 px', () => {
-    expect(CSS).toMatch(/--text-micro:\s*11px;/);
-    expect(CSS).toMatch(/--text-2xs:\s*12px;/);
+  test('the smallest step is 12 px and the next is 13 px', () => {
+    // 27 Oct: raised a pixel, after "uneori mi se pare ilizibil".
+    expect(CSS).toMatch(/--text-micro:\s*12px;/);
+    expect(CSS).toMatch(/--text-2xs:\s*13px;/);
   });
 
   test('no one-off pixel font sizes in components', () => {

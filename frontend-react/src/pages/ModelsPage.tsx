@@ -70,7 +70,7 @@ export function ModelsPage() {
               Connect your favourite providers and models. Switch between cloud, local, or Hugging Face models.
             </p>
 
-            <div role="tablist" aria-label="Models" className="mt-6 inline-flex rounded-2xl border border-border-subtle bg-bg-surface p-1 shadow-sm">
+            <div role="tablist" aria-label="Models" className="mt-6 inline-flex max-w-full overflow-x-auto thin-scrollbar rounded-2xl border border-border-subtle bg-bg-surface p-1 shadow-sm">
               {TAB_BAR.map(({ id, label, icon }) => {
                 const active = tab === id;
                 return (
@@ -83,7 +83,7 @@ export function ModelsPage() {
                     aria-selected={active}
                     onClick={() => setTab(id)}
                     className={cn(
-                      'relative inline-flex items-center gap-2 whitespace-nowrap rounded-xl px-4 py-2 text-sm font-medium transition-colors sm:px-5',
+                      'relative inline-flex items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition-colors lg:px-5',
                       active ? 'text-brand' : 'text-text-secondary hover:text-text-primary',
                     )}
                   >

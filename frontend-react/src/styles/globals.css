@@ -47,21 +47,28 @@
    * neighbours: that is what "looks unfinished" is, most of the time. Line
    * heights are baked in so a size cannot be used without its rhythm, and the
    * large steps carry negative tracking because display text reads loose.
-   * The floor is 11 px (test/scale.test.ts): 10 px labels read as cramped.
+   * The floor is 12 px (test/scale.test.ts).
+   *
+   * 27 Oct, Darius: "uneori mi se pare ilizibil". Measured: 1100+ uses sat at
+   * 12-13.5 px and the answer at 15, while Claude's answer lines are 25 px apart
+   * and its activity line is nearly body size, only grey. Every reading step
+   * went up about 1 px (headings unchanged), and what is secondary is told by
+   * colour, not by going smaller. The window is see-through, so Chromium draws
+   * text without ClearType: small sizes pay twice.
    */
-  --text-micro: 11px;
-  --text-micro--line-height: 14px;
+  --text-micro: 12px;
+  --text-micro--line-height: 16px;
   --text-micro--letter-spacing: 0.01em;
-  --text-2xs: 12px;
-  --text-2xs--line-height: 16px;
-  --text-xs: 12.5px;
-  --text-xs--line-height: 18px;
-  --text-sm: 13.5px;
-  --text-sm--line-height: 20px;
-  --text-base: 15px;
-  --text-base--line-height: 23px;
-  --text-lg: 17px;
-  --text-lg--line-height: 26px;
+  --text-2xs: 13px;
+  --text-2xs--line-height: 18px;
+  --text-xs: 13.5px;
+  --text-xs--line-height: 20px;
+  --text-sm: 14.5px;
+  --text-sm--line-height: 22px;
+  --text-base: 16px;
+  --text-base--line-height: 26px;
+  --text-lg: 18px;
+  --text-lg--line-height: 28px;
   --text-lg--letter-spacing: -0.01em;
   --text-xl: 20px;
   --text-xl--line-height: 28px;
