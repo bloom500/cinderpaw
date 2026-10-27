@@ -149,6 +149,8 @@ export function stepDetail(a: ToolActivity): string {
   if (a.hits.length > 0) return plural(a.hits.length, 'source');
   if (a.files.length > 0) return plural(a.files.length, 'file');
   if (a.facts.length > 0) return plural(a.facts.length, 'memory', 'memories');
+  // "Took a picture" said "Taking a picture" again on its right; the app is the news.
+  if (a.desktop?.action === 'screenshot') return a.desktop.app;
   return summaryOf(a);
 }
 
@@ -255,7 +257,7 @@ function StepRow({ a, pop, big }: { a: ToolActivity; pop: boolean; big: boolean 
         <span className={cn('min-w-0 flex-1 truncate text-sm', a.status === 'running' ? 'font-medium text-text-primary' : 'text-text-muted')}>
           {stepTitle(a)}
         </span>
-        <span className="max-w-[45%] shrink-0 truncate text-2xs text-text-disabled" title={stepDetail(a)}>
+        <span className="max-w-[45%] shrink-0 truncate text-2xs text-text-muted" title={stepDetail(a)}>
           {stepDetail(a)}
         </span>
       </button>
@@ -289,7 +291,7 @@ function HelperRow({ w, now }: { w: RlmWorker; now: number }) {
     <div className="flex items-center gap-3 py-1.5" data-testid="strip-helper">
       {icon}
       <span className="min-w-0 flex-1 truncate text-sm text-text-muted" title={w.name}>{displayName(w.name)}</span>
-      <span className="shrink-0 text-2xs text-text-disabled">
+      <span className="shrink-0 text-2xs text-text-muted">
         {HELPER_WORD[w.status]} · {elapsedLabel((w.endedAt ?? now) - w.startedAt)}
       </span>
     </div>
@@ -410,11 +412,11 @@ export function MessageChain({
             : <span className="min-w-0 truncate text-sm text-text-muted group-hover:text-text-primary">{title}</span>}
           {/* What also runs ("Using memory") is words on the line, not a chip. */}
           {[...chips, detail].filter(Boolean).length > 0 && (
-            <span className="shrink-0 text-2xs text-text-disabled">{[...chips, detail].filter(Boolean).join(' · ')}</span>
+            <span className="shrink-0 text-2xs text-text-muted">{[...chips, detail].filter(Boolean).join(' · ')}</span>
           )}
           <ChevronDown size={14} className={cn('shrink-0 text-text-muted transition-transform', open ? 'rotate-0' : '-rotate-90')} />
         </CollapsibleTrigger>
-        {more > 0 && <span className="shrink-0 text-2xs text-text-disabled">+{more}</span>}
+        {more > 0 && <span className="shrink-0 text-2xs text-text-muted">+{more}</span>}
         {lineImages.length > 0 && <Thumbs images={lineImages} small />}
       </div>
       {!open && firstPictures.length > 0 && (

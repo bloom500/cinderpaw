@@ -275,10 +275,13 @@ export function desktopDone(fact: DesktopFact | null, result: unknown): DesktopF
   return next;
 }
 
+/** Tools called together start in the same millisecond; the time alone gave them one id. */
+let started = 0;
+
 /** A fresh, running activity for a tool that just started. */
 export function startActivity(tool: string, args: Record<string, unknown> | undefined): ToolActivity {
   return {
-    id: `${tool}-${Date.now()}`,
+    id: `${tool}-${Date.now()}-${++started}`,
     tool,
     kind: kindOf(tool),
     subject: subjectOf(args),
