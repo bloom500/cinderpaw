@@ -405,7 +405,13 @@ export const installSkillFromLinkTool: Tool = {
         content:
           `Installed ${preview.meta.name}. Use read_skill('${id}') to read how it works.` +
           (files.length ? ` Its other files are read with read_skill and \`file\`: ${named}.` : "") +
-          (preview.left_out.length ? ` Not installed with it: ${preview.left_out.join(", ")}.` : ""),
+          // 27 Oct: told only "not installed with it", the agent reported the
+          // skill installed, then found setup.sh missing mid-task and called it
+          // "not installed". The consequence goes to the agent too.
+          (preview.left_out.length
+            ? ` Not installed with it: ${preview.left_out.join(", ")}. The steps that need these files will not work here: ` +
+              "tell the person so now, and do not call the skill ready for those steps."
+            : ""),
         data: { id },
       };
     } catch (err) {
