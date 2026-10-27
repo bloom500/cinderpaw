@@ -85,6 +85,8 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
     description: "Overrides the built-in shell_exec denylist (dangerous binaries refused even in YOLO mode).", security: true },
   { name: "CINDERPAW_PROACTIVE_ENABLED", type: "bool", default: false,
     description: "Master enable for the proactive/mood-engine loop.", security: true },
+  { name: "CINDERPAW_DIGEST_HOUR", type: "int", default: 20,
+    description: "Local hour after which the day's task digest (what ran, what failed) goes to the owner's phone, once a day, no model. -1 turns it off.", security: false },
   { name: "CINDERPAW_TASKS_TO_PHONE", type: "bool", default: true,
     description: "A task that fires also goes to the owner's private chat on a connected messenger (Telegram, then WhatsApp, then Discord). false keeps it in the app.", security: false },
   { name: "CINDERPAW_FOLLOWUPS_ENABLED", type: "bool", default: true,

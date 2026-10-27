@@ -136,6 +136,7 @@ import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
 import { HookRegistry } from "./core/hook-registry.ts";
 import { CronJobsRepo, CronScheduler, deliverCron } from "./cron/index.ts";
+import { maybeSendDigest } from "./cron/digest.ts";
 import { CoworkAgentRepo } from "./cowork/agent-store.ts";
 import { CoworkMailboxRepo } from "./cowork/mailbox.ts";
 import { CoworkHandoffService } from "./cowork/handoff.ts";
@@ -2954,6 +2955,20 @@ export async function boot(transportOverride?: Transport) {
     // deliver through the transport.
     cronScheduler.start();
     log(`cron scheduler enabled (${cronRepo.list().length} job(s) loaded)`);
+    // One message a day of what the tasks did, to the owner's phone, from run
+    // history (no model). CINDERPAW_DIGEST_HOUR is the local hour (default 20);
+    // -1 turns it off. Checked every 10 minutes; sent once a day.
+    const digestHour = Number(readEnv("CINDERPAW_DIGEST_HOUR") ?? 20);
+    if (Number.isFinite(digestHour) && digestHour >= 0) {
+      const digestTimer = setInterval(() => {
+        void maybeSendDigest({
+          hour: digestHour,
+          jobs: () => cronRepo.list(),
+          send: (text) => notifyOwner?.(text) ?? Promise.resolve(null),
+        }).then((sent) => { if (sent) log("tasks: daily digest sent"); }).catch((e) => log(`tasks: digest failed: ${String(e)}`));
+      }, 10 * 60_000);
+      digestTimer.unref?.();
+    }
 
     // Agent Cowork (S3.5): start the reactive worker loop after the
     // transport is up, same pattern as cron. Silent when no agents exist.
