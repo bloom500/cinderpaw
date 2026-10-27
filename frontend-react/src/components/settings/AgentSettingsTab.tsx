@@ -420,12 +420,15 @@ export function DesktopControlToggle() {
               className={segBtn(yolo)}
               aria-pressed={yolo}
             >
-              Don't ask
+              {/* 27 Oct: "tell me after", not "don't ask" (Altman: "tell me after
+                  you do something ... ping me less"). Every step stays in the
+                  chat with its widget and picture: that is the "after". */}
+              Do it, show me after
             </button>
           </div>
           <p className="text-2xs text-text-muted">
             {yolo
-              ? 'Cinderpaw clicks, types and sends without asking. It still asks before opening an app.'
+              ? 'Cinderpaw clicks, types and sends without asking, and every step stays in the chat with what it saw. It still asks before opening an app, and, in its browser, before posting in your name or paying.'
               : 'Cinderpaw asks you before every click, every bit of typing, and every send.'}
           </p>
         </div>
