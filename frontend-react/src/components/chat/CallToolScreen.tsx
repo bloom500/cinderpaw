@@ -559,6 +559,7 @@ function desktopLine(d: DesktopFact): string {
     case 'perform_action': return `${d.actionName || 'Acting on'}${on}`;
     case 'get_value': return `Reading${on || ' a value'}`;
     case 'get_focused': return 'Reading what has focus';
+    case 'screenshot': return d.app ? `Taking a picture of ${d.app}` : 'Taking a picture';
     default: return d.action;
   }
 }

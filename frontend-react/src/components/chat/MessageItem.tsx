@@ -13,7 +13,7 @@ import { SourcesContext, SourcesList } from './Sources';
 import { MemoryPeek } from './MemoryPeek';
 import { FollowUps } from './FollowUps';
 import { citedSources, sourcesOf } from '@/lib/sources';
-import { MessageChain } from './MessageChain';
+import { MessageChain, firstLooks } from './MessageChain';
 import { ZoomableImage } from './ZoomableImage';
 import { MessageActions, WHILE_IDLE } from './MessageActions';
 import { VoiceBubble } from './VoiceBubble';
@@ -224,6 +224,8 @@ export const MessageItem = memo(function MessageItem({
   // The pages this turn's searches found: a link to one is a source chip, and
   // the ones the answer cited close it as a list once it is done.
   const sources = useMemo(() => sourcesOf(activity), [activity]);
+  // Decided over the whole reply: one first look at a site, not one per line.
+  const looks = useMemo(() => firstLooks(activity), [activity]);
   const cited = useMemo(() => (streaming ? [] : citedSources(message.content, sources)), [streaming, message.content, sources]);
   const lastGroup = pieces
     ? pieces.reduce((k, p, i) => (p.kind === 'tools' && p.tools.some(isStep) ? i : k), -1)
@@ -242,6 +244,7 @@ export const MessageItem = memo(function MessageItem({
         // In the timeline the tools sit in the text instead; this keeps the reasoning.
         steps={pieces ? [] : activity.filter(isStep)}
         streaming={streaming}
+        looks={looks}
       />
       {pieces ? (
         // The reply in the order it happened: what it said, the tools it then
@@ -268,6 +271,7 @@ export const MessageItem = memo(function MessageItem({
                   steps={plain}
                   streaming={streaming && plain.some((a) => a.status === 'running')}
                   helpers={i === lastGroup ? helpers : NO_HELPERS}
+                  looks={looks}
                 />
               )}
               {widgets.map((a) => <ChatWidget key={a.id} w={a.widget!} />)}

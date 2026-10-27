@@ -4,6 +4,7 @@ import { AlertTriangle, Ban, Check, ChevronDown, Loader2, X } from 'lucide-react
 import { Streamdown } from 'streamdown';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { thinkingLabel } from '@/components/ai-elements/reasoning';
+import { ShimmeringText } from '@/components/ui/shimmering-text';
 import type { ToolActivity } from '@/hooks/useLiveToolActivity';
 import { useUI } from '@/stores/ui';
 import { displayName, type RlmWorker } from '@/stores/rlmWorkers';
@@ -11,9 +12,6 @@ import logoUrl from '@/assets/logo.svg';
 import { Widget, summaryOf } from './CallToolScreen';
 import { CinderpawMascot } from './mascot/CinderpawMascot';
 import { ZoomableImage } from './ZoomableImage';
-
-/** How long the finished answer is on screen before the steps fold away. */
-const FOLD_DELAY_MS = 1000;
 
 /** Pictures shown on the folded line, newest last (Claude's "+3" strip). */
 const LINE_THUMBS = 3;
@@ -32,6 +30,34 @@ function Thumbs({ images, small }: { images: string[]; small?: boolean }) {
       ))}
     </div>
   );
+}
+
+/** Where a step is, for `firstLooks`: a site's host, or the app it named. */
+function placeOf(subject: string): string {
+  try { return new URL(/^[a-z]+:\/\//i.test(subject) ? subject : `https://${subject}`).hostname; } catch { return subject; }
+}
+
+/**
+ * The steps whose picture is shown big: the first picture after the agent
+ * arrives somewhere new (a site it opened, an app it named), like Claude's
+ * first look at a page. Every later picture from the same place is a
+ * thumbnail (Darius, 27 Oct: "o poza mare cu siteul, dupa care doar miniaturi").
+ * ponytail: a place is what a browser or app step NAMED; a click that leads to
+ * another site is not seen as a move. Read the page's url from the result if
+ * that matters.
+ */
+export function firstLooks(steps: ToolActivity[]): Set<string> {
+  const big = new Set<string>();
+  let place = '';
+  let shown: string | null = null;
+  for (const a of steps) {
+    if (a.subject && (a.tool === 'browser' || a.kind === 'desktop')) place = placeOf(a.subject);
+    if (a.images?.length && place !== shown) {
+      big.add(a.id);
+      shown = place;
+    }
+  }
+  return big;
 }
 
 /** No Streamdown plugins, for the same bundle reason as reasoning.tsx. */
@@ -55,6 +81,8 @@ const PHRASES: Record<string, [string, string]> = {
   todo_write: ['Updating the plan', 'Updated the plan'],
   cowork_send: ['Messaging a teammate', 'Messaged a teammate'],
   rlm: ['Starting helpers', 'Started helpers'],
+  // The built-in browser. Without it the line said "Browser".
+  browser: ['Using the browser', 'Used the browser'],
 };
 
 /**
@@ -62,9 +90,12 @@ const PHRASES: Record<string, [string, string]> = {
  * ("Searching the web", "Searched the web"). From the tool's kind and name,
  * never from its output. A tool with no phrase keeps its own name.
  */
-export function stepTitle(a: Pick<ToolActivity, 'tool' | 'kind' | 'status' | 'artifact'>): string {
+export function stepTitle(a: Pick<ToolActivity, 'tool' | 'kind' | 'status' | 'artifact'> & Partial<Pick<ToolActivity, 'desktop' | 'images'>>): string {
   const now = a.status === 'running';
   const pick = (running: string, done: string) => (now ? running : done);
+  // The built-in browser is a tool of its own (kind 'generic', not the web
+  // search widget), and only its `screenshot` brings a picture back.
+  if (a.tool === 'browser' && a.images?.length) return 'Took a picture of the page';
   switch (a.kind) {
     case 'browser':
       if (/^(web_search|deep_research)/.test(a.tool)) return pick('Searching the web', 'Searched the web');
@@ -76,7 +107,9 @@ export function stepTitle(a: Pick<ToolActivity, 'tool' | 'kind' | 'status' | 'ar
     case 'terminal': return pick('Running a command', 'Ran a command');
     case 'memory':   return pick('Checking memory', 'Checked memory');
     case 'agent':    return pick('Asking a helper', 'Asked a helper');
-    case 'desktop':  return pick('Using an app', 'Used an app');
+    case 'desktop':
+      if (a.desktop?.action === 'screenshot') return pick('Taking a picture', 'Took a picture');
+      return pick('Using an app', 'Used an app');
     case 'artifact': {
       const title = a.artifact?.title;
       // An edit is a change, often one part of a document drafted in parts.
@@ -126,8 +159,13 @@ export function stepDetail(a: ToolActivity): string {
  * thinking or writing after them (UX lab, report item 5).
  */
 export function doneSentence(steps: ToolActivity[]): string {
-  const said = [...new Set(steps.map((a) => stepTitle({ ...a, status: 'done' })))];
-  const shown = said.slice(0, 3).map((s, i) => (i === 0 ? s : s.charAt(0).toLowerCase() + s.slice(1)));
+  const titles = steps.map((a) => stepTitle({ ...a, status: 'done' }));
+  const said = [...new Set(titles)];
+  // "Took a picture of the page 3 times", like Claude's "captured page 5 times".
+  const times = (s: string) => titles.filter((t) => t === s).length;
+  const shown = said.slice(0, 3)
+    .map((s) => (times(s) > 1 ? `${s} ${times(s)} times` : s))
+    .map((s, i) => (i === 0 ? s : s.charAt(0).toLowerCase() + s.slice(1)));
   const more = said.length - shown.length;
   const failed = steps.filter((a) => a.status === 'failed').length;
   return shown.join(', ') + (more > 0 ? `, and ${more} more` : '')
@@ -186,9 +224,22 @@ function StatusRing({ status }: { status: ToolActivity['status'] }) {
   return <Check size={16} className="shrink-0 text-success" />;
 }
 
+/** A first look at a place, at the chat's width (Claude's "Captured page" picture). */
+function FirstLook({ src }: { src: string }) {
+  return (
+    <ZoomableImage
+      src={src}
+      alt="What the agent saw when it got there"
+      className="w-full"
+      thumbClassName="block max-h-[30rem] w-full rounded-xl object-cover object-top"
+    />
+  );
+}
+
 /** One step: ring, what it did, its count. Click for the tool's own widget.
- *  `pop`: it arrived while the agent works, so it pops in (`.row-pop`). */
-function StepRow({ a, pop }: { a: ToolActivity; pop: boolean }) {
+ *  `pop`: it arrived while the agent works, so it pops in (`.row-pop`).
+ *  `big`: its first picture is a first look at a new place (`firstLooks`). */
+function StepRow({ a, pop, big }: { a: ToolActivity; pop: boolean; big: boolean }) {
   // `null` is "nobody chose": the running step shows its widget, the rest fold.
   const [choice, setChoice] = useState<boolean | null>(null);
   const open = choice ?? a.status === 'running';
@@ -210,8 +261,9 @@ function StepRow({ a, pop }: { a: ToolActivity; pop: boolean }) {
       </button>
       {/* What it saw stays in view, folded or not: a picture is the step's proof. */}
       {a.images && a.images.length > 0 && (
-        <div className="mb-1.5 ml-7">
-          <Thumbs images={a.images} />
+        <div className="mb-1.5 ml-7 flex flex-col items-start gap-1.5">
+          {big && <FirstLook src={a.images[0]!} />}
+          {(big ? a.images.slice(1) : a.images).length > 0 && <Thumbs images={big ? a.images.slice(1) : a.images} />}
         </div>
       )}
       {open && (
@@ -280,12 +332,13 @@ function WorkingFigure() {
  * The steps come from `toolActivity`, which the stream already records as
  * structured events, not from guessing steps out of the reasoning text.
  *
- * Open while the turn streams, so the steps arrive live. Folds itself a beat
- * after the WHOLE answer is written, never when the answer merely starts (that
- * was the bug that made the old block vanish mid-read). A click reopens it.
+ * Folded, always, until the person opens it: while the agent works the line's
+ * words change with each step and shimmer, like Claude's. It used to open by
+ * itself while streaming and fold a beat after the answer; the steps and a
+ * running tool's widget then pushed the answer down while it was being read.
  */
 export function MessageChain({
-  thinking, thinkingComplete, durationSec, steps, streaming, helpers = [],
+  thinking, thinkingComplete, durationSec, steps, streaming, helpers = [], looks: given,
 }: {
   /** null when the model gave none, or the person turned reasoning off. */
   thinking: string | null;
@@ -296,25 +349,20 @@ export function MessageChain({
   /** This chat's `rlm()` helpers. Only the latest reply's last strip gets them:
    *  they belong to the session, and they run after the reply that started them. */
   helpers?: RlmWorker[];
+  /** The steps whose picture is a first look, decided over the WHOLE reply
+   *  (`firstLooks`): a reply drawn as several lines must not show a big picture
+   *  on each. Left out, this line decides for its own steps. */
+  looks?: Set<string>;
 }) {
-  const [open, setOpen] = useState(streaming);
+  // Folded until the person opens it, while the agent works too (27 Oct, his
+  // ask, after Claude's line): the line itself says what happens now, and the
+  // steps, the reasoning and each tool's widget are one click away.
+  const [open, setOpen] = useState(false);
   // First drawn while the agent works, its rows arrive with a little bounce. A
   // chat opened again draws it as it is: nothing is replayed.
   const [live] = useState(streaming);
-  const wasStreaming = useRef(streaming);
   const [reasoningOpen, setReasoningOpen] = useState(false);
   const now = useNow(streaming || helpers.some((w) => w.status === 'running'));
-
-  useEffect(() => {
-    const before = wasStreaming.current;
-    wasStreaming.current = streaming;
-    if (streaming && !before) setOpen(true);
-    if (before && !streaming) {
-      const t = setTimeout(() => setOpen(false), FOLD_DELAY_MS);
-      return () => clearTimeout(t);
-    }
-    return undefined;
-  }, [streaming]);
 
   if (thinking === null && steps.length === 0 && helpers.length === 0) return null;
   const chips = sideChips(streaming ? steps : [], helpers);
@@ -338,9 +386,13 @@ export function MessageChain({
     detail = count;
   }
   const failed = !streaming && steps.some((a) => a.status === 'failed');
-  // Folded, the line carries the newest pictures, so what the agent saw is one
-  // glance away without opening anything.
-  const lineImages = open ? [] : steps.flatMap((a) => a.images ?? []).slice(-LINE_THUMBS);
+  const looks = given ?? firstLooks(steps);
+  // Folded, a first look stays in view at full width under the line, and the
+  // other pictures ride on the line: the newest three, and how many more.
+  const firstPictures = steps.flatMap((a) => (looks.has(a.id) && a.images?.length ? [a.images[0]!] : []));
+  const others = steps.flatMap((a) => (looks.has(a.id) ? (a.images ?? []).slice(1) : (a.images ?? [])));
+  const lineImages = open ? [] : others.slice(-LINE_THUMBS);
+  const more = open ? 0 : others.length - lineImages.length;
 
   // 27 Oct, his ask: no card, no pill, no chips. The steps are a quiet line of
   // text over the answer (Claude's "Clicked, waited, captured page 4 times ›"),
@@ -350,24 +402,34 @@ export function MessageChain({
       <div className="flex items-center gap-2">
         <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-2 py-1 text-left">
           {streaming ? <WorkingFigure /> : failed && <AlertTriangle size={14} className="shrink-0 text-warning" />}
-          {/* Done, it is a quiet line of what happened, not a green "finished":
-              the answer may still be arriving below it. */}
-          <span className={cn('min-w-0 truncate text-sm', streaming ? 'font-medium text-text-primary' : 'text-text-muted group-hover:text-text-primary')}>{title}</span>
+          {/* Working, the words say what happens now and a light passes over
+              them. Done, it is a quiet line of what happened, not a green
+              "finished": the answer may still be arriving below it. */}
+          {streaming
+            ? <ShimmeringText text={title} className="min-w-0 truncate text-sm font-medium" />
+            : <span className="min-w-0 truncate text-sm text-text-muted group-hover:text-text-primary">{title}</span>}
           {/* What also runs ("Using memory") is words on the line, not a chip. */}
           {[...chips, detail].filter(Boolean).length > 0 && (
             <span className="shrink-0 text-2xs text-text-disabled">{[...chips, detail].filter(Boolean).join(' · ')}</span>
           )}
           <ChevronDown size={14} className={cn('shrink-0 text-text-muted transition-transform', open ? 'rotate-0' : '-rotate-90')} />
         </CollapsibleTrigger>
+        {more > 0 && <span className="shrink-0 text-2xs text-text-disabled">+{more}</span>}
         {lineImages.length > 0 && <Thumbs images={lineImages} small />}
       </div>
+      {!open && firstPictures.length > 0 && (
+        // Two places in one line sit side by side: stacked, they were a wall.
+        <div className={cn('mb-1 mt-1.5 grid gap-2', firstPictures.length > 1 && 'grid-cols-2')}>
+          {firstPictures.map((src, i) => <FirstLook key={`${i}-${src.length}`} src={src} />)}
+        </div>
+      )}
       <CollapsibleContent
         className={cn(
           'ml-[7px] overflow-hidden border-l border-border-subtle pl-4 outline-none',
           'data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down',
         )}
       >
-        {steps.map((a) => <StepRow key={a.id} a={a} pop={live && streaming} />)}
+        {steps.map((a) => <StepRow key={a.id} a={a} pop={live && streaming} big={looks.has(a.id)} />)}
         {helpers.map((w) => <HelperRow key={w.childId} w={w} now={now} />)}
         {/* ponytail: reasoning is drawn after the tools. The stream keeps only the
             latest segment's reasoning, which is the one after the last tool, so
