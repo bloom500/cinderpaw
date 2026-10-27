@@ -1402,7 +1402,18 @@ export class WhatsAppConnector {
   /** Reads `#sock` at call time so a reconnect never sends over a stale one. */
   async send(sessionId: string, text: string): Promise<void> {
     const jid = sessionId.slice("whatsapp:".length);
-    await this.#sock?.sendMessage(jid, { text });
+    const sent = await this.#sock?.sendMessage(jid, { text });
+    // A notice in the owner's own chat comes back as fromMe in the self chat,
+    // which reads as the owner talking to the agent: it would answer its own
+    // notification. Marked as ours, like the replies there already are.
+    if (sent?.key.id && sessionId === this.ownerSession()) this.#sent.add(sent.key.id);
+  }
+
+  /** The linked account's own chat ("Message yourself"), where its owner talks
+   *  to the agent: scanning the QR is all it takes to be reachable. */
+  ownerSession(): string | null {
+    const self = this.#sock?.user;
+    return self?.id ? `whatsapp:${self.id.split(/[:@]/)[0]}@s.whatsapp.net` : null;
   }
 
   async sendFile(sessionId: string, file: OutboundFile): Promise<void> {
@@ -1922,6 +1933,7 @@ registerTransport("whatsapp", (): LiveConnector => {
     async send(sessionId, text) {
       await inner?.send(sessionId, text);
     },
+    ownerSession: () => inner?.ownerSession() ?? null,
     /** Not part of `LiveConnector`: the manager reaches for it by name when
      *  the user asks to link a phone. See `ConnectorManager.pairWhatsApp`. */
     pair: async () => {
@@ -2259,18 +2271,39 @@ export class ConnectorManager {
    * Slack is not used: a DM needs a channel id this manager does not keep.
    */
   async notifyOwner(text: string): Promise<string | null> {
-    for (const id of OWNER_PAGERS) {
-      const owner = this.#owners.get(id);
-      const live = this.#live.get(id);
-      if (!owner || !live || this.#health.get(id)?.live === false) continue;
+    for (const [id, session] of this.#ownerSessions()) {
       try {
-        await live.send(ownerSession(id, owner), text);
+        await this.#live.get(id)!.send(session, text);
         return id;
       } catch (e) {
         this.#log(`${id}: could not reach the owner (${String(e)})`);
       }
     }
     return null;
+  }
+
+  /** The messenger `notifyOwner` would try first, without sending; null for none. */
+  ownerChannel(): string | null {
+    return this.#ownerSessions()[0]?.[0] ?? null;
+  }
+
+  /**
+   * Each connected messenger with a way to reach its owner, in OWNER_PAGERS
+   * order: the session the transport itself names (WhatsApp: the linked
+   * account's "Message yourself" chat, so scanning the QR is enough), else the
+   * first allowlisted person.
+   */
+  #ownerSessions(): Array<[string, string]> {
+    const out: Array<[string, string]> = [];
+    for (const id of OWNER_PAGERS) {
+      const live = this.#live.get(id);
+      if (!live || this.#health.get(id)?.live === false) continue;
+      const own = live.ownerSession?.() ?? null;
+      const owner = this.#owners.get(id);
+      const session = own ?? (owner ? ownerSession(id, owner) : null);
+      if (session) out.push([id, session]);
+    }
+    return out;
   }
 
   /** Say something in the channel behind `sessionId` (prefix = connector id). */

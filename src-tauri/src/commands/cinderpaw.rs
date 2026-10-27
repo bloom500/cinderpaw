@@ -928,6 +928,10 @@ fn cron_op_line(
     let msg = match action {
         "list" => serde_json::json!({ "type": "cron_list", "id": request_id }),
         "followups" => serde_json::json!({ "type": "cron_list", "id": request_id, "followUps": true }),
+        // The Tasks page's "Send a test": a real notice to the owner's phone,
+        // answered with where it went (28 Oct, Darius: notifications must be
+        // ultra simple to get, and proven, not promised).
+        "test_notify" => serde_json::json!({ "type": "cron_list", "id": request_id, "testNotify": true }),
         "limit" => serde_json::json!({ "type": "cron_list", "id": request_id }),
         "add" | "edit" => {
             if action == "edit" && !present(&job_id) { return Err("no task selected".into()); }

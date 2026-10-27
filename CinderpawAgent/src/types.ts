@@ -1596,6 +1596,8 @@ export interface InboundMessage {
   /** Matches the id of the original "ask_user" outbound event. */
   /** Explicit desktop task subscriber requesting unfinished-work suggestions. */
   followUps?: boolean;
+  /** cron_list: send a test notice to the owner's phone and say where it went. */
+  testNotify?: boolean;
   /** cron_list: set the weekly task limit first (number, or null = none). */
   taskLimit?: { weeklyUsd: number | null };
   requestId?: string;
@@ -2314,6 +2316,9 @@ export type OutboundEvent =
       error?: string;
       jobs: Array<Pick<CronJob, "id" | "name" | "task" | "schedule" | "enabled" | "nextRunMs" | "lastRunMs" | "kind" | "history" | "watch" | "expiresAt" | "budgetUsd" | "spentUsd">>;
       taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number };
+      /** Where a fired task reaches the owner away from the computer (a
+       *  messenger id), or null; `tested` when this answer sent a test. */
+      phone?: { via: string | null; tested: boolean };
     }
   // Dream Cycle lifecycle — emitted by the host when an evolutionary episode
   // starts (`phase:"started"`) and ends (`phase:"ended"`). Forwarded verbatim

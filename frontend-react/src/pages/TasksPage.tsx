@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react';
-import { ArrowUpRight, Bell, CalendarClock, ChevronDown, Pause, Play, ScanSearch, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { ArrowUpRight, Bell, CalendarClock, ChevronDown, Pause, Play, ScanSearch, SlidersHorizontal, Smartphone, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import type { ScheduledTask, TaskSchedule } from '@/lib/tauri';
 import { useTasks } from '@/stores/tasks';
 import { useFollowUps } from '@/stores/followUps';
@@ -186,6 +187,45 @@ function WeeklyLimit() {
   );
 }
 
+const MESSENGER: Record<string, string> = { telegram: 'Telegram', whatsapp: 'WhatsApp', discord: 'Discord' };
+
+/**
+ * Will a task reach me when I am away? Answered on the page, with a real test
+ * (28 Oct, Darius: getting notifications must be ultra simple, and a promise
+ * is not proof). Connected: where they go, and Send a test. Not connected: one
+ * button to the place that connects a phone.
+ */
+function PhoneRow() {
+  const phone = useTasks((s) => s.phone);
+  const testing = useTasks((s) => s.testing);
+  const testPhone = useTasks((s) => s.testPhone);
+  const navigate = useNavigate();
+  if (!phone) return null;
+  const name = phone.via ? (MESSENGER[phone.via] ?? phone.via) : null;
+  const button = 'rounded-full px-3 py-1 text-xs font-medium transition-colors';
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm" data-testid="phone-row">
+      <Smartphone size={16} className="shrink-0 text-text-muted" aria-hidden />
+      <span className="min-w-0 flex-1 text-text-secondary">
+        {testing ? 'Sending a test…'
+          : name && phone.tested ? `Test sent to your ${name}. Did it arrive?`
+          : name ? `Tasks also reach you on ${name}.`
+          : phone.tested ? 'No phone app answered. Connect one, then try again.'
+          : 'Tasks reach you only here. Get them on your phone too.'}
+      </span>
+      {name ? (
+        <button type="button" disabled={testing} onClick={testPhone} className={cn(button, 'border border-border-default text-text-secondary hover:text-text-primary disabled:opacity-60')}>
+          {phone.tested ? 'Send again' : 'Send a test'}
+        </button>
+      ) : (
+        <button type="button" onClick={() => navigate('/settings?cat=accounts')} className={cn(button, 'bg-brand text-brand-foreground')}>
+          Connect your phone
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Things Cinderpaw does later: every scheduled task, pause, delete, and what each run said. */
 export function TasksPage() {
   const { jobs, loaded, error, refresh } = useTasks();
@@ -206,6 +246,7 @@ export function TasksPage() {
               <button type="button" aria-label="Task settings" aria-expanded={settingsOpen} aria-controls={settingsId} onClick={() => setSettingsOpen(!settingsOpen)} className="flex items-center gap-1.5 rounded-lg py-2 text-sm text-text-muted hover:text-text-primary"><SlidersHorizontal size={14} aria-hidden />Settings</button>
             </div>
             <p className="mt-1 text-sm text-text-muted">Reminders, source checks, and work for later.</p>
+            <PhoneRow />
             <div id={settingsId} hidden={!settingsOpen} className="mt-4 space-y-3 rounded-xl border border-border-subtle bg-bg-surface/60 p-4">
               <WeeklyLimit />
               <div><label className="flex items-center gap-2 text-sm text-text-primary"><input type="checkbox" checked={suggestions} onChange={e=>setSuggestions(e.target.checked)} className="accent-brand"/>Follow-up suggestions</label><p className="mt-1 text-xs leading-relaxed text-text-muted">Offer unfinished work in chat. Suggestions are free; nothing resumes until you ask.</p></div>

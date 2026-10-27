@@ -803,7 +803,7 @@ export type CinderpawAgentEvent =
   // X3: scheduled-job results and failures, surfaced as toasts.
   | { type: 'cron_fired'; jobId: string; jobName: string; sessionId: string; content: string }
   // Every scheduled task, answering `cinderpawCronOp`, after the change it made.
-  | { type: 'cron_list_result'; id: string; ok: boolean; error?: string; jobs: ScheduledTask[]; taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number } }
+  | { type: 'cron_list_result'; id: string; ok: boolean; error?: string; jobs: ScheduledTask[]; taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number }; phone?: { via: string | null; tested: boolean } }
   | { type: 'cron_error'; jobId: string; jobName: string; message: string }
   // Agent Cowork (S3.5): one agent-to-agent occurrence, rendered as an
   // activity bubble on the mascot strip. `title` is the human-readable
@@ -1146,7 +1146,7 @@ const raw = {
   cinderpawCoworkHistory: (threadId?: string | null) =>
     invoke<void>('cinderpaw_cowork_history', { threadId: threadId ?? null }),
   /** Scheduled tasks: list, add, remove, toggle. Answered by a `cron_list_result` event. */
-  cinderpawCronOp: (requestId: string, action: 'list' | 'followups' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit', opts: {
+  cinderpawCronOp: (requestId: string, action: 'list' | 'followups' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit' | 'test_notify', opts: {
     jobId?: string; name?: string; task?: string; schedule?: TaskSchedule; kind?: 'agent' | 'reminder' | 'watch'; sessionId?: string; enabled?: boolean; watch?: ScheduledTask['watch']; expiryDays?: number;
     /** 'limit' only: the weekly limit for all scheduled tasks, or null for none. */
     weeklyLimitUsd?: number | null;

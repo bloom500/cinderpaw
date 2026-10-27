@@ -13,7 +13,7 @@ import type { ConnectorFactory } from "../src/transports/registry.ts";
 const fakeAgent = (): AgentLike => ({ handleMessage: async () => "ok", registerProfile: () => {} }) as unknown as AgentLike;
 
 // The real transports are process-global: replace two for this file, then put them back.
-const saved = new Map<string, ConnectorFactory | undefined>(["telegram", "discord"].map((id) => [id, transportFor(id)]));
+const saved = new Map<string, ConnectorFactory | undefined>(["telegram", "whatsapp", "discord"].map((id) => [id, transportFor(id)]));
 afterAll(() => {
   for (const [id, make] of saved) {
     if (make) registerTransport(id, make);
@@ -52,6 +52,25 @@ describe("notifyOwner", () => {
     expect(await mgr.notifyOwner("⏰ Lalele\n\nPretul a scazut.")).toBe("telegram");
     expect(sent).toEqual(["telegram:4242:4242|⏰ Lalele\n\nPretul a scazut."]);
     await mgr.applyRows([]);
+  });
+
+  it("WhatsApp reaches you with the QR alone: its own chat, no allowlist, and says so before sending", async () => {
+    const sent: string[] = [];
+    registerTransport("whatsapp", () => ({
+      async start() {},
+      async stop() {},
+      health: () => ({ live: true }),
+      async send(sessionId, text) { sent.push(`${sessionId}|${text}`); },
+      ownerSession: () => "whatsapp:40712345678@s.whatsapp.net",
+    }));
+    const mgr = new ConnectorManager(fakeAgent(), () => {});
+    await mgr.applyRows([{ id: "whatsapp", enabled: true, secrets: {}, allowlist: [] }]);
+    expect(mgr.ownerChannel()).toBe("whatsapp");
+    expect(sent).toEqual([]); // asking where it would go sends nothing
+    expect(await mgr.notifyOwner("test")).toBe("whatsapp");
+    expect(sent).toEqual(["whatsapp:40712345678@s.whatsapp.net|test"]);
+    await mgr.applyRows([]);
+    expect(mgr.ownerChannel()).toBeNull();
   });
 
   it("falls through a messenger that fails, and is null with nothing connected or no owner", async () => {
