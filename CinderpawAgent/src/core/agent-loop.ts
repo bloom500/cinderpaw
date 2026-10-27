@@ -1204,12 +1204,13 @@ export class AgentLoop {
     }
 
     const memory = this.#memoryFor(sessionId);
-    // Drawers model: skills are NOT dumped into the prompt. The model discovers
-    // them on demand via the `list_skills` tool and loads bodies with
-    // `read_skill`. (skillsContext is still accepted for host/API compat but no
-    // longer injected — the full menu cost tokens every turn even when no skill
-    // was used.)
-    void skillsContext;
+    // The installed skills ride on every turn as a short menu (id, name, one
+    // line). They used to be left to `list_skills` to save tokens, and the
+    // model never called it: a skill installed from a link was ignored unless
+    // the person typed its name (27 Oct, doc-coauthoring on Haiku). A skill
+    // that is only used when named is a feature nobody finds. No roster
+    // (connectors, nothing installed) clears the menu.
+    memory.setSkillMenu(skillsContext ?? []);
 
     // P2-#3: traceId — a unique identifier for this handle() invocation.
     // Threaded into every OutboundEvent the agent emits during the turn
@@ -3061,9 +3062,9 @@ export function buildSystemPrompt(
     "tool or write your final answer as plain text with no tool block.",
     "",
     "## Memory, skills & tools (on demand)",
-    "Past conversations, installed skills, and optional tools are NOT preloaded — keep the context lean.",
+    "Past conversations and optional tools are NOT preloaded — keep the context lean.",
     "- Need continuity or a fact from a previous chat? Call `recall` with a query.",
-    "- A task may have a matching skill? Call `list_skills` to find one, then `read_skill` to load it before applying.",
+    "- Installed skills are listed under `## Available skills` at the end of the person's message. When one matches the task, call `read_skill` with its id before you answer and follow it.",
     "- Need a capability that's not in your current tools? It is listed below — call `load_tool` with the name, then use it.",
     "",
     // The capability index. `## Available tools` above carries the full

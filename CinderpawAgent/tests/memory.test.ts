@@ -183,6 +183,29 @@ describe("WorkingMemory.render — P1 prompt-cache layout", () => {
     expect(last.content).toContain("Available skills");
   });
 
+  test("the skill menu tells the model to load a matching skill, and stays short", () => {
+    const mem = new WorkingMemory("sys");
+    const many = Array.from({ length: 34 }, (_, i) => ({
+      ...sampleSkill,
+      id: `s${i}`,
+      name: `S${i}`,
+      description: i === 0 ? "word ".repeat(100) : `does thing ${i}`,
+    }));
+    mem.setSkillMenu(many);
+    mem.addUser("help me write a proposal");
+    const last = mem.render().at(-1)!.content;
+
+    expect(last).toContain("call `read_skill` with its id before you answer");
+    expect(last).toContain("`s29`");
+    expect(last).not.toContain("`s30`");
+    expect(last).toContain("…and 4 more: call `list_skills`");
+    // One line per skill: a long description is cut, not pasted whole.
+    expect(last).not.toContain("word ".repeat(60));
+
+    mem.setSkillMenu([]);
+    expect(mem.render().at(-1)!.content).not.toContain("Available skills");
+  });
+
   test("no dynamic context → system prompt is the only system message and user content is untouched", () => {
     const mem = new WorkingMemory("You are Cinderpaw.");
     mem.addUser("hello");
