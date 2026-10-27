@@ -18,13 +18,15 @@ beforeEach(() => {
 const renderLast = () => render(<MemoryRouter><OnboardingWizard /></MemoryRouter>);
 
 describe('the names board', () => {
-  it('waits for your name, and shows both names in the preview', async () => {
+  it('lets you go on without a name, and shows both names in the preview', async () => {
     useOnboarding.setState({ step: 1, userName: '', agentName: 'Cinderpaw' });
     renderLast();
-    expect(screen.getByRole('button', { name: /Continue/ })).toBeDisabled();
-    // The grey button says why, and the preview does not call the person "you".
-    expect(screen.getByText('Type your name to continue.')).toBeInTheDocument();
+    // Optional, like in Settings: no forced decision before anything happens.
+    expect(screen.getByRole('button', { name: /Continue/ })).toBeEnabled();
+    // Without a name the preview does not call the person "you".
     expect(screen.getByText(/Sure! What can I help you with/)).toBeInTheDocument();
+    // The path starts with the install already done, not at zero.
+    expect(screen.getByLabelText('Installed. Step 2 of 6')).toBeInTheDocument();
     useOnboarding.setState({ userName: 'Ana', agentName: 'Ember' });
     expect(await screen.findByText(/Sure, Ana!/)).toBeInTheDocument();
     expect(screen.getByText('Ember:')).toBeInTheDocument();

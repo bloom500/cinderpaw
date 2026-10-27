@@ -61,13 +61,10 @@ export function OnboardingWizard() {
   const next = useOnboarding((s) => s.next);
   const skip = useOnboarding((s) => s.skip);
   const finish = useOnboarding((s) => s.finish);
-  const userName = useOnboarding((s) => s.userName);
 
   if (!active) return null;
   const isFirst = step === 0;
   const isLast = step === totalSteps - 1;
-  // The names board waits for the one thing it asks; the agent's name has a default.
-  const canProceed = step !== 1 || userName.trim().length > 0;
   // The model board needs the whole width for its cards, so its mascot sits
   // above them, beside the title, instead of in a column of its own.
   const hasArt = step !== 2;
@@ -113,7 +110,9 @@ export function OnboardingWizard() {
                 board pushed "Start exploring" below the fold (UX lab, item 8). */}
             <nav className="sticky bottom-0 z-10 mt-8 flex flex-wrap items-center gap-4 bg-bg-primary py-4">
               {!isFirst && (
-                <button type="button" onClick={prev} className={cn(SECONDARY_BUTTON, 'rounded-2xl px-5 py-3 text-base')}>
+                // inline-flex: the shared button is a block, and the arrow sat
+                // on a line of its own above "Back".
+                <button type="button" onClick={prev} className={cn(SECONDARY_BUTTON, 'inline-flex items-center gap-2 rounded-2xl px-5 py-3 text-base')}>
                   <ArrowLeft size={16} /> Back
                 </button>
               )}
@@ -129,12 +128,10 @@ export function OnboardingWizard() {
                   Start exploring <ArrowRight size={16} />
                 </button>
               ) : (
-                <button type="button" onClick={next} disabled={!canProceed} className={cn(PRIMARY_BUTTON, 'disabled:cursor-not-allowed disabled:opacity-40')}>
+                <button type="button" onClick={next} className={PRIMARY_BUTTON}>
                   {isFirst ? 'Get started' : 'Continue'} <ArrowRight size={16} />
                 </button>
               )}
-              {/* A grey button with no reason was a wall (UX lab, item 13). */}
-              {!canProceed && <span className="text-sm text-text-muted">Type your name to continue.</span>}
               {isFirst && (
                 <button
                   type="button"
@@ -173,9 +170,15 @@ export function OnboardingWizard() {
 
 function StepCounter({ step, total }: { step: number; total: number }) {
   return (
-    <div className="flex items-center gap-5" aria-label={`Step ${step + 1} of ${total}`}>
+    <div className="flex items-center gap-5" aria-label={`Installed. Step ${step + 1} of ${total}`}>
       <span className="text-xs font-medium tracking-[0.22em] text-text-muted">{step + 1} OF {total}</span>
       <span className="flex items-center" aria-hidden>
+        {/* Never at zero (27 Oct): the install is a step the person already did,
+            so the path starts with it ticked rather than with six empty dots. */}
+        <span className="flex items-center gap-1 text-xs font-medium tracking-[0.22em] text-brand">
+          <Check size={12} /> INSTALLED
+        </span>
+        <span className="h-px w-5 bg-brand/50" />
         {Array.from({ length: total }, (_, i) => (
           <Fragment key={i}>
             {i > 0 && <span className={cn('h-px w-5', i <= step ? 'bg-brand/50' : 'bg-border-default')} />}
@@ -267,7 +270,9 @@ function NamesStep() {
         voice="onboarding.names"
         title={<>Let’s get<br />acquainted</>}
         lead="What should we call each other?"
-        body="I’ll use these names whenever we talk. You can change yours later in Settings."
+        // 27 Oct: no longer required. A forced field is a decision the person
+        // must make before anything happens (Settings already allows none).
+        body="I’ll use these names whenever we talk. Yours is optional, and you can change it later in Settings."
       />
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
         <label className="block">
