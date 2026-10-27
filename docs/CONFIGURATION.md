@@ -167,6 +167,8 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_SHELL_PATH_EXTRA` | list | `null` | yes | Extra directories appended to the PATH every spawned child sees, on top of the well-known install locations (Git bin, nodejs, npm global on Windows; /usr/local/bin, homebrew, ~/.local/bin, ~/.bun/bin, ~/.cargo/bin elsewhere). Needed because the agent inherits whatever PATH launched the gateway, so a tool a terminal finds can be invisible here — that is what made `bash` fail with a permissions-sounding error. Appended, never prepended, so it cannot change which binary an already-working call resolves to. Directories that do not exist are ignored. |
 | `CINDERPAW_SHELL_DENYLIST` | list | `null` | yes | Overrides the built-in shell_exec denylist (dangerous binaries refused even in YOLO mode). |
 | `CINDERPAW_PROACTIVE_ENABLED` | bool | `false` | yes | Master enable for the proactive/mood-engine loop. |
+| `CINDERPAW_DIGEST_HOUR` | int | `20` |  | Local hour after which the day's task digest (what ran, what failed) goes to the owner's phone, once a day, no model. -1 turns it off. |
+| `CINDERPAW_TASKS_TO_PHONE` | bool | `true` |  | A task that fires also goes to the owner's private chat on a connected messenger (Telegram, then WhatsApp, then Discord). false keeps it in the app. |
 | `CINDERPAW_FOLLOWUPS_ENABLED` | bool | `true` |  | Event-driven suggestions for unfinished desktop work. Suggestions never resume work or call a model. |
 | `CINDERPAW_PROACTIVE_MONTHLY_USD` | string | `"1"` | yes | Monthly USD cap for automatic proactive inference only. Confirmed scheduled tasks have separate limits. Zero disables paid proactive inference; unknown route prices fail closed. |
 | `CINDERPAW_INNER_THOUGHTS_ENABLED` | bool | `false` | yes | Sub-flag enabling the inner-thoughts loop. |
@@ -201,7 +203,7 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_BUDGET_DAY` | int | `50_000_000` |  | Per-day total-token ceiling (prompt plus completion). |
 | `CINDERPAW_RSI_MAX_COST_USD` | string | `null` |  | RSI background USD cap (float). Unset = local-only. |
 | `CINDERPAW_AUTONOMOUS_PRICING_JSON` | string | `null` |  | JSON array of exact provider/model/baseUrl price records for autonomous cloud inference, with inputPerMillionUsd/outputPerMillionUsd and optional cacheReadPerMillionUsd/cacheWritePerMillionUsd. Unknown or malformed routes fail closed. |
-| `CINDERPAW_CLOUD_TRANSCRIPT_BUDGET` | int | `200_000` |  | Cloud-specific transcript-size budget (AgentLoop.CLOUD_TRANSCRIPT_BUDGET fallback). |
+| `CINDERPAW_CLOUD_TRANSCRIPT_BUDGET` | int | `80_000` |  | Cloud-specific transcript-size budget (AgentLoop.CLOUD_TRANSCRIPT_BUDGET fallback). |
 | `CINDERPAW_TTFT_DEADLINE_MS` | int | `null` |  | Time-to-first-token cap (perf-policy.ts, positive int only). |
 | `CINDERPAW_TOTAL_DEADLINE_MS` | int | `null` |  | Whole-completion cap. |
 | `CINDERPAW_STALL_MS` | int | `null` |  | Inter-token stall cap; wins over CINDERPAW_CLOUD_IDLE_TIMEOUT_MS when both set. |
@@ -472,6 +474,8 @@ CINDERPAW_PERMISSION_MODE
 CINDERPAW_PEXELS_KEY
 CINDERPAW_PII_REDACTION
 CINDERPAW_PROACTIVE_ENABLED
+CINDERPAW_DIGEST_HOUR
+CINDERPAW_TASKS_TO_PHONE
 CINDERPAW_FOLLOWUPS_ENABLED
 CINDERPAW_PROACTIVE_MONTHLY_USD
 CINDERPAW_PROVIDER

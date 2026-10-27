@@ -239,8 +239,9 @@ function FirstLook({ src }: { src: string }) {
 }
 
 /** Kinds whose widget is a picture of the work: a terminal, a results page, an
- *  app window, the files, the memories. A generic tool's widget is one line. */
-const MINI_KINDS = new Set<ToolActivity['kind']>(['browser', 'terminal', 'desktop', 'files', 'memory']);
+ *  app window, the files. A generic tool's widget is one line; the memories a
+ *  lookup found already close the reply (MemoryPeek), and twice was noise. */
+const MINI_KINDS = new Set<ToolActivity['kind']>(['browser', 'terminal', 'desktop', 'files']);
 /** Widget tiles under the folded line, newest last; the rest are counted. */
 const MINI_WIDGETS = 3;
 
