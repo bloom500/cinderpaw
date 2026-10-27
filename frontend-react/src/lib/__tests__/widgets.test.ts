@@ -59,5 +59,12 @@ describe('cached pictures', () => {
     const items = (w as { items: { imageFile?: string }[] }).items;
     expect(items.map((i) => i.imageFile)).toEqual([file, undefined, 'C:\\Users\\ana\\.cinderpaw\\cache\\images\\' + 'b'.repeat(40) + '.png']);
   });
+
+  it('photos keep only pictures from the cache, and are nothing when none is left', () => {
+    const w = parseWidget({ kind: 'photos', items: [{ imageFile: file, title: 'Sales' }, { imageFile: '/home/ana/.ssh/id_rsa' }] });
+    expect(w).toEqual({ kind: 'photos', title: undefined, items: [{ imageFile: file, title: 'Sales' }] });
+    // Nothing left to draw: the titles as a plain list, never a blank gallery.
+    expect(parseWidget({ kind: 'photos', items: [{ imageFile: '/etc/passwd', title: 'x' }] })?.kind).toBe('list');
+  });
 });
 

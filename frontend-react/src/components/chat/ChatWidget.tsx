@@ -7,6 +7,7 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-shell';
 import { cn } from '@/lib/utils';
 import type { WidgetData, WidgetIcon } from '@/lib/widgets';
+import { ZoomableImage } from './ZoomableImage';
 
 /** The fixed icon set `show_widget` names (WIDGET_ICONS in the sidecar). */
 const ICON: Record<WidgetIcon, LucideIcon> = {
@@ -202,6 +203,36 @@ export function ChatWidget({ w }: { w: WidgetData }) {
           <p className="text-sm text-text-primary">{w.text}</p>
         </div>
       );
+    case 'photos': {
+      // What the agent hands over, in squircles (Darius, 27 Oct: like Claude's
+      // gallery of finished pictures). One picture is shown whole; several are
+      // square tiles, up to four a row, each opening full size. `corner-shape`
+      // is Chromium's; elsewhere the same radius is a plain rounded square.
+      const one = w.items.length === 1;
+      const squircle = 'rounded-[22%] [corner-shape:squircle]';
+      return (
+        <div>
+          {w.title && <Title>{w.title}</Title>}
+          <div
+            className={cn('grid gap-2', one ? 'max-w-md' : 'grid-cols-2')}
+            style={one ? undefined : { gridTemplateColumns: `repeat(${Math.min(w.items.length, 4)}, minmax(0, 1fr))` }}
+            data-testid="photo-gallery"
+          >
+            {w.items.map((it, i) => (
+              <figure key={i} className="min-w-0">
+                <ZoomableImage
+                  src={convertFileSrc(it.imageFile)}
+                  alt={it.title ?? `Picture ${i + 1}`}
+                  className={one ? undefined : 'w-full'}
+                  thumbClassName={one ? 'block max-h-96 max-w-full rounded-3xl [corner-shape:squircle]' : `block aspect-square w-full object-cover ${squircle}`}
+                />
+                {it.title && <figcaption className="mt-1.5 truncate text-center text-2xs text-text-muted">{it.title}</figcaption>}
+              </figure>
+            ))}
+          </div>
+        </div>
+      );
+    }
     case 'followups':
       // Drawn at the end of the reply as chips (FollowUps), never in place.
       return null;

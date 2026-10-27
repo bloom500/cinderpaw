@@ -887,7 +887,7 @@ export async function boot(transportOverride?: Transport) {
   // time_date + calculator: pure utilities, no permissions
   registry.register(createTimeDateTool());
   registry.register(createCalculatorTool());
-  registry.register(createShowWidgetTool());
+  registry.register(createShowWidgetTool(config.workspaceRoots));
   registry.register(createWebSearchTool({ searxngOrigin: searxng }));
   // fetch_url: open egress by default, same posture as http_request above.
   // Set CINDERPAW_FETCH_DOMAINS to RESTRICT.

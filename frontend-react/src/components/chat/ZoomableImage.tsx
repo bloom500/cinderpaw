@@ -8,7 +8,13 @@ import { cn } from '@/lib/utils';
  * back. Escape closes too. Used for attached images and for the pictures a
  * tool brought back (a screenshot), so both open the same way.
  */
-export function ZoomableImage({ src, alt, thumbClassName }: { src: string; alt: string; thumbClassName?: string }) {
+export function ZoomableImage({ src, alt, thumbClassName, className }: {
+  src: string;
+  alt: string;
+  thumbClassName?: string;
+  /** The thumbnail's button, e.g. `w-full` for a tile that fills its cell. */
+  className?: string;
+}) {
   const [open, setOpen] = useState(false);
   // Two-phase mount so the CSS transition actually plays: render the overlay
   // in its "from" state first, then flip to "to" on the next frame.
@@ -41,7 +47,7 @@ export function ZoomableImage({ src, alt, thumbClassName }: { src: string; alt: 
         type="button"
         onClick={() => setOpen(true)}
         aria-label={`View ${alt || 'image'} full size`}
-        className="block cursor-zoom-in rounded-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand"
+        className={cn('block cursor-zoom-in rounded-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand', className)}
       >
         <img
           src={src}

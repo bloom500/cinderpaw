@@ -19,6 +19,8 @@ export type WidgetData =
   | { kind: 'progress'; title?: string; done: number; total: number; label: string }
   | { kind: 'table'; title?: string; columns: { title: string; subtitle?: string; image?: string; imageFile?: string }[]; rows: { label: string; cells: string[] }[] }
   | { kind: 'verdict'; title?: string; text: string }
+  /** Pictures that are the result, kept by the sidecar: a squircle gallery in the reply. */
+  | { kind: 'photos'; title?: string; items: { imageFile: string; title?: string }[] }
   /** Not drawn in place: chips at the end of the latest reply (spec 7.5). */
   | { kind: 'followups'; next: string[] }
   /** Not drawn in place: a task the agent offered (`suggest_task`), closing its reply. */
@@ -117,6 +119,14 @@ function strict(d: Rec): WidgetData | null {
     case 'verdict': {
       const text = str(d.text);
       return text ? { kind: 'verdict', title, text } : null;
+    }
+    case 'photos': {
+      // A picture the cache no longer has is left out, not drawn blank.
+      const rows = (items ?? []).flatMap((it) => {
+        const imageFile = cached(it.imageFile);
+        return imageFile ? [{ imageFile, title: str(it.title) }] : [];
+      });
+      return rows.length > 0 ? { kind: 'photos', title, items: rows.slice(0, 8) } : null;
     }
     case 'followups': {
       const next = Array.isArray(d.next) ? d.next.filter((l): l is string => typeof l === 'string' && l.trim() !== '').map((l) => l.trim()) : [];
