@@ -2,7 +2,7 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { events } from '@/lib/tauri/events';
 import * as artifacts from '@/lib/callArtifacts';
-import { useLiveToolActivity, hitsOf, subjectOf, kindOf, filesOf, factsOf, startActivity, finishActivity } from '../useLiveToolActivity';
+import { useLiveToolActivity, hitsOf, subjectOf, kindOf, filesOf, factsOf, startActivity, finishActivity, imagesOf, toolsFromPersisted } from '../useLiveToolActivity';
 
 describe('voice tool activity', () => {
   let emit: (line: unknown) => void;
@@ -239,5 +239,23 @@ describe('hitsOf', () => {
     expect(hitsOf({ ok: true, content: 'wrote 12 lines' })).toEqual([]);
     expect(hitsOf(null)).toEqual([]);
     expect(hitsOf({ data: 'not an array' })).toEqual([]);
+  });
+});
+
+describe('pictures a tool brought back', () => {
+  const png = (c: string) => `data:image/png;base64,${c}`;
+  it('keeps inline images only, the newest four', () => {
+    expect(imagesOf({ images: [png('a'), 'https://x.example/t.png', 7, png('b'), png('c'), png('d'), png('e')] }))
+      .toEqual([png('b'), png('c'), png('d'), png('e')]);
+    expect(imagesOf({ ok: true })).toEqual([]);
+    expect(imagesOf(null)).toEqual([]);
+  });
+
+  it('a finished step carries them, and a saved chat brings them back checked', () => {
+    const done = finishActivity(startActivity('read_file', { path: 'a.png' }), { ok: true, content: '', images: [png('a')] });
+    expect(done.images).toEqual([png('a')]);
+    expect(finishActivity(startActivity('read_file', {}), { ok: true, content: '' })).not.toHaveProperty('images');
+    const [back] = toolsFromPersisted([{ ...done, images: [png('a'), 'javascript:alert(1)'] }])!;
+    expect(back.images).toEqual([png('a')]);
   });
 });

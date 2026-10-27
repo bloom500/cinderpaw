@@ -63,21 +63,37 @@ describe('MessageChain (the Activity Strip)', () => {
     expect(screen.getByText('2 steps · 0s')).toBeInTheDocument();
   });
 
-  // 26 Oct, his pick from three mockups (C): the strip pours in, and each tool
-  // row pops in, while the agent works; a chat opened again replays nothing.
-  it('pours in and pops its rows in while the agent works, not when a chat is reopened', () => {
+  // 27 Oct, his ask: no card and no pills. The rows still pop in while the agent
+  // works; a chat opened again replays nothing.
+  it('is a plain line, no card, and pops its rows in only while the agent works', () => {
     const search = startActivity('web_search', { query: 'Rome flights' });
     const live = render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[search]} streaming />);
-    expect(live.container.querySelector('[data-gooey-card]')).not.toBeNull();
+    expect(live.container.querySelector('[data-gooey-card]')).toBeNull();
+    expect(screen.getByTestId('activity-line').className).not.toMatch(/rounded|border|bg-/);
     expect(live.container.querySelector('.row-pop')).toHaveTextContent('Searching the web');
     live.unmount();
 
     const done = finishActivity(search, { ok: true, content: '' });
     const old = render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[done]} streaming={false} />);
-    expect(old.container.querySelector('[data-gooey-card]')).toBeNull();
     fireEvent.click(screen.getByText('Searched the web'));
     expect(screen.getAllByText('Searched the web')).toHaveLength(2);
     expect(old.container.querySelector('.row-pop')).toBeNull();
+  });
+
+  it('shows what the agent saw: newest pictures on the folded line, each step its own', () => {
+    const png = (n: number) => `data:image/png;base64,${'A'.repeat(n)}`;
+    const shot = finishActivity(startActivity('computer_use', { action: 'screenshot' }), {
+      ok: true, content: 'took a screenshot', images: [png(1), png(2), 'https://evil.example/x.png'],
+    });
+    const read = finishActivity(startActivity('read_file', { path: 'a.png' }), { ok: true, content: '', images: [png(3), png(4)] });
+    const { container } = render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[shot, read]} streaming={false} />);
+    // Folded: only the line, with the newest three pictures; the remote URL never loads.
+    const line = container.querySelectorAll('img');
+    expect([...line].map((i) => i.getAttribute('src'))).toEqual([png(2), png(3), png(4)]);
+    fireEvent.click(screen.getByText(/^Used an app/));
+    // Open: each step carries its own pictures, and the line drops its copy.
+    const groups = screen.getAllByTestId('step-thumbs');
+    expect(groups.map((g) => g.querySelectorAll('img').length)).toEqual([2, 2]);
   });
 
   it('draws nothing when there was no reasoning and no tool', () => {
@@ -136,7 +152,8 @@ describe('side activities and helpers', () => {
       <MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[done]} streaming={false}
         helpers={[helper({}), helper({ childId: 'w2', name: 'api-reviewer', status: 'completed', endedAt: 40_000 })]} />,
     );
-    expect(screen.getByText('1 helper')).toBeInTheDocument();
+    // A helper still working is words on the line, next to the count: no chip.
+    expect(screen.getByText('1 helper · 1 step')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Started helpers'));
     const rows = screen.getAllByTestId('strip-helper').map((r) => r.textContent);
     expect(rows).toEqual(['compare prices' + 'working · 1m 12s', 'api reviewer' + 'done · 40s']);

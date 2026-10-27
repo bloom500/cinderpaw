@@ -127,6 +127,9 @@ export interface ToolActivity {
   /** A chat widget (`show_widget`, or `todo_write`'s plan), drawn in place of
    *  the step. From the tool's `data`, like `artifact`. */
   widget?: WidgetData | null;
+  /** Pictures the tool brought back (a screenshot, an image it read), as data
+   *  URLs, so the person sees what the agent saw. Absent when there were none. */
+  images?: string[];
   /** Present when the tool failed, so the panel can say so rather than empty. */
   error: string | null;
   /** Where in the reply's text this call was made (a character offset into
@@ -295,10 +298,26 @@ export function startActivity(tool: string, args: Record<string, unknown> | unde
   };
 }
 
+/** Most pictures kept per step: a conversation is saved with them, and a page
+ *  of screenshots is a few hundred KB each. */
+const MAX_IMAGES = 4;
+
+/**
+ * The pictures in a tool's result (`ToolResult.images`). Inline data URLs only:
+ * a saved conversation is untrusted, and a remote URL would load from a server
+ * the moment the chat is opened.
+ */
+export function imagesOf(source: unknown): string[] {
+  const list = (source as { images?: unknown } | null)?.images;
+  if (!Array.isArray(list)) return [];
+  return list.filter((s): s is string => typeof s === 'string' && s.startsWith('data:image/')).slice(-MAX_IMAGES);
+}
+
 /** The same activity, finished: everything the result can tell a widget. */
 export function finishActivity(a: ToolActivity, result: unknown): ToolActivity {
   const res = result as { ok?: boolean; content?: string } | null;
   const ok = res?.ok !== false;
+  const images = imagesOf(result);
   // shell_exec opens its result with the command again, the folder and
   // "[exit 0, 31ms]", for the model. On the card that header took three of the
   // six lines and all of a failure's 120-character reason (UX lab, 19 Oct).
@@ -324,6 +343,7 @@ export function finishActivity(a: ToolActivity, result: unknown): ToolActivity {
     // a search that found nothing look identical otherwise — and one of them
     // is a bug.
     error: ok ? null : (content || 'failed').slice(0, 120),
+    ...(images.length > 0 ? { images } : {}),
   };
 }
 
@@ -343,6 +363,7 @@ export function toolsFromPersisted(raw: unknown): ToolActivity[] | undefined {
     const r = row as Partial<ToolActivity>;
     if (typeof r.tool !== 'string' || typeof r.subject !== 'string') continue;
     const running = r.status === 'running';
+    const images = imagesOf(r);
     out.push({
       id: typeof r.id === 'string' ? r.id : `${r.tool}-${out.length}`,
       tool: r.tool,
@@ -365,6 +386,7 @@ export function toolsFromPersisted(raw: unknown): ToolActivity[] | undefined {
       widget: parseWidget(r.widget),
       error: running ? 'interrupted' : typeof r.error === 'string' ? r.error : null,
       ...(typeof r.at === 'number' ? { at: r.at } : {}),
+      ...(images.length > 0 ? { images } : {}),
     });
   }
   return out.length > 0 ? out : undefined;

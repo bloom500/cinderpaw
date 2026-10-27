@@ -1,5 +1,4 @@
-import { memo, useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { memo, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import logoUrl from '@/assets/logo.svg';
 import { AlertTriangle, FileText, File as FileIcon, Image as ImageIcon, ThumbsUp, ThumbsDown } from 'lucide-react';
@@ -15,6 +14,7 @@ import { MemoryPeek } from './MemoryPeek';
 import { FollowUps } from './FollowUps';
 import { citedSources, sourcesOf } from '@/lib/sources';
 import { MessageChain } from './MessageChain';
+import { ZoomableImage } from './ZoomableImage';
 import { MessageActions, WHILE_IDLE } from './MessageActions';
 import { VoiceBubble } from './VoiceBubble';
 import { LinkChip } from './LinkChip';
@@ -24,83 +24,6 @@ import { useChat, type ChatMessage } from '@/stores/chat';
 import { useAskUser } from '@/stores/askUser';
 import { useRlmWorkers, workersFor, type RlmWorker } from '@/stores/rlmWorkers';
 import { useT } from '@/lib/i18n';
-
-/**
- * Attached-image thumbnail with click-to-zoom. First click expands the image
- * into a fullscreen lightbox (smooth fade + scale), second click (anywhere)
- * shrinks it back. Escape closes too.
- */
-function ZoomableImage({ src, alt }: { src: string; alt: string }) {
-  const [open, setOpen] = useState(false);
-  // Two-phase mount so the CSS transition actually plays: render the overlay
-  // in its "from" state first, then flip to "to" on the next frame.
-  const [shown, setShown] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    const raf = requestAnimationFrame(() => setShown(true));
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') setShown(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
-
-  // Unmount the overlay only after the shrink transition finishes.
-  const onTransitionEnd = () => {
-    if (!shown) setOpen(false);
-  };
-
-  return (
-    <>
-      {/* A real button, not a click handler on an <img>: the thumbnail was not
-          focusable and carried no role, so opening an attachment full-size was
-          mouse-only. Escape already closed the lightbox; nothing could open it. */}
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-label={`View ${alt || 'image'} full size`}
-        className="block cursor-zoom-in rounded-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand"
-      >
-        <img
-          src={src}
-          alt={alt}
-          loading="lazy"
-          className="max-h-52 max-w-full rounded-lg border border-border-subtle object-contain transition-transform duration-200 hover:scale-[1.02]"
-        />
-      </button>
-      {/* In a portal: the message row clips and contains what it draws
-          (MessageList), so a fixed overlay inside it would fill only the row. */}
-      {open && createPortal(
-        <div
-          role="button"
-          aria-label="Close image preview"
-          onClick={() => setShown(false)}
-          className={cn(
-            'fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs cursor-zoom-out',
-            'transition-opacity duration-300 ease-out',
-            shown ? 'opacity-100' : 'opacity-0',
-          )}
-        >
-          <img
-            src={src}
-            alt={alt}
-            onTransitionEnd={onTransitionEnd}
-            className={cn(
-              'max-h-[90vh] max-w-[92vw] rounded-xl object-contain shadow-2xl',
-              'transition-transform duration-300 ease-out',
-              shown ? 'scale-100' : 'scale-75',
-            )}
-          />
-        </div>,
-        document.body,
-      )}
-    </>
-  );
-}
 
 /** Read-only file chip shown in a sent user message (no remove button). */
 function MessageAttachmentChip({ attachment }: { attachment: DisplayAttachment }) {

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, Ban, Check, ChevronDown, Loader2, X } from 'lucide-react';
 import { Streamdown } from 'streamdown';
@@ -11,16 +10,29 @@ import { displayName, type RlmWorker } from '@/stores/rlmWorkers';
 import logoUrl from '@/assets/logo.svg';
 import { Widget, summaryOf } from './CallToolScreen';
 import { CinderpawMascot } from './mascot/CinderpawMascot';
-import { GooeyCard } from './GooeyCard';
+import { ZoomableImage } from './ZoomableImage';
 
 /** How long the finished answer is on screen before the steps fold away. */
 const FOLD_DELAY_MS = 1000;
 
-/** A side chip ("Using memory") pops in when it starts and shrinks away when it
- *  ends. No blur: a filter is repainted every frame, where scale is not. */
-const CHIP_AWAY = { scale: 0.3, opacity: 0 };
-const CHIP_HERE = { scale: 1, opacity: 1 };
-const CHIP_SPRING = { type: 'spring' as const, bounce: 0.45, duration: 0.45 };
+/** Pictures shown on the folded line, newest last (Claude's "+3" strip). */
+const LINE_THUMBS = 3;
+
+/** A step's pictures (screenshots, images it read), each opening full size. */
+function Thumbs({ images, small }: { images: string[]; small?: boolean }) {
+  return (
+    <div className="flex shrink-0 items-center gap-1.5" data-testid="step-thumbs">
+      {images.map((src, i) => (
+        <ZoomableImage
+          key={`${i}-${src.length}`}
+          src={src}
+          alt={`What the agent saw, picture ${i + 1}`}
+          thumbClassName={small ? 'h-7 w-auto max-w-14 rounded-md object-cover' : 'h-16 w-auto max-w-32 rounded-md object-cover'}
+        />
+      ))}
+    </div>
+  );
+}
 
 /** No Streamdown plugins, for the same bundle reason as reasoning.tsx. */
 const NO_PLUGINS = {};
@@ -196,6 +208,12 @@ function StepRow({ a, pop }: { a: ToolActivity; pop: boolean }) {
           {stepDetail(a)}
         </span>
       </button>
+      {/* What it saw stays in view, folded or not: a picture is the step's proof. */}
+      {a.images && a.images.length > 0 && (
+        <div className="mb-1.5 ml-7">
+          <Thumbs images={a.images} />
+        </div>
+      )}
       {open && (
         <div className="mb-1.5 ml-7">
           <Widget activity={a} flat />
@@ -254,9 +272,10 @@ function WorkingFigure() {
 }
 
 /**
- * The Activity Strip (spec 7.5): what the agent did in this part of the turn,
- * as one card. Its header says what is happening now and for how long; the
- * rows are each tool it ran and its reasoning. Replaces the step card.
+ * The activity line (spec 7.5): what the agent did in this part of the turn,
+ * as one quiet line over the answer. It says what is happening now and for how
+ * long, with the newest pictures the agent took; open, it is a thin timeline of
+ * each tool it ran and its reasoning. Replaces the card (27 Oct).
  *
  * The steps come from `toolActivity`, which the stream already records as
  * structured events, not from guessing steps out of the reasoning text.
@@ -279,9 +298,8 @@ export function MessageChain({
   helpers?: RlmWorker[];
 }) {
   const [open, setOpen] = useState(streaming);
-  // First drawn while the agent works: it pours in like Sileo's pills, and its
-  // chips and rows arrive with a little bounce (his pick of three mockups, 26
-  // Oct). A chat opened again draws it as it is: nothing is replayed.
+  // First drawn while the agent works, its rows arrive with a little bounce. A
+  // chat opened again draws it as it is: nothing is replayed.
   const [live] = useState(streaming);
   const wasStreaming = useRef(streaming);
   const [reasoningOpen, setReasoningOpen] = useState(false);
@@ -320,30 +338,32 @@ export function MessageChain({
     detail = count;
   }
   const failed = !streaming && steps.some((a) => a.status === 'failed');
+  // Folded, the line carries the newest pictures, so what the agent saw is one
+  // glance away without opening anything.
+  const lineImages = open ? [] : steps.flatMap((a) => a.images ?? []).slice(-LINE_THUMBS);
 
-  const strip = (
-    <Collapsible
-      open={open}
-      onOpenChange={setOpen}
-      className="overflow-hidden rounded-2xl border border-border-default bg-bg-surface"
-    >
-      <CollapsibleTrigger className="flex w-full items-center gap-3 px-3.5 py-2.5 text-left">
-        {streaming ? <WorkingFigure /> : failed && <AlertTriangle size={16} className="shrink-0 text-warning" />}
-        {/* Done, it is a quiet line of what happened, not a green "finished":
-            the answer may still be arriving below it. */}
-        <span className={cn('min-w-0 flex-1 truncate text-sm', streaming ? 'font-semibold text-text-primary' : 'text-text-muted')}>{title}</span>
-        <AnimatePresence initial={false}>
-          {chips.map((c) => (
-            <motion.span key={c} initial={CHIP_AWAY} animate={CHIP_HERE} exit={CHIP_AWAY} transition={CHIP_SPRING}
-              className="shrink-0 rounded-full bg-bg-active px-2 py-0.5 text-2xs font-medium text-brand">{c}</motion.span>
-          ))}
-        </AnimatePresence>
-        {detail && <span className="shrink-0 text-2xs text-text-disabled">{detail}</span>}
-        <ChevronDown size={16} className={cn('shrink-0 text-text-muted transition-transform', open && 'rotate-180')} />
-      </CollapsibleTrigger>
+  // 27 Oct, his ask: no card, no pill, no chips. The steps are a quiet line of
+  // text over the answer (Claude's "Clicked, waited, captured page 4 times ›"),
+  // and open into a thin timeline under it, so they read as part of the reply.
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} data-testid="activity-line">
+      <div className="flex items-center gap-2">
+        <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-2 py-1 text-left">
+          {streaming ? <WorkingFigure /> : failed && <AlertTriangle size={14} className="shrink-0 text-warning" />}
+          {/* Done, it is a quiet line of what happened, not a green "finished":
+              the answer may still be arriving below it. */}
+          <span className={cn('min-w-0 truncate text-sm', streaming ? 'font-medium text-text-primary' : 'text-text-muted group-hover:text-text-primary')}>{title}</span>
+          {/* What also runs ("Using memory") is words on the line, not a chip. */}
+          {[...chips, detail].filter(Boolean).length > 0 && (
+            <span className="shrink-0 text-2xs text-text-disabled">{[...chips, detail].filter(Boolean).join(' · ')}</span>
+          )}
+          <ChevronDown size={14} className={cn('shrink-0 text-text-muted transition-transform', open ? 'rotate-0' : '-rotate-90')} />
+        </CollapsibleTrigger>
+        {lineImages.length > 0 && <Thumbs images={lineImages} small />}
+      </div>
       <CollapsibleContent
         className={cn(
-          'overflow-hidden border-t border-border-subtle px-3.5 py-1.5 outline-none',
+          'ml-[7px] overflow-hidden border-l border-border-subtle pl-4 outline-none',
           'data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down',
         )}
       >
@@ -382,5 +402,4 @@ export function MessageChain({
       </CollapsibleContent>
     </Collapsible>
   );
-  return live ? <GooeyCard bare settle>{strip}</GooeyCard> : strip;
 }
