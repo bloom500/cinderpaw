@@ -1758,6 +1758,16 @@ export interface ConnectorRow {
  * nobody is, and every speaker keeps a memory of their own. A wrong guess there
  * is how one member of a server renames everyone else.
  */
+/** Messengers that can reach the owner, in the order tried: phones first. */
+export const OWNER_PAGERS = ["telegram", "whatsapp", "discord"] as const;
+
+/** The owner's private chat on one messenger, as that transport's session id. */
+export function ownerSession(id: (typeof OWNER_PAGERS)[number], owner: string): string {
+  if (id === "telegram") return `telegram:${owner}:${owner}`; // a private chat's id is the user's id
+  if (id === "whatsapp") return `whatsapp:${digits(owner)}@s.whatsapp.net`;
+  return `discord:dm:${owner}`;
+}
+
 export function soleAllowlisted(row: ConnectorRow): string | null {
   const ids = (row.allowlist ?? []).map((s) => s.trim()).filter(Boolean);
   return ids.length === 1 ? ids[0]! : null;
@@ -1975,6 +1985,8 @@ export class ConnectorManager {
    * so it is the place that has to write it down.
    */
   readonly #health = new Map<string, ConnectorHealth>();
+  /** The owner (first allowlisted id) per enabled connector, for `notifyOwner`. */
+  readonly #owners = new Map<string, string>();
   /** The last sender each connector heard, listed or not, and who waits for the next. */
   readonly #lastSender = new Map<string, Sender & { at: number }>();
   readonly #senderWaits = new Set<{ connector: string; match: (id: string) => boolean; resolve: (s: Sender | null) => void }>();
@@ -2098,6 +2110,13 @@ export class ConnectorManager {
 
     const wanted = new Map<string, ConnectorRow>();
     for (const row of rows) if (row.enabled) wanted.set(row.id, row);
+    // The owner on each messenger: the first person on its allowlist, the
+    // same convention WhatsApp already pings for leads (`#pingOwner`).
+    this.#owners.clear();
+    for (const row of wanted.values()) {
+      const first = (row.allowlist ?? []).map((s) => s.trim()).find(Boolean);
+      if (first) this.#owners.set(row.id, first);
+    }
 
     // Gone from the config, or switched off: stop it and forget it. Off by
     // choice is not a failure, so the health entry is removed rather than
@@ -2229,6 +2248,29 @@ export class ConnectorManager {
   /** What actually connected, for one id. */
   healthOf(id: string): ConnectorHealth | undefined {
     return this.#health.get(id);
+  }
+
+  /**
+   * Reach the owner where they are when they are not at the computer: their
+   * private chat on a connected messenger, phones first (27 Oct: a task that
+   * fired while the app sat in the tray reached nobody; Altman's "it pinged me
+   * a few times a day with something urgent" was the bar). Returns the
+   * messenger used, or null when none is connected or every send failed.
+   * Slack is not used: a DM needs a channel id this manager does not keep.
+   */
+  async notifyOwner(text: string): Promise<string | null> {
+    for (const id of OWNER_PAGERS) {
+      const owner = this.#owners.get(id);
+      const live = this.#live.get(id);
+      if (!owner || !live || this.#health.get(id)?.live === false) continue;
+      try {
+        await live.send(ownerSession(id, owner), text);
+        return id;
+      } catch (e) {
+        this.#log(`${id}: could not reach the owner (${String(e)})`);
+      }
+    }
+    return null;
   }
 
   /** Say something in the channel behind `sessionId` (prefix = connector id). */

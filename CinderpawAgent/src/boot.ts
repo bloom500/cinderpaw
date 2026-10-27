@@ -1744,6 +1744,9 @@ export async function boot(transportOverride?: Transport) {
   } catch (err) {
     log(`import failed (will retry next conversation): ${err instanceof Error ? err.message : String(err)}`);
   }
+  // Set once the connectors exist (below). A missed task can catch up at boot,
+  // before they do; it then stays in the app instead of touching them early.
+  let notifyOwner: ((text: string) => Promise<string | null>) | null = null;
   const cronScheduler = new CronScheduler({
     repo: cronRepo,
     limit: taskLimit,
@@ -1873,14 +1876,22 @@ export async function boot(transportOverride?: Transport) {
       // For V1 the default fetch (globalThis.fetch) is fine — the
       // webhook URL is admin-controlled, not user-controlled.
       if (target.kind === "chat") {
-        transport.send({
-          type: "cron_fired",
-          jobId: job.id,
-          jobName: job.name,
-          sessionId: target.sessionId,
-          content,
+        // A task the person made is news they asked for; with the app in the
+        // tray, the chat alone reached nobody. It also goes to their phone
+        // when a messenger is connected, and the chat says where it went.
+        // CINDERPAW_TASKS_TO_PHONE=false keeps it in the app.
+        const toPhone = notifyOwner && readEnv("CINDERPAW_TASKS_TO_PHONE") !== "false"
+          ? notifyOwner(`⏰ ${job.name}\n\n${content.length > 1500 ? `${content.slice(0, 1500)}…` : content}`)
+          : Promise.resolve(null);
+        return toPhone.catch(() => null).then((via) => {
+          transport.send({
+            type: "cron_fired",
+            jobId: job.id,
+            jobName: job.name,
+            sessionId: target.sessionId,
+            content: via ? `${content}\n\n_Also sent to your ${via[0]!.toUpperCase()}${via.slice(1)}._` : content,
+          });
         });
-        return;
       }
       return deliverCron(target, content, job, ctx);
     },
@@ -2602,6 +2613,7 @@ export async function boot(transportOverride?: Transport) {
   };
 
   const connectors = new ConnectorManager(agent, log, leadDesk, runHooks);
+  notifyOwner = (text) => connectors.notifyOwner(text);
   // The one person on a Discord or Slack allowlist is the owner, so what they
   // say there is the owner's memory, the same as on the desktop or a call. The
   // facts they already left under their speaker scope are folded in, newest
