@@ -91,6 +91,16 @@ export { type MascotStateSink };
 const joinSegments = (a: string, b: string): string => (a && b ? a + '\n\n' + b : a + b);
 
 /**
+ * True when the model says, before its next tool, exactly what it said before
+ * the last one: a 27 Oct reply read "Am înțeles - pregătesc postarea cu
+ * videoul." twice in a row. The repeat is kept once.
+ */
+export function repeatsLastSegment(committed: string, segment: string): boolean {
+  const s = segment.trim();
+  return s.length > 0 && committed.trimEnd().endsWith(s);
+}
+
+/**
  * `JSON.stringify` that cannot throw.
  *
  * A tool result holding a cycle — a node that references its parent, a handle
@@ -400,7 +410,9 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           // Commit the prose emitted before this tool call so it survives the
           // buffer reset; otherwise only the segment after the LAST tool call
           // reached the bubble (the "only the last sentence" bug).
-          if (state.answer.trim()) state.committed = joinSegments(state.committed, state.answer);
+          if (state.answer.trim() && !repeatsLastSegment(state.committed, state.answer)) {
+            state.committed = joinSegments(state.committed, state.answer);
+          }
           // Everything said so far is `committed` now, so its length is where
           // this call sits in the reply: the timeline draws the tool there.
           state.tools.push({ ...startActivity(tool, args), at: state.committed.length });
