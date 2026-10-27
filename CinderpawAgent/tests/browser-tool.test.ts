@@ -29,6 +29,18 @@ describe("browser tool", () => {
     expect(t.calls).toEqual([{ action: "browser.open", params: { url: "example.ro" } }]);
   });
 
+  test("screenshot brings the page's picture back as an image, not as text", async () => {
+    const picture = "data:image/jpeg;base64,/9j/AAAA";
+    const t = setup(() => ({ ok: true, url: "https://example.ro/", data_url: picture }));
+    const res = await t.tool.execute({ action: "screenshot" }, t.ctx);
+    expect(t.calls).toEqual([{ action: "browser.screenshot", params: {} }]);
+    expect(res.ok).toBe(true);
+    expect(res.images).toEqual([picture]);
+    expect(res.content).not.toContain("base64");
+    const empty = setup(() => ({ ok: true, url: "https://example.ro/" }));
+    expect((await empty.tool.execute({ action: "screenshot" }, empty.ctx)).ok).toBe(false);
+  });
+
   test("click and type act on a control by its number", async () => {
     const t = setup(() => ({ ok: true }));
     await t.tool.execute({ action: "click", ref: 12 }, t.ctx);

@@ -198,6 +198,23 @@ pub mod security {
         "protonpass",
     ];
 
+    /// Apps whose window stops a picture of the WHOLE screen while it is open:
+    /// the secret stores, password managers and sign-in prompts of HARD_DENY.
+    /// Not all of HARD_DENY: Cinderpaw's own window and a terminal are on screen
+    /// most of the time, and refusing for them made the whole-screen picture
+    /// fail on every machine.
+    pub const NEVER_PHOTOGRAPHED: &[&str] = &[
+        "consent", "credentialuibroker", "logonui", "keychain", "securityagent",
+        "1password", "bitwarden", "keepass", "dashlane", "lastpass", "nordpass",
+        "enpass", "keeper", "protonpass",
+    ];
+
+    /// True when `app` (a window's app name) may not be on a whole-screen picture.
+    pub fn blocks_screen_picture(app: &str) -> bool {
+        let app = norm(app);
+        NEVER_PHOTOGRAPHED.iter().any(|d| app.contains(d))
+    }
+
     /// Env var holding the optional comma-separated allowlist of process names.
     pub const ALLOWLIST_ENV: &str = "CINDERPAW_DESKTOP_CONTROL_ALLOWED_APPS";
 
@@ -927,8 +944,41 @@ pub async fn handle_request(
             send_keys(element_id()?, keys.to_string()).await?;
             Ok(json!({ "ok": true }))
         }
+        "screenshot" => {
+            let pid = params.get("pid").and_then(|v| v.as_u64()).map(|v| v as u32);
+            take_screenshot(pid).await
+        }
         other => Err(format!("desktop control: unknown action \"{other}\"")),
     }
+}
+
+/// A picture of an app's window (`pid`) or of the main screen, as a JPEG data
+/// URL with its size. Same gates as every other action: desktop control must be
+/// on, a window must belong to an app that may be driven, and a password manager
+/// is never photographed, not even as part of the whole screen.
+pub async fn take_screenshot(pid: Option<u32>) -> Result<serde_json::Value, String> {
+    if !security::is_enabled() {
+        return Err(format!(
+            "desktop control is disabled. Set {}=true to enable it.",
+            security::ENABLE_ENV
+        ));
+    }
+    if let Some(pid) = pid {
+        security::check_pid(pid)?;
+    }
+    run_blocking(move || {
+        let shot = screenshot::capture(pid, &security::blocks_screen_picture)?;
+        let (data_url, width, height) = screenshot::to_data_url(shot.image)?;
+        Ok(serde_json::json!({
+            "data_url": data_url,
+            "width": width,
+            "height": height,
+            "scope": shot.scope,
+            "title": shot.title,
+            "note": shot.note,
+        }))
+    })
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -946,6 +996,10 @@ mod imp;
 /// The key-spec grammar, shared by every backend.
 #[path = "desktop_control_keys.rs"]
 pub mod keys;
+
+/// Pictures of a window or the screen, for the `screenshot` action.
+#[path = "desktop_control_screenshot.rs"]
+mod screenshot;
 
 // ---------------------------------------------------------------------------
 // Tests (platform-independent: encoding + security policy)
@@ -987,6 +1041,16 @@ mod tests {
         assert!(security::check_app("cinderpaw.exe", &allow).is_err());
         assert!(security::check_app("consent.exe", &[]).is_err());
         assert!(security::check_app("BitWarden.exe", &[]).is_err());
+    }
+
+    #[test]
+    fn whole_screen_picture_stops_only_for_secret_stores() {
+        // Cinderpaw and a terminal are open on almost every screen; they must
+        // not stop the picture, or it never works.
+        assert!(!security::blocks_screen_picture("Cinderpaw"));
+        assert!(!security::blocks_screen_picture("WindowsTerminal.exe"));
+        assert!(security::blocks_screen_picture("1Password"));
+        assert!(security::blocks_screen_picture("KeePassXC"));
     }
 
     #[test]

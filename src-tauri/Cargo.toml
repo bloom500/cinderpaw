@@ -59,6 +59,10 @@ tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 base64 = "0.22"
+# A screenshot the agent takes is shrunk and sent as JPEG (desktop_control_
+# screenshot.rs): a full-HD PNG is megabytes in the chat and in the model's turn.
+# The 0.25 Tauri already builds, so only the codecs are new.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -222,6 +226,14 @@ libloading = "0.7"
 # as a DMG.
 [target.'cfg(target_os = "macos")'.dependencies]
 wry = { version = "0.55", default-features = false, features = ["fullscreen"] }
+
+# Screenshots of a window or the screen (Darius, 27 Oct: the agent must be able
+# to take a picture anywhere). Windows and macOS only: on Linux xcap links
+# libpipewire, and an update installs no new system package (dpkg -i), so a
+# machine without it would no longer start. Linux uses the screenshot tool the
+# desktop already has instead (desktop_control_screenshot.rs).
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+xcap = "0.9"
 
 [dev-dependencies]
 tempfile = "3"

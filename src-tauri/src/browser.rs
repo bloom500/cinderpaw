@@ -1433,6 +1433,52 @@ async fn fire(wv: &Webview, script: &str) -> Result<Value, String> {
     Ok(json!({ "ok": true, "url": now.as_str() }))
 }
 
+/// A picture of the page as it is drawn, as a JPEG data URL, so the agent sees
+/// what the text snapshot misses (a chart, a layout, a captcha it must hand
+/// over) and the chat shows the person the page it worked on. Windows asks
+/// Chromium itself through WebView2's DevTools door: it draws the tab even when
+/// it is behind the person's page.
+#[cfg(windows)]
+async fn picture(wv: &Webview) -> Result<String, String> {
+    use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+    use windows_core::w;
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
+    wv.with_webview(move |pw| unsafe {
+        // Every early return drops `tx`, which the wait below reads as "no picture".
+        let Ok(core) = pw.controller().CoreWebView2() else { return };
+        let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |res, json| {
+            let _ = tx.send(res.map(|()| json).map_err(|e| e.to_string()));
+            Ok(())
+        }));
+        let _ = core.CallDevToolsProtocolMethod(
+            w!("Page.captureScreenshot"),
+            w!("{\"format\":\"jpeg\",\"quality\":80}"),
+            &handler,
+        );
+    })
+    .map_err(|e| e.to_string())?;
+    let json = match tokio::time::timeout(Duration::from_secs(10), rx).await {
+        Ok(Ok(answer)) => answer.map_err(|e| format!("browser: the page could not be photographed ({e})"))?,
+        _ => return Err("browser: the page did not hand over a picture. Take a snapshot to read it instead.".into()),
+    };
+    let data = serde_json::from_str::<Value>(&json)
+        .ok()
+        .and_then(|v| v.get("data").and_then(|d| d.as_str()).map(str::to_owned))
+        .ok_or("browser: the page's picture was unreadable")?;
+    Ok(format!("data:image/jpeg;base64,{data}"))
+}
+
+/// ponytail: Windows only. macOS (WKWebView takeSnapshot) and Linux (WebKitGTK
+/// get_snapshot) each need their own native call; until then the agent is told
+/// to photograph the screen, where the open browser panel is visible.
+#[cfg(not(windows))]
+async fn picture(_wv: &Webview) -> Result<String, String> {
+    Err("browser: a picture of the page is not available on this computer yet. Use computer_use with action \
+         \"screenshot\" (no pid) to photograph the whole screen, where the browser panel is."
+        .into())
+}
+
 fn type_script(reference: &str, text: &str) -> String {
     let t = serde_json::to_string(text).unwrap_or_else(|_| "\"\"".into());
     element_script(
@@ -1470,7 +1516,7 @@ fn open_page(app: &AppHandle) -> Result<Webview, String> {
 /// what the agent is doing, so "Cinderpaw can use this browser too" is
 /// something the person sees happen rather than reads about.
 pub async fn handle_from_agent(app: AppHandle, op: &str, params: &Value) -> Result<Value, String> {
-    let acts = !matches!(op, "snapshot" | "tabs" | "state");
+    let acts = !matches!(op, "snapshot" | "screenshot" | "tabs" | "state");
     // Includes `snapshot`: reading a hidden page is pointless, and reaching
     // `handle` at all restores last session's tabs into the hidden window.
     if !matches!(op, "tabs" | "state") && crate::call_pill::main_out_of_sight(&app) {
@@ -1565,6 +1611,12 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
             let wv = open_page(&app)?;
             settle(Duration::from_secs(10)).await;
             run(&wv, &format!("(() => {{ {VISIBLE_TEXT} return ({SNAPSHOT}); }})()")).await.map(with_downloads)
+        }
+        "screenshot" => {
+            let wv = open_page(&app)?;
+            settle(Duration::from_secs(10)).await;
+            let data_url = picture(&wv).await?;
+            Ok(json!({ "ok": true, "url": wv.url().map(|u| u.to_string()).unwrap_or_default(), "data_url": data_url }))
         }
         "click" => {
             let wv = open_page(&app)?;
