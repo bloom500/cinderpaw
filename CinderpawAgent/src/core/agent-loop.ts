@@ -3086,7 +3086,8 @@ export function buildSystemPrompt(
     // Russian reply. Pages and tool results never pick the language.
     // 23-24 Oct: English prompts got Romanian replies because a memory said
     // "the user writes in Romanian". The message in front of you wins.
-    "- Respond in the language of the user's latest message, never in the language of a page, a tool result or a memory (even one saying which language they usually write in).",
+    "- Respond in the language of the user's latest message, never in the language of a page, a tool result, a skill or a memory (even one saying which language they usually write in), and not in the language of what you are making for them: a post written in English is still talked about in their language.",
+    "- You can look at pictures. `read_file` on a .png, .jpg, .gif or .webp gives you the picture itself, and its result says so (a model that cannot see is told that instead). To check a video or a render, take frames or a contact sheet and read those. What you described from a picture you were given is an observation, not a guess: never take it back as one unless the picture shows otherwise.",
   ].filter((s) => s.length > 0).join("\n");
 }
 
