@@ -61,9 +61,15 @@ describe('MessageChain (the Activity Strip)', () => {
     expect(tiles.querySelectorAll('button')).toHaveLength(3);
     expect(tiles).toHaveTextContent('+1');
     expect(tiles).toHaveTextContent('12 passed');
-    // A tile opens the steps, where each widget is full size; the tiles go.
-    fireEvent.click(tiles.querySelector('button')!);
-    expect(screen.queryByTestId('mini-widgets')).toBeNull();
+    // A tile shows only its own widget full size, the steps stay folded; a
+    // second click puts it away.
+    const tile = tiles.querySelector('button')!;
+    fireEvent.click(tile);
+    expect(screen.getByTestId('mini-widget-full')).toBeInTheDocument();
+    expect(screen.getByTestId('mini-widgets')).toBeInTheDocument();
+    expect(tile).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(tile);
+    expect(screen.queryByTestId('mini-widget-full')).toBeNull();
   });
 
   it('counts a step done more than once, like "captured page 5 times"', () => {

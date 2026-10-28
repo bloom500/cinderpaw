@@ -15,6 +15,13 @@ import { ZoomableImage } from './ZoomableImage';
 
 /** Pictures shown on the folded line, newest last (Claude's "+3" strip). */
 const LINE_THUMBS = 3;
+/**
+ * The line's own grey (28 Oct, Darius: "nu e gri, tot alba e"). The dark
+ * theme's muted tier is near white on purpose, for text on glass; the activity
+ * line is the one place meant to step back from the answer, so it is that tier
+ * at 70%, in both themes. Hover brings it to full colour.
+ */
+const QUIET = 'text-text-muted/70';
 
 /** A step's pictures (screenshots, images it read), each opening full size. */
 function Thumbs({ images, small }: { images: string[]; small?: boolean }) {
@@ -249,16 +256,22 @@ const MINI_WIDGETS = 3;
  * A step's own widget, shrunk to a tile under the folded line (27 Oct, his ask:
  * the widgets stay in the chat even when the line is closed). Laid out at
  * 400 px and drawn at half, so it is the same widget, live while it runs, not a
- * summary of it. A click opens the steps, where it is full size.
+ * summary of it. A click shows that one widget full size under the tiles, and
+ * a second click puts it away (28 Oct, Darius: opening every step to see one
+ * widget was impractical).
  */
-function MiniWidget({ a, onOpen }: { a: ToolActivity; onOpen: () => void }) {
+function MiniWidget({ a, shown, onToggle }: { a: ToolActivity; shown: boolean; onToggle: () => void }) {
   return (
     <button
       type="button"
-      onClick={onOpen}
+      onClick={onToggle}
       title={stepTitle(a)}
-      aria-label={`${stepTitle(a)}, open the steps`}
-      className="relative h-[110px] w-[200px] shrink-0 overflow-hidden rounded-xl text-left transition-transform hover:-translate-y-0.5"
+      aria-label={`${stepTitle(a)}, ${shown ? 'hide' : 'show'} it full size`}
+      aria-pressed={shown}
+      className={cn(
+        'relative h-[110px] w-[200px] shrink-0 overflow-hidden rounded-xl text-left transition-transform hover:-translate-y-0.5',
+        shown && 'ring-2 ring-brand/60',
+      )}
     >
       <span aria-hidden className="pointer-events-none absolute left-0 top-0 block w-[400px] origin-top-left scale-50">
         <Widget activity={a} flat />
@@ -283,10 +296,10 @@ function StepRow({ a, pop, big }: { a: ToolActivity; pop: boolean; big: boolean 
         className="flex w-full items-center gap-3 py-1.5 text-left"
       >
         <StatusRing status={a.status} />
-        <span className={cn('min-w-0 flex-1 truncate text-sm', a.status === 'running' ? 'font-medium text-text-primary' : 'text-text-muted')}>
+        <span className={cn('min-w-0 flex-1 truncate text-sm', a.status === 'running' ? 'font-medium text-text-primary' : QUIET)}>
           {stepTitle(a)}
         </span>
-        <span className="max-w-[45%] shrink-0 truncate text-2xs text-text-muted" title={stepDetail(a)}>
+        <span className={cn('max-w-[45%] shrink-0 truncate text-2xs', QUIET)} title={stepDetail(a)}>
           {stepDetail(a)}
         </span>
       </button>
@@ -319,8 +332,8 @@ function HelperRow({ w, now }: { w: RlmWorker; now: number }) {
   return (
     <div className="flex items-center gap-3 py-1.5" data-testid="strip-helper">
       {icon}
-      <span className="min-w-0 flex-1 truncate text-sm text-text-muted" title={w.name}>{displayName(w.name)}</span>
-      <span className="shrink-0 text-2xs text-text-muted">
+      <span className={cn('min-w-0 flex-1 truncate text-sm', QUIET)} title={w.name}>{displayName(w.name)}</span>
+      <span className={cn('shrink-0 text-2xs', QUIET)}>
         {HELPER_WORD[w.status]} · {elapsedLabel((w.endedAt ?? now) - w.startedAt)}
       </span>
     </div>
@@ -393,6 +406,8 @@ export function MessageChain({
   // chat opened again draws it as it is: nothing is replayed.
   const [live] = useState(streaming);
   const [reasoningOpen, setReasoningOpen] = useState(false);
+  // The tile shown full size, by step id; none until one is clicked.
+  const [bigMini, setBigMini] = useState<string | null>(null);
   const now = useNow(streaming || helpers.some((w) => w.status === 'running'));
 
   if (thinking === null && steps.length === 0 && helpers.length === 0) return null;
@@ -427,6 +442,7 @@ export function MessageChain({
   // A step with pictures already shows them; the rest show their widget.
   const withWidget = open ? [] : steps.filter((a) => MINI_KINDS.has(a.kind) && !a.images?.length);
   const minis = withWidget.slice(-MINI_WIDGETS);
+  const big = minis.find((a) => a.id === bigMini);
 
   // 27 Oct, his ask: no card, no pill, no chips. The steps are a quiet line of
   // text over the answer (Claude's "Clicked, waited, captured page 4 times ›"),
@@ -440,23 +456,30 @@ export function MessageChain({
               them. Done, it is a quiet line of what happened, not a green
               "finished": the answer may still be arriving below it. */}
           {streaming
-            ? <ShimmeringText text={title} className="min-w-0 truncate text-sm font-medium" />
-            : <span className="min-w-0 truncate text-sm text-text-muted group-hover:text-text-primary">{title}</span>}
+            ? <ShimmeringText text={title} color="color-mix(in srgb, var(--text-muted) 70%, transparent)" className="min-w-0 truncate text-sm font-medium" />
+            : <span className={cn('min-w-0 truncate text-sm group-hover:text-text-primary', QUIET)}>{title}</span>}
           {/* What also runs ("Using memory") is words on the line, not a chip. */}
           {[...chips, detail].filter(Boolean).length > 0 && (
-            <span className="shrink-0 text-2xs text-text-muted">{[...chips, detail].filter(Boolean).join(' · ')}</span>
+            <span className={cn('shrink-0 text-2xs', QUIET)}>{[...chips, detail].filter(Boolean).join(' · ')}</span>
           )}
-          <ChevronDown size={14} className={cn('shrink-0 text-text-muted transition-transform', open ? 'rotate-0' : '-rotate-90')} />
+          <ChevronDown size={14} className={cn('shrink-0 transition-transform', QUIET, open ? 'rotate-0' : '-rotate-90')} />
         </CollapsibleTrigger>
-        {more > 0 && <span className="shrink-0 text-2xs text-text-muted">+{more}</span>}
+        {more > 0 && <span className={cn('shrink-0 text-2xs', QUIET)}>+{more}</span>}
         {lineImages.length > 0 && <Thumbs images={lineImages} small />}
       </div>
       {minis.length > 0 && (
         <div className="mb-1 mt-1.5 flex items-center gap-2" data-testid="mini-widgets">
-          {minis.map((a) => <MiniWidget key={a.id} a={a} onOpen={() => setOpen(true)} />)}
+          {minis.map((a) => (
+            <MiniWidget key={a.id} a={a} shown={a.id === bigMini} onToggle={() => setBigMini(a.id === bigMini ? null : a.id)} />
+          ))}
           {withWidget.length > minis.length && (
-            <span className="shrink-0 text-2xs text-text-muted">+{withWidget.length - minis.length}</span>
+            <span className={cn('shrink-0 text-2xs', QUIET)}>+{withWidget.length - minis.length}</span>
           )}
+        </div>
+      )}
+      {big && (
+        <div className="mb-1 mt-1.5" data-testid="mini-widget-full">
+          <Widget activity={big} flat />
         </div>
       )}
       {!open && firstPictures.length > 0 && (
@@ -488,7 +511,7 @@ export function MessageChain({
               {thinkingLive
                 ? <Loader2 size={16} className="shrink-0 animate-spin text-brand" />
                 : <Check size={16} className="shrink-0 text-success" />}
-              <span className={cn('flex-1 text-sm', thinkingLive ? 'font-medium text-text-primary' : 'text-text-muted')}>
+              <span className={cn('flex-1 text-sm', thinkingLive ? 'font-medium text-text-primary' : QUIET)}>
                 {thinkingLive ? 'Thinking' : 'Reasoning'}
               </span>
             </button>
