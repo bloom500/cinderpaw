@@ -73,6 +73,14 @@ describe('a long chat while a reply arrives', () => {
   const turn = (id: string, role: 'user' | 'assistant') => ({ id, role, content: id, createdAt: 1 });
   const chat = () => [...Array(20)].flatMap((_, i) => [turn(`q${i}`, 'user'), turn(`a${i}`, 'assistant')]);
 
+  it('leaves the scroll to the scroller: no browser scroll anchoring to fight it', () => {
+    // With anchoring on, a streaming reply moved the page 28 px down and back
+    // on every other line (28 Oct, measured in Chromium; jsdom has no layout).
+    useChat.setState({ streamStatus: 'streaming', messages: chat() });
+    render(<MessageList />);
+    expect(screen.getByRole('region', { name: 'Conversation' }).className).toContain('[overflow-anchor:none]');
+  });
+
   it('draws only the reply being written for each new piece of it', () => {
     useChat.setState({ streamStatus: 'streaming', messages: chat() });
     render(<MessageList />);

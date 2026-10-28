@@ -96,8 +96,14 @@ export function MessageList({ onFollowUp }: {
           view with the transcript. */}
       <MessageScroller.Root className="h-full relative">
         {/* No `scroll-smooth`: programmatic follow on every streamed frame
-            turns into overlapping animations, visible jank on long chats. */}
-        <MessageScroller.Viewport aria-label="Conversation" className="@container h-full overflow-y-auto overscroll-contain thin-scrollbar outline-hidden">
+            turns into overlapping animations, visible jank on long chats.
+            No scroll anchoring either (28 Oct, Darius: "sare la fiecare
+            token"): the scroller places the scroll and the room below your
+            question itself, and the browser's anchoring moved it again on every
+            line; the two corrected each other, 28 px down and back. Measured on
+            this list, one reply: 29 scroll moves, 14 of them backwards; with
+            anchoring off, 4 and 1. */}
+        <MessageScroller.Viewport aria-label="Conversation" className="@container h-full overflow-y-auto overscroll-contain thin-scrollbar outline-hidden [overflow-anchor:none]">
           {/* Clears the dock's measured height, not a flat 12rem: the dock grows
               with the workers card, the error notice and a multi-line draft,
               and a flat pad let the last reply slide under it. */}
