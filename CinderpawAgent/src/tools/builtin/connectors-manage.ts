@@ -687,7 +687,7 @@ export function createConnectorsManageTool(
           ? ` Still missing secrets: ${missing.join(", ")} — the connector stays offline until provided.`
           : pairing
             // Before the allowlist: nobody can message a WhatsApp that has no phone yet.
-            ? " A QR code is on its way. On the Cinderpaw page it shows up under the chat by itself; in the desktop app it is on the Connectors page; in the terminal chat: /connectors qr. " +
+            ? " A QR code is on its way. In the Cinderpaw app and on the Cinderpaw page it shows up right in this chat, under your reply; in the terminal chat: /connectors qr. " +
               "Tell the user: on your phone open WhatsApp, then Settings, Linked devices, Link a device, and point the camera at the code."
             : deaf
               ? ` WARNING: ${id} is online but its allowlist is EMPTY, which means it ` +
@@ -707,7 +707,9 @@ export function createConnectorsManageTool(
       return {
         ok: true,
         content: `Saved and reloaded.${hint}\n${JSON.stringify(state, null, 2)}`,
-        data: state,
+        // `whatsappPairing` draws the live code in the desktop chat (28 Oct, Darius:
+        // the QR in the chat, where the person already is, not on another page).
+        data: pairing ? { ...state, whatsappPairing: true } : state,
       };
     },
   };

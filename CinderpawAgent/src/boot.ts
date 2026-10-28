@@ -1001,7 +1001,10 @@ export async function boot(transportOverride?: Transport) {
   // pure event emission through the AskUserBridge in the tool context.
   registry.register(createAskUserTool());
   registry.register(createHeadsUpTool());
-  registry.register(createSuggestTaskTool());
+  // Set once the connectors exist: which messenger a fired task reaches, for
+  // the card's one-time offer to connect WhatsApp. null = none connected.
+  let phoneChannel: () => string | null = () => "unknown";
+  registry.register(createSuggestTaskTool(undefined, undefined, () => phoneChannel()));
   const taskLimit = new TaskLimit(db.raw);
   registry.register(createTaskLimitTool(taskLimit));
 
@@ -2615,6 +2618,7 @@ export async function boot(transportOverride?: Transport) {
 
   const connectors = new ConnectorManager(agent, log, leadDesk, runHooks);
   notifyOwner = (text) => connectors.notifyOwner(text);
+  phoneChannel = () => connectors.ownerChannel();
   // The one person on a Discord or Slack allowlist is the owner, so what they
   // say there is the owner's memory, the same as on the desktop or a call. The
   // facts they already left under their speaker scope are folded in, newest
