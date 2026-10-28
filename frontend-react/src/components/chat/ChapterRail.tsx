@@ -17,9 +17,11 @@ import { cn } from '@/lib/utils';
  * chapter list — each turn with a one-line preview, the live one marked —
  * for jumping across a long conversation without dragging the scrollbar.
  *
- * The rail never steals the native scrollbar: it sits left of the 6px bar,
- * and its bottom clears the composer's measured height so it never slides
- * under the dock that covers the track down there.
+ * While it shows, the rail IS the scrollbar (28 Oct, Darius: two bars side by
+ * side read as clutter): the transcript's native bar is hidden and a soft band
+ * on the rail marks the part of the chat on screen. Wheel, keys and dragging
+ * the rail still scroll. Its bottom clears the composer's measured height so
+ * it never slides under the dock.
  *
  * Ticks sit where their message REALLY is: each tick's height is the
  * message's offset inside the scroll content, measured from the DOM, so a
@@ -127,6 +129,7 @@ export const ChapterRail = memo(function ChapterRail() {
   const streaming = useChat((s) => s.streamStatus === 'streaming');
   const [open, setOpen] = useState(false);
   const railRef = useRef<HTMLDivElement>(null);
+  const bandRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   // The viewport, kept for rail-drag scrolling (dragging the strip moves the
   // transcript exactly like the native bar, through the same scroll events,
@@ -264,6 +267,27 @@ export const ChapterRail = memo(function ChapterRail() {
     const mo = new MutationObserver(soft);
     mo.observe(viewport, { childList: true, subtree: true, characterData: true });
     cleanups.push(() => mo.disconnect());
+    // The band follows the scroll by writing its own style, once a frame: as
+    // state it would draw the rail again on every scrolled frame.
+    let bandRaf = 0;
+    const band = () => {
+      cancelAnimationFrame(bandRaf);
+      bandRaf = requestAnimationFrame(() => {
+        const el = bandRef.current;
+        const h = viewport.scrollHeight;
+        if (!el || h <= 0) return;
+        el.style.top = `${((viewport.scrollTop / h) * 100).toFixed(2)}%`;
+        el.style.height = `${((viewport.clientHeight / h) * 100).toFixed(2)}%`;
+      });
+    };
+    band();
+    viewport.addEventListener('scroll', band, { passive: true });
+    window.addEventListener('resize', band);
+    cleanups.push(() => {
+      cancelAnimationFrame(bandRaf);
+      viewport.removeEventListener('scroll', band);
+      window.removeEventListener('resize', band);
+    });
     // New turns arrive mid entrance-animation (slide-in): their rects are
     // still travelling, and nothing re-measures at landing. One delayed,
     // forced pass per turn-count change settles the ticks (F6).
@@ -367,11 +391,21 @@ export const ChapterRail = memo(function ChapterRail() {
   // Rows always keep the list open; stable so memoized rows skip renders.
   const rowSelect = useCallback((id: string) => jump(id, true), [jump]);
 
+  // The native bar goes only while the rail stands in for it (globals.css,
+  // [data-chapter-rail]); a short chat keeps its bar.
+  const shown = turns.length >= 2 && !fits;
+  useEffect(() => {
+    const v = viewportRef.current;
+    if (!v || !shown) return;
+    v.dataset.chapterRail = '';
+    return () => { delete v.dataset.chapterRail; };
+  }, [shown]);
+
   // One chapter is not navigation, and a transcript that fits needs no rail
   // either. This return sits AFTER every hook: the callbacks above are
   // useCallbacks, and returning before them changes the hook count between
   // renders (React error, caught by test, 4 Oct 2026).
-  if (turns.length < 2 || fits) return null;
+  if (!shown) return null;
 
   return (
     <>
@@ -409,6 +443,16 @@ export const ChapterRail = memo(function ChapterRail() {
           aria-label="Chapters. Press and drag to scroll."
           onPointerDown={railDragStart}
         >
+          {/* What is on screen, on the same scale as the ticks. */}
+          <div
+            ref={bandRef}
+            aria-hidden
+            data-testid="chapter-band"
+            className={cn(
+              'pointer-events-none absolute inset-x-0.5 min-h-3 rounded-full transition-colors',
+              dragging ? 'bg-text-primary/15' : 'bg-text-primary/[0.07]',
+            )}
+          />
           {turns.map((t, i) => (
             <Tick
               key={t.id}

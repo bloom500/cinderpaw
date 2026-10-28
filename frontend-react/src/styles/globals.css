@@ -526,6 +526,15 @@
   }
 }
 
+/* The transcript while its chapter rail shows: the rail is the scrollbar
+   (ChapterRail.tsx). Bare on purpose, to beat the layered `thin-scrollbar`. */
+[data-chapter-rail] {
+  scrollbar-width: none;
+}
+[data-chapter-rail]::-webkit-scrollbar {
+  display: none;
+}
+
 /*
  * ═══════════════════════════════════════════════════════════════════════════
  * CRITICAL NAMING CONVENTION — read before editing this file

@@ -113,6 +113,8 @@ describe('ChapterRail', () => {
     show();
     expect(screen.getByRole('list', { name: /chapters/i })).toBeDefined();
     const viewport = screen.getByRole('region', { name: /conversation/i });
+    // The rail stands in for the native bar only while it shows.
+    expect(viewport.hasAttribute('data-chapter-rail')).toBe(true);
     Object.defineProperty(viewport, 'scrollHeight', { value: 400, configurable: true });
     Object.defineProperty(viewport, 'clientHeight', { value: 800, configurable: true });
     fireEvent(window, new Event('resize'));
@@ -121,6 +123,22 @@ describe('ChapterRail', () => {
       await new Promise((r) => setTimeout(r, 50));
     });
     expect(screen.queryByRole('list', { name: /chapters/i })).toBeNull();
+    expect(viewport.hasAttribute('data-chapter-rail')).toBe(false);
+  });
+
+  it('marks the part of the chat on screen with a band that follows the scroll', async () => {
+    show();
+    const viewport = screen.getByRole('region', { name: /conversation/i });
+    Object.defineProperty(viewport, 'scrollHeight', { value: 2000, configurable: true });
+    Object.defineProperty(viewport, 'clientHeight', { value: 500, configurable: true });
+    viewport.scrollTop = 1000;
+    fireEvent.scroll(viewport);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    const band = screen.getByTestId('chapter-band');
+    expect(band.style.top).toBe('50%');
+    expect(band.style.height).toBe('25%');
   });
 
   it('does not touch layout while a reply streams, then measures once after', async () => {
