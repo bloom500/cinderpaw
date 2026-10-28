@@ -194,7 +194,14 @@ export function ControlsPopover() {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button className="flex items-center justify-center h-full px-2.5 text-text-muted hover:text-text-secondary transition-colors outline-hidden">
+        <button
+          // An icon alone, with no name: nobody could tell what it opened
+          // before pressing it, and a screen reader said only "button" (28 Oct).
+          type="button"
+          aria-label="Reply settings"
+          title="Reply settings"
+          className="flex items-center justify-center h-full px-2.5 text-text-muted hover:text-text-secondary transition-colors outline-hidden"
+        >
           <Settings2 size={12} />
         </button>
       </PopoverTrigger>
