@@ -146,7 +146,10 @@ export function MessageList({ onFollowUp }: {
             )}
           </MessageScroller.Content>
         </MessageScroller.Viewport>
-        <JumpToBottom count={messages.length} />
+        {/* Keyed by the chat's first message: kept across a chat switch, it
+            counted the opened chat's whole length as arrivals ("↓ 22 new" on
+            yesterday's chat, 28 Oct). A new chat starts counting from zero. */}
+        <JumpToBottom key={messages[0]?.id ?? 'empty'} count={messages.length} />
         {/* Qwen-style chapter rail: one tick per user turn, with a popup list. */}
         <ChapterRail />
       </MessageScroller.Root>
