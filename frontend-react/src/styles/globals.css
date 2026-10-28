@@ -1456,8 +1456,11 @@ html[data-glass="off"] .liquid-glass {
  * content: "`"`). The pill already says "this is code", so a reply read
  * "`marketing`" with the marks showing, as if the markdown had not rendered.
  */
-.prose :where(code)::before,
-.prose :where(code)::after {
+/* `code`, not `:where(code)`: a bare :where() outside a layer is what the
+   Tailwind 4 cascade test forbids, and `.prose code` still outranks
+   typography's `.prose :where(code)` (one more element in the selector). */
+.prose code::before,
+.prose code::after {
   content: none;
 }
 
