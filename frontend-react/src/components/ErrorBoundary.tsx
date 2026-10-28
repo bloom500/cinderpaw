@@ -10,6 +10,50 @@
  */
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { useLocation, useNavigate, useRouteError } from 'react-router-dom';
+
+/**
+ * One page broke, the rest of the app did not. The router catches a page's
+ * render error before the boundary below can, and its own screen was a
+ * developer page ("Hey developer") with no sidebar and no way back: one bad
+ * reply from the engine on the Learning tab took the whole window with it.
+ * Rendered inside the shell, so the sidebar stays and every other page works.
+ */
+export function RouteError() {
+  const error = useRouteError();
+  const navigate = useNavigate();
+  const { pathname, search } = useLocation();
+  console.error('[RouteError]', error);
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-3 px-8 text-center">
+      <h1 className="text-lg font-semibold text-text-primary">This page stopped working</h1>
+      <p className="text-sm text-text-muted max-w-md leading-relaxed">
+        Something on it broke. Your chats and settings are safe. Try again, or go back to the chat.
+      </p>
+      <pre className="max-w-xl max-h-32 overflow-auto text-xs text-text-muted bg-bg-surface border border-border-default rounded-lg px-4 py-2 whitespace-pre-wrap">
+        {message}
+      </pre>
+      <div className="flex gap-3 mt-1">
+        {/* A navigation clears the router's error, so the same address is a retry. */}
+        <button
+          type="button"
+          onClick={() => navigate(pathname + search, { replace: true })}
+          className="text-sm font-medium px-4 py-2 rounded-lg border border-border-default hover:bg-bg-hover transition-colors"
+        >
+          Try again
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate('/chat')}
+          className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-on-brand hover:bg-brand/90 transition-colors"
+        >
+          Go to chat
+        </button>
+      </div>
+    </div>
+  );
+}
 
 interface ErrorBoundaryProps {
   children: ReactNode;
