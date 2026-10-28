@@ -12,7 +12,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, Loader2, RefreshCw, Trash2, ShieldAlert, Check } from 'lucide-react';
+import { ArrowUpRight, Loader2, MessageSquare, RefreshCw, Trash2, ShieldAlert, Check } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import {
   tauri,
   type ConnectorCatalogEntry,
@@ -24,6 +25,7 @@ import { BrandLogo } from '@/lib/brandLogos';
 import { ConnectorAccounts } from '@/components/connectors/ConnectorAccounts';
 import { IS_MAC } from '@/components/ui/kbd';
 import { announceWhenLive, useConnected } from '@/stores/connected';
+import { useConversations } from '@/stores/conversations';
 
 export function ConnectorsPage() {
   const [catalog, setCatalog] = useState<ConnectorCatalogEntry[]>([]);
@@ -169,6 +171,23 @@ export function ConnectorCard({
   // (UX lab, item 30). A connector already set up opens with its settings.
   const [setupOpen, setSetupOpen] = useState(configured || startOpen);
   const isQr = entry.auth_kind === 'qr';
+  // Every card can be set up by asking (28 Oct, Darius: most people ask the AI
+  // for everything; doing it with them is how trust is built). A new chat with
+  // the words in the box, like the command palette: nothing is sent for them.
+  const navigate = useNavigate();
+  const askCinderpaw = () => {
+    useConversations.getState().newChat();
+    navigate('/chat', { state: { compose: `Help me connect ${entry.name}.` } });
+  };
+  const askButton = (
+    <button
+      type="button"
+      onClick={askCinderpaw}
+      className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+    >
+      <MessageSquare size={12} aria-hidden /> Ask Cinderpaw
+    </button>
+  );
   const linked = state?.linked ?? false;
   // What the card says about itself, in words; an off connector says nothing.
   const status = !enabled ? null
@@ -391,13 +410,16 @@ export function ConnectorCard({
       </div>
 
       {!entry.coming_soon && !setupOpen && (
-        <button
-          type="button"
-          onClick={() => setSetupOpen(true)}
-          className="mt-3 self-start rounded-lg border border-border-default px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-bg-hover"
-        >
-          Set up
-        </button>
+        <div className="mt-3 flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setSetupOpen(true)}
+            className="rounded-lg border border-border-default px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-bg-hover"
+          >
+            Set up
+          </button>
+          {askButton}
+        </div>
       )}
 
       {!entry.coming_soon && setupOpen && (
@@ -420,7 +442,10 @@ export function ConnectorCard({
                 // The engine's reason, on the card (28 Oct): on a fresh machine
                 // it is "support is not downloaded yet, ask in the chat", and
                 // the spinner below used to hide it behind "turn it off and on".
-                <span className="text-warning">{state.liveError}</span>
+                <div className="space-y-1.5">
+                  <span className="block text-warning">{state.liveError}</span>
+                  {askButton}
+                </div>
               ) : enabled && waQr ? (
                 <div className="space-y-1.5">
                   <span className="text-text-muted">

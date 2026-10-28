@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ConnectStep, pick } from '../ConnectStep';
@@ -26,7 +27,7 @@ beforeEach(() => {
 
 describe('ConnectStep', () => {
   it('lists the real integrations, marks what is connected, and pre-selects nothing', async () => {
-    render(<ConnectStep />);
+    render(<MemoryRouter><ConnectStep /></MemoryRouter>);
     expect(await screen.findByText('Notion')).toBeTruthy();
     // In the spec's order, and only the named presets: Postgres is not offered here.
     expect(screen.queryByText('Postgres')).toBeNull();
@@ -38,7 +39,7 @@ describe('ConnectStep', () => {
   });
 
   it('keeps the other chat apps behind "N more", in a window of their own, never one that is coming soon', async () => {
-    render(<ConnectStep />);
+    render(<MemoryRouter><ConnectStep /></MemoryRouter>);
     await userEvent.click(await screen.findByRole('button', { name: /1 more/ }));
     expect(screen.getByRole('dialog', { name: 'More apps to connect' })).toBeTruthy();
     expect(screen.getByText('Matrix')).toBeTruthy();
@@ -46,7 +47,7 @@ describe('ConnectStep', () => {
   });
 
   it('"+" opens the real connect form', async () => {
-    render(<ConnectStep />);
+    render(<MemoryRouter><ConnectStep /></MemoryRouter>);
     await userEvent.click(await screen.findByRole('button', { name: 'Connect Slack' }));
     expect(screen.getByRole('dialog', { name: 'Connect Slack' })).toBeTruthy();
   });
@@ -54,7 +55,7 @@ describe('ConnectStep', () => {
   it('Skip moves on', async () => {
     const next = vi.fn();
     useOnboarding.setState({ next });
-    render(<ConnectStep />);
+    render(<MemoryRouter><ConnectStep /></MemoryRouter>);
     await userEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
     expect(next).toHaveBeenCalled();
   });
