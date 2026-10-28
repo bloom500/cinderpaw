@@ -114,7 +114,9 @@ export function ConnectorsPage() {
           )}
 
           {!loading && !error && (
-            <div className="grid grid-cols-2 gap-3">
+            // items-start: a card is as tall as itself. Stretched to its row, a
+            // short card next to an open one was a big empty box (28 Oct).
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
               {/* coming_soon connectors stay out of the grid — shelf space
                   advertising an absence (audit 2026-07-10, Part 2). As of
                   19 Sep 2026 all 21 are live, so nothing is filtered and the
@@ -168,6 +170,12 @@ export function ConnectorCard({
   const [setupOpen, setSetupOpen] = useState(configured || startOpen);
   const isQr = entry.auth_kind === 'qr';
   const linked = state?.linked ?? false;
+  // What the card says about itself, in words; an off connector says nothing.
+  const status = !enabled ? null
+    : isQr && !linked ? { label: 'Waiting for your phone', className: 'bg-warning/15 text-warning' }
+    : state?.live === false ? { label: 'Not connected', className: 'bg-warning/15 text-warning' }
+    : state?.live === true || linked ? { label: 'Connected', className: 'bg-success/15 text-success' }
+    : { label: 'On', className: 'bg-bg-hover text-text-secondary' };
   // A phone that links while this card is open gets its moment.
   const wasLinked = useRef(linked);
   useEffect(() => {
@@ -327,8 +335,9 @@ export function ConnectorCard({
   return (
     <div
       className={cn(
-        'rounded-xl border bg-bg-surface p-4 flex flex-col',
-        entry.coming_soon ? 'border-border-subtle opacity-60' : 'border-border-default',
+        'rounded-2xl border bg-bg-surface p-4 flex flex-col transition-colors',
+        entry.coming_soon ? 'border-border-subtle opacity-60'
+          : enabled ? 'border-brand/30' : 'border-border-subtle hover:border-border-default',
       )}
     >
       <div className="flex items-start gap-3">
@@ -341,16 +350,22 @@ export function ConnectorCard({
                 Coming soon
               </span>
             ) : (
-              <span
-                className={cn(
-                  'h-1.5 w-1.5 rounded-full shrink-0',
-                  enabled ? 'bg-success' : 'bg-text-muted/40',
-                )}
-                title={enabled ? 'On' : 'Off'}
-              />
+              status && (
+                <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-micro font-medium', status.className)}>
+                  <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current" />
+                  {status.label}
+                </span>
+              )
             )}
           </div>
-          <p className="text-xs text-text-muted mt-0.5 leading-relaxed">{entry.description}</p>
+          {/* Two lines until the card is opened: some read like a manual
+              (LINE, Google Chat) and made every row uneven. Whole when open. */}
+          <p
+            className={cn('text-xs text-text-muted mt-1 leading-relaxed', !setupOpen && 'line-clamp-2')}
+            title={setupOpen ? undefined : entry.description}
+          >
+            {entry.description}
+          </p>
         </div>
 
         {!entry.coming_soon && (
