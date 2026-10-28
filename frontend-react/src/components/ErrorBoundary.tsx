@@ -31,9 +31,14 @@ export function RouteError() {
       <p className="text-sm text-text-muted max-w-md leading-relaxed">
         Something on it broke. Your chats and settings are safe. Try again, or go back to the chat.
       </p>
-      <pre className="max-w-xl max-h-32 overflow-auto text-xs text-text-muted bg-bg-surface border border-border-default rounded-lg px-4 py-2 whitespace-pre-wrap">
-        {message}
-      </pre>
+      {/* The engine's own words ("Cannot read properties of undefined…") are
+          for a bug report, not the first thing a person reads: one click away. */}
+      <details className="max-w-xl text-xs text-text-muted">
+        <summary className="cursor-pointer select-none">Details</summary>
+        <pre className="mt-2 max-h-32 overflow-auto bg-bg-surface border border-border-default rounded-lg px-4 py-2 whitespace-pre-wrap text-left">
+          {message}
+        </pre>
+      </details>
       <div className="flex gap-3 mt-1">
         {/* A navigation clears the router's error, so the same address is a retry. */}
         <button
@@ -88,9 +93,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           Cinderpaw hit an unexpected error while rendering. Your conversations are
           saved on disk and will be there after a reload.
         </p>
-        <pre className="max-w-xl max-h-40 overflow-auto text-xs text-text-muted bg-bg-surface border border-border-default rounded-lg px-4 py-3 whitespace-pre-wrap">
-          {error.message || String(error)}
-        </pre>
+        <details className="max-w-xl text-xs text-text-muted">
+          <summary className="cursor-pointer select-none text-center">Details</summary>
+          <pre className="mt-2 max-h-40 overflow-auto bg-bg-surface border border-border-default rounded-lg px-4 py-3 whitespace-pre-wrap">
+            {error.message || String(error)}
+          </pre>
+        </details>
         <div className="flex gap-3 mt-2">
           <button
             type="button"
