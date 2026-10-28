@@ -40,8 +40,10 @@ import { APP_NAME } from '@/lib/brand';
 
 export const NAV_W = 256;
 
-/** Section headings in the library: STARRED, PROJECTS, TODAY, ... (canvas: 0.08em tracking; 12px, the scale's step nearest its 11.5). */
-const LABEL = 'px-3 pb-1.5 pt-3.5 text-2xs font-semibold uppercase tracking-[0.08em] text-text-disabled select-none';
+/** Section headings in the library: Starred, Projects, Today, ... Sentence case
+ *  since 28 Oct: in capitals with tracking (the canvas look) they were the loudest
+ *  words in the rail, louder than the chats they label (his Claude comparison). */
+const LABEL = 'px-3 pb-1.5 pt-4 text-xs font-medium text-text-muted select-none';
 /** Hover on the sidebar ground. `bg-hover` is the sidebar's own colour in light, so it would not show. */
 const ROW_HOVER = 'hover:bg-text-primary/5';
 /**
@@ -93,7 +95,7 @@ function Row({
         style={{ x: magnet.x, y: magnet.y }}
         className="flex shrink-0 items-center justify-center"
       >
-        <Icon size={16} strokeWidth={1.75} className="shrink-0 text-text-muted" />
+        <Icon size={18} strokeWidth={1.6} className="shrink-0 text-text-muted" />
       </motion.span>
       <AnimatePresence initial={false}>
         {!collapsed && (
@@ -110,9 +112,11 @@ function Row({
     </>
   );
   const classes = (isActive: boolean) => cn(
-    'w-full flex items-center gap-3 h-9 px-3 rounded-[10px] text-sm text-text-primary transition-colors cursor-pointer',
+    // 15px in the secondary tone, white only where you are: the same weight
+    // read heavy at 14.5px in full white next to Claude's lighter rail.
+    'w-full flex items-center gap-3 h-9 px-3 rounded-[10px] text-[15px] transition-colors cursor-pointer',
     collapsed && 'justify-center px-0',
-    isActive ? 'bg-bg-active' : ROW_HOVER,
+    isActive ? 'bg-bg-active text-text-primary' : cn(ROW_HOVER, 'text-text-secondary hover:text-text-primary'),
   );
 
   if (to) {
@@ -211,7 +215,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
             setDragOverProject(null);
           }}
           className={cn(
-            'group flex items-center rounded-[10px] pr-1 transition-opacity duration-150',
+            'group relative flex items-center rounded-[10px] transition-opacity duration-150',
             c.id === currentId ? 'bg-bg-active' : ROW_HOVER,
             // While any chat is dragged, the other rows step back
             // so the target section reads as the destination.
@@ -224,9 +228,12 @@ function Library({ collapsed }: { collapsed: boolean }) {
             // Which chat you are in was said in background colour alone, so a
             // screen reader read a column of interchangeable titles.
             aria-current={c.id === currentId ? 'page' : undefined}
+            // The "..." button floats over the row's end and the title makes
+            // room only while it shows: an invisible button in the flow cut
+            // every title ~30px short of the edge.
             className={cn(
               rowBase,
-              'flex-1 min-w-0',
+              'flex-1 min-w-0 group-hover:pr-9 group-has-[:focus-visible]:pr-9 group-has-[[data-state=open]]:pr-9',
               c.id === currentId
                 ? 'text-text-primary'
                 : 'text-text-muted group-hover:text-text-secondary',
@@ -246,7 +253,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
             )}
             <span className="truncate">{c.title}</span>
           </button>
-          <ConversationActions conv={c} side="right" align="start" />
+          <ConversationActions conv={c} side="right" align="start" className="absolute right-1.5 top-1/2 -translate-y-1/2" />
         </div>
       ))}
     </div>
