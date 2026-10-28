@@ -1379,6 +1379,13 @@ html[data-glass="off"] .liquid-glass {
   -webkit-backdrop-filter: none;
 }
 
+/* With the blur off nothing smears the transcript that scrolls under the
+   typing bar, and its 6% of see-through carried readable lines: "Video:
+   H.264" sat under "Ask Cinderpaw…" in the real app on 28 Oct. Solid here;
+   the 0.94 above stays for glass, where the blur does the hiding. */
+:root[data-glass="off"][data-theme="dark"] { --surface-typing: rgb(52, 46, 41); }
+:root[data-glass="off"][data-theme="light"] { --surface-typing: rgb(255, 253, 250); }
+
 /*
  * Semi-transparency escape hatch
  * Palette is hex → Tailwind's bg-card/50 opacity utilities don't work on
