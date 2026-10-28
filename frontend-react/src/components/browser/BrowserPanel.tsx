@@ -19,6 +19,7 @@ import { type HistoryEntry, loadHistory, saveHistory, recordVisit, recordTitle, 
 import { AddressSuggestions, useAddressSuggestions } from './AddressSuggestions';
 import { DownloadsCard } from './DownloadsCard';
 import { cardHeight } from './DownloadsPopup';
+import { uiZoom } from '@/lib/uiZoom';
 
 const WIDTH_KEY = 'cinderpaw.browserPanelWidth';
 const ZOOM_KEY = 'cinderpaw.browserZoom';
@@ -65,8 +66,11 @@ const SHORTCUTS: Array<{ label: string; url: string; mark: string }> = [
  */
 function place(r: DOMRect | null) {
   useBrowser.getState().setPageRect(r && { x: r.left, y: r.top, w: r.width, h: r.height });
+  // The native page is placed in window pixels; at a window size other than
+  // 100% (Ctrl +) a CSS pixel is `uiZoom()` of those.
+  const z = uiZoom();
   void tauri.browser
-    .ui('set_bounds', r ? { x: r.left, y: r.top, width: r.width, height: r.height, visible: true } : { visible: false })
+    .ui('set_bounds', r ? { x: r.left * z, y: r.top * z, width: r.width * z, height: r.height * z, visible: true } : { visible: false })
     .catch(() => {});
 }
 

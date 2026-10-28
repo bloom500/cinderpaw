@@ -51,6 +51,7 @@ import { useArtifacts } from '@/stores/artifacts';
 import { ArtifactsPanel } from '@/components/artifacts/ArtifactsPanel';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { uiZoom } from '@/lib/uiZoom';
 import type { CallPhase, CallStage } from '@/hooks/useCallSession';
 import { SelectMenu } from '@/components/ui/select-menu';
 
@@ -2444,8 +2445,9 @@ function CallBrowserPanel() {
       frame = requestAnimationFrame(() => {
         if (!el) return;
         const r = el.getBoundingClientRect();
+        const z = uiZoom(); // window pixels, as in BrowserPanel's place()
         void tauri.browser
-          .ui('set_bounds', { x: r.left, y: r.top, width: r.width, height: r.height, visible: true })
+          .ui('set_bounds', { x: r.left * z, y: r.top * z, width: r.width * z, height: r.height * z, visible: true })
           .catch(() => {});
       });
     };
