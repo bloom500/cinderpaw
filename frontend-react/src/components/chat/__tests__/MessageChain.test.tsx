@@ -229,4 +229,14 @@ describe('side activities and helpers', () => {
     const rows = screen.getAllByTestId('strip-helper').map((r) => r.textContent);
     expect(rows).toEqual(['compare prices' + 'working · 1m 12s', 'api reviewer' + 'done · 40s']);
   });
+
+  it('keeps what the person answered on screen after the question card has gone, folded or not', () => {
+    const asked = finishActivity(startActivity('ask_user', {}), {
+      ok: true,
+      content: '',
+      data: { answers: [{ selected: ['5.000 – 8.000 lei'] }, { selected: ['Video și grafică'] }] },
+    });
+    render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[asked]} streaming={false} />);
+    expect(screen.getByTestId('your-answers')).toHaveTextContent('You answered: 5.000 – 8.000 lei · Video și grafică');
+  });
 });

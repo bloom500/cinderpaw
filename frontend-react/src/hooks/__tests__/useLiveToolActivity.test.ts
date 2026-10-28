@@ -259,3 +259,21 @@ describe('pictures a tool brought back', () => {
     expect(back.images).toEqual([png('a')]);
   });
 });
+
+describe('ask_user answers', () => {
+  it('a finished question step keeps what was picked, and a saved chat brings it back', () => {
+    const done = finishActivity(startActivity('ask_user', {}), {
+      ok: true,
+      content: 'User answered: ...',
+      data: { answers: [
+        { question: 'Buget?', selected: ['5.000 – 8.000 lei'] },
+        { question: 'Pentru ce?', selected: [], customText: 'montaj video' },
+        { question: 'Skipped', selected: [] },
+      ] },
+    });
+    expect(done.answers).toEqual(['5.000 – 8.000 lei', 'montaj video']);
+    expect(finishActivity(startActivity('web_search', {}), { ok: true, content: '' })).not.toHaveProperty('answers');
+    const [back] = toolsFromPersisted([done])!;
+    expect(back.answers).toEqual(['5.000 – 8.000 lei', 'montaj video']);
+  });
+});

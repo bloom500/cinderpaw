@@ -448,6 +448,10 @@ export function MessageChain({
   const withWidget = open ? [] : steps.filter((a) => MINI_KINDS.has(a.kind) && !a.images?.length);
   const minis = withWidget.slice(-MINI_WIDGETS);
   const big = minis.find((a) => a.id === bigMini);
+  // The question card leaves the chat once answered (so a run of "Allow"
+  // prompts leaves no trail of cards). What the person picked stays here,
+  // outside the fold: folded, "Asked you, 2 steps" was all that was left.
+  const answered = steps.flatMap((a) => (a.tool === 'ask_user' && a.answers ? a.answers : []));
 
   // 27 Oct, his ask: no card, no pill, no chips. The steps are a quiet line of
   // text over the answer (Claude's "Clicked, waited, captured page 4 times ›"),
@@ -472,6 +476,11 @@ export function MessageChain({
         {more > 0 && <span className={cn('shrink-0 text-2xs', QUIET)}>+{more}</span>}
         {lineImages.length > 0 && <Thumbs images={lineImages} small />}
       </div>
+      {answered.length > 0 && (
+        <p className="mb-1 text-sm text-text-secondary" data-testid="your-answers">
+          You answered: {answered.join(' · ')}
+        </p>
+      )}
       {minis.length > 0 && (
         <div className="mb-1 mt-1.5 flex items-start gap-2" data-testid="mini-widgets">
           {minis.map((a) => (

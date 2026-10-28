@@ -130,6 +130,10 @@ export interface ToolActivity {
   /** Pictures the tool brought back (a screenshot, an image it read), as data
    *  URLs, so the person sees what the agent saw. Absent when there were none. */
   images?: string[];
+  /** What the person picked on an ask_user card, one entry per question. The
+   *  card leaves the chat once answered, so this is the only place the choice
+   *  stays visible. From the tool's `data`, like `artifact`. */
+  answers?: string[];
   /** Present when the tool failed, so the panel can say so rather than empty. */
   error: string | null;
   /** Where in the reply's text this call was made (a character offset into
@@ -347,7 +351,21 @@ export function finishActivity(a: ToolActivity, result: unknown): ToolActivity {
     // is a bug.
     error: ok ? null : (content || 'failed').slice(0, 120),
     ...(images.length > 0 ? { images } : {}),
+    ...(a.tool === 'ask_user' && ok ? answersOf(result) : {}),
   };
+}
+
+/** The picks from ask_user's `data.answers`; nothing when there are none. */
+function answersOf(result: unknown): { answers: string[] } | Record<string, never> {
+  const data = (result as { data?: { answers?: unknown } } | null)?.data;
+  if (!Array.isArray(data?.answers)) return {};
+  const answers = data.answers
+    .map((a: { selected?: unknown; customText?: unknown } | null) =>
+      [...(Array.isArray(a?.selected) ? a.selected : []), a?.customText]
+        .filter((s): s is string => typeof s === 'string' && s.trim() !== '')
+        .join(', '))
+    .filter((s: string) => s !== '');
+  return answers.length > 0 ? { answers } : {};
 }
 
 /**
@@ -390,6 +408,9 @@ export function toolsFromPersisted(raw: unknown): ToolActivity[] | undefined {
       error: running ? 'interrupted' : typeof r.error === 'string' ? r.error : null,
       ...(typeof r.at === 'number' ? { at: r.at } : {}),
       ...(images.length > 0 ? { images } : {}),
+      ...(Array.isArray(r.answers) && r.answers.every((s) => typeof s === 'string')
+        ? { answers: r.answers }
+        : {}),
     });
   }
   return out.length > 0 ? out : undefined;
