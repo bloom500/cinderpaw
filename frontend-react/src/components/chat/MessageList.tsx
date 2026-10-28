@@ -89,7 +89,12 @@ export function MessageList({ onFollowUp }: {
     : undefined;
 
   return (
-    <MessageScroller.Provider autoScroll defaultScrollPosition="last-anchor">
+    // scrollEdgeThreshold 24, not the library's 8 (28 Oct, Darius: "Jump to
+    // bottom" stayed at the bottom). The scroller counts each row's 8 px of
+    // paint room (`-my-2 py-2` on Row) as content, so at the very bottom it
+    // saw exactly 8 px left; any fraction of a pixel (the composer measured at
+    // 121.3 px) tipped it over the threshold and the button never went away.
+    <MessageScroller.Provider autoScroll defaultScrollPosition="last-anchor" scrollEdgeThreshold={24}>
       {/* The root is the positioning context and is NOT the element that
           scrolls: an absolute child of a scroll container is laid out against
           the scrolled content, so "Jump to bottom" used to ride up and out of
