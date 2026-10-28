@@ -55,6 +55,10 @@ export function ContextRing() {
   }, [needsCatalog, modelName]);
 
   if (messages.length === 0) return null;
+  // At rest, a grey quarter-ring after one question looked exactly like a
+  // loading spinner that never stopped (28 Oct). It shows while the agent
+  // works, and once the chat has used half its room, when it starts to matter.
+  if (!isStreaming && pct < 0.5) return null;
 
   // `--c-red` and `--color-text-muted` do not exist — the tokens are `--error`
   // and `--text-muted` — so every branch fell through to its hardcoded fallback
