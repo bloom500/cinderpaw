@@ -138,7 +138,7 @@ function NotesPanel({
     <section className="rounded-lg border border-border-default bg-bg-surface/80 p-4">
       <header className="mb-3 flex items-center gap-2">
         <Brain size={14} className="text-brand" />
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-text-primary">
+        <h2 className="text-sm font-medium text-text-primary">
           What Cinderpaw remembers
         </h2>
       </header>
@@ -225,7 +225,7 @@ function DreamCard({ ep, now, bestScore }: { ep: DreamEpisode; now: number; best
   );
 }
 
-/** Live RSI pill — same data as before, now lives above the Cinderpaw's Dreams
+/** Live RSI pill — same data as before, now lives above the Cinderpaw's dreams
  *  panel so the connection is obvious. */
 function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
   const phase = snapshot.phase;
@@ -506,8 +506,8 @@ export default function MemoryLayersPage() {
         <section className={`rounded-lg border border-border-default bg-bg-surface/60 p-4 transition-shadow ${panelGlow}`}>
           <header className="mb-3 flex items-center gap-2">
             <Sparkles size={14} className="text-brand" />
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-text-primary">
-              Cinderpaw's Dreams
+            <h2 className="text-sm font-medium text-text-primary">
+              Cinderpaw's dreams
             </h2>
             <span className="text-xs text-text-muted">
               {dreamLast.length} {dreamLast.length === 1 ? 'dream' : 'dreams'}

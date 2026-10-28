@@ -171,12 +171,12 @@ export function OnboardingWizard() {
 function StepCounter({ step, total }: { step: number; total: number }) {
   return (
     <div className="flex items-center gap-5" aria-label={`Installed. Step ${step + 1} of ${total}`}>
-      <span className="text-xs font-medium tracking-[0.22em] text-text-muted">{step + 1} OF {total}</span>
+      <span className="text-xs font-medium text-text-muted">{step + 1} of {total}</span>
       <span className="flex items-center" aria-hidden>
         {/* Never at zero (27 Oct): the install is a step the person already did,
             so the path starts with it ticked rather than with six empty dots. */}
-        <span className="flex items-center gap-1 text-xs font-medium tracking-[0.22em] text-brand">
-          <Check size={12} /> INSTALLED
+        <span className="flex items-center gap-1 text-xs font-medium text-brand">
+          <Check size={12} /> Installed
         </span>
         <span className="h-px w-5 bg-brand/50" />
         {Array.from({ length: total }, (_, i) => (
