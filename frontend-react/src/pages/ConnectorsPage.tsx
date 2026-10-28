@@ -172,8 +172,8 @@ export function ConnectorCard({
   const linked = state?.linked ?? false;
   // What the card says about itself, in words; an off connector says nothing.
   const status = !enabled ? null
-    : isQr && !linked ? { label: 'Waiting for your phone', className: 'bg-warning/15 text-warning' }
     : state?.live === false ? { label: 'Not connected', className: 'bg-warning/15 text-warning' }
+    : isQr && !linked ? { label: 'Waiting for your phone', className: 'bg-warning/15 text-warning' }
     : state?.live === true || linked ? { label: 'Connected', className: 'bg-success/15 text-success' }
     : { label: 'On', className: 'bg-bg-hover text-text-secondary' };
   // A phone that links while this card is open gets its moment.
@@ -416,6 +416,11 @@ export function ConnectorCard({
             <div className="rounded-md border border-border-default bg-bg-primary px-2.5 py-2 text-2xs leading-relaxed">
               {linked ? (
                 <span className="text-success">✅ Linked to WhatsApp.</span>
+              ) : enabled && !waQr && state?.live === false && state.liveError ? (
+                // The engine's reason, on the card (28 Oct): on a fresh machine
+                // it is "support is not downloaded yet, ask in the chat", and
+                // the spinner below used to hide it behind "turn it off and on".
+                <span className="text-warning">{state.liveError}</span>
               ) : enabled && waQr ? (
                 <div className="space-y-1.5">
                   <span className="text-text-muted">

@@ -28,4 +28,14 @@ describe('a connector card on the Accounts page', () => {
     render(<ConnectorCard entry={entry} state={null} onChanged={() => {}} startOpen />);
     expect(screen.getByText('Bot token')).toBeInTheDocument();
   });
+
+  it("says the engine's reason when WhatsApp cannot start, not a spinner", () => {
+    const wa = { ...entry, id: 'whatsapp', name: 'WhatsApp', auth_kind: 'qr', fields: [] } as unknown as ConnectorCatalogEntry;
+    const why = 'WhatsApp support is not downloaded yet. Ask Cinderpaw in the chat to connect WhatsApp; it offers the download.';
+    const state = { id: 'whatsapp', enabled: true, linked: false, live: false, liveError: why, allowlist: [], channels: [], filled: [] } as unknown as ConnectorView;
+    render(<ConnectorCard entry={wa} state={state} onChanged={() => {}} />);
+    expect(screen.getByText(why)).toBeInTheDocument();
+    expect(screen.getByText('Not connected')).toBeInTheDocument();
+    expect(screen.queryByText(/Getting a QR code ready/)).toBeNull();
+  });
 });
