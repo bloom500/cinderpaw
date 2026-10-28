@@ -256,7 +256,7 @@ const MINI_WIDGETS = 3;
 /**
  * A step's own widget, shrunk to a tile under the folded line (27 Oct, his ask:
  * the widgets stay in the chat even when the line is closed). Laid out at
- * 400 px and drawn at half, so it is the same widget, live while it runs, not a
+ * 400 px and zoomed to half, so it is the same widget, live while it runs, not a
  * summary of it. A click shows that one widget full size under the tiles, and
  * a second click puts it away (28 Oct, Darius: opening every step to see one
  * widget was impractical).
@@ -270,11 +270,15 @@ function MiniWidget({ a, shown, onToggle }: { a: ToolActivity; shown: boolean; o
       aria-label={`${stepTitle(a)}, ${shown ? 'hide' : 'show'} it full size`}
       aria-pressed={shown}
       className={cn(
-        'relative h-[110px] w-[200px] shrink-0 overflow-hidden rounded-xl text-left transition-transform hover:-translate-y-0.5',
+        // As tall as the widget it shows, at most 110 px: a fixed 110 px box
+        // around a half-size widget left an empty band under short ones,
+        // which read as a gap in the reply (28 Oct, his screenshot).
+        'max-h-[110px] w-[200px] shrink-0 self-start overflow-hidden rounded-xl text-left transition-transform hover:-translate-y-0.5',
         shown && 'ring-2 ring-brand/60',
       )}
     >
-      <span aria-hidden className="pointer-events-none absolute left-0 top-0 block w-[400px] origin-top-left scale-50">
+      {/* `zoom`, not a transform: a zoomed box takes its drawn size in the layout. */}
+      <span aria-hidden className="pointer-events-none block w-[400px]" style={{ zoom: 0.5 }}>
         <Widget activity={a} flat />
       </span>
     </button>
@@ -469,7 +473,7 @@ export function MessageChain({
         {lineImages.length > 0 && <Thumbs images={lineImages} small />}
       </div>
       {minis.length > 0 && (
-        <div className="mb-1 mt-1.5 flex items-center gap-2" data-testid="mini-widgets">
+        <div className="mb-1 mt-1.5 flex items-start gap-2" data-testid="mini-widgets">
           {minis.map((a) => (
             <MiniWidget key={a.id} a={a} shown={a.id === bigMini} onToggle={() => setBigMini(a.id === bigMini ? null : a.id)} />
           ))}
