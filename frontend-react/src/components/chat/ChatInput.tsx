@@ -23,6 +23,7 @@ import { useEmberRun } from './ember/useEmberRun';
 import { EmberInvite } from './ember/EmberInvite';
 import { EmberPanel } from './ember/EmberPanel';
 import { useChat, type ChatMessage } from '@/stores/chat';
+import { useAskUser } from '@/stores/askUser';
 import { useUI, type CallEngine } from '@/stores/ui';
 import { useConversations } from '@/stores/conversations';
 import { saveVoiceBlobToDisk, transcribeVoiceBlob, buildUserContent } from '@/hooks/useSendMessage';
@@ -120,6 +121,10 @@ function ChatInput({ isEmpty, sendFn }, ref) {
   // draft, and it is the single most likely one to be interrupted.
   const convId = useConversations((s) => s.currentId) ?? 'new';
   const sessionId = useChat((s) => s.sessionId);
+  // A question card above is waiting for THIS chat's answer. The reply cannot
+  // finish until it is answered, so "it sends when this reply is done" was a
+  // promise the field could not keep (seen 28 Oct with a red Stop beside it).
+  const askingHere = useAskUser((s) => s.pending?.sessionId === sessionId);
   const [queued, setQueued] = useState<string | null>(null);
   const queuedRef = useRef(queued);
   queuedRef.current = queued;
@@ -724,7 +729,9 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                     // forty blurred letters every 3.2 s behind the transcript
                     // and every streamed reply; there the field says what it is.
                     active={!!isEmpty && !engaged && !disabled}
-                    fallback={isStreaming ? 'Write your next message. It sends when this reply is done.' : t('chat.placeholder.agent')}
+                    fallback={askingHere
+                      ? 'Answer the questions above to go on.'
+                      : isStreaming ? 'Write your next message. It sends when this reply is done.' : t('chat.placeholder.agent')}
                   />
                 </div>
               )}
