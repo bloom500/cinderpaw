@@ -43,6 +43,11 @@ describe('widgetOf', () => {
     });
   });
 
+  it('draws the WhatsApp code only when connectors_manage started pairing', () => {
+    expect(widgetOf('connectors_manage', { ok: true, data: { id: 'whatsapp', whatsappPairing: true } })).toEqual({ kind: 'whatsapp_pair' });
+    expect(widgetOf('connectors_manage', { ok: true, data: { id: 'whatsapp', enabled: true } })).toBeNull();
+  });
+
   it('is null for any other tool', () => {
     expect(widgetOf('web_search', { ok: true, data: { kind: 'verdict', text: 'x' } })).toBeNull();
   });

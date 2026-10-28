@@ -8,6 +8,7 @@ import { open } from '@tauri-apps/plugin-shell';
 import { cn } from '@/lib/utils';
 import type { WidgetData, WidgetIcon } from '@/lib/widgets';
 import { ZoomableImage } from './ZoomableImage';
+import { WhatsappPairCard } from './WhatsappPairCard';
 
 /** The fixed icon set `show_widget` names (WIDGET_ICONS in the sidecar). */
 const ICON: Record<WidgetIcon, LucideIcon> = {
@@ -236,6 +237,8 @@ export function ChatWidget({ w }: { w: WidgetData }) {
     case 'followups':
       // Drawn at the end of the reply as chips (FollowUps), never in place.
       return null;
+    case 'whatsapp_pair':
+      return <WhatsappPairCard />;
     case 'list':
       return (
         <div className={CARD}>

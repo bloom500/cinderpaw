@@ -25,6 +25,8 @@ export type WidgetData =
   | { kind: 'followups'; next: string[] }
   /** Not drawn in place: a task the agent offered (`suggest_task`), closing its reply. */
   | { kind: 'task'; card: TaskCard }
+  /** The live WhatsApp code, after `connectors_manage` started pairing. Holds no code itself: it is read while shown. */
+  | { kind: 'whatsapp_pair' }
   | { kind: 'list'; title?: string; lines: string[] };
 
 /** What `suggest_task` offers. Nothing exists until the person presses Create. */
@@ -173,6 +175,7 @@ export function widgetOf(tool: string, result: unknown): WidgetData | null {
     if (t.kind === 'watch' && (!watch || schedule.kind === 'at')) return null;
     return { kind: 'task', card: { id, title, task, when, kind: t.kind, schedule, ...(watch ? {watch,expiryDays:num(t.expiryDays) ?? 30} : {}) } };
   }
+  if (tool === 'connectors_manage' && isRec(data) && data.whatsappPairing === true) return { kind: 'whatsapp_pair' };
   if (tool === 'todo_write' && isRec(data) && Array.isArray(data.items)) {
     // The store lists newest change first; a plan reads in the order it was written.
     const byCreation = (data.items as unknown[]).filter(isRec)
