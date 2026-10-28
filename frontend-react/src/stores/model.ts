@@ -18,12 +18,17 @@ export interface InferParamsUI {
   max_tokens: number;
 }
 
+/** How hard a cloud model thinks before it answers. 'auto' sends nothing. */
+export type Effort = 'auto' | 'low' | 'medium' | 'high';
+
 interface ModelStore {
   loaded: LoadedModel | null;
   isLoading: boolean;
   loadProgress: { percentage: number; statusText: string } | null;
   cloudModel: CloudModel | null;
   inferParams: InferParamsUI;
+  /** The Effort control, shown for cloud models in place of Temperature. */
+  effort: Effort;
   /** User-chosen context window (tokens) per local model PATH. Absent → load
    *  with the conservative backend default (opt-in: see Hardware settings). */
   contextByModel: Record<string, number>;
@@ -36,6 +41,7 @@ interface ModelStore {
   unload:  () => Promise<void>;
   setCloudModel: (m: CloudModel | null) => void;
   setInferParams: (patch: Partial<InferParamsUI>) => void;
+  setEffort: (effort: Effort) => void;
   setRole: (role: Role, m: RoleModel | null) => void;
   /** A provider's default model changed on the Cloud tab. Anything that was
    *  showing the OLD default — a role seeded from it, or the model the chat is
@@ -81,6 +87,7 @@ export const useModel = create<ModelStore>()(persist((set) => ({
   // providers can hit the 2048 cap mid-list and leave responses cut off
   // mid-word. 4096 gives comfortable headroom for most chat replies.
   inferParams: { temperature: 0.8, top_p: 0.95, max_tokens: 4096 },
+  effort: 'auto',
   contextByModel: {},
   roles: {},
 
@@ -121,6 +128,7 @@ export const useModel = create<ModelStore>()(persist((set) => ({
 
   setCloudModel: (cloudModel) => set({ cloudModel }),
   setInferParams: (patch) => set((s) => ({ inferParams: { ...s.inferParams, ...patch } })),
+  setEffort: (effort) => set({ effort }),
   setRole: (role, m) => set((s) => {
     const roles = { ...s.roles };
     if (m) roles[role] = m; else delete roles[role];
@@ -163,6 +171,6 @@ export const useModel = create<ModelStore>()(persist((set) => ({
   },
 }), {
   name: 'cinderpaw-model',
-  partialize: (s) => ({ cloudModel: s.cloudModel, inferParams: s.inferParams, contextByModel: s.contextByModel, roles: s.roles }),
+  partialize: (s) => ({ cloudModel: s.cloudModel, inferParams: s.inferParams, effort: s.effort, contextByModel: s.contextByModel, roles: s.roles }),
 }));
 

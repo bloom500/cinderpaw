@@ -13,6 +13,7 @@ import { useConversations } from '@/stores/conversations';
 import { useAgent } from '@/stores/agent';
 import { useModel } from '@/stores/model';
 import { useCinderpawStore } from '@/stores/cinderpaw';
+import { isLocalBaseUrl } from '@/lib/contextWindow';
 import { useNotifications } from '@/stores/notifications';
 import { useFollowUps } from '@/stores/followUps';
 import { notifyIfBackground, preview } from '@/lib/systemNotify';
@@ -146,12 +147,16 @@ export function useCinderpawStream(chatSessionId: string) {
         // reply, and a long document written in one tool call was cut off and
         // shown as "The model returned an empty response" (25 Oct). Without it
         // the sidecar picks its own ceiling per provider.
-        const { temperature } = useModel.getState().inferParams;
+        // A local model gets the Temperature slider; a cloud model gets Effort
+        // instead (28 Oct): new Claude models refuse any temperature, and the
+        // provider's own default suits the rest.
+        const { inferParams: { temperature }, effort } = useModel.getState();
+        const local = isLocalBaseUrl(useCinderpawStore.getState().modelConfig?.base_url);
         messageId = await invoke<string>('cinderpaw_send_message', {
           content,
           sessionId: chatSessionId,
           images: images && images.length > 0 ? images : null,
-          inferParams: { temperature },
+          inferParams: local ? { temperature } : { effort },
           // Declared per message, not per session: the same conversation is
           // spoken to and typed in alternately, and the format brief has to follow
           // whichever is happening right now. Typed is 'text': it also tells the

@@ -12,6 +12,8 @@ use tauri::State;
 pub struct CinderpawInferParams {
     pub temperature: Option<f64>,
     pub max_tokens: Option<u32>,
+    /// The Effort control on a cloud model ("auto", "low", "medium", "high").
+    pub effort: Option<String>,
 }
 
 /// Is the sidecar ready right now?
@@ -100,6 +102,7 @@ pub(crate) async fn cinderpaw_send_message(
         payload["inferParams"] = serde_json::json!({
             "temperature": p.temperature,
             "max_tokens": p.max_tokens,
+            "effort": p.effort,
         });
     }
     let msg = payload.to_string();

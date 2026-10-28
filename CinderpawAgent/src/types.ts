@@ -1551,7 +1551,7 @@ export interface InboundMessage {
    * this session only — the summarizer and memory extractor keep their own
    * fixed params. Values are validated and clamped by the agent loop.
    */
-  inferParams?: { temperature?: number; max_tokens?: number };
+  inferParams?: { temperature?: number; max_tokens?: number; effort?: string };
   /**
    * Roster of currently-installed LOCAL skills, rebuilt by Rust on every send.
    * The agent loop renders this as a short "Available skills" menu inside the

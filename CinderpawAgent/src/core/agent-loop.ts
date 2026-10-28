@@ -485,7 +485,7 @@ export class AgentLoop {
    */
   readonly #sessionInferParams = new Map<
     string,
-    { temperature?: number; maxTokens?: number }
+    { temperature?: number; maxTokens?: number; reasoningEffort?: "low" | "medium" | "high" }
   >();
   /**
    * RSI champion params — the ratcheted-best genome config, mapped onto
@@ -909,7 +909,7 @@ export class AgentLoop {
     emit: EventSink,
     skillsContext?: SkillMeta[],
     images?: string[],
-    inferParams?: { temperature?: number; max_tokens?: number },
+    inferParams?: { temperature?: number; max_tokens?: number; effort?: string },
   ): Promise<string> {
     const result = await this.handleTurn(
       sessionId, userText, messageId, emit, skillsContext, images, inferParams,
@@ -933,7 +933,7 @@ export class AgentLoop {
     emit: EventSink,
     skillsContext?: SkillMeta[],
     images?: string[],
-    inferParams?: { temperature?: number; max_tokens?: number },
+    inferParams?: { temperature?: number; max_tokens?: number; effort?: string },
   ): Promise<TurnResult> {
     // Per-session inference overrides from the host UI's Controls panel.
     // Refreshed on every message so a Controls change applies from the very
@@ -2594,10 +2594,11 @@ export class AgentLoop {
         nativeTools,
         // A3 regression fix: native tool definitions for OpenAI-compatible providers.
         openAITools,
-        // The RSI champion's effort; the provider sends it only where the API
-        // takes it (inference-providers.ts anthropicEffort / openAIReasoning).
-        ...(this.#championParams.reasoningEffort
-          ? { reasoningEffort: this.#championParams.reasoningEffort }
+        // The Effort the person picked, else the RSI champion's; the provider
+        // sends it only where the API takes it (inference-providers.ts
+        // anthropicEffort / openAIReasoning).
+        ...((overrides?.reasoningEffort ?? this.#championParams.reasoningEffort)
+          ? { reasoningEffort: overrides?.reasoningEffort ?? this.#championParams.reasoningEffort }
           : {}),
         ...grammarFields,
       };
@@ -4121,8 +4122,13 @@ export function isComplexTask(text: string): boolean {
 export function sanitizeInferParams(raw: {
   temperature?: unknown;
   max_tokens?: unknown;
-}): { temperature?: number; maxTokens?: number } {
-  const out: { temperature?: number; maxTokens?: number } = {};
+  effort?: unknown;
+}): { temperature?: number; maxTokens?: number; reasoningEffort?: "low" | "medium" | "high" } {
+  const out: { temperature?: number; maxTokens?: number; reasoningEffort?: "low" | "medium" | "high" } = {};
+  // The Effort control on a cloud model. "auto" (or anything else) sends none.
+  if (raw.effort === "low" || raw.effort === "medium" || raw.effort === "high") {
+    out.reasoningEffort = raw.effort;
+  }
   if (typeof raw.temperature === "number" && Number.isFinite(raw.temperature)) {
     out.temperature = Math.min(2, Math.max(0, raw.temperature));
   }
