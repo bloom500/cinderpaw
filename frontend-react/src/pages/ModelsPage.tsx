@@ -69,36 +69,6 @@ export function ModelsPage() {
             <p className="mt-2 max-w-md text-base text-text-secondary">
               Connect your favourite providers and models. Switch between cloud, local, or Hugging Face models.
             </p>
-
-            <div role="tablist" aria-label="Models" className="mt-6 inline-flex max-w-full overflow-x-auto thin-scrollbar rounded-2xl border border-border-subtle bg-bg-surface p-1 shadow-sm">
-              {TAB_BAR.map(({ id, label, icon }) => {
-                const active = tab === id;
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    role="tab"
-                    // Which one is open was said in colour alone: a screen
-                    // reader heard three plain buttons.
-                    aria-selected={active}
-                    onClick={() => setTab(id)}
-                    className={cn(
-                      'relative inline-flex items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition-colors lg:px-5',
-                      active ? 'text-brand' : 'text-text-secondary hover:text-text-primary',
-                    )}
-                  >
-                    {active && (
-                      <motion.span
-                        layoutId="models-tab"
-                        className="absolute inset-0 rounded-xl bg-brand/10 ring-1 ring-brand/20"
-                        transition={{ type: 'spring', stiffness: 500, damping: 38 }}
-                      />
-                    )}
-                    <span className="relative inline-flex items-center gap-2">{icon}{label}</span>
-                  </button>
-                );
-              })}
-            </div>
           </div>
 
           <div className="hidden shrink-0 items-end gap-1 lg:flex" aria-hidden>
@@ -118,6 +88,38 @@ export function ModelsPage() {
             <CinderpawMascot state={hero.state} width={168} />
           </div>
         </header>
+        {/* The tabs have their own row. Beside the mascot (lg and up) they shared
+            the header with it and, at 1280 px, showed 474 of their 621 px: Roles
+            was hidden behind a scrollbar and Leaderboard cut in half (28 Oct). */}
+        <div role="tablist" aria-label="Models" className="mt-6 inline-flex max-w-full overflow-x-auto thin-scrollbar rounded-2xl border border-border-subtle bg-bg-surface p-1 shadow-sm">
+          {TAB_BAR.map(({ id, label, icon }) => {
+            const active = tab === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                // Which one is open was said in colour alone: a screen
+                // reader heard three plain buttons.
+                aria-selected={active}
+                onClick={() => setTab(id)}
+                className={cn(
+                  'relative inline-flex items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition-colors lg:px-5',
+                  active ? 'text-brand' : 'text-text-secondary hover:text-text-primary',
+                )}
+              >
+                {active && (
+                  <motion.span
+                    layoutId="models-tab"
+                    className="absolute inset-0 rounded-xl bg-brand/10 ring-1 ring-brand/20"
+                    transition={{ type: 'spring', stiffness: 500, damping: 38 }}
+                  />
+                )}
+                <span className="relative inline-flex items-center gap-2">{icon}{label}</span>
+              </button>
+            );
+          })}
+        </div>
 
         <div className="mt-2 border-t border-border-subtle" />
 
