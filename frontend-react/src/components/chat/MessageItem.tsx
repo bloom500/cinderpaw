@@ -442,15 +442,17 @@ const FULL = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'numer
 function MessageMeta({ message, className }: { message: ChatMessage; className?: string }) {
   const at = message.completedAt ?? message.createdAt;
   const parts = [TIME.format(at)];
-  if (message.tokenCount) {
-    parts.push(`${message.tokensEstimated ? '~' : ''}${message.tokenCount.toLocaleString()} tok`);
-  }
-  if (message.tokensPerSec) parts.push(`${message.tokensPerSec} tok/s`);
   const scratch = scratchLabel(message.scratch);
   if (scratch) parts.push(scratch);
-  const fullDate = FULL.format(at);
+  // "412 tok · 48 tok/s" under every reply was engine talk for a person who
+  // only wants the answer (28 Oct). The numbers stay, on hover, for whoever asks.
+  const details = [FULL.format(at)];
+  if (message.tokenCount) {
+    details.push(`${message.tokensEstimated ? '~' : ''}${message.tokenCount.toLocaleString()} tokens`);
+  }
+  if (message.tokensPerSec) details.push(`${message.tokensPerSec} tokens/s`);
   return (
-    <div className={cn('text-xs text-text-muted tabular-nums select-text cursor-text', className)} title={fullDate}>{parts.join(' · ')}</div>
+    <div className={cn('text-xs text-text-muted tabular-nums select-text cursor-text', className)} title={details.join(' · ')}>{parts.join(' · ')}</div>
   );
 }
 
