@@ -367,7 +367,9 @@ export function ModelPickerPopover() {
         align="start"
         sideOffset={-(triggerRef.current?.offsetHeight ?? 32)}
         collisionPadding={12}
-        className="model-island relative w-[22rem] overflow-visible rounded-3xl p-0"
+        // 26rem, not 22: at 22 every role's line ended in "…" ("Balanced for
+        // most t…", 28 Oct). Wider first; a line that still does not fit wraps.
+        className="model-island relative w-[26rem] overflow-visible rounded-3xl p-0"
       >
         {/* The Model Switcher (spec 8): roles first, the head peeking over the
             top edge. Not clipped: the scroll lives on the inner box. */}
@@ -398,7 +400,7 @@ export function ModelPickerPopover() {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-semibold text-text-primary">{r.label}</span>
-                <span className="block truncate text-xs text-text-muted">{r.line}</span>
+                <span className="block text-xs text-text-muted">{r.line}</span>
               </span>
               {m ? (
                 <span className="max-w-[8.5rem] shrink-0 truncate rounded-full bg-bg-active px-2 py-0.5 text-2xs font-medium text-brand" title={roleModelName(m)}>
