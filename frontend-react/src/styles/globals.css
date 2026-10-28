@@ -1445,6 +1445,16 @@ html[data-glass="off"] .liquid-glass {
 }
 
 /*
+ * Typography wraps inline code in literal backticks (`::before/::after
+ * content: "`"`). The pill already says "this is code", so a reply read
+ * "`marketing`" with the marks showing, as if the markdown had not rendered.
+ */
+.prose :where(code)::before,
+.prose :where(code)::after {
+  content: none;
+}
+
+/*
  * Typography's greys are cool (slate): blue-grey bullets, list numbers and
  * table rules on a warm page. Its `prose-invert` swaps these per theme from
  * the utilities layer; unlayered, the palette's own tokens win in both.
