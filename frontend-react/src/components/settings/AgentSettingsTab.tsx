@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Trash2, AlertCircle, Bot, RefreshCw, Plus } from 'lucide-react';
+import { Trash2, AlertCircle, Bot, Plus } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useAgent } from '@/stores/agent';
 import { useSettings } from '@/stores/settings';
 import { useNavigate } from 'react-router-dom';
 import { TOOL_LABELS } from '@/components/agents/agentUtils';
-import { cn, SECONDARY_BUTTON } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { TeammatesSection } from './TeammatesSection';
 
 export function AgentSettingsTab() {
@@ -53,16 +53,10 @@ export function AgentSettingsTab() {
       <DesktopControlToggle />
       <TokenBudgetToggle />
 
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          disabled={loading}
-          className={cn(SECONDARY_BUTTON, 'inline-flex items-center gap-1.5')}
-        >
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-          Refresh
-        </button>
+      {/* One way to make an agent at a time: the empty card below has its own
+          button, so this row waits for a list. No Refresh: the list is read
+          every time this tab opens, and nothing changes it while you look. */}
+      {list.length > 0 && <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={() => {
@@ -74,7 +68,7 @@ export function AgentSettingsTab() {
           <Plus size={14} />
           New agent
         </button>
-      </div>
+      </div>}
 
       {error && (
         <div className="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 p-3">

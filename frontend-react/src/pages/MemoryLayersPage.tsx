@@ -413,15 +413,14 @@ export default function MemoryLayersPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden text-text-primary">
-      {/* Drag region — without it the frameless window can't be moved,
-          and the scrollbar extends into the titlebar area. */}
-      <div data-tauri-drag-region className="h-8 shrink-0" />
-      <div className="flex flex-1 overflow-y-auto">
+      {/* No drag strip of its own: Settings draws one above every tab, and a
+          second one pushed Memory 32px lower than the tabs beside it. */}
+      <div className="flex flex-1 overflow-y-auto [scrollbar-gutter:stable]">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-8">
         {/* ── HEADER ──────────────────────────────────────────────── */}
         <header className="flex items-start gap-3">
           <div className="flex-1">
-            <h1 className="text-2xl font-semibold leading-tight text-text-primary">Memory</h1>
+            <h1 className="text-lg font-semibold text-text-primary">Memory</h1>
             <p className="mt-2 text-base text-text-muted">
               What Cinderpaw remembers about you. Forget anything, any time.
             </p>

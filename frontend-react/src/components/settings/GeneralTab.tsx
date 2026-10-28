@@ -123,20 +123,28 @@ export function GeneralTab() {
         <div>
           <p className="text-sm font-medium text-text-primary">Check for updates at startup</p>
           <p className="text-xs text-text-muted mt-0.5">
-            Compares your version against GitHub Releases once per launch. Only the version request
-            is sent, no usage data. Turning this off disables automatic update checks;
-            model downloads, web tools, and configured online services can still use the network.
+            Each time Cinderpaw opens, it asks GitHub if there is a newer version. Only that
+            question is sent, nothing about you or your chats.
           </p>
         </div>
-        <input
-          type="checkbox"
-          checked={autoUpdateCheck}
-          onChange={(e) => {
-            setAutoUpdateCheck(e.target.checked);
-            writeLocal('cinderpaw.autoUpdateCheck', e.target.checked ? 'on' : 'off');
+        {/* The same switch as every other on/off in Settings: a lone checkbox
+            here and in Privacy read as a different kind of control. */}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={autoUpdateCheck}
+          aria-label="Check for updates at startup"
+          onClick={() => {
+            setAutoUpdateCheck(!autoUpdateCheck);
+            writeLocal('cinderpaw.autoUpdateCheck', autoUpdateCheck ? 'off' : 'on');
           }}
-          className="h-4 w-4 accent-orange-500 shrink-0"
-        />
+          className={cn(
+            'w-10 h-6 rounded-full transition-colors relative shrink-0 overflow-hidden',
+            autoUpdateCheck ? 'bg-brand' : 'bg-border-default',
+          )}
+        >
+          <span className={cn('absolute top-1 left-0 w-4 h-4 rounded-full bg-white transition-transform', autoUpdateCheck ? 'translate-x-5' : 'translate-x-1')} />
+        </button>
       </div>
 
       {/* Voice transcription model, plus the download it needs. The rows come
