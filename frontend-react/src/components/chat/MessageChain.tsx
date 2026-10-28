@@ -19,7 +19,8 @@ const LINE_THUMBS = 3;
  * The line's own grey (28 Oct, Darius: "nu e gri, tot alba e"). The dark
  * theme's muted tier is near white on purpose, for text on glass; the activity
  * line is the one place meant to step back from the answer, so it is that tier
- * at 70%, in both themes. Hover brings it to full colour.
+ * at 70%, in both themes, hovered or not (a `group-hover` here answered the
+ * whole reply's `group`, so the cursor anywhere over the reply turned it white).
  */
 const QUIET = 'text-text-muted/70';
 
@@ -457,7 +458,7 @@ export function MessageChain({
               "finished": the answer may still be arriving below it. */}
           {streaming
             ? <ShimmeringText text={title} color="color-mix(in srgb, var(--text-muted) 70%, transparent)" className="min-w-0 truncate text-sm font-medium" />
-            : <span className={cn('min-w-0 truncate text-sm group-hover:text-text-primary', QUIET)}>{title}</span>}
+            : <span className={cn('min-w-0 truncate text-sm', QUIET)}>{title}</span>}
           {/* What also runs ("Using memory") is words on the line, not a chip. */}
           {[...chips, detail].filter(Boolean).length > 0 && (
             <span className={cn('shrink-0 text-2xs', QUIET)}>{[...chips, detail].filter(Boolean).join(' · ')}</span>
