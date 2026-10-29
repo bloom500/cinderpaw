@@ -15,6 +15,7 @@ import { UpdateToast } from '@/components/UpdateToast';
 import { ShareUsageCard } from '@/components/usage/ShareUsageCard';
 import { WhatsNew } from '@/components/WhatsNew';
 import { ConnectedDialog } from '@/components/ConnectedDialog';
+import { PageQuestionDialog } from '@/components/browser/PageQuestionDialog';
 import { Toasts } from '@/components/Toasts';
 import { CoworkApprovalDock } from '@/components/CoworkApprovalDock';
 import { SkillHubDrawer } from '@/components/SkillHubDrawer';
@@ -91,6 +92,9 @@ export function AppShell() {
       <CinderpawGlobalMount />
       <WhatsNew />
       <ConnectedDialog />
+      {/* A web page's alert, confirm, prompt or "Leave site?", on every page:
+          a tab's question must be seen even with the browser panel closed. */}
+      <PageQuestionDialog />
       {/* pt-14 on main clears the floating nav. The nav is translucent and sits
           over the page by design, but "over" must not mean "on top of the chat
           title": the page starts below it, so what shows through the glass is
