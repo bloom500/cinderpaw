@@ -63,6 +63,21 @@ describe("helpers", () => {
     expect(ago(NOW, NOW - 21 * DAY)).toBe("3 weeks ago");
     expect(ago(NOW, NOW - 90 * DAY)).toBe("3 months ago");
   });
+  // 29 Oct 2026, 01:42 in Romania, the agent said "azi, miercuri 28": the day
+  // was London's (toISOString). bun test runs in UTC, where the two agree, so
+  // the zone is set here; Bun honours a runtime TZ.
+  test("today is the user's own day, not London's", () => {
+    const tz = process.env.TZ;
+    process.env.TZ = "Europe/Bucharest";
+    try {
+      const night = new Date(2026, 9, 29, 0, 30).getTime(); // a Thursday, 00:30 in Bucharest
+      const s = buildSnapshot({ ...base, now: night, facts: [{ key: "name", value: "Darius" }] });
+      expect(s.startsWith(`${SNAPSHOT_HEADER} (today is 2026-10-29, Thursday)`)).toBe(true);
+      expect(ago(night, new Date(2026, 9, 28, 23, 50).getTime())).toBe("yesterday");
+    } finally {
+      process.env.TZ = tz;
+    }
+  });
   test("snapshotBudgetChars clamps to 2000..8000", () => {
     expect(snapshotBudgetChars(1024)).toBe(2000);
     expect(snapshotBudgetChars(200_000)).toBe(8000);

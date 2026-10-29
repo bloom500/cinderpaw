@@ -51,6 +51,24 @@ describe("recall block — today's date", () => {
     db.close();
   });
 
+  // bun test runs in UTC, where London's day and the user's agree; Bun honours a runtime TZ.
+  test("today is the user's own day, also just after midnight east of London", () => {
+    const tz = process.env.TZ;
+    process.env.TZ = "Europe/Bucharest";
+    const db = openDatabase(":memory:");
+    try {
+      const episodic = new EpisodicMemory(db.raw, new AuditLog(db.raw).logger);
+      episodic.record("past", "user", "I moved to Lisbon");
+      const night = new Date(2026, 9, 29, 0, 30).getTime(); // 00:30 in Bucharest
+      const result = new RecallEngine(episodic, new SemanticMemory(db.raw), { now: () => night })
+        .recall("Lisbon", "now");
+      expect(result.context).toContain("(today is 2026-10-29)");
+    } finally {
+      db.close();
+      process.env.TZ = tz;
+    }
+  });
+
   test("no hits, no block: the date is not injected on its own", async () => {
     const db = openDatabase(":memory:");
     const episodic = new EpisodicMemory(db.raw, new AuditLog(db.raw).logger);

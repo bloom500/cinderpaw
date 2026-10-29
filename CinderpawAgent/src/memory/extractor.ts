@@ -25,6 +25,7 @@ import type { ChatMessage, AfterMemoryWritePayload } from "../types.ts";
 import type { MemoryGraph } from "./graph.ts";
 import type { HookRegistry } from "../core/hook-registry.ts";
 import type { ObservationStore, NotePriority } from "./observations.ts";
+import { localDay } from "./day.ts";
 
 const USER_CHARS = 4000;
 const ANSWER_CHARS = 1500;
@@ -131,8 +132,7 @@ export function unobserved(
 }
 
 function todayWithWeekday(now: number): string {
-  const d = new Date(now);
-  return `${d.toISOString().slice(0, 10)} (${WEEKDAYS[d.getUTCDay()]})`;
+  return `${localDay(now)} (${WEEKDAYS[new Date(now).getDay()]})`;
 }
 
 function observerPrompt(now: number): string {
