@@ -13,9 +13,9 @@ import { SoundSettings } from './SoundSettings';
  */
 
 /** The two grounds as they really look, whatever theme the app is in now. */
-const PAPER = { ground: '#F6EFE6', side: '#F1E8DD', line: '#E4D6C8', ink: '#2F2A26', faint: '#D9C8BE', bubble: '#F2DDCC' };
-const CHARCOAL = { ground: '#2F2A26', side: '#28231F', line: '#4A413A', ink: '#F6EFE6', faint: '#6B5E54', bubble: '#4A3A30' };
-type Ground = typeof PAPER;
+const IVORY = { ground: '#F7F1E8', side: '#EFE6D9', line: '#DCCDB8', ink: '#1E1813', faint: '#D6C6B1', bubble: '#ECE2D3' };
+const ESPRESSO = { ground: '#1B1410', side: '#150F0C', line: '#3A2C23', ink: '#F5EBDD', faint: '#5C4A3C', bubble: '#2C2119' };
+type Ground = typeof IVORY;
 
 /** A thumbnail of the app: the sidebar, a title, two lines, a reply. */
 function Mini({ g, whole = true }: { g: Ground; whole?: boolean }) {
@@ -155,11 +155,11 @@ export function AppearanceTab() {
               >
                 <span
                   className="flex h-[110px] overflow-hidden rounded-[10px] border"
-                  style={{ borderColor: value === 'dark' ? CHARCOAL.line : PAPER.line }}
+                  style={{ borderColor: value === 'dark' ? ESPRESSO.line : IVORY.line }}
                 >
-                  {value === 'light' && <Mini g={PAPER} />}
-                  {value === 'dark' && <Mini g={CHARCOAL} />}
-                  {value === 'system' && (<><Mini g={PAPER} whole={false} /><Mini g={CHARCOAL} whole={false} /></>)}
+                  {value === 'light' && <Mini g={IVORY} />}
+                  {value === 'dark' && <Mini g={ESPRESSO} />}
+                  {value === 'system' && (<><Mini g={IVORY} whole={false} /><Mini g={ESPRESSO} whole={false} /></>)}
                 </span>
                 <span className={cn('flex items-baseline gap-1.5 pl-0.5 text-sm text-text-primary', on ? 'font-semibold' : 'font-medium')}>
                   {label}
@@ -192,7 +192,7 @@ export function AppearanceTab() {
           onPick={(v) => pickSolid(v === 'solid')}
           disabled={solid === null}
           options={[
-            { value: 'solid', label: 'Solid', note: 'Paper in light, charcoal in dark' },
+            { value: 'solid', label: 'Solid', note: 'Ivory in light, espresso in dark' },
             { value: 'glass', label: 'Glass', note: 'Your wallpaper shows through, softly' },
           ]}
         />
@@ -222,7 +222,7 @@ export function AppearanceTab() {
         >
           <span
             className={cn(
-              'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200',
+              'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-(--motion-base)',
               glassEffects ? 'translate-x-[18px]' : 'translate-x-[2px]',
             )}
           />
@@ -249,7 +249,7 @@ export function AppearanceTab() {
         >
           <span
             className={cn(
-              'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200',
+              'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-(--motion-base)',
               mascotEnabled ? 'translate-x-[18px]' : 'translate-x-[2px]',
             )}
           />
@@ -277,7 +277,7 @@ export function AppearanceTab() {
         >
           <span
             className={cn(
-              'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200',
+              'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-(--motion-base)',
               emberGameEnabled && !emberBlocked ? 'translate-x-[18px]' : 'translate-x-[2px]',
             )}
           />

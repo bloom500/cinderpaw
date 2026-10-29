@@ -39,6 +39,7 @@ import { WhatIsSent } from '@/components/usage/WhatIsSent';
 import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 import { ListenButton } from '@/components/voice/ListenButton';
 import type { CubbyLineId } from '@/voice/cubby-lines';
+import { BASE, SLOW } from '@/lib/motion';
 
 const stepVariants = {
   enter: { opacity: 0, y: 12 },
@@ -94,7 +95,7 @@ export function OnboardingWizard() {
                 initial="enter"
                 animate="center"
                 exit="exit"
-                transition={{ duration: 0.18, ease: 'easeOut' }}
+                transition={BASE}
                 className="mt-6"
               >
                 {step === 0 && <WelcomeStep />}
@@ -154,7 +155,7 @@ export function OnboardingWizard() {
                 initial={{ opacity: 0, scale: 0.96 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 0.25, ease: 'easeOut' }}
+                transition={SLOW}
               >
                 {step === 3 ? <ConnectArt /> : step === 4 ? <WorkspaceArt /> : (
                   <CinderpawMascot state={ART[step] ?? 'wave'} width={320} />
@@ -184,7 +185,7 @@ function StepCounter({ step, total }: { step: number; total: number }) {
             {i > 0 && <span className={cn('h-px w-5', i <= step ? 'bg-brand/50' : 'bg-border-default')} />}
             <span
               className={cn(
-                'rounded-full transition-all duration-300',
+                'rounded-full transition-all duration-(--motion-slow)',
                 i === step ? 'size-3.5 bg-brand' : i < step ? 'size-2 bg-brand/50' : 'size-2 bg-border-default',
               )}
             />

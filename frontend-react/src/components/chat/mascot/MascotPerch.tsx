@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CinderpawMascot, usePrefersReducedMotion } from './CinderpawMascot';
-import { atRest, boundsFrom, leanDegrees, squashFor, step, type Body } from './physics';
+import { atRest, boundsFrom, leanDegrees, narrowByWalls, squashFor, step, type Body } from './physics';
 import { useUI } from '@/stores/ui';
 import type { MascotState } from './frames';
 import { useBrowser } from '@/stores/browser';
@@ -260,9 +260,12 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
       else if (page.x + page.w <= homeLeft) left = Math.max(left, page.x + page.w);
     }
 
+    // Side panels stand in the room like furniture, not like a picture on the
+    // wall: the creature stops at them instead of passing through the cards.
+    const walls = Array.from(document.querySelectorAll('[data-mascot-wall]'), (n) => n.getBoundingClientRect());
     return boundsFrom(
       { left: homeLeft, top: homeTop, width: w },
-      { left, right, top },
+      narrowByWalls({ left, right, top }, { left: homeLeft, width: w }, walls),
       EDGE_MARGIN_PX,
     );
   }, []);

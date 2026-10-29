@@ -42,6 +42,15 @@
 
 @theme {
   /*
+   * The motion curve (lib/motion.ts says why): Apple's bounce-0 spring, sampled
+   * for CSS, which has no springs. Set as Tailwind's `ease-out` and as the
+   * default of every `transition` utility, so a hover written years ago moves
+   * like a panel written today. Durations are --motion-* in the base layer below.
+   */
+  --ease-out: linear(0, 0.0401, 0.1313, 0.2431, 0.3577, 0.4656, 0.562, 0.6452, 0.7154, 0.7736, 0.821, 0.8594, 0.89, 0.9144, 0.9336, 0.9487, 0.9605, 0.9696, 0.9767, 0.9822, 0.9864, 0.9896, 0.9921, 0.994, 0.9955, 0.9966, 0.9974, 0.998, 0.9985, 0.9989, 1);
+  --default-transition-duration: 225ms;
+  --default-transition-timing-function: linear(0, 0.0401, 0.1313, 0.2431, 0.3577, 0.4656, 0.562, 0.6452, 0.7154, 0.7736, 0.821, 0.8594, 0.89, 0.9144, 0.9336, 0.9487, 0.9605, 0.9696, 0.9767, 0.9822, 0.9864, 0.9896, 0.9921, 0.994, 0.9955, 0.9966, 0.9974, 0.998, 0.9985, 0.9989, 1);
+  /*
    * The type scale. Nine steps and nothing between them. Before it the app used
    * sixteen sizes, each chosen where needed and never compared with its
    * neighbours: that is what "looks unfinished" is, most of the time. Line
@@ -161,6 +170,19 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+}
+
+/* The motion scale for CSS (lib/motion.ts): Apple's perceptual durations 0.15,
+   0.2 and 0.32 s, each run for 1.5x so the spring's long tail is played out
+   (cssMs). fast for hover, press and small things, base for panels, cards and
+   menus, slow for whole surfaces. */
+@layer base {
+  :root {
+    --motion-fast: 225ms;
+    --motion-base: 300ms;
+    --motion-slow: 480ms;
+    --motion-ease: linear(0, 0.0401, 0.1313, 0.2431, 0.3577, 0.4656, 0.562, 0.6452, 0.7154, 0.7736, 0.821, 0.8594, 0.89, 0.9144, 0.9336, 0.9487, 0.9605, 0.9696, 0.9767, 0.9822, 0.9864, 0.9896, 0.9921, 0.994, 0.9955, 0.9966, 0.9974, 0.998, 0.9985, 0.9989, 1);
+  }
 }
 
 /*
@@ -568,8 +590,11 @@
 
 :root[data-theme="dark"] {
   /* ── Source of truth ────────────────────────────────────────────────── */
-  --bg-primary:      #2F2A26;
-  --bubble-user:     #4A3528;
+  /* Espresso since 29 Oct (was Charcoal #2F2A26): his pick of a warm,
+     editorial ground — leather browns from luxury houses and Orac's ink — so
+     the app stops reading as Claude's or Codex's grey. */
+  --bg-primary:      #1B1410;
+  --bubble-user:     #2C2119;
   /* Translucent, because these two ARE the glass. Every card, panel, popover
      and menu in the app is painted with one of them, so making the pane
      see-through and leaving these opaque produced exactly what we had: a glass
@@ -597,17 +622,17 @@
      behind the field you are typing in. 0.94 keeps the material (there is
      still a blur, and the rim, and the desktop's colour reaches it) while
      leaving nothing legible able to pass through. */
-  --surface-typing:  rgba(52, 46, 41, 0.94);
-  --bg-surface:      rgba(54, 48, 43, 0.24);
-  --bg-elevated:     rgba(58, 52, 48, 0.34);
-  --bg-hover:        rgba(68, 60, 54, 0.46);
-  --bg-active:       rgba(74, 53, 40, 0.58);
+  --surface-typing:  rgba(39, 29, 23, 0.94);
+  --bg-surface:      rgba(39, 29, 23, 0.24);
+  --bg-elevated:     rgba(45, 34, 27, 0.34);
+  --bg-hover:        rgba(52, 39, 31, 0.46);
+  --bg-active:       rgba(66, 42, 29, 0.58);
   /* The sidebar column, a shade darker than the page in both themes (the
      canvas's `side`). Flush to the window edge, so darker reads as a column,
      not a hole. Thicker than the sheets because it is a whole column of text. */
-  --bg-side:         rgba(40, 35, 31, 0.80);
-  --border-subtle:   #3F3732;
-  --border-default:  #4A413A;
+  --bg-side:         rgba(21, 15, 12, 0.80);
+  --border-subtle:   #30241C;
+  --border-default:  #3A2C23;
   /* `muted` and `disabled` were tuned against flat #100E09. Over a lit scene
      they lost the little contrast they had: #4A4035 on this ground is about
      2:1, which is below the threshold for text of any size, and it is what the
@@ -642,17 +667,17 @@
      control that is off has to LOOK off — collapsing it into the rest trades
      one legibility bug for a worse one, where every button looks pressable
      and only some are. */
-   --text-primary:    #F6EFE6;
-   --text-secondary:  #E6DACE;
-   --text-muted:      #CDBFB2;
+   --text-primary:    #F5EBDD;
+   --text-secondary:  #E7D9C7;
+   --text-muted:      #CFBFAB;
    /* The dimmest tier, and NOT a grey. #ADADAD was the one remaining grey in
       the app's voice — everything else had gone white-scale when the glass
       arrived — and grey is exactly what drowns first on a pane that is partly
       somebody's wallpaper. Still visibly "off" next to muted (84% white vs
       91%), which is all the disabled state needs. */
-   --text-disabled:   #B5A89D;
-  --brand:           #B15129;
-  --brand-hover:     #C65A2E;
+   --text-disabled:   #C0B09D;
+  --brand:           #D2410F;
+  --brand-hover:     #C23B0C;
   --brand-muted:     #4A3528;
   --brand-foreground: #FFFFFF;
   --error:           #D4553A;
@@ -719,21 +744,24 @@
 
 :root[data-theme="light"] {
   /* ── Source of truth ────────────────────────────────────────────────── */
-  --bg-primary:      #F6EFE6;
-  --bubble-user:     #F2DDCC;
+  /* Ivory since 29 Oct (was Paper #F6EFE6), Espresso's daylight twin: the
+     same leather-and-sand family, so the cards are filled a shade DARKER than
+     the page, the way Espresso's are a shade lighter. */
+  --bg-primary:      #F7F1E8;
+  --bubble-user:     #ECE2D3;
   /* Higher alpha than dark on purpose. Dark text over a blurred desktop loses
      contrast far faster than light text does — a bright wallpaper behind a 55%
      ivory panel puts near-black type on near-white ground with a photograph
      moving underneath it. */
   --surface-typing:  rgba(255, 253, 250, 0.95);
-  --bg-surface:      rgba(251, 247, 241, 0.34);
-  --bg-elevated:     rgba(255, 253, 250, 0.46);
-  --bg-hover:        rgba(241, 232, 221, 0.58);
-  --bg-active:       rgba(242, 221, 204, 0.70);
-  --bg-side:         rgba(241, 232, 221, 0.85);
-  --border-subtle:   #ECE1D5;
-  --border-default:  #E4D6C8;
-  --text-primary:    #2F2A26;
+  --bg-surface:      rgba(234, 223, 207, 0.40);
+  --bg-elevated:     rgba(234, 223, 207, 0.72);
+  --bg-hover:        rgba(227, 213, 193, 0.72);
+  --bg-active:       rgba(220, 205, 184, 0.80);
+  --bg-side:         rgba(239, 230, 217, 0.88);
+  --border-subtle:   #E5D9C8;
+  --border-default:  #DCCDB8;
+  --text-primary:    #1E1813;
   /* The mirror of the dark block: these tiers carry most of the app's text,
      so they are kept close to `primary` rather than tuned to the minimum that
      passes. Same hue family as before — this theme is warm and stays warm —
@@ -747,14 +775,14 @@
      through the pane, and a mid-grey wallpaper under the light pane lands
      around rgb(150) where timestamps, settings descriptions and paths measured
      3.9 to 4.1 on screen (20 Sep). */
-  --text-muted:      #6F5747;
+  --text-muted:      #6B5D50;
   --text-disabled:   #715848;
-  --brand:           #B15129;
+  --brand:           #D2410F;
   --brand-foreground: #FFFFFF;
-  --brand-hover:     #9A4421;
+  --brand-hover:     #A9350A;
   --brand-muted:     #F2DDCC;
   --error:           #A03820;
-  --success:         #487538;
+  --success:         #3F7A4C;
   --warning:         #B8862A;
   --info:            #1A5FD0;
 
@@ -848,12 +876,12 @@ html { accent-color: var(--brand); }
   /* 0.88 opaque was the same as no scene at all: the lights below it arrived
      at roughly 2% and the app read as flat black. The pane is thinner now and
      the lights are stronger, which is the whole point of having them. */
-  --scene-surface:       rgba(47, 42, 38, 0.30);
+  --scene-surface:       rgba(27, 20, 16, 0.30);
   /* Diffuse amber key light and restrained blue-violet counterlight. */
   --scene-key-light:     rgba(196, 132, 58, 0.50);
-  --scene-counter-light: rgba(91, 97, 182, 0.38);
+  --scene-counter-light: rgba(150, 66, 36, 0.38);
   /* A third, wider wash so the middle of the canvas is lit too. */
-  --scene-fill-light:    rgba(140, 92, 176, 0.20);
+  --scene-fill-light:    rgba(176, 112, 62, 0.20);
   /* Grain and vignette strength, tuned per theme. */
   --scene-grain-opacity: 0.05;
   --scene-vignette:      rgba(8, 6, 4, var(--scene-vignette-strength));
@@ -874,11 +902,12 @@ html { accent-color: var(--brand); }
      through at all, then at 0.70 with lights half the strength of dark's. It
      gets the same treatment now — a thinner pane and lights strong enough to
      see, warmed for daylight rather than recoloured. */
-  --scene-surface:       rgba(246, 239, 230, 0.40);
-  /* Amber sunlight, a cool blue-grey shadow light, and a rose fill. */
+  --scene-surface:       rgba(247, 241, 232, 0.40);
+  /* Amber sunlight, a sand shadow light and a warm clay fill: Ivory has no
+     blue or rose in it, the same way Espresso lost its blue-violet. */
   --scene-key-light:     rgba(232, 168, 92, 0.55);
-  --scene-counter-light: rgba(128, 142, 214, 0.40);
-  --scene-fill-light:    rgba(214, 150, 190, 0.30);
+  --scene-counter-light: rgba(196, 160, 118, 0.40);
+  --scene-fill-light:    rgba(220, 168, 128, 0.30);
   --scene-grain-opacity: 0.04;
   --scene-vignette:      rgba(92, 64, 36, var(--scene-vignette-strength));
   --scene-vignette-strength: 0.3;
@@ -1058,7 +1087,7 @@ html.has-window-effect[data-theme="light"] .app-pane {
    the file — the palette is declared both above and below this point, and
    source order alone would pick the wrong one. */
 html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(28, 24, 20, 0.40); }
-html.has-window-effect[data-theme="light"] { --scene-surface: rgba(246, 239, 230, 0.35); }
+html.has-window-effect[data-theme="light"] { --scene-surface: rgba(247, 241, 232, 0.35); }
 /* ── The two dials, and the trade they sit on ──────────────────────────────
    The window is genuinely transparent and Windows genuinely blurs behind it —
    both confirmed in the log at startup. So whether you can SEE through is
@@ -1074,8 +1103,8 @@ html.has-window-effect[data-theme="light"] { --scene-surface: rgba(246, 239, 230
    to replace it. Raise for more of us, lower for more of the desktop. */
 :root[data-theme="dark"] {
   --scene-key-light:     rgba(214, 132, 48, 0.22);
-  --scene-counter-light: rgba(84, 96, 210, 0.18);
-  --scene-fill-light:    rgba(160, 84, 196, 0.12);
+  --scene-counter-light: rgba(150, 66, 36, 0.18);
+  --scene-fill-light:    rgba(176, 112, 62, 0.12);
   --scene-grain-opacity: 0.02;
   --scene-vignette-strength: 0.16;
   /* The pane text sits on, and the number this whole design turns on.
@@ -1093,17 +1122,17 @@ html.has-window-effect[data-theme="light"] { --scene-surface: rgba(246, 239, 230
      thin (see --bg-surface). The desktop still comes through — as blur, as
      colour, as the tint the OS lays under all of it — it just no longer
      decides whether words are readable. */
-  --scene-surface:       rgba(47, 42, 38, 0.80);
+  --scene-surface:       rgba(27, 20, 16, 0.80);
 }
 :root[data-theme="light"] {
   --scene-key-light:     rgba(240, 168, 78, 0.20);
-  --scene-counter-light: rgba(118, 134, 226, 0.16);
-  --scene-fill-light:    rgba(220, 140, 196, 0.14);
+  --scene-counter-light: rgba(196, 160, 118, 0.16);
+  --scene-fill-light:    rgba(220, 168, 128, 0.14);
   --scene-grain-opacity: 0.015;
   --scene-vignette-strength: 0.10;
   /* 0.88, not dark's 0.80: light-mode text is dark, and a dark wallpaper
      behind a pale pane erodes it faster. Same measured rule. */
-  --scene-surface:       rgba(246, 239, 230, 0.88);
+  --scene-surface:       rgba(247, 241, 232, 0.88);
 }
 /* ── The liquid-glass material ─────────────────────────────────────────────
    One class, so every pane is made of the same thing.
@@ -1300,18 +1329,18 @@ body::after {
    through surface. (The scene itself uses no backdrop-filter at all.) */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :root[data-theme="dark"] {
-    --bg-surface:  rgba(54, 48, 43, 0.96);
-    --bg-elevated: rgba(58, 52, 48, 0.95);
-    --bg-hover:    rgba(68, 60, 54, 0.97);
-    --bg-active:   rgba(74, 53, 40, 0.98);
-    --bg-side:     rgba(40, 35, 31, 0.97);
+    --bg-surface:  rgba(39, 29, 23, 0.96);
+    --bg-elevated: rgba(45, 34, 27, 0.95);
+    --bg-hover:    rgba(52, 39, 31, 0.97);
+    --bg-active:   rgba(66, 42, 29, 0.98);
+    --bg-side:     rgba(21, 15, 12, 0.97);
   }
   :root[data-theme="light"] {
-    --bg-surface:  rgba(251, 247, 241, 0.97);
-    --bg-elevated: rgba(255, 253, 250, 0.96);
-    --bg-hover:    rgba(241, 232, 221, 0.98);
-    --bg-active:   rgba(242, 221, 204, 0.99);
-    --bg-side:     rgba(241, 232, 221, 0.98);
+    --bg-surface:  rgba(240, 232, 220, 0.97);
+    --bg-elevated: rgba(234, 223, 207, 0.96);
+    --bg-hover:    rgba(227, 213, 193, 0.98);
+    --bg-active:   rgba(220, 205, 184, 0.99);
+    --bg-side:     rgba(239, 230, 217, 0.98);
   }
 }
 
@@ -1332,19 +1361,19 @@ body::after {
    somebody reports wanting glass off while their OS says on. */
 @media (prefers-reduced-transparency: reduce) {
   :root[data-theme="dark"] {
-    --bg-surface:  #36302B;
-    --bg-elevated: #3A3430;
-    --bg-hover:    #443C36;
-    --bg-active:   #4A3528;
-    --bg-side:     #28231F;
+    --bg-surface:  #271D17;
+    --bg-elevated: #2D221B;
+    --bg-hover:    #34271F;
+    --bg-active:   #422A1D;
+    --bg-side:     #150F0C;
     --scene-surface: var(--bg-primary);
   }
   :root[data-theme="light"] {
-    --bg-surface:  #FBF7F1;
-    --bg-elevated: #FFFDFA;
-    --bg-hover:    #F1E8DD;
-    --bg-active:   #F2DDCC;
-    --bg-side:     #F1E8DD;
+    --bg-surface:  #F0E8DC;
+    --bg-elevated: #EADFCF;
+    --bg-hover:    #E3D5C1;
+    --bg-active:   #DCCDB8;
+    --bg-side:     #EFE6D9;
     --scene-surface: var(--bg-primary);
   }
   /* The window itself stops being see-through, so the desktop is gone rather
@@ -1383,7 +1412,7 @@ html[data-glass="off"] .liquid-glass {
    typing bar, and its 6% of see-through carried readable lines: "Video:
    H.264" sat under "Ask Cinderpaw…" in the real app on 28 Oct. Solid here;
    the 0.94 above stays for glass, where the blur does the hiding. */
-:root[data-glass="off"][data-theme="dark"] { --surface-typing: rgb(52, 46, 41); }
+:root[data-glass="off"][data-theme="dark"] { --surface-typing: rgb(39, 29, 23); }
 :root[data-glass="off"][data-theme="light"] { --surface-typing: rgb(255, 253, 250); }
 
 /*
@@ -1507,7 +1536,7 @@ body { overflow: hidden; }
 }
 .word-fade {
   display: inline-block;
-  animation: fadeInWord 0.28s cubic-bezier(0.35, 0.35, 0, 1) both;
+  animation: fadeInWord var(--motion-base) var(--motion-ease) both;
   /* NO `will-change` here, deliberately. It used to hint opacity+transform,
      which promotes EVERY word span to its own compositor layer — thousands of
      them in a long conversation, kept for the life of the message rather than
@@ -1729,12 +1758,12 @@ span.ember-caret {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.tw-rise { animation: tw-rise 0.22s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.tw-rise { animation: tw-rise var(--motion-base) var(--motion-ease) both; }
 
 /* A result row lands after the ones above it. The delay is set inline per
    index — capped in the component, because a stagger long enough to notice on
    row eight is a stagger that arrives after the reading eye has moved on. */
-.tw-row { animation: tw-rise 0.2s ease-out both; }
+.tw-row { animation: tw-rise var(--motion-base) var(--motion-ease) both; }
 
 /* The address bar's sweep while a search is in flight. The only infinite
    animation here, and it is a loading indicator — which is the one thing an
@@ -1781,14 +1810,13 @@ span.ember-caret {
 }
 .tw-focus { animation: tw-focus 1.8s ease-in-out infinite; }
 
-/* Completion: the tick scales in once. Overshoot is what makes it read as
-   "landed" rather than "appeared". */
+/* Completion: the tick scales in once and stops at its size: the motion
+   scale's curve lands it without passing the mark (lib/motion.ts). */
 @keyframes tw-pop {
   from { opacity: 0; transform: scale(0.6); }
-  60%  { transform: scale(1.12); }
   to   { opacity: 1; transform: scale(1); }
 }
-.tw-pop { animation: tw-pop 0.24s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.tw-pop { animation: tw-pop var(--motion-base) var(--motion-ease) both; }
 
 /* The terminal caret, while a command is still running. A filled block in the
    foreground colour, which is what a console draws — a coloured bar is an
@@ -1868,19 +1896,19 @@ span.ember-caret {
   background: var(--brand);
   clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
   transform: rotate(var(--a)) translateY(-2px) scale(0);
-  animation: spark-fly 520ms cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+  animation: spark-fly var(--motion-slow) var(--motion-ease) forwards;
 }
 @keyframes spark-fly {
   20% { transform: rotate(var(--a)) translateY(-8px) scale(1.4); opacity: 1; }
   100% { transform: rotate(var(--a)) translateY(-22px) scale(0); opacity: 0; }
 }
 .star-pop > svg {
-  animation: star-pop 360ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: star-pop var(--motion-base) var(--motion-ease);
 }
+/* Grows into place and stops: it swung to 1.5x and 10 deg before (29 Oct). */
 @keyframes star-pop {
-  0% { transform: scale(0.6) rotate(-20deg); }
-  60% { transform: scale(1.5) rotate(10deg); }
-  100% { transform: scale(1) rotate(0); }
+  from { transform: scale(0.6); }
+  to { transform: scale(1); }
 }
 
 /* ── Reduced motion, as a blanket ──────────────────────────────────────────
@@ -1938,22 +1966,24 @@ span.ember-caret {
 }
 
 /* ── Composer examples (components/chat/ComposerPlaceholder.tsx) ─────────────
-   Each letter blurs in after the one before it, and out in reverse. CSS, so
+   Each letter fades in after the one before it, and out in reverse. CSS, so
    the browser runs it without a style write per letter per frame. */
 .composer-letter {
   display: inline-block;
-  animation: composer-letter-in 280ms ease-out both;
+  animation: composer-letter-in var(--motion-base) var(--motion-ease) both;
 }
 .composer-letter-out {
-  animation: composer-letter-out 180ms ease-in both;
+  animation: composer-letter-out var(--motion-fast) var(--motion-ease) both;
 }
+/* Opacity and position only: an animated blur repaints each letter on every
+   frame (the 26 Oct rule for micro-animations). */
 @keyframes composer-letter-in {
-  from { opacity: 0; filter: blur(8px); transform: translateY(6px); }
-  to   { opacity: 1; filter: blur(0); transform: none; }
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
 }
 @keyframes composer-letter-out {
-  from { opacity: 1; filter: blur(0); transform: none; }
-  to   { opacity: 0; filter: blur(8px); transform: translateY(-6px); }
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateY(-6px); }
 }
 
 /* The artifact panel is pure black in the dark theme (his ask, 23 Oct: more
@@ -1975,17 +2005,20 @@ span.ember-caret {
    what shows of them grows, so no frame lays the menu out again. The clip ends
    wider than the box (the head over the top edge, the shadow) and then goes
    with the animation. Unlayered, so it wins over the menus' own enter/exit. */
+/* On the motion scale, rows in right behind the shape: at 0.5 s and 0.15 s
+   the island opened as an empty box and took ~0.45 s to read (recording 04,
+   29 Oct). It grows to its size and stops there, no overshoot. */
 .model-island[data-state="open"] {
-  animation: island-in 0.5s cubic-bezier(0.34, 1.3, 0.5, 1) backwards;
+  animation: island-in var(--motion-base) var(--motion-ease) backwards;
 }
 .model-island[data-state="closed"] {
-  animation: island-out 0.22s cubic-bezier(0.4, 0, 1, 1) forwards;
+  animation: island-out var(--motion-fast) var(--motion-ease) forwards;
 }
 .model-island[data-state="open"] .model-island-body {
-  animation: island-body-in 0.3s ease-out 0.15s backwards;
+  animation: island-body-in var(--motion-base) var(--motion-ease) 0.05s backwards;
 }
 .model-island[data-state="closed"] .model-island-body {
-  animation: island-body-out 0.12s ease-in forwards;
+  animation: island-body-out var(--motion-fast) var(--motion-ease) forwards;
 }
 @keyframes island-in {
   from {
@@ -2004,11 +2037,12 @@ span.ember-caret {
   to { clip-path: inset(calc(100% - var(--radix-dropdown-menu-trigger-height)) calc(100% - var(--radix-dropdown-menu-trigger-width)) 0 0 round 16px); }
 }
 /* A tool row that arrives while the agent works drops in from the strip's
-   header with a small bounce (MessageChain, his pick C of the 26 Oct mockups).
+   header (MessageChain, his pick C of the 26 Oct mockups), on the motion scale
+   since 29 Oct: it lands, without the small bounce it had.
    Transform and opacity only: the mockup's blur repainted the whole row, its
    open widget included, every frame, 7-9 long frames a reply (26 Oct). */
 .row-pop {
-  animation: row-pop 0.45s cubic-bezier(0.34, 1.4, 0.6, 1) backwards;
+  animation: row-pop var(--motion-base) var(--motion-ease) backwards;
 }
 @keyframes row-pop {
   from { opacity: 0; transform: translateY(-8px) scale(0.96); }

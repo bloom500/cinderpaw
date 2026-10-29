@@ -6,6 +6,7 @@ import { toolsFromPersisted } from '@/hooks/useLiveToolActivity';
 import { memoryUsedFrom, turnEndFrom, useChat, type ChatMessage } from './chat';
 import { useNotifications } from './notifications';
 import { useFollowUps } from './followUps';
+import { useArtifacts } from './artifacts';
 
 export type { ConversationSummary };
 
@@ -242,6 +243,8 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   },
 
   newChat: () => {
+    // Start with the conversation, while preserving any unsaved artifact edit.
+    useArtifacts.setState({ panelOpen: false });
     openRequest = null;
     useChat.getState().newSession();
     set({ currentId: null, loadingConversation: false });

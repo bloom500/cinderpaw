@@ -20,6 +20,7 @@ import { AddressSuggestions, useAddressSuggestions } from './AddressSuggestions'
 import { DownloadsCard } from './DownloadsCard';
 import { cardHeight } from './DownloadsPopup';
 import { uiZoom } from '@/lib/uiZoom';
+import { BASE } from '@/lib/motion';
 
 const WIDTH_KEY = 'cinderpaw.browserPanelWidth';
 const ZOOM_KEY = 'cinderpaw.browserZoom';
@@ -417,7 +418,7 @@ export function BrowserPanel({ chat, onCompose, compact = false }: {
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: 32, opacity: 0 }}
       style={wide ? undefined : { width }}
-      transition={dragging ? { duration: 0 } : { duration: 0.16, ease: 'easeOut' }}
+      transition={dragging ? { duration: 0 } : BASE}
       onAnimationComplete={() => {
         setSettled(true);
         if (!entered.current) {
@@ -912,7 +913,7 @@ function FullscreenCurtain() {
       aria-hidden
       className={cn(
         'pointer-events-none fixed inset-0 z-[9999] bg-black transition-opacity ease-out',
-        on ? 'opacity-100 duration-0' : 'opacity-0 duration-150',
+        on ? 'opacity-100 duration-0' : 'opacity-0 duration-(--motion-fast)',
       )}
     />,
     document.body,
@@ -994,7 +995,7 @@ function BrowserSettings({ engine, onEngine }: { engine: string; onEngine: (e: s
             adblockOn ? 'bg-brand hover:bg-brand-hover' : 'bg-border-default hover:bg-bg-hover',
           )}
         >
-          <span className={cn('inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200', adblockOn ? 'translate-x-[18px]' : 'translate-x-[2px]')} />
+          <span className={cn('inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-(--motion-base)', adblockOn ? 'translate-x-[18px]' : 'translate-x-[2px]')} />
         </button>
       </SettingRow>
       <SettingRow

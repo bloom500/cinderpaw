@@ -96,6 +96,23 @@ describe('MessageChain (the Activity Strip)', () => {
     expect(screen.getByText('2 steps · 0s')).toBeInTheDocument();
   });
 
+  // 29 Oct, his "loose screws": a 48 px figure stood before the words while the
+  // agent worked and was gone once the step ended, so the words slid ~56 px
+  // sideways on every step. One slot, the same size in every state.
+  it('keeps its words in place when a step ends: one icon slot, working, done or failed', () => {
+    const search = startActivity('web_search', { query: 'Sibiu' });
+    const props = { thinking: null, thinkingComplete: true, durationSec: undefined };
+    const { rerender } = render(<MessageChain {...props} steps={[search]} streaming />);
+    const working = screen.getByTestId('activity-icon').className;
+    expect(screen.getByTestId('activity-icon')).toContainElement(screen.getByTestId('mascot'));
+
+    rerender(<MessageChain {...props} steps={[finishActivity(search, { ok: true, content: '' })]} streaming={false} />);
+    expect(screen.getByTestId('activity-icon').className).toBe(working);
+
+    rerender(<MessageChain {...props} steps={[finishActivity(search, { ok: false, content: 'rate limited' })]} streaming={false} />);
+    expect(screen.getByTestId('activity-icon').className).toBe(working);
+  });
+
   // 27 Oct, his ask: no card and no pills. The rows still pop in while the agent
   // works; a chat opened again replays nothing.
   it('is a plain line, no card, and pops its rows in only while the agent works', () => {

@@ -13,6 +13,7 @@ import {
 import type { HfModelSummary, HfModelDetail } from '@/lib/tauri';
 import { BTN_PRIMARY, CARD, Chip, MakerTile, makerFor, paramsOf } from './ui';
 import { cn } from '@/lib/utils';
+import { BASE, FAST } from '@/lib/motion';
 
 const COMPAT: Record<Compat, { label: string; cls: string }> = {
   fits: { label: 'Fits your hardware', cls: 'text-success' },
@@ -123,7 +124,7 @@ export function HfModelCard({ model, expanded, opening, detail, onExpand, onRequ
         {opening ? (
           <Loader2 size={16} className="animate-spin text-brand" />
         ) : (
-          <motion.span animate={{ rotate: expanded ? 180 : 0 }} transition={{ duration: 0.18 }} className="inline-flex">
+          <motion.span animate={{ rotate: expanded ? 180 : 0 }} transition={FAST} className="inline-flex">
             <ChevronDown size={16} />
           </motion.span>
         )}
@@ -134,7 +135,7 @@ export function HfModelCard({ model, expanded, opening, detail, onExpand, onRequ
   const action = isThisDownloading ? (
     <div className="flex min-w-[120px] items-center gap-2 rounded-xl border border-border-subtle bg-bg-elevated px-3 py-2 text-xs text-text-muted">
       <div className="h-1 flex-1 overflow-hidden rounded-full bg-bg-hover">
-        <div className="h-full bg-brand transition-all duration-300" style={{ width: `${dlProgress}%` }} />
+        <div className="h-full bg-brand transition-all duration-(--motion-slow)" style={{ width: `${dlProgress}%` }} />
       </div>
       <span className="tabular-nums">{dlProgress.toFixed(0)}%</span>
     </div>
@@ -186,7 +187,7 @@ export function HfModelCard({ model, expanded, opening, detail, onExpand, onRequ
       {/* Download progress bar (full-width strip) */}
       {isThisDownloading && (
         <div className="-mx-4 -mb-4 h-0.5 bg-bg-elevated">
-          <div className="h-full bg-brand transition-all duration-300" style={{ width: `${dlProgress}%` }} />
+          <div className="h-full bg-brand transition-all duration-(--motion-slow)" style={{ width: `${dlProgress}%` }} />
         </div>
       )}
     </article>
@@ -206,7 +207,7 @@ export function HfVariantsRow({ model, detail }: { model: HfModelSummary; detail
       initial={{ height: 0, opacity: 0 }}
       animate={{ height: 'auto', opacity: 1 }}
       exit={{ height: 0, opacity: 0 }}
-      transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
+      transition={BASE}
       className="col-span-full overflow-hidden"
     >
       <div className={cn(CARD, 'mb-4 grid gap-6 p-4 ring-1 ring-brand/40 lg:grid-cols-[240px_minmax(0,1fr)]')}>

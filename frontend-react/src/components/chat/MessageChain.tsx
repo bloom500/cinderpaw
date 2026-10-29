@@ -273,7 +273,7 @@ function MiniWidget({ a, shown, onToggle }: { a: ToolActivity; shown: boolean; o
         // As tall as the widget it shows, at most 110 px: a fixed 110 px box
         // around a half-size widget left an empty band under short ones,
         // which read as a gap in the reply (28 Oct, his screenshot).
-        'max-h-[110px] w-[200px] shrink-0 self-start overflow-hidden rounded-xl text-left transition-transform hover:-translate-y-0.5',
+        'max-h-[110px] w-[200px] shrink-0 self-start overflow-hidden rounded-xl text-left',
         shown && 'ring-2 ring-brand/60',
       )}
     >
@@ -359,15 +359,25 @@ export function sideChips(steps: ToolActivity[], helpers: RlmWorker[]): string[]
   ];
 }
 
-/** The clay mascot at work, 48 px; the logo head when the mascot is turned off. */
+/** The clay mascot at work, sized to the line's icon slot; the logo head when the mascot is turned off. */
 function WorkingFigure() {
   const mascot = useUI((s) => s.mascotEnabled);
-  if (!mascot) return <img src={logoUrl} alt="" className="h-8 w-8 shrink-0" />;
+  if (!mascot) return <img src={logoUrl} alt="" className="size-5" />;
+  return <CinderpawMascot state="calling" width={24} />;
+}
+
+/**
+ * What stands before the line's words, always in the same 24 px slot: the
+ * figure at work, the warning when a step failed, the still logo head once
+ * done. It used to be a 48 px figure that was simply gone after, so the words
+ * slid ~56 px sideways each time a step ended (his "loose screws", 29 Oct).
+ */
+function LineIcon({ streaming, failed }: { streaming: boolean; failed: boolean }) {
   return (
-    <span aria-hidden className="relative -my-2 h-12 w-12 shrink-0 overflow-hidden">
-      <span className="absolute left-0 top-0 origin-top-left scale-[0.375]">
-        <CinderpawMascot state="calling" />
-      </span>
+    <span data-testid="activity-icon" aria-hidden className="grid size-6 shrink-0 place-items-center overflow-hidden">
+      {streaming ? <WorkingFigure />
+        : failed ? <AlertTriangle size={14} className="text-warning" />
+        : <img src={logoUrl} alt="" className="size-4 opacity-70" />}
     </span>
   );
 }
@@ -460,7 +470,7 @@ export function MessageChain({
     <Collapsible open={open} onOpenChange={setOpen} data-testid="activity-line">
       <div className="flex items-center gap-2">
         <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-2 py-1 text-left">
-          {streaming ? <WorkingFigure /> : failed && <AlertTriangle size={14} className="shrink-0 text-warning" />}
+          <LineIcon streaming={streaming} failed={failed} />
           {/* Working, the words say what happens now and a light passes over
               them. Done, it is a quiet line of what happened, not a green
               "finished": the answer may still be arriving below it. */}

@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils';
 import { Kbd, MOD } from '@/components/ui/kbd';
 import { useMagnetic } from '@/hooks/useMagnetic';
 import { APP_NAME } from '@/lib/brand';
+import { BASE, FAST, MOTION, spring } from '@/lib/motion';
 
 /**
  * Primary navigation. It answers exactly one question — where do I want to go —
@@ -101,7 +102,7 @@ function Row({
         {!collapsed && (
           <motion.span
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            transition={{ duration: 0.12 }}
+            transition={FAST}
             className="truncate"
           >
             {label}
@@ -215,7 +216,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
             setDragOverProject(null);
           }}
           className={cn(
-            'group relative flex items-center rounded-[10px] transition-opacity duration-150',
+            'group relative flex items-center rounded-[10px] transition-opacity duration-(--motion-fast)',
             c.id === currentId ? 'bg-bg-active' : ROW_HOVER,
             // While any chat is dragged, the other rows step back
             // so the target section reads as the destination.
@@ -294,7 +295,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
               <div key={p.id}>
                 <div
                   className={cn(
-                    'group flex items-center rounded-[10px] pr-1 transition-all duration-150',
+                    'group flex items-center rounded-[10px] pr-1 transition-all duration-(--motion-fast)',
                     ROW_HOVER,
                     // While a chat is being dragged, every project row advertises
                     // itself as a target (dashed outline); the row under the cursor
@@ -432,8 +433,8 @@ export function SideNav() {
             aria-label="Expand navigation"
             title="Expand navigation"
             initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1, transition: { delay: 0.16, duration: 0.12 } }}
-            exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.08 } }}
+            animate={{ opacity: 1, scale: 1, transition: { ...FAST, delay: MOTION.base } }}
+            exit={{ opacity: 0, scale: 0.9, transition: spring(MOTION.fast / 2) }}
             className="fixed left-3 top-3 z-30 h-9 w-9 grid place-items-center rounded-lg border border-border-subtle bg-bg-elevated/80 backdrop-blur-sm text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors cursor-pointer shadow-md"
           >
             <PanelLeftOpen size={20} />
@@ -454,7 +455,7 @@ export function SideNav() {
             style={{ width: NAV_W }}
             initial={false}
             animate={collapsed ? { x: -(NAV_W + 12), opacity: 0 } : { x: 0, opacity: 1 }}
-            transition={{ duration: 0.2, ease: 'easeOut' }}
+            transition={BASE}
             onAnimationStart={panelMotionStart}
             onAnimationComplete={panelMotionEnd}
             // Off screen is not gone for a keyboard or a screen reader; inert is.

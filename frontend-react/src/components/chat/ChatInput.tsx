@@ -13,7 +13,6 @@ import { VoiceProviderCard } from './VoiceProviderCard';
 import { VoiceEngineCard } from './VoiceEngineCard';
 import { CallOverlay } from './CallOverlay';
 import { ComposerPlaceholder } from './ComposerPlaceholder';
-import { motion } from 'framer-motion';
 import { ModelPill } from './ModelPill';
 import { ContextRing } from './ContextRing';
 import { PermissionPill } from './PermissionPill';
@@ -597,16 +596,10 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     setAttachedFiles((prev) => prev.filter((f) => f.path !== path));
 
 
-  // Expanded while the composer is in use: focused, holding something, recording,
-  // streaming, or on Home where the field IS the screen. Collapsed to one row in
-  // a running conversation, where the transcript is the subject.
-  const expanded =
-    engaged || isEmpty || isStreaming || dragOver || text.length > 0 ||
-    attachedFiles.length > 0 || links.length > 0 || rec.state !== 'idle';
-
   return (
     <TooltipProvider delayDuration={300}>
-      <div className={cn(
+      {/* data-composer: ChatPage measures it to glide the dock with a side panel. */}
+      <div data-composer="" className={cn(
         'px-4 py-3 mx-auto w-full',
         // In a conversation the composer lines up with the transcript's
         // 700px column (MessageList, max-w-[748px] minus px-6), 16px wider
@@ -786,18 +779,9 @@ function ChatInput({ isEmpty, sendFn }, ref) {
               )}
             </div>
           </div>
-          {/* The second row slides out when the composer is in use. It stays
-              mounted when collapsed, only clipped: the model menu opens in a
-              portal, and unmounting its trigger while it is open would strand
-              the menu with nothing to anchor to. */}
-          <motion.div
-            initial={false}
-            animate={expanded ? { height: 'auto', opacity: 1 } : { height: 0, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 260, damping: 30 }}
-            className="overflow-hidden"
-            aria-hidden={!expanded}
-            {...(!expanded ? { inert: true } : {})}
-          >
+          {/* Stable controls: focusing, sending and finishing a reply must not
+              move the composer, mascot or transcript. */}
+          <div>
             {/* The left group gives way (the model name truncates); the right
                 group never does. */}
             <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
@@ -806,7 +790,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                 <PermissionPill />
                 <span
                   className={cn(
-                    'hidden truncate text-2xs text-text-muted transition-opacity duration-150 sm:inline',
+                    'hidden truncate text-2xs text-text-muted transition-opacity duration-(--motion-fast) sm:inline',
                     text.length > 0 ? 'opacity-100' : 'opacity-0',
                   )}
                   aria-hidden={text.length === 0}
@@ -818,7 +802,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                 <ContextRing />
               </div>
             </div>
-          </motion.div>
+          </div>
         </div>
       </div>
       <VoiceProviderCard open={providerCardOpen} onOpenChange={setProviderCardOpen} />

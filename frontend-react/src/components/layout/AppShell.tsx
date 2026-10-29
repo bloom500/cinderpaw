@@ -97,10 +97,15 @@ export function AppShell() {
           the page's own background rather than text the nav is covering. */}
       <main
         // Collapsed leaves only room for the button that brings it back. The
-        // padding moves in one step, not over 0.22 s: animating it laid the
-        // whole page out on every frame, and the nav's own slide covers the
-        // step. See SideNav for the rest of that fix.
-        style={{ paddingLeft: navCollapsed ? NAV_COLLAPSED_W + 60 : NAV_W + 24 }}
+        // padding glides with the nav's own slide (MOTION.base, SideNav).
+        // It moved in one step from 17 Sep, when every frame of layout also
+        // re-ran the glass's displacement filter; the nav now drops that for
+        // its slide. The step left the page jumping right before the nav had
+        // arrived (his "loose screws", 29 Oct, recording 02).
+        style={{
+          paddingLeft: navCollapsed ? NAV_COLLAPSED_W + 60 : NAV_W + 24,
+          transition: 'padding-left var(--motion-base) var(--motion-ease)',
+        }}
         className="absolute inset-0 flex flex-col overflow-hidden pt-3 pr-4"
       >
         <Outlet />

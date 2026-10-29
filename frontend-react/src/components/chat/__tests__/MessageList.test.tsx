@@ -202,16 +202,16 @@ describe('chat tool widgets', () => {
       expect(container.firstElementChild).toHaveClass('relative');
     });
 
-    it('clears the composer by its measured height, never a fixed number', () => {
-      // `bottom-20` was a flat 80px: right for a one-line draft, wrong the
-      // moment the composer grew. The height is published by ChatPage.
+    it('reserves the measured dock and puts the jump button in its clear upper space', () => {
       setChatDockHeight(140);
       const { container } = render(<MessageList />);
       scrollUp(container);
       const button = screen.getByRole('button', { name: /Jump to bottom|new/ });
-      expect(button.style.bottom).toBe('152px');
+      expect(button.style.bottom).toBe('92px');
+      expect(screen.getByRole('region', { name: 'Conversation' }).style.height).toContain('140px');
       act(() => setChatDockHeight(200));
-      expect(button.style.bottom).toBe('212px');
+      expect(button.style.bottom).toBe('152px');
+      expect(screen.getByRole('region', { name: 'Conversation' }).style.height).toContain('200px');
       expect(button.className).not.toMatch(/bottom-\d/);
     });
 

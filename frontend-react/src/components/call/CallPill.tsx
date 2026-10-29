@@ -6,6 +6,7 @@ import { ChevronUp, Mic, MicOff, PhoneOff, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CallPillState } from '@/lib/callPill';
 import logoUrl from '@/assets/logo.svg';
+import { BASE, FAST, MOTION } from '@/lib/motion';
 
 /** The canvas's Flame waveform: bar heights, px. It breathes while someone
  *  is talking; it is a sign of life, not a level meter (the pill gets no audio). */
@@ -50,7 +51,8 @@ const CARD_ROOM = 300;
  * a rectangle growing. On the way back the opening closes first, then the
  * drop rises.
  */
-const shape = { type: 'spring', stiffness: 400, damping: 30 } as const;
+// On the motion scale (lib/motion.ts): the drop lands, it does not wobble.
+const shape = BASE;
 const OPEN = { y: shape, x: shape, rotate: shape, width: { ...shape, delay: 0.12 }, height: { ...shape, delay: 0.12 }, borderRadius: { ...shape, delay: 0.12 } };
 const CLOSE = { width: shape, height: shape, borderRadius: shape, y: { ...shape, delay: 0.1 }, x: { ...shape, delay: 0.1 }, rotate: { ...shape, delay: 0.1 } };
 /** Where the drop rests in the pill (its 12 px slot), and where the card hangs. */
@@ -122,9 +124,9 @@ export function CallPill() {
   const subject = work && phase !== 'speaking' && !ask ? work.subject : '';
   const line = subject || s?.said || s?.heard || '';
   const yours = Boolean(s && !subject && !s.said && s.heard);
-  // Charcoal in both themes (spec 7.4, canvas 'Voice pill'): it floats over the
+  // Espresso in both themes (spec 7.4, canvas 'Voice pill'): it floats over the
   // desktop, not over the app, so it keeps one look whatever the app is in.
-  const btn = 'flex size-10 shrink-0 items-center justify-center rounded-full bg-[#453D37] text-[#F6EFE6] transition-colors hover:bg-[#524841]';
+  const btn = 'flex size-10 shrink-0 items-center justify-center rounded-full bg-[#34271F] text-[#F5EBDD] transition-colors hover:bg-[#422A1D]';
   const live = !s?.muted && (phase === 'listening' || phase === 'speaking');
 
   return (
@@ -134,18 +136,18 @@ export function CallPill() {
         aria-label={`Voice call: ${status}`}
         // No shadow and no margin: the window is exactly the pill, and a shadow
         // clipped at the window edge drew a dark rectangle around it (21 Sep).
-        className="flex h-16 w-full shrink-0 items-center gap-3 rounded-full border border-[#4A413A] bg-[#2F2A26] pl-4 pr-2 text-[#F6EFE6]"
+        className="flex h-16 w-full shrink-0 items-center gap-3 rounded-full border border-[#3A2C23] bg-[#271D17] pl-4 pr-2 text-[#F5EBDD]"
         onClick={() => { void emit('call-pill://open'); }}
       >
         {/* The tear drop: the microphone. It pulses while you are being heard,
             and while a question is open it is away, down in the card. */}
         <span aria-hidden className="size-3 shrink-0" />
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#3C3530]" aria-hidden>
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#2F241D]" aria-hidden>
           <img src={logoUrl} alt="" className="size-8" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium text-[#CDBFB2]">{status}</div>
-          <div className={cn('truncate text-sm leading-tight', yours ? 'italic text-[#CDBFB2]' : 'text-[#F6EFE6]')}>
+          <div className="text-xs font-medium text-[#CFBFAB]">{status}</div>
+          <div className={cn('truncate text-sm leading-tight', yours ? 'italic text-[#CFBFAB]' : 'text-[#F5EBDD]')}>
             {line || 'Say something'}
           </div>
         </div>
@@ -164,7 +166,7 @@ export function CallPill() {
             aria-label="Open Cinderpaw"
             title="Open Cinderpaw"
             onClick={() => { void emit('call-pill://open'); }}
-            className={cn(btn, 'bg-transparent text-[#CDBFB2]')}
+            className={cn(btn, 'bg-transparent text-[#CFBFAB]')}
           >
             <ChevronUp size={16} />
           </button>
@@ -224,9 +226,9 @@ export function CallPill() {
               key={ask.id}
               className="px-5 pb-4 pt-4"
               style={{ width: PILL_W - 24 }}
-              initial={{ opacity: 0, scale: 0.96, filter: 'blur(8px)' }}
-              animate={{ opacity: 1, scale: 1, filter: 'blur(0px)', transition: { delay: 0.2, duration: 0.24, ease: [0.2, 0, 0, 1] } }}
-              exit={{ opacity: 0, scale: 0.96, filter: 'blur(8px)', transition: { duration: 0.12 } }}
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1, transition: { ...BASE, delay: MOTION.base } }}
+              exit={{ opacity: 0, scale: 0.96, transition: FAST }}
             >
               {ask.question.header && (
                 <div className="mb-1 text-micro font-medium uppercase tracking-wide text-brand">{ask.question.header}</div>
@@ -247,7 +249,7 @@ export function CallPill() {
                       key={o.label}
                       type="button"
                       initial={{ opacity: 0, y: 4 }}
-                      animate={{ opacity: 1, y: 0, transition: { delay: 0.26 + i * 0.04, duration: 0.18 } }}
+                      animate={{ opacity: 1, y: 0, transition: { ...FAST, delay: MOTION.base + 0.06 + i * 0.04 } }}
                       whileTap={{ scale: 0.97 }}
                       title={o.description}
                       onClick={() => { void emit('call-pill://answer', { id: ask.id, selected: [o.label] }); }}

@@ -389,7 +389,7 @@ export const ChapterRail = memo(function ChapterRail() {
     [jump],
   );
   // Rows always keep the list open; stable so memoized rows skip renders.
-  const rowSelect = useCallback((id: string) => jump(id, true), [jump]);
+  const rowSelect = useCallback((id: string) => jump(id), [jump]);
 
   // The native bar goes only while the rail stands in for it (globals.css,
   // [data-chapter-rail]); a short chat keeps its bar.
@@ -479,7 +479,8 @@ export const ChapterRail = memo(function ChapterRail() {
           // opacity modifier cannot fix that — color-mix takes 90% OF the
           // translucent colour, landing near 31% alpha, still a ghost over
           // scrolling text (4 Oct 2026). bg-primary is opaque in every theme.
-          className="absolute top-12 z-20 flex w-72 flex-col overflow-hidden rounded-xl border border-border-default bg-bg-primary shadow-xl"
+          // z-40: it opens over the Context cards (z-30), which sit beside the rail.
+          className="absolute top-12 z-40 flex w-72 flex-col overflow-hidden rounded-xl border border-border-default bg-bg-primary shadow-xl"
           // As tall as its chapters, never past the dock. Pinned at both ends,
           // two chapters opened a panel the height of the window, mostly empty.
           style={{ right: '3rem', maxHeight: `calc(100% - 3rem - ${clearBottom})` }}

@@ -108,16 +108,20 @@ export function MessageList({ onFollowUp }: {
             line; the two corrected each other, 28 px down and back. Measured on
             this list, one reply: 29 scroll moves, 14 of them backwards; with
             anchoring off, 4 and 1. */}
-        <MessageScroller.Viewport aria-label="Conversation" className="@container h-full overflow-y-auto overscroll-contain thin-scrollbar outline-hidden [overflow-anchor:none]">
-          {/* Clears the dock's measured height, not a flat 12rem: the dock grows
-              with the workers card, the error notice and a multi-line draft,
-              and a flat pad let the last reply slide under it. */}
+        <MessageScroller.Viewport aria-label="Conversation" className="@container overflow-y-auto overscroll-contain thin-scrollbar outline-hidden [overflow-anchor:none]"
+          // The Context cards' step aside is padding here (ChatPage sets
+          // --cards-shove), so the column moves and the scrollbar stays at the edge.
+          style={{ height: `calc(100% - ${dockH ?? 192}px)`, minHeight: 0, paddingRight: 'var(--cards-shove, 0px)' }}>
+          {/* The viewport ends above the measured dock; text cannot scroll
+              underneath the composer or its mascot. */}
           {/* 748 = the spec's 700 px reading column plus the 24 px gutters. */}
           <MessageScroller.Content
+            // ChatPage glides this column when a side panel moves it.
+            data-reading-column=""
             data-replying={status === 'streaming' ? '' : undefined}
             className="max-w-[748px] mx-auto px-6 py-6 flex flex-col gap-7"
             style={{
-              paddingBottom: dockH === null ? '12rem' : `${dockH + 32}px`,
+              paddingBottom: '48px',
               ...(chatFont === 'system' ? { fontFamily: SYSTEM_FONT } : {}),
             }}
           >
@@ -184,8 +188,8 @@ const Row = memo(function Row({ message: m, quiet, ...item }: ComponentProps<typ
         'message-row [contain:layout_paint] -mx-4 px-4 -my-2 py-2',
         !quiet && (m.role === 'user'
           // Yours rises out of the composer's corner: it came from there.
-          ? 'animate-in fade-in-0 slide-in-from-bottom-4 zoom-in-95 origin-bottom-right duration-300'
-          : 'animate-in fade-in-0 slide-in-from-bottom-2 duration-200'),
+          ? 'animate-in fade-in-0 slide-in-from-bottom-4 zoom-in-95 origin-bottom-right duration-(--motion-slow)'
+          : 'animate-in fade-in-0 slide-in-from-bottom-2 duration-(--motion-base)'),
       )}
     >
       <MessageItem message={m} {...item} />
@@ -221,8 +225,9 @@ function JumpToBottom({ count }: { count: number }) {
         state.active ? (
           <button
             {...props}
-            style={{ bottom: dockH === null ? '5.75rem' : `${dockH + 12}px` }}
-            className="absolute left-1/2 -translate-x-1/2 z-10 rounded-full bg-(--surface-typing) text-text-primary text-xs px-3 py-1.5 shadow-sm hover:bg-bg-hover flex items-center gap-1.5 border border-border-default"
+            // Centred on the reading column, which the Context cards push left.
+            style={{ bottom: `${Math.max(0, (dockH ?? 192) - 48)}px`, left: 'calc((100% - var(--cards-shove, 0px)) / 2)' }}
+            className="absolute -translate-x-1/2 z-10 rounded-full bg-(--surface-typing) text-text-primary text-xs px-3 py-1.5 shadow-sm hover:bg-bg-hover flex items-center gap-1.5 border border-border-default"
           >
             ↓ {unread > 0 ? `${unread} new` : 'Jump to bottom'}
           </button>

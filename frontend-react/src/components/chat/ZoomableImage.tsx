@@ -54,7 +54,7 @@ export function ZoomableImage({ src, alt, thumbClassName, className }: {
           alt={alt}
           loading="lazy"
           className={cn(
-            'rounded-lg border border-border-subtle object-contain transition-transform duration-200 hover:scale-[1.02]',
+            'rounded-lg border border-border-subtle object-contain',
             thumbClassName ?? 'max-h-52 max-w-full',
           )}
         />
@@ -68,7 +68,7 @@ export function ZoomableImage({ src, alt, thumbClassName, className }: {
           onClick={() => setShown(false)}
           className={cn(
             'fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs cursor-zoom-out',
-            'transition-opacity duration-300 ease-out',
+            'transition-opacity duration-(--motion-slow) ease-out',
             shown ? 'opacity-100' : 'opacity-0',
           )}
         >
@@ -78,7 +78,7 @@ export function ZoomableImage({ src, alt, thumbClassName, className }: {
             onTransitionEnd={onTransitionEnd}
             className={cn(
               'max-h-[90vh] max-w-[92vw] rounded-xl object-contain shadow-2xl',
-              'transition-transform duration-300 ease-out',
+              'transition-transform duration-(--motion-slow) ease-out',
               shown ? 'scale-100' : 'scale-75',
             )}
           />

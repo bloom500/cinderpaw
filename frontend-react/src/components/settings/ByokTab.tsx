@@ -9,6 +9,7 @@ import { useCatalog } from '@/stores/catalog';
 import type { ByokProvider } from '@/lib/tauri';
 import chutesMark from '@/assets/brands/chutes.png';
 import gmiMark from '@/assets/brands/gmi.png';
+import { BASE, FAST } from '@/lib/motion';
 
 /** One provider row as the UI renders it. Canonical identity/URL/key-format
  *  data comes from the gateway catalog (`useCatalog` →
@@ -192,7 +193,7 @@ function ProviderCard({ def, state, open, onToggle }: { def: ProviderDef; state?
   return (
     <motion.article
       layout
-      transition={{ layout: { duration: 0.25, ease: [0.2, 0.8, 0.2, 1] } }}
+      transition={{ layout: BASE }}
       className={cn(CARD, 'overflow-hidden transition-shadow hover:shadow-md', open && 'md:col-span-2 lg:col-span-full shadow-md ring-1 ring-brand/15')}
     >
       <button
@@ -211,7 +212,7 @@ function ProviderCard({ def, state, open, onToggle }: { def: ProviderDef; state?
           </span>
           <span className="flex shrink-0 items-center gap-2">
             {configured && <Pill tone="success" dot>API key added</Pill>}
-            <motion.span animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.18 }} className="inline-flex text-text-muted">
+            <motion.span animate={{ rotate: open ? 180 : 0 }} transition={FAST} className="inline-flex text-text-muted">
               <ChevronDown size={16} />
             </motion.span>
           </span>
@@ -234,7 +235,7 @@ function ProviderCard({ def, state, open, onToggle }: { def: ProviderDef; state?
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22 }}
+            transition={BASE}
             className="overflow-hidden"
           >
             <div className="grid gap-5 border-t border-border-subtle bg-bg-elevated/40 p-5 md:grid-cols-2">
@@ -250,7 +251,7 @@ function ProviderCard({ def, state, open, onToggle }: { def: ProviderDef; state?
                     aria-checked={enabled}
                     aria-label="Enabled"
                     onClick={() => setEnabled(!enabled)}
-                    className={cn('w-10 h-6 rounded-full transition-colors duration-200 relative shrink-0 overflow-hidden', enabled ? 'bg-brand' : 'bg-border-default')}
+                    className={cn('w-10 h-6 rounded-full transition-colors duration-(--motion-base) relative shrink-0 overflow-hidden', enabled ? 'bg-brand' : 'bg-border-default')}
                   >
                     <span className={cn('absolute top-1 left-0 w-4 h-4 rounded-full bg-primary-foreground transition-transform', enabled ? 'translate-x-5' : 'translate-x-1')} />
                   </button>

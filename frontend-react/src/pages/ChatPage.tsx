@@ -1,7 +1,7 @@
 import { tauri } from '@/lib/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { useChat } from '@/stores/chat';
@@ -16,6 +16,7 @@ import { HomeIntents } from '@/components/shell/HomeIntents';
 import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput';
 import { ArtifactsPanel } from '@/components/artifacts/ArtifactsPanel';
+import { ContextColumn, contextShove, useContextVisible } from '@/components/artifacts/ContextColumn';
 import { useArtifacts } from '@/stores/artifacts';
 import { useBrowser } from '@/stores/browser';
 import { cn } from '@/lib/utils';
@@ -34,6 +35,7 @@ import { useCinderpawSendMessage } from '@/hooks/useCinderpaw';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { setChatDockHeight } from '@/lib/chatDock';
 import { localApiBase } from '@/lib/localApi';
+import { MOTION, SPRING_CSS, cssMs } from '@/lib/motion';
 
 export function ChatPage() {
   const { id } = useParams();
@@ -104,8 +106,60 @@ export function ChatPage() {
   }, []);
   const panelOpen       = useArtifacts((s) => s.panelOpen);
   const togglePanel     = useArtifacts((s) => s.togglePanel);
+  const panelTab        = useArtifacts((s) => s.panelTab);
+  const contextVisible  = useContextVisible();
+  const contextOpen     = useUI((s) => s.contextOpen);
+  // The chat column's width, for how far the transcript steps aside for the
+  // Context cards (contextShove). Measured, not guessed: the nav, the window
+  // and the zoom all change it.
+  const columnRef = useRef<HTMLDivElement>(null);
+  const [columnWidth, setColumnWidth] = useState(0);
+  useLayoutEffect(() => {
+    const el = columnRef.current;
+    if (!el) return;
+    setColumnWidth(el.clientWidth);
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setColumnWidth(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const browserOpen     = useBrowser((s) => s.panelOpen);
   const artifactsOnly   = compact && panelOpen && !browserOpen;
+  // A side panel opening or closing changes the chat's width in that same
+  // frame. Waiting for the ResizeObserver left one painted frame with the old
+  // width, so the Context cards came back a step after the chat did (29 Oct,
+  // recording C5). Measured here, before the paint.
+  useLayoutEffect(() => {
+    if (columnRef.current) setColumnWidth(columnRef.current.clientWidth);
+  }, [panelOpen, panelTab, browserOpen, contextVisible]);
+  // Everything a side panel moves, moves together (his "totul impreuna", 29
+  // Oct): the layout changes in one frame, then the reading column and the
+  // composer glide from where they were to where they are, in the panels' own
+  // time (MOTION.base). Measured before and after, so it is right for any window, nav and
+  // panel width; `translate`, so the dock's own transform is left alone.
+  useEffect(() => {
+    const glide = () => {
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+      const wrap = inputWrapperRef.current;
+      const pairs: [HTMLElement | null | undefined, HTMLElement | null | undefined][] = [
+        [containerRef.current?.querySelector<HTMLElement>('[data-reading-column]'), undefined],
+        [wrap?.querySelector<HTMLElement>('[data-composer]'), wrap],
+      ];
+      const before = pairs.map(([probe]) => probe?.getBoundingClientRect().left);
+      requestAnimationFrame(() => pairs.forEach(([probe, moved], i) => {
+        const was = before[i];
+        if (!probe || was === undefined || !probe.isConnected) return;
+        const dx = was - probe.getBoundingClientRect().left;
+        if (Math.abs(dx) < 1) return;
+        (moved ?? probe).animate?.([{ translate: `${dx}px 0` }, { translate: '0 0' }], { duration: cssMs(MOTION.base), easing: SPRING_CSS });
+      }));
+    };
+    const offArtifacts = useArtifacts.subscribe((s, p) => {
+      if (s.panelOpen !== p.panelOpen || s.panelTab !== p.panelTab) glide();
+    });
+    const offUI = useUI.subscribe((s, p) => { if (s.contextOpen !== p.contextOpen) glide(); });
+    return () => { offArtifacts(); offUI(); };
+  }, []);
   // Words or files put into the composer from the panel: narrow, the composer
   // is hidden behind the panel, so the panel steps aside to show them.
   const backToChat = () => { if (artifactsOnly) togglePanel(); };
@@ -300,13 +354,16 @@ export function ChatPage() {
     chatInputRef.current?.focus();
   }, []);
 
+  // null: the chat is too narrow to keep the cards beside it, so they stay away.
+  const cardsShove = contextVisible && !isEmpty && columnWidth > 0 ? contextShove(columnWidth) : 0;
+
   // The conversation column is a value so it can be placed either beside the
   // panels or, in the browser's wide mode, inside the panel's own drawer,
   // without two copies of it in the tree.
   const chatColumn = (
     // Narrow, the artifacts panel takes the whole row; the chat stays mounted
     // (hidden) so its draft, queue and composer ref survive the switch.
-    <div className={cn('flex flex-col h-full flex-1', compact ? 'min-w-0' : 'min-w-[28rem]', artifactsOnly && 'hidden')}>
+    <div ref={columnRef} className={cn('flex flex-col h-full flex-1', compact ? 'min-w-0' : 'min-w-[28rem]', artifactsOnly && 'hidden')}>
       {showAgentOnboarding && !wizardActive && (
         <AgentsOnboarding
           onDone={() => setShowAgentOnboarding(false)}
@@ -319,7 +376,14 @@ export function ChatPage() {
       {!showAgentOnboarding && <CoworkerStrip />}
 
       {/* Positioning context for absolute children */}
-      <div ref={containerRef} className="relative flex-1 overflow-hidden">
+      {/* The step aside for the Context cards is padding INSIDE the transcript
+          and the dock (--cards-shove), not a margin on this box: a margin
+          narrowed the scroller with it, and its scrollbar walked left beside
+          the cards (his "loose screws", 29 Oct). It changes in one frame and
+          the glide above carries the column there. A transition on the padding
+          itself squeezed the text to one letter a line while an artifact
+          opened: the column narrowed at once, the padding only slowly. */}
+      <div ref={containerRef} className="relative flex-1 overflow-hidden" style={{ '--cards-shove': `${cardsShove ?? 0}px` } as CSSProperties}>
         {/* The top fade is gone. It faded to `--bg-primary`, the app's opaque
             base — which was the right colour back when the page behind it was
             that colour too. On glass it is a dark band painted across the top
@@ -345,7 +409,8 @@ export function ChatPage() {
           ref={inputWrapperRef}
           style={{
             transform: `translateY(${translateY}px)`,
-            transition: 'transform 350ms cubic-bezier(0.4, 0, 0.2, 1)',
+            paddingRight: 'var(--cards-shove, 0px)',
+            transition: 'transform var(--motion-slow) var(--motion-ease)',
           }}
           // No fade behind the composer at all. It was meant to let the
           // transcript slide out of sight, but once the theme tokens started
@@ -372,7 +437,7 @@ export function ChatPage() {
           // gone and every control stays clickable with no child file
           // touched.
           data-chat-input-dock=""
-          className="absolute inset-x-0 bottom-0 z-20 pt-8 pointer-events-none"
+          className={cn('absolute inset-x-0 bottom-0 z-20 pointer-events-none', isEmpty ? 'pt-8' : 'pt-24')}
         >
           <div className="contents pointer-events-auto">
           {isEmpty && !showAgentOnboarding && <HomeGreeting />}
@@ -455,7 +520,23 @@ export function ChatPage() {
         {browserOpen && (
           <BrowserPanel key="browser-panel" compact={compact} chat={chatColumn} onCompose={(text) => chatInputRef.current?.setText(text)} />
         )}
-        {panelOpen && !browserOpen && (
+        {/* Kept under an open artifact, not taken away: the panel slides in over
+            the cards and slides off them again, one move each way. Taken away,
+            they faded out over the arriving panel and came back after it left
+            (29 Oct, recordings C4 and C5). */}
+        {contextOpen && !browserOpen && !isEmpty && cardsShove !== null && (
+          <ContextColumn
+            key="context-column"
+            covered={!contextVisible}
+            onCompose={(text) => chatInputRef.current?.setText(text)}
+            onAttach={() => {
+              void openFileDialog({ multiple: true }).then((picked) => {
+                if (picked) chatInputRef.current?.attachPaths(Array.isArray(picked) ? picked : [picked]);
+              });
+            }}
+          />
+        )}
+        {panelOpen && !browserOpen && panelTab !== 'context' && (
           <ArtifactsPanel
             key="artifacts-panel"
             compact={compact}

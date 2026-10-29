@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Activity, Brain, ChevronDown, ChevronRight, Cpu, File, FileCode2, FileImage, FileText, Folder, Globe, LayoutGrid, MoreHorizontal, Paperclip, Plus, ShieldCheck, Wrench, type LucideIcon } from 'lucide-react';
+import { Brain, ChevronDown, File, FileCode2, FileImage, FileText, Folder, Gauge, Globe, MoreHorizontal, Paperclip, Plug, Plus, ShieldCheck, type LucideIcon } from 'lucide-react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { open } from '@tauri-apps/plugin-shell';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -9,18 +10,22 @@ import { useChatContext } from '@/hooks/useChatContext';
 import type { DisplayAttachment } from '@/lib/attachmentDisplay';
 import { siteName } from '@/lib/sources';
 import { tauri, type ConnectorView, type Project } from '@/lib/tauri';
+import { activeContextWindow, estimateTokens } from '@/lib/contextWindow';
 import { ModelLogo, modelDisplayName } from '@/lib/modelLogos';
-import { useBrowser } from '@/stores/browser';
-import { useModel } from '@/stores/model';
+import { MODES } from '@/components/chat/PermissionPill';
 import { cn } from '@/lib/utils';
 import { useChat, type MemoryUsedItem } from '@/stores/chat';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
 import { useConversations } from '@/stores/conversations';
 import { useProjects } from '@/stores/projects';
+import { useArtifacts } from '@/stores/artifacts';
 import { useCinderpawStore } from '@/stores/cinderpaw';
-import { stepTitle } from '@/components/chat/MessageChain';
-import { kindOf } from '@/hooks/useLiveToolActivity';
-import { emojiForTool } from '@/components/chat/mascot/emojiForTool';
+import { useModel } from '@/stores/model';
+import { useSettings } from '@/stores/settings';
+import { useBrowser, HOME } from '@/stores/browser';
+import { useRlmWorkers, workersFor } from '@/stores/rlmWorkers';
+import { WorkersCard } from '@/components/chat/WorkersCard';
+import { BASE } from '@/lib/motion';
 
 function openUrl(url: string) {
   void open(url).catch(() => window.open(url, '_blank', 'noopener,noreferrer'));
@@ -57,7 +62,7 @@ function Group({ icon: Icon, title, count, onAdd, addLabel, children }: {
             type="button"
             onClick={onAdd}
             aria-label={addLabel}
-            className="flex h-7 items-center gap-1 rounded-lg border border-border-default bg-bg-elevated px-2.5 text-xs text-text-primary hover:bg-text-primary/5"
+            className="flex h-7 items-center gap-1 rounded-lg px-2 text-xs text-text-muted hover:bg-text-primary/5 hover:text-text-primary"
           >
             <Plus size={12} />
             Add
@@ -71,7 +76,7 @@ function Group({ icon: Icon, title, count, onAdd, addLabel, children }: {
 
 function Rows({ children }: { children: ReactNode }) {
   return (
-    <ul className="flex flex-col divide-y divide-border-subtle overflow-hidden rounded-xl border border-border-default bg-bg-elevated">
+    <ul className="flex flex-col overflow-hidden rounded-xl">
       {children}
     </ul>
   );
@@ -89,7 +94,7 @@ function Row({ tile, title, sub, tag, menu, onOpen, dim }: {
 }) {
   const body = (
     <>
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-bg-surface">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-bg-hover">
         {tile}
       </span>
       <span className="min-w-0 flex-1">
@@ -103,11 +108,11 @@ function Row({ tile, title, sub, tag, menu, onOpen, dim }: {
   return (
     <li className="flex items-center gap-2 pr-1.5">
       {onOpen ? (
-        <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-3 text-left hover:bg-text-primary/5">
+        <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl py-2 pl-1 text-left hover:bg-text-primary/5">
           {body}
         </button>
       ) : (
-        <div className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-3">{body}</div>
+        <div className="flex min-w-0 flex-1 items-center gap-3 py-2 pl-1">{body}</div>
       )}
       {tag}
       {menu}
@@ -218,44 +223,56 @@ function ProjectGroup({ project }: { project: Project }) {
   );
 }
 
+const SQUIRCLE = 'rounded-[18px] [corner-shape:squircle] bg-bg-elevated';
+
 /**
- * One line of the panel that opens to its rows (Darius's Context board,
- * 30 Sep): icon, name, a count or a value, a dot when it needs you. A native
- * <details>, so opening and closing, the keyboard and the screen reader come
- * from the browser rather than from a state machine written here.
+ * One card of the panel, as in Claude's side panel (his reference, 29 Oct):
+ * always there, in the same place, one line with its value on the right.
+ * With rows it opens like a native <details> (keyboard and screen reader come
+ * from the browser); with nothing to show it is a plain line, no chevron.
  */
-function Fold({ id, icon: Icon, title, count, value, alert, defaultOpen, onAdd, addLabel, children }: {
+function Fold({ id, icon: Icon, title, value, alert, defaultOpen, onAdd, addLabel, children }: {
   id: string;
   icon: LucideIcon;
   title: string;
-  count?: number;
   value?: ReactNode;
   alert?: boolean;
   defaultOpen?: boolean;
   onAdd?: () => void;
   addLabel?: string;
-  children: ReactNode;
+  children?: ReactNode;
 }) {
+  const head = (
+    <>
+      <Icon size={16} className="shrink-0 text-text-secondary" />
+      <span className="text-sm font-medium text-text-primary">{title}</span>
+      <span className="flex-1" />
+      {value !== undefined && <span className="min-w-0 truncate text-sm text-text-muted">{value}</span>}
+      {alert && <span aria-label="Needs you" className="h-2 w-2 shrink-0 rounded-full bg-brand" />}
+    </>
+  );
+  if (!children) {
+    return (
+      <section aria-label={title}>
+        <div id={id} className={cn('flex h-11 items-center gap-2.5 px-3.5', SQUIRCLE)}>{head}</div>
+      </section>
+    );
+  }
   return (
     <section aria-label={title}>
-      <details id={id} open={defaultOpen} className="group rounded-xl border border-border-default bg-bg-elevated">
-        <summary className="flex h-12 cursor-pointer list-none items-center gap-3 rounded-xl px-3.5 hover:bg-text-primary/5 [&::-webkit-details-marker]:hidden">
-          <Icon size={16} className="shrink-0 text-text-secondary" />
-          <span className="text-sm font-medium text-text-primary">{title}</span>
-          {!!count && <span className="rounded-md bg-bg-active px-1.5 py-0.5 text-2xs text-text-muted">{count}</span>}
-          {value}
-          <span className="flex-1" />
-          {alert && <span aria-label="Needs you" className="h-2 w-2 rounded-full bg-brand" />}
+      <details id={id} open={defaultOpen} className={cn('group', SQUIRCLE)}>
+        <summary className="flex h-11 cursor-pointer list-none items-center gap-2.5 rounded-[18px] [corner-shape:squircle] px-3.5 hover:bg-text-primary/5 [&::-webkit-details-marker]:hidden">
+          {head}
           <ChevronDown size={16} className="shrink-0 text-text-muted transition-transform group-open:rotate-180" />
         </summary>
-        <div className="flex flex-col gap-2 border-t border-border-subtle p-2.5">
+        <div className="flex flex-col gap-1 px-2.5 pb-2.5">
           {children}
           {onAdd && (
             <button
               type="button"
               onClick={onAdd}
               aria-label={addLabel}
-              className="flex h-8 items-center justify-center gap-1 rounded-lg border border-dashed border-border-default text-xs text-text-muted hover:bg-text-primary/5 hover:text-text-primary"
+              className="flex h-8 items-center gap-1 rounded-lg px-1 text-xs text-text-muted hover:bg-text-primary/5 hover:text-text-primary"
             >
               <Plus size={12} />
               Add
@@ -267,56 +284,36 @@ function Fold({ id, icon: Icon, title, count, value, alert, defaultOpen, onAdd, 
   );
 }
 
-/** Open a fold and bring it into view: what a card's arrow leads to. */
-function reveal(id: string) {
-  const el = document.getElementById(id) as HTMLDetailsElement | null;
-  if (!el) return;
-  el.open = true;
-  el.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
-}
-
-/** A small card under "Contextual intelligence": a tile, a name, one line, a peek. */
-function Card({ icon: Icon, title, sub, onOpen, children }: {
-  icon: LucideIcon;
-  title: string;
-  sub: string;
-  onOpen?: () => void;
-  children?: ReactNode;
-}) {
+/** A card that comes and goes with the work it shows: a short fade, none under reduced motion. */
+function Live({ still, children }: { still: boolean | null; children: ReactNode }) {
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="flex min-w-0 flex-col gap-2 rounded-xl border border-border-default bg-bg-elevated p-3 text-left hover:bg-text-primary/5"
+    <motion.div
+      layout={!still}
+      initial={still ? false : { opacity: 0, y: -4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={still ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0, y: -4 }}
+      transition={BASE}
     >
-      <span className="flex w-full items-start gap-2.5">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
-          <Icon size={16} />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium leading-tight text-text-primary">{title}</span>
-          <span className="mt-0.5 block text-2xs leading-tight text-text-muted">{sub}</span>
-        </span>
-        <ChevronRight size={14} className="mt-0.5 shrink-0 text-text-muted" />
-      </span>
       {children}
-    </button>
+    </motion.div>
   );
 }
 
-/** The first thing the person asked, without the attachment markers the chat adds. */
-function askedText(messages: readonly { role: string; content: unknown }[]): string {
-  const first = messages.find((m) => m.role === 'user');
-  const text = typeof first?.content === 'string' ? first.content : '';
-  return text.replace(/^\[[^\]\n]*attached[^\]\n]*\]\s*/gim, '').replace(/\s+/g, ' ').trim();
+/** A label on the left, its value on the right: one line of "This chat". */
+function Line({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3 py-1 text-sm">
+      <span className="shrink-0 text-text-muted">{label}</span>
+      <span className="flex min-w-0 items-center gap-1.5 text-text-primary">{children}</span>
+    </div>
+  );
 }
 
 /**
- * The Context tab, as on Darius's Context board (30 Sep): what this chat is
- * about, then everything Cinderpaw has in front of it, one line each, opened
- * on demand. Every row comes from the chat's own messages (`chatContext`) or a
- * store; nothing is drawn that did not happen. The board's due date, coworker
- * faces and "Edit" have nothing behind them yet, so they are left out.
+ * The Context panel: what this chat runs on and what Cinderpaw has in front of
+ * it. Every value comes from the chat's own messages (`chatContext`) or a
+ * store; nothing is drawn that did not happen, and an empty card says "None"
+ * rather than inventing a row. Tools are left to the chat's own widgets.
  */
 export function ContextTab({ onCompose, onAttach }: {
   /** Fill the composer and stop (Links and Memory "Add"). */
@@ -324,29 +321,42 @@ export function ContextTab({ onCompose, onAttach }: {
   /** Open the composer's file picker (Files "Add"). */
   onAttach?: () => void;
 }) {
-  // Selectors that return strings, numbers or stable arrays, so a streamed
-  // word does not re-render the tab (c5f6cc5); only the asked text, the count
-  // and the status are read from the messages.
-  const asked = useChat((s) => askedText(s.messages));
-  const messageCount = useChat((s) => s.messages.length);
+  // Selectors that return strings or numbers, so a streamed word does not
+  // re-render the panel (c5f6cc5): context use is read in steps of 500
+  // tokens, the made-here titles as one string.
   const status = useChat((s) => s.streamStatus);
-  const toolCalls = useChat((s) => s.toolCallStream);
+  const usedSteps = useChat((s) => Math.round((s.livePromptTokens !== null
+    ? s.livePromptTokens + (s.liveCompletionTokens ?? 0)
+    : s.messages.reduce((n, m) => n + estimateTokens(m.content), 0)) / 500));
   const ctx = useChatContext();
+  // Live work, read while it happens (his "piese mobile", 29 Oct): each card
+  // below appears only while its thing is true, like Claude's Background tasks.
+  // A model download and Dreams already have their own cards in the sidebar
+  // (DownloadStatus, DreamingCard), so they are not repeated here.
+  const sessionId = useChat((s) => s.sessionId);
+  // The helpers this chat started: their card moves here from above the
+  // message box while the panel is open (WorkersCard), one place at a time.
+  const hasWorkers = useRlmWorkers((s) => workersFor(s.workers, sessionId).length > 0);
+  const page = useBrowser((s) => {
+    const tab = s.tabs.find((t) => t.id === s.active);
+    return tab && tab.url && tab.url !== HOME ? `${tab.title || tab.url}\n${tab.url}` : '';
+  });
+  const still = useReducedMotion();
   const exchanges = useCoworkTranscript((s) => s.exchanges);
   const threadId = useCoworkTranscript((s) => s.activeThreadId);
   const approvals = exchanges.filter((e) => e.kind === 'approval' && e.status === 'running' && !!threadId && e.threadId === threadId);
   const currentId = useConversations((s) => s.currentId);
-  const convo = useConversations((s) => s.list.find((c) => c.id === s.currentId));
   const project = useProjects((s) => (currentId ? s.list.find((p) => p.conversation_ids.includes(currentId)) : undefined));
+  const madeHere = useArtifacts((s) => s.rows.filter((r) => ctx.artifactIds.includes(r.id)).map((r) => r.title).join('\n'));
   // The agent answers with its own pinned model (useCinderpawStore); reading
   // only the chat-mode store said "None chosen" in the middle of a reply from
   // that model (UX lab, item 19).
-  const agentModel = useCinderpawStore((s) => s.modelConfig?.model ?? null);
+  const cinderpawConfig = useCinderpawStore((s) => s.modelConfig);
+  const loaded = useModel((s) => s.loaded);
   const model = useModel((s) => (s.cloudModel ? modelDisplayName(s.cloudModel.modelId) : s.loaded?.name ?? null))
-    ?? (agentModel ? modelDisplayName(agentModel) : null);
+    ?? (cinderpawConfig?.model ? modelDisplayName(cinderpawConfig.model) : null);
   const cloudId = useModel((s) => s.cloudModel?.modelId);
-  const browserUrl = useBrowser((s) => s.url);
-  const browserTitle = useBrowser((s) => s.tabs.find((t) => t.id === s.active)?.title ?? '');
+  const accessMode = useSettings((s) => s.settings?.permission_mode) ?? 'workspace_write';
   const [apps, setApps] = useState<ConnectorView[]>([]);
   useEffect(() => {
     tauri.connectors.list().then(
@@ -355,88 +365,93 @@ export function ContextTab({ onCompose, onAttach }: {
     );
   }, []);
 
-  // A chat not yet titled is named by its first ask, cut at a word, not inside one.
-  const title = convo?.title || (asked.length > 60 ? `${asked.slice(0, 60).replace(/\s\S*$/, '')}…` : asked) || 'New conversation';
-  const running = new Set(toolCalls.flatMap((t) => (t.kind === 'tool' && t.status === 'running' ? [t.name] : [])));
-  const tools = ctx.tools;
-  const nothing = ctx.files.length === 0 && ctx.sources.length === 0 && ctx.memories.length === 0 && approvals.length === 0;
-  const state = status === 'streaming'
-    ? { label: 'In progress', cls: 'bg-success/10 text-success', dot: 'bg-success' }
-    : approvals.length > 0
-      ? { label: 'Needs you', cls: 'bg-brand/10 text-brand', dot: 'bg-brand' }
-      : { label: 'Ready', cls: 'bg-bg-active text-text-secondary', dot: 'bg-text-muted' };
-  const none = (text: string) => <p className="px-1 py-1 text-xs text-text-muted">{text}</p>;
+  const { ctxWindow } = activeContextWindow({ cinderpawConfig, loaded });
+  const pct = ctxWindow ? Math.min(1, (usedSteps * 500) / ctxWindow) : null;
+  const made = madeHere ? madeHere.split('\n') : [];
+  const fileCount = ctx.files.length + ctx.artifactIds.length;
+  const state = status === 'streaming' ? 'Working' : approvals.length > 0 ? 'Needs you' : 'Ready';
+  const count = (n: number, one: string, many: string) => (n === 0 ? 'None' : `${n} ${n === 1 ? one : many}`);
 
   return (
     <ScrollArea className="flex-1">
-      <div className="flex flex-col gap-3 px-4 pb-5">
-        {project && <ProjectGroup project={project} />}
-
-        {messageCount > 0 ? (
-          <div className="flex flex-col gap-2 rounded-2xl border border-brand/20 bg-brand/5 p-4">
-            <span className="flex items-center gap-2 text-sm font-medium text-text-primary">
-              <Activity size={16} className="text-brand" />
-              Current task
-            </span>
-            <h3 className="font-display text-lg leading-snug text-text-primary">{title}</h3>
-            {asked && asked !== title && <p className="line-clamp-3 text-sm text-text-secondary">{asked}</p>}
-            <span className={cn('flex w-fit items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium', state.cls)}>
-              <span className={cn('h-1.5 w-1.5 rounded-full', state.dot)} />
-              {state.label}
-            </span>
-          </div>
-        ) : null}
-
-        {nothing && messageCount === 0 && (
-          <p className="px-1 text-sm text-text-muted">
-            Nothing here yet. Files you add, pages Cinderpaw reads and memories it uses will show up here.
-          </p>
+      <div className="flex flex-col gap-2 px-3 pb-5">
+        {approvals.length > 0 && (
+          <Fold id="ctx-approvals" icon={ShieldCheck} title="Needs your OK" value={String(approvals.length)} alert defaultOpen>
+            {approvals.map((e) => <ApprovalCard key={e.id} e={e} />)}
+          </Fold>
         )}
 
-        <Fold id="ctx-files" icon={Paperclip} title="Files" count={ctx.files.length} onAdd={onAttach} addLabel="Add files">
-          {ctx.files.length > 0 ? (
+        <section aria-label="This chat" className={cn('flex flex-col px-3.5 py-2.5', SQUIRCLE)}>
+          <Line label="Model">
+            {cloudId && <ModelLogo modelId={cloudId} className="size-4 shrink-0" />}
+            <span className="truncate">{model ?? 'None chosen'}</span>
+          </Line>
+          <Line label="Access">
+            <span className={cn('truncate', accessMode === 'full_access' && 'text-warning')}>{MODES[accessMode].label}</span>
+          </Line>
+          <Line label="Status"><span className="truncate">{state}</span></Line>
+        </section>
+
+        <AnimatePresence initial={false}>
+          {hasWorkers && (
+            <Live key="workers" still={still}>
+              <WorkersCard inPanel />
+            </Live>
+          )}
+          {page && (
+            <Live key="page" still={still}>
+              <section aria-label="Browser">
+                <button type="button" onClick={() => useBrowser.getState().setPanel(true)} className={cn('flex h-11 w-full items-center gap-2.5 px-3.5 text-left hover:bg-bg-hover', SQUIRCLE)}>
+                  <Globe size={16} className="shrink-0 text-text-secondary" />
+                  <span className="text-sm font-medium text-text-primary">Browser</span>
+                  <span className="flex-1" />
+                  <span className="min-w-0 truncate text-sm text-text-muted" title={page.split('\n')[1]}>{page.split('\n')[0]}</span>
+                </button>
+              </section>
+            </Live>
+          )}
+        </AnimatePresence>
+
+        {project && <ProjectGroup project={project} />}
+
+        <section aria-label="Context used" className={cn('flex flex-col gap-2 px-3.5 py-3', SQUIRCLE)}>
+          <div className="flex items-center gap-2.5">
+            <Gauge size={16} className="shrink-0 text-text-secondary" />
+            <span className="text-sm font-medium text-text-primary">Context</span>
+            <span className="flex-1" />
+            <span className="text-sm text-text-muted">{pct === null ? 'Unknown' : `${pct < 0.01 ? '<1' : Math.round(pct * 100)}%`}</span>
+          </div>
+          {pct !== null && (
+            <div className="h-1 overflow-hidden rounded-full bg-bg-hover" aria-hidden>
+              <div
+                className={cn('h-full rounded-full', pct >= 0.9 ? 'bg-error' : pct >= 0.75 ? 'bg-warning' : 'bg-text-muted')}
+                style={{ width: `${Math.max(2, pct * 100)}%` }}
+              />
+            </div>
+          )}
+        </section>
+
+        <Fold id="ctx-memory" icon={Brain} title="Memory" value={count(ctx.memories.length, 'used', 'used')} onAdd={onCompose && (() => onCompose('Remember that '))} addLabel="Add a memory">
+          {ctx.memories.length > 0 && <Rows>{ctx.memories.map((m, i) => <MemoryItem key={`${m.kind}-${i}`} m={m} />)}</Rows>}
+        </Fold>
+
+        <Fold id="ctx-files" icon={Paperclip} title="Files" value={count(fileCount, 'file', 'files')} onAdd={onAttach} addLabel="Add files">
+          {fileCount > 0 && (
             <Rows>
               {ctx.files.map((f) => {
                 const t = fileTile(f);
                 return <Row key={`${f.kind}:${f.name}`} tile={<t.icon size={16} className={t.cls} />} title={f.name} sub={t.what} />;
               })}
-            </Rows>
-          ) : none('No files in this chat yet. Added ones go with your next message.')}
-        </Fold>
-
-        <Fold id="ctx-memory" icon={Brain} title="Memory" count={ctx.memories.length} onAdd={onCompose && (() => onCompose('Remember that '))} addLabel="Add a memory">
-          {ctx.memories.length > 0
-            ? <Rows>{ctx.memories.map((m, i) => <MemoryItem key={`${m.kind}-${i}`} m={m} />)}</Rows>
-            : none('Memories Cinderpaw uses in this chat land here.')}
-        </Fold>
-
-        <Fold id="ctx-tools" icon={Wrench} title="Tools in use" count={tools.length}>
-          {tools.length > 0 && (
-            <Rows>
-              {tools.map((tool) => (
-                <Row
-                  key={tool}
-                  tile={<span className="text-base">{emojiForTool(tool)}</span>}
-                  // Words, not the tool id ("context_compaction", "artifact_create").
-                  title={stepTitle({ tool, kind: kindOf(tool), status: 'done', artifact: null })}
-                  sub={running.has(tool) ? 'Running now' : 'Used in this chat'}
-                />
-              ))}
+              {made.map((name) => <Row key={`made:${name}`} tile={<FileText size={16} className="text-brand" />} title={name} sub="Made in this chat" />)}
+              {ctx.artifactIds.length > made.length && (
+                <Row tile={<FileText size={16} className="text-brand" />} title={`${ctx.artifactIds.length - made.length} made in this chat`} sub="Open them from Artifacts" />
+              )}
             </Rows>
           )}
-          {none('Cinderpaw picks the tools it needs for each task.')}
         </Fold>
 
-        <Fold id="ctx-model" icon={Cpu} title="Model" value={<span className="flex min-w-0 items-center gap-1.5 text-sm text-text-secondary">{cloudId && <ModelLogo modelId={cloudId} className="size-4 shrink-0" />}<span className="truncate">{model ?? 'None chosen'}</span></span>}>
-          {none(model ? 'The model answering in this chat. Change it from the picker under the message box.' : 'Pick a model under the message box to start.')}
-        </Fold>
-
-        <Fold id="ctx-approvals" icon={ShieldCheck} title="Approvals needed" count={approvals.length} alert={approvals.length > 0} defaultOpen={approvals.length > 0}>
-          {approvals.length > 0 ? approvals.map((e) => <ApprovalCard key={e.id} e={e} />) : none('Nothing is waiting for you.')}
-        </Fold>
-
-        <Fold id="ctx-sources" icon={Globe} title="Sources" count={ctx.sources.length} onAdd={onCompose && (() => onCompose('Read this page: '))} addLabel="Add a link">
-          {ctx.sources.length > 0 ? (
+        <Fold id="ctx-sources" icon={Globe} title="Sources" value={count(ctx.sources.length, 'page', 'pages')} onAdd={onCompose && (() => onCompose('Read this page: '))} addLabel="Add a link">
+          {ctx.sources.length > 0 && (
             <Rows>
               {ctx.sources.map((h) => (
                 <Row
@@ -452,46 +467,23 @@ export function ContextTab({ onCompose, onAttach }: {
                 />
               ))}
             </Rows>
-          ) : none('Pages Cinderpaw reads or cites in this chat land here.')}
+          )}
         </Fold>
 
-        {(ctx.memories.length > 0 || browserUrl || apps.length > 0 || ctx.files.length + ctx.artifactIds.length > 0) && (
-          <>
-            <h3 className="mt-3 flex items-center gap-3 font-display text-lg text-text-primary">
-              Contextual intelligence
-              <span className="h-px flex-1 bg-border-subtle" />
-            </h3>
-            <div className="grid grid-cols-2 gap-2">
-              {ctx.memories.length > 0 && (
-                <Card icon={Brain} title="Recent memory" sub={`${ctx.memories.length} relevant ${ctx.memories.length === 1 ? 'memory' : 'memories'}`} onOpen={() => reveal('ctx-memory')}>
-                  <span className="line-clamp-2 text-2xs italic text-text-muted">{`"${ctx.memories[0]!.text}"`}</span>
-                </Card>
-              )}
-              {browserUrl && (
-                <Card icon={Globe} title="Live browser page" sub="1 open page" onOpen={() => useBrowser.getState().setPanel(true)}>
-                  <span className="truncate text-2xs text-text-secondary">{browserTitle || browserUrl}</span>
-                </Card>
-              )}
-              {apps.length > 0 && (
-                <Card icon={LayoutGrid} title="Connected apps" sub={`${apps.length} ${apps.length === 1 ? 'source' : 'sources'}`}>
-                  <span className="flex gap-1.5">
-                    {apps.slice(0, 5).map((a) => (a.logo_url
-                      ? <img key={a.id} src={a.logo_url} alt={a.name} className="h-5 w-5 rounded" />
-                      : <span key={a.id} title={a.name} className="flex h-5 w-5 items-center justify-center rounded bg-bg-active text-2xs">{a.name[0]}</span>))}
-                  </span>
-                </Card>
-              )}
-              {ctx.files.length + ctx.artifactIds.length > 0 && (
-                <Card icon={FileText} title="Task context" sub={`${ctx.files.length + ctx.artifactIds.length} relevant ${ctx.files.length + ctx.artifactIds.length === 1 ? 'item' : 'items'}`} onOpen={() => reveal('ctx-files')}>
-                  <span className="flex flex-col gap-0.5">
-                    {ctx.files.slice(0, 3).map((f) => <span key={f.name} className="truncate text-2xs text-text-secondary">{f.name}</span>)}
-                    {ctx.artifactIds.length > 0 && <span className="text-2xs text-text-muted">{`${ctx.artifactIds.length} made in this chat`}</span>}
-                  </span>
-                </Card>
-              )}
-            </div>
-          </>
-        )}
+        <Fold id="ctx-apps" icon={Plug} title="Connected" value={count(apps.length, 'app', 'apps')}>
+          {apps.length > 0 && (
+            <Rows>
+              {apps.map((a) => (
+                <Row
+                  key={a.id}
+                  tile={a.logo_url ? <img src={a.logo_url} alt="" className="h-4 w-4 rounded" /> : <span className="text-2xs">{a.name[0]}</span>}
+                  title={a.name}
+                  sub={a.linked ? 'Connected' : 'Set up'}
+                />
+              ))}
+            </Rows>
+          )}
+        </Fold>
       </div>
     </ScrollArea>
   );

@@ -60,6 +60,9 @@ interface UIStore {
    *  here — the rail answers "where do I want to go" and nothing else. */
   navCollapsed: boolean;
   toggleNav: () => void;
+  /** The Context cards beside a chat: open by default, the person may close them. */
+  contextOpen: boolean;
+  setContextOpen: (open: boolean) => void;
   /** Starred chat ids, newest star first. Per machine, like everything here. */
   starredChats: string[];
   toggleStar: (id: string) => void;
@@ -194,6 +197,8 @@ export const useUI = create<UIStore>()(
     (set) => ({
       navCollapsed: false,
       toggleNav: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
+      contextOpen: true,
+      setContextOpen: (contextOpen) => set({ contextOpen }),
       starredChats: [],
       toggleStar: (id) => set((s) => ({
         starredChats: s.starredChats.includes(id)
@@ -262,6 +267,7 @@ export const useUI = create<UIStore>()(
       name: 'cinderpaw-ui',
       partialize: (s) => ({
         navCollapsed: s.navCollapsed,
+        contextOpen: s.contextOpen,
         starredChats: s.starredChats,
         theme: s.theme,
         mascotEnabled: s.mascotEnabled,

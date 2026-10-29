@@ -15,6 +15,7 @@ import { ModelLogo } from '@/lib/modelLogos';
 import { RolesTab } from '@/components/models/RolesTab';
 import { LeaderboardTab } from '@/components/models/LeaderboardTab';
 import { cn } from '@/lib/utils';
+import { BASE } from '@/lib/motion';
 
 type Tab = 'local' | 'browse' | 'cloud' | 'roles' | 'leaderboard';
 const TABS: readonly Tab[] = ['local', 'browse', 'cloud', 'roles', 'leaderboard'];
@@ -78,7 +79,7 @@ export function ModelsPage() {
                 initial={{ opacity: 0, y: 6, scale: 0.97 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.2 }}
+                transition={BASE}
                 className="relative mb-16 max-w-[210px] rounded-2xl border border-border-subtle bg-bg-surface px-4 py-3 text-sm leading-snug text-text-secondary shadow-sm"
               >
                 {hero.line}
@@ -112,7 +113,7 @@ export function ModelsPage() {
                   <motion.span
                     layoutId="models-tab"
                     className="absolute inset-0 rounded-xl bg-brand/10 ring-1 ring-brand/20"
-                    transition={{ type: 'spring', stiffness: 500, damping: 38 }}
+                    transition={BASE}
                   />
                 )}
                 <span className="relative inline-flex items-center gap-2">{icon}{label}</span>
@@ -129,7 +130,7 @@ export function ModelsPage() {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
+            transition={BASE}
             className="pt-7"
           >
             {tab === 'local' ? <LocalModelsTab onBrowse={() => setTab('browse')} /> : null}

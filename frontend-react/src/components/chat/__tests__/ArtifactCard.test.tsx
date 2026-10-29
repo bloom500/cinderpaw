@@ -82,7 +82,7 @@ describe('ArtifactCard', () => {
     engineReturns(PLAN_MD);
     render(<ArtifactCard f={PLAN} />);
     await userEvent.click(await screen.findByRole('button', { name: /Budget/ }));
-    expect(useArtifacts.getState().panelOpen).toBe(true);
+    await waitFor(() => expect(useArtifacts.getState().panelOpen).toBe(true));
     expect(useArtifacts.getState().openArtifact).toHaveBeenCalledWith('a1', 'Budget');
   });
 
@@ -124,8 +124,21 @@ describe('ArtifactCard', () => {
     engineReturns(PLAN_MD);
     render(<ArtifactCard f={PLAN} />);
     await userEvent.click(screen.getByRole('button', { name: 'Open Launch week' }));
-    expect(useArtifacts.getState().panelOpen).toBe(true);
+    await waitFor(() => expect(useArtifacts.getState().panelOpen).toBe(true));
     expect(useArtifacts.getState().openArtifact).toHaveBeenCalledWith('a1');
+  });
+
+  // 29 Oct, recording C4: opened first, the panel showed the list and a
+  // spinner, then the artifact, then its versions. It comes in filled now.
+  it('slides the panel in only once the artifact is in it', async () => {
+    engineReturns(PLAN_MD);
+    let loaded!: () => void;
+    useArtifacts.setState({ openArtifact: vi.fn(() => new Promise<void>((done) => { loaded = done; })) });
+    render(<ArtifactCard f={PLAN} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Open Launch week' }));
+    expect(useArtifacts.getState().panelOpen).toBe(false);
+    loaded();
+    await waitFor(() => expect(useArtifacts.getState().panelOpen).toBe(true));
   });
 
   it('offers a PDF for a plan, and the page itself for a chart', async () => {

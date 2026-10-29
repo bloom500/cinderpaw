@@ -139,7 +139,7 @@ export function StreamingIndicator({ phase = 'thinking', tool, icon }: Streaming
           "working" at a glance, a pulse reads as "waiting for something". */}
       {icon ?? <MessageLoading className="shrink-0" />}
       <span
-        style={{ transition: 'opacity 120ms ease' }}
+        style={{ transition: 'opacity var(--motion-fast) var(--motion-ease)' }}
         className={visible ? 'opacity-100' : 'opacity-0'}
       >
         {label}

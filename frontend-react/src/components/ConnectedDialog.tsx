@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { tauri } from '@/lib/tauri';
 import { useConnected } from '@/stores/connected';
 import { useConversations } from '@/stores/conversations';
+import { BASE, MOTION } from '@/lib/motion';
 
 /** "search_pages" → "Search pages". */
 const pretty = (name: string) => {
@@ -26,7 +27,7 @@ function ConnectPair({ logoId, name }: { logoId: string; name: string }) {
   const slide = (from: number, rotate: number) =>
     still
       ? { initial: false as const, animate: { x: 0, rotate } }
-      : { initial: { x: from, rotate: 0, opacity: 0 }, animate: { x: 0, rotate, opacity: 1 }, transition: { type: 'spring' as const, stiffness: 320, damping: 18 } };
+      : { initial: { x: from, rotate: 0, opacity: 0 }, animate: { x: 0, rotate, opacity: 1 }, transition: BASE };
   return (
     // A gap, not an overlap: the tiles are translucent, and overlapped their
     // borders crossed and the two looked woven together (Darius, 22 Oct).
@@ -41,7 +42,7 @@ function ConnectPair({ logoId, name }: { logoId: string; name: string }) {
         className="absolute left-1/2 top-[66px] -ml-3.5 flex size-7 items-center justify-center rounded-full bg-success text-white ring-4 ring-bg-primary"
         initial={still ? false : { scale: 0 }}
         animate={{ scale: 1 }}
-        transition={{ delay: 0.35, type: 'spring', stiffness: 500, damping: 16 }}
+        transition={{ ...BASE, delay: MOTION.base }}
       >
         <Check size={16} strokeWidth={3} />
       </motion.span>

@@ -14,7 +14,12 @@ const ScrollArea = React.forwardRef<
     className={cn("relative overflow-hidden", className)}
     {...props}
   >
-    <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]">
+    {/* Radix lays the content out as `display: table`, which grows to its
+        widest line: one long memory made every card in the Context panel
+        wider than the panel, and its chevron left the screen (29 Oct). This
+        scroll area only scrolls down, so the content takes the viewport's
+        width and long lines truncate or wrap instead. */}
+    <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit] [&>div]:block!">
       {children}
     </ScrollAreaPrimitive.Viewport>
     <ScrollBar />
