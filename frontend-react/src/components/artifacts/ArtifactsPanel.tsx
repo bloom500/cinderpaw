@@ -167,6 +167,14 @@ export function ArtifactsPanel({
       panelMotionExit();
     };
   }, []);
+  // The sheet stays opaque both ways: faded over the Context cards it was two
+  // pictures at once for ~0.12 s (recording, 29 Oct). It settles in from 32px
+  // and leaves by sliding out past the window's right edge (12px = mr-3). Not
+  // in from the edge too: the frames spent mounting it ate ~90% of that slide
+  // in the dev build, so it read as a jump.
+  const sheet = tab !== 'context';
+  const enter = sheet ? { x: 32 } : { x: 32, opacity: 0 };
+  const leave = sheet ? { x: 'calc(100% + 12px)' } : { x: 32, opacity: 0 };
   const drag = useRef<{ x: number; w: number } | null>(null);
   const resizeTo = (w: number) => setWidth(clampWidth(w, rowWidth()));
   // A mouse reports moves faster than the screen draws: keep the newest and
@@ -181,9 +189,9 @@ export function ArtifactsPanel({
     // Transform and opacity are composited, so the chat reflows once.
     <motion.aside
       ref={asideRef}
-      initial={{ x: 32, opacity: 0 }}
+      initial={enter}
       animate={{ x: 0, opacity: 1 }}
-      exit={{ x: 32, opacity: 0 }}
+      exit={leave}
       // Context is a quiet column beside the chat (his ask, 29 Oct: like Claude's
       // side cards), not a resizable sheet.
       style={compact ? undefined : { width: tab === 'context' ? CONTEXT_WIDTH : width }}

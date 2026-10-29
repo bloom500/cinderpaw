@@ -1998,6 +1998,12 @@ span.ember-caret {
   background-color: #000;
   backdrop-filter: none;
 }
+/* Opaque in Ivory too, at the shade its 40% sheet used to show: it slides over
+   the Context cards, and a see-through sheet showed them through it. */
+:root[data-theme="light"] .artifact-sheet {
+  background-color: #F2EADE;
+  backdrop-filter: none;
+}
 
 /* The model switcher is a Dynamic Island (his pick of three mockups, 26 Oct):
    the menu lies over its own button and grows out of it, bottom-left first.
