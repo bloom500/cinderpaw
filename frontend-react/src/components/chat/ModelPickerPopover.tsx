@@ -62,13 +62,13 @@ function RoleRows({ roles, active, firstLocal, candidates, onPick }: {
               onSelect={(e) => { if (!m) e.preventDefault(); }}
               onClick={() => { if (m) onPick(m); }}
               className={cn(
-                'mb-1 flex items-center gap-3 rounded-xl border p-2.5',
+                'mb-0.5 flex items-start gap-2.5 rounded-xl border px-2.5 py-2',
                 on ? 'border-brand/50 bg-bg-active' : 'border-transparent',
               )}
             >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-bg-active text-brand">
-                <r.icon size={20} />
-              </span>
+              {/* A plain mark on the name's line, not a 36 px tile: the tiles
+                  made four rows read as four cards. */}
+              <r.icon size={16} className="mt-0.5 shrink-0 text-brand" />
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2">
                   <span className="shrink-0 text-sm font-semibold text-text-primary">{r.label}</span>
@@ -458,18 +458,19 @@ export function ModelPickerPopover() {
         align="start"
         sideOffset={-(triggerRef.current?.offsetHeight ?? 32)}
         collisionPadding={12}
-        // 26rem, not 22: at 22 every role's line ended in "…" ("Balanced for
-        // most t…", 28 Oct). Wider first; a line that still does not fit wraps.
-        className="model-island relative w-[26rem] overflow-visible rounded-3xl p-0"
+        // 22rem again since 29 Oct: at 22 the roles' lines once ended in "…"
+        // ("Balanced for most t…", 28 Oct) because the model's name sat beside
+        // them; it sits on the role's own line now, so every line has the width.
+        className="model-island relative w-[22rem] overflow-visible rounded-3xl p-0"
       >
         {/* The Model Switcher (spec 8): roles first, the head peeking over the
             top edge. Not clipped: the scroll lives on the inner box. */}
         <img src={logoUrl} alt="" className="pointer-events-none absolute -top-9 right-6 h-12 w-12" />
         <div className="model-island-body max-h-[min(55vh,30rem)] overflow-y-auto thin-scrollbar p-2">
-        <div className="px-2 pb-2 pt-1">
-          <p className="font-display text-lg leading-tight text-text-primary">Model Switcher</p>
-          <p className="text-xs text-text-muted">Choose the best model for your task.</p>
-        </div>
+        {/* Named for screen readers only: on screen the button it grows out of
+            already says what this is, and the title and subtitle cost the list
+            ~50 px of height (his "prea mare", 29 Oct). */}
+        <p className="sr-only">Model Switcher</p>
         <RoleRows roles={roles} active={active} firstLocal={firstLocal} candidates={candidates} onPick={pick} />
         <DropdownMenuSeparator />
         {!hasLocal && !hasCloud ? (
