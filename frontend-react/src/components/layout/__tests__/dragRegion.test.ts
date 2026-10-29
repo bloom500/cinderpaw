@@ -4,6 +4,10 @@ import { describe, it, expect } from 'vitest';
 // test suite. Vite hands the file over as a string and TypeScript knows it.
 import shellSource from '../AppShell.tsx?raw';
 import callOverlaySource from '@/components/chat/CallOverlay.tsx?raw';
+// The stylesheet through node:fs, as palette.test.ts reads it: vitest hands a
+// `.css?raw` import back empty.
+import { readFileSync } from 'node:fs';
+const css = readFileSync('src/styles/globals.css', 'utf8');
 
 /**
  * The window has no decorations, so `data-tauri-drag-region` is the only way to
@@ -26,5 +30,17 @@ describe('window dragging', () => {
    */
   it('the call overlay carries its own, because it covers the shell', () => {
     expect(callOverlaySource).toContain('data-tauri-drag-region');
+  });
+
+  /**
+   * Through the page, a drag started only after a round trip to the app, and
+   * from wherever the cursor had got to by then: 155 ms and 124 px behind on a
+   * first drag (29 Oct). As an OS caption it starts in ~20 ms like any window.
+   * The second half matters as much: a button inside a drag region that loses
+   * `no-drag` becomes part of the title bar and stops being clickable.
+   */
+  it('on Windows the drag regions are a real title bar, and their controls stay clickable', () => {
+    expect(css).toMatch(/\[data-tauri-drag-region\]:not\(\[data-tauri-drag-region="false"\]\)\s*\{\s*app-region:\s*drag;/);
+    expect(css).toMatch(/\[data-tauri-drag-region\] :is\(button, a, input,[^)]*\)[^{]*\{\s*app-region:\s*no-drag;/);
   });
 });

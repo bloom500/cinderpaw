@@ -840,6 +840,21 @@
 html {
   text-shadow: var(--text-outline);
 }
+/* ── The title bar is the OS's own ─────────────────────────────────────────
+   The window has no decorations, so `data-tauri-drag-region` started every
+   drag in the page: mousedown, a call to the app, and only then the OS move,
+   from wherever the cursor had got to by then. Measured 29 Oct: 9-16 ms most
+   times, 155 ms on the first drag after a pause, and the window then trailed
+   the cursor by the 124 px it missed for the whole drag. `app-region: drag`
+   hands the press to Windows as a real caption (WebView2 non-client regions,
+   which wry switches on), so it moves like any other window, double-click
+   maximises and right-click opens the system menu. Controls inside a drag
+   region stay clickable. macOS and Linux ignore the property and keep the
+   page path. */
+[data-tauri-drag-region]:not([data-tauri-drag-region="false"]) { app-region: drag; }
+[data-tauri-drag-region] :is(button, a, input, textarea, select, summary, label, [role="button"], [role="menuitem"], [contenteditable="true"], [tabindex]:not([tabindex="-1"])),
+[data-tauri-drag-region="false"] { app-region: no-drag; }
+
 /* ── Native controls follow the theme, not the OS ─────────────────────────
    A checkbox, a range slider, a select's popup are drawn by the engine in the
    colour scheme it believes the page has; nothing declared one, so they
