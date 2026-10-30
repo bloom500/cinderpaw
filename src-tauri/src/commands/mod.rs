@@ -12,6 +12,7 @@ pub mod chat;
 pub mod conversations;
 pub mod cinderpaw;
 pub mod files;
+pub mod video;
 pub mod google;
 pub mod live;
 pub mod livekit;
@@ -29,6 +30,7 @@ pub(crate) use chat::*;
 pub(crate) use conversations::*;
 pub(crate) use cinderpaw::*;
 pub(crate) use files::*;
+pub(crate) use video::*;
 pub(crate) use google::*;
 pub(crate) use live::*;
 pub(crate) use livekit::*;
@@ -150,7 +152,9 @@ mod command_count_test {
     // 199 -> 200 = + connectors::connectors_save_secret (the desktop's password
     // field saves a connector's or a web extension's key, 21 Oct 2026).
     // 200 -> 201 = + cinderpaw_cron_op (the Tasks page and the task card, 24 Oct 2026).
-    const EXPECTED_COMMAND_COUNT: usize = 201;
+    // 201 -> 207 = + allow_video_preview, video_tools_ready, install_video_tools,
+    // video_link_info, video_link_preview, video_link_full (videos in the chat, 29-30 Oct 2026).
+    const EXPECTED_COMMAND_COUNT: usize = 207;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

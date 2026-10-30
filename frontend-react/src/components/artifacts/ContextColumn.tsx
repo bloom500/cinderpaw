@@ -1,5 +1,4 @@
 import { motion } from 'framer-motion';
-import { ArtifactClose } from '@/components/ai-elements/artifact';
 import { useArtifacts } from '@/stores/artifacts';
 import { useBrowser } from '@/stores/browser';
 import { useUI } from '@/stores/ui';
@@ -81,10 +80,8 @@ export function ContextColumn({ covered = false, onCompose, onAttach }: {
       )}
       inert={covered}
     >
-      <div className="flex shrink-0 items-center justify-between gap-2 px-4 pb-2 pt-1">
-        <h2 className="text-sm font-medium text-text-secondary">Context</h2>
-        <ArtifactClose onClick={() => useUI.getState().setContextOpen(false)} aria-label="Close context" />
-      </div>
+      {/* No title and no X of its own: the header's Context button above opens
+          and closes it, and a second close two inches away was a duplicate (Darius, 29 Oct). */}
       <ContextTab onCompose={onCompose} onAttach={onAttach} />
     </motion.aside>
   );

@@ -338,6 +338,41 @@ describe("paying on any site waits for the person", () => {
     expect(t.calls).toEqual(["browser.snapshot"]);
   });
 
+  test("booking buttons in English, Romanian, German, French and Spanish are asked about, on any site", async () => {
+    for (const name of ["Schedule Event", "Book now", "Book", "Reserve a table", "Complete booking", "Confirm appointment",
+      "Programează", "Rezervă acum", "Termin buchen", "Réserver", "Agendar"]) {
+      const t = store(shop(name, "https://restaurant.example/table"));
+      await t.tool.execute({ action: "snapshot" }, t.ctx);
+      expect({ name, res: await t.tool.execute({ action: "click", ref: "2" }, t.ctx) }).toMatchObject({ name, res: { error: "booking_needs_approval" } });
+      expect(t.calls).toEqual(["browser.snapshot"]);
+    }
+  });
+
+  test("the person says yes: the booking goes through; no: it does not", async () => {
+    const yes = store(shop("Schedule Event", "https://calendly.com/ana/30min"), "Yes, book it");
+    await yes.tool.execute({ action: "snapshot" }, yes.ctx);
+    expect((await yes.tool.execute({ action: "click", ref: "2" }, yes.ctx)).ok).toBe(true);
+    expect(yes.asked[0]).toStartWith('true:Booking:Cinderpaw wants to press "Schedule Event" on calendly.com. This may book or schedule something in your name.');
+    const no = store(shop("Schedule Event", "https://calendly.com/ana/30min"), "No, don't book");
+    await no.tool.execute({ action: "snapshot" }, no.ctx);
+    expect(await no.tool.execute({ action: "click", ref: "2" }, no.ctx)).toMatchObject({ ok: false, error: "booking_declined" });
+    expect(no.calls).toEqual(["browser.snapshot"]);
+  });
+
+  test("a bare Confirm or a submitted form books on a scheduling site, not elsewhere; Books and Bookmarks never", async () => {
+    for (const url of ["https://cal.com/ana/15min", "https://app.savvycal.com/x"]) {
+      const t = store(shop("Confirm", url));
+      await t.tool.execute({ action: "snapshot" }, t.ctx);
+      expect({ url, res: await t.tool.execute({ action: "click", ref: "2" }, t.ctx) }).toMatchObject({ url, res: { error: "booking_needs_approval" } });
+      expect({ url, res: await t.tool.execute({ action: "type", ref: "1", text: "Ana", submit: true }, t.ctx) }).toMatchObject({ url, res: { error: "booking_needs_approval" } });
+    }
+    for (const name of ["Confirm", "Books", "Bookmark", "Facebook", "Notebook"]) {
+      const t = store(shop(name, "https://librarie.example/home"));
+      await t.tool.execute({ action: "snapshot" }, t.ctx);
+      expect({ name, ok: (await t.tool.execute({ action: "click", ref: "2" }, t.ctx)).ok }).toEqual({ name, ok: true });
+    }
+  });
+
   test("on a checkout page an unread control, or a submitted form, is asked about too", async () => {
     const t = store(shop("Continue", "https://florarie.ro/checkout/payment"));
     await t.tool.execute({ action: "open", url: "https://florarie.ro/checkout/payment" }, t.ctx);

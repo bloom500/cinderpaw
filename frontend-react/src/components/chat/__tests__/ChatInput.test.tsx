@@ -190,7 +190,7 @@ describe('a message written while a reply is arriving', () => {
 describe('a file dropped on the composer', () => {
   it('is attached through the same helper as a paste', async () => {
     const attachments = await import('@/lib/attachments');
-    const spy = vi.spyOn(attachments, 'attachmentsFromClipboard').mockResolvedValue([]);
+    const spy = vi.spyOn(attachments, 'pendingFromClipboard').mockReturnValue([]);
     render(<ChatInput sendFn={vi.fn(async () => {})} />);
     const composer = screen.getByRole('textbox').closest('[class*="rounded-[28px]"]') as HTMLElement;
     expect(composer).not.toBeNull();
@@ -202,6 +202,27 @@ describe('a file dropped on the composer', () => {
     fireEvent.drop(composer, { dataTransfer });
     await waitFor(() => expect(spy).toHaveBeenCalledWith(dataTransfer));
     expect(composer.className).not.toContain('border-dashed');
+  });
+});
+
+describe('a file on its way in', () => {
+  it('shows by name at once and fills in when read; send waits for it', async () => {
+    const attachments = await import('@/lib/attachments');
+    let finish!: (f: import('../AttachedFileChip').AttachedFile) => void;
+    const ready = new Promise<import('../AttachedFileChip').AttachedFile>((r) => { finish = r; });
+    vi.spyOn(attachments, 'pendingFromClipboard').mockReturnValue([{ name: 'report.pdf', ready }]);
+    const sendFn = vi.fn(async () => {});
+    render(<ChatInput sendFn={sendFn} />);
+    const composer = screen.getByRole('textbox').closest('[class*="rounded-[28px]"]') as HTMLElement;
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.drop(composer, { dataTransfer: { types: ['Files'], items: [], files: [] } as unknown as DataTransfer });
+    expect(await screen.findByText('report.pdf')).toBeInTheDocument();
+    expect(screen.getByLabelText('Reading')).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+    expect(sendFn).not.toHaveBeenCalled();
+    finish({ name: 'report.pdf', path: 'C:/report.pdf', content: 'the report' });
+    await waitFor(() => expect(screen.queryByLabelText('Reading')).toBeNull());
+    expect(screen.getByText('report.pdf')).toBeInTheDocument();
   });
 });
 

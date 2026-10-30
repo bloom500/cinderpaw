@@ -678,6 +678,12 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             read_file_as_data_url,
             extract_file_text,
             stage_pasted_file,
+            allow_video_preview,
+            video_tools_ready,
+            install_video_tools,
+            video_link_info,
+            video_link_preview,
+            video_link_full,
             skills::list_installed_skills,
             skills::get_installed_skill_content,
             skills::fetch_remote_skills,
@@ -1090,6 +1096,20 @@ Everything is there and nothing is at risk. Cinderpaw will                      
                         Box::pin(async move {
                             if let Some(op) = action.strip_prefix("browser.") {
                                 return crate::browser::handle_from_agent(browser_app, op, &params).await;
+                            }
+                            // `video.*`: the agent watching a link or a local video. A
+                            // local path passes the same wall as the chat's file readers,
+                            // with the agent's own door: its workspace, where it renders
+                            // the videos it makes (the agent's fs wall exempts it too).
+                            if let Some(op) = action.strip_prefix("video.") {
+                                if let Some(src) = params["source"].as_str().filter(|s| !s.starts_with("http")) {
+                                    let canonical = std::fs::canonicalize(src).map_err(|e| format!("Invalid path: {e}"))?;
+                                    let ws = cinderpaw_core::paths::cinderpaw_agent_workspace_path();
+                                    if !ws.canonicalize().is_ok_and(|ws| canonical.starts_with(ws)) {
+                                        crate::commands::files::deny_cinderpaw_private(&canonical)?;
+                                    }
+                                }
+                                return cinderpaw_core::video::handle_from_agent(op, &params).await;
                             }
                             crate::desktop_control::handle_request(&action, &params).await
                         })

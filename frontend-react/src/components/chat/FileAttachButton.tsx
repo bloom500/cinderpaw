@@ -1,21 +1,16 @@
 import { Paperclip } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import type { AttachedFile } from './AttachedFileChip';
-import { attachmentFromPath } from '@/lib/attachments';
-
 interface Props {
-  onFilesSelected: (files: AttachedFile[]) => void;
+  /** The picked paths, handed over at once: the composer shows them while they are read. */
+  onPathsSelected: (paths: string[]) => void;
 }
 
-export function FileAttachButton({ onFilesSelected }: Props) {
+export function FileAttachButton({ onPathsSelected }: Props) {
   const handleClick = async () => {
     const result = await open({ multiple: true });
     if (!result) return;
-
-    const paths = Array.isArray(result) ? result : [result];
-    const files: AttachedFile[] = await Promise.all(paths.map(attachmentFromPath));
-    onFilesSelected(files);
+    onPathsSelected(Array.isArray(result) ? result : [result]);
   };
 
   return (

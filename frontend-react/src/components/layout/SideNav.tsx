@@ -115,7 +115,7 @@ function Row({
   const classes = (isActive: boolean) => cn(
     // 15px in the secondary tone, white only where you are: the same weight
     // read heavy at 14.5px in full white next to Claude's lighter rail.
-    'w-full flex items-center gap-3 h-9 px-3 rounded-[10px] text-[15px] transition-colors cursor-pointer',
+    'w-full flex items-center gap-3 h-9 px-3 rounded-[10px] text-sm transition-colors cursor-pointer',
     collapsed && 'justify-center px-0',
     isActive ? 'bg-bg-active text-text-primary' : cn(ROW_HOVER, 'text-text-secondary hover:text-text-primary'),
   );

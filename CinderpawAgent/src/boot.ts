@@ -193,6 +193,7 @@ import { DesktopControlBridgeImpl } from "./core/desktop-control-bridge.ts";
 import { RequestBridge } from "./core/request-bridge.ts";
 import { createComputerUseTool } from "./tools/builtin/computer-use.ts";
 import { createBrowserTool } from "./tools/builtin/browser.ts";
+import { createWatchVideoTool } from "./tools/builtin/watch-video.ts";
 import { LeadDesk } from "./core/lead-desk.ts";
 import { createCaptureLeadTool } from "./tools/builtin/capture-lead.ts";
 import { createEscalateToHumanTool } from "./tools/builtin/escalate-to-human.ts";
@@ -1022,6 +1023,8 @@ export async function boot(transportOverride?: Transport) {
   // drives one web page inside Cinderpaw's own window, not the machine. Outside
   // the desktop app it says it is unavailable.
   registry.register(createBrowserTool());
+  // Videos as pictures + words, for every model; the host does the downloading.
+  registry.register(createWatchVideoTool());
   if (cfgBool("CINDERPAW_ENABLE_DESKTOP_CONTROL")) {
     registry.register(createComputerUseTool());
     log("computer_use enabled (CINDERPAW_ENABLE_DESKTOP_CONTROL=true) — OS desktop control is active");

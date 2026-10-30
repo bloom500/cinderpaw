@@ -3,7 +3,7 @@ import { tauri, type PersistedMessage, type ConversationSummary } from '@/lib/ta
 import { rehydrateLiveSession } from '@/lib/cinderpawLiveSession';
 import { voiceToPersisted, voiceFromPersisted } from '@/lib/messageMapping';
 import { toolsFromPersisted } from '@/hooks/useLiveToolActivity';
-import { memoryUsedFrom, turnEndFrom, useChat, type ChatMessage } from './chat';
+import { contextLanesFrom, memoryUsedFrom, turnEndFrom, useChat, type ChatMessage } from './chat';
 import { useNotifications } from './notifications';
 import { useFollowUps } from './followUps';
 import { useArtifacts } from './artifacts';
@@ -71,6 +71,7 @@ function toChatMessage(p: PersistedMessage, idx: number): ChatMessage {
     toolActivity: toolsFromPersisted(p.tools),
     ended: turnEndFrom(p.ended),
     memoryUsed: memoryUsedFrom(p.memory_used),
+    contextLanes: contextLanesFrom(p.context_lanes),
     // The real time, when the file has it. The fallback is the old fabricated
     // ladder, kept only for conversations saved before the field existed —
     // those genuinely have no timestamp to restore.
@@ -93,6 +94,7 @@ function toPersisted(m: ChatMessage): PersistedMessage {
     created_at: m.createdAt,
     ended: m.ended,
     memory_used: m.memoryUsed?.length ? m.memoryUsed : undefined,
+    context_lanes: m.contextLanes,
   };
 }
 

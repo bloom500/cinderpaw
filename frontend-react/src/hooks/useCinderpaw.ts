@@ -8,7 +8,7 @@
 import { useEffect, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import { useChat, type ChatMessage, type MemoryUsedItem, type TurnEnd, TOOL_CALL_LINGER_MS } from '@/stores/chat';
+import { useChat, type ChatMessage, type ContextLane, type MemoryUsedItem, type TurnEnd, TOOL_CALL_LINGER_MS } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
 import { useAgent } from '@/stores/agent';
 import { useModel } from '@/stores/model';
@@ -52,7 +52,7 @@ interface StreamCallbacks {
   onTruncated?: (reason: string) => void;
   onToolStart?: (callId: string, tool: string, args: Record<string, unknown>) => void;
   onToolDone?:  (callId: string, tool: string, result: unknown) => void;
-  onUsage?:     (promptTokens: number, completionTokens: number) => void;
+  onUsage?:     (promptTokens: number, completionTokens: number, lanes?: { label: string; tokens: number }[]) => void;
   onMemoryUsed?: (items: MemoryUsedItem[]) => void;
   /**
    * React-side id of the assistant message that this stream will populate.
@@ -289,6 +289,8 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         // The memories this turn was given, kept here so a reply that finishes
         // while another chat is on screen still saves them.
         memoryUsed: undefined as MemoryUsedItem[] | undefined,
+        // What the prompt was made of, saved with the reply for the Context card.
+        contextLanes: undefined as ContextLane[] | undefined,
       };
       /**
        * A turn that ends with a tool still open never gets that tool's result.
@@ -342,6 +344,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           created_at: m.createdAt,
           ended: m.id === asstId ? state.ended : m.ended,
           memory_used: mem?.length ? mem : undefined,
+          context_lanes: m.id === asstId ? state.contextLanes : m.contextLanes,
           }; });
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted, agentId);
@@ -519,13 +522,15 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           state.memoryUsed = items;
           if (isActive()) useChat.getState().updateLastAssistantMessage({ memoryUsed: items });
         },
-        onUsage: (promptTokens, completionTokens) => {
+        onUsage: (promptTokens, completionTokens, lanes) => {
           // Real per-completion token counts from the sidecar router. Mirror
           // them so the context ring rehydrates correctly after a tab switch,
           // and push to the store live when this session is on screen.
           updateLiveSession(sessionId, { promptTokens, completionTokens });
+          if (lanes?.length) state.contextLanes = lanes;
           if (isActive()) {
             useChat.getState().setLiveTokens(promptTokens, completionTokens);
+            if (lanes?.length) useChat.getState().updateLastAssistantMessage({ contextLanes: lanes });
           }
         },
         onDone: async (finalContent?: string, stopped = false) => {

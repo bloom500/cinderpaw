@@ -45,6 +45,7 @@ pub mod sidecar_protocol;
 pub mod sysinfo_mod;
 pub mod toolchain;
 pub mod tools;
+pub mod video;
 pub mod utf8_stream;
 pub mod moonshine;
 /// Which on-device transcriber this build has. Both doors into local STT ask

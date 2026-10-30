@@ -287,7 +287,7 @@ fn portable_serves(name: &str) -> bool {
 /// binary lands directly in the tool dir. Zip-slip safety comes from the
 /// zip crate's sanitized `extract`. With `sha256`, a download that does not
 /// match is refused before anything is unpacked.
-async fn fetch_and_extract(url: &str, name: &str, sha256: Option<&str>) -> Result<(), String> {
+pub(crate) async fn fetch_and_extract(url: &str, name: &str, sha256: Option<&str>) -> Result<(), String> {
     let bytes = reqwest::get(url)
         .await
         .map_err(|e| format!("download {url}: {e}"))?
@@ -307,16 +307,17 @@ async fn fetch_and_extract(url: &str, name: &str, sha256: Option<&str>) -> Resul
     let _ = std::fs::remove_dir_all(&staging);
 
     let staging_clone = staging.clone();
-    let tarball = url.ends_with(".tar.gz");
+    let tarball = url.ends_with(".tar.gz") || url.ends_with(".tar.xz");
+    let xz = url.ends_with(".tar.xz");
     tokio::task::spawn_blocking(move || -> Result<(), String> {
         std::fs::create_dir_all(&staging_clone).map_err(|e| format!("mkdir staging: {e}"))?;
         if tarball {
             // `tar` ships with every mac and linux, and keeps node's
             // executable bits and its bin/npm symlink, as `fetch_server` does.
-            let file = staging_clone.with_extension("tar.gz");
+            let file = staging_clone.with_extension(if xz { "tar.xz" } else { "tar.gz" });
             std::fs::write(&file, &bytes).map_err(|e| format!("write archive: {e}"))?;
             let ok = std::process::Command::new("tar")
-                .arg("xzf")
+                .arg(if xz { "xJf" } else { "xzf" })
                 .arg(&file)
                 .arg("-C")
                 .arg(&staging_clone)

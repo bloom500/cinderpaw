@@ -93,7 +93,7 @@ export function SettingsPage() {
             aria-current={cat === c.id ? 'page' : undefined}
             // The sidebar's own type: 15px, secondary tone, white only where you are.
             className={cn(
-              'flex items-center gap-2.5 px-4 py-2 text-[15px] text-left transition-colors',
+              'flex items-center gap-2.5 px-4 py-2 text-sm text-left transition-colors',
               cat === c.id
                 ? 'bg-bg-active text-text-primary'
                 : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',

@@ -36,7 +36,7 @@ export interface CinderpawStreamHandlers {
   onStopped?: () => void;
   onToolStart?: (callId: string, tool: string, args: Record<string, unknown>) => void;
   onToolDone?: (callId: string, tool: string, result: unknown) => void;
-  onUsage?: (promptTokens: number, completionTokens: number) => void;
+  onUsage?: (promptTokens: number, completionTokens: number, lanes?: { label: string; tokens: number }[]) => void;
   /** The memories the agent was given for this turn (`memory_used`). */
   onMemoryUsed?: (items: MemoryUsedItem[]) => void;
   onAskUser?: (
@@ -194,7 +194,7 @@ _${parsed.diagnostic}_`
         });
         break;
       case 'usage':
-        if (parsed.id) inflight.get(parsed.id)?.onUsage?.(parsed.promptTokens, parsed.completionTokens);
+        if (parsed.id) inflight.get(parsed.id)?.onUsage?.(parsed.promptTokens, parsed.completionTokens, parsed.lanes);
         break;
       case 'memory_used':
         if (parsed.id && Array.isArray(parsed.items)) inflight.get(parsed.id)?.onMemoryUsed?.(parsed.items);

@@ -6,6 +6,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AttachedFileChip, isLongPaste, pastedText, type AttachedFile } from './AttachedFileChip';
 import { LinkChip } from './LinkChip';
+import { VideoLinkCard } from './VideoLinkCard';
+import { isVideoLink } from '@/lib/videoLinks';
 import { splitLinks } from '@/lib/linkLabel';
 import { FileAttachButton } from './FileAttachButton';
 import { VoicePreview } from './VoicePreview';
@@ -33,7 +35,7 @@ import { useLiveKitCallSession } from '@/hooks/useLiveKitCallSession';
 import { useCallPill, hangUpLandsOn } from '@/lib/callPill';
 import { useJevCallSession } from '@/hooks/useJevCallSession';
 import { JEV_PROVIDER_ID } from './JevKeyRow';
-import { attachmentFromPath, attachmentsFromClipboard } from '@/lib/attachments';
+import { pendingFromClipboard, pendingFromPaths, type PendingAttachment } from '@/lib/attachments';
 import { decodeToPcm16k, computePeaks, chime } from '@/lib/audio';
 import { ensureSttModel } from '@/lib/voiceModel';
 import { stopActiveStream } from '@/lib/streamControl';
@@ -358,8 +360,8 @@ function ChatInput({ isEmpty, sendFn }, ref) {
       setTimeout(() => taRef.current?.focus(), 0);
     },
     focus: () => taRef.current?.focus(),
-    attach: (dt: DataTransfer) => { void attachmentsFromClipboard(dt).then(addFiles); },
-    attachPaths: (paths: string[]) => { void Promise.all(paths.map(attachmentFromPath)).then(addFiles); },
+    attach: (dt: DataTransfer) => attachLater(pendingFromClipboard(dt)),
+    attachPaths: (paths: string[]) => attachLater(pendingFromPaths(paths)),
   }));
 
   // Auto-resize textarea
@@ -376,6 +378,21 @@ function ChatInput({ isEmpty, sendFn }, ref) {
       return [...prev, ...files.filter((f) => !existing.has(f.path))];
     });
 
+  // Each file shows at once with its name and a spinner, and fills in when it
+  // has been read. Before, nothing appeared until every file was read, so a big
+  // video looked like a frozen app (29 Oct 2026).
+  const attachLater = (jobs: PendingAttachment[]) => {
+    const ids = jobs.map(() => `pending://${crypto.randomUUID()}`);
+    addFiles(jobs.map((j, i) => ({ name: j.name, path: ids[i], content: null, kind: 'binary', loading: true })));
+    jobs.forEach((j, i) => {
+      void j.ready.then((f) => setAttachedFiles((prev) => {
+        if (!prev.some((p) => p.path === ids[i])) return prev;                         // removed while it was read
+        if (prev.some((p) => p.path === f.path)) return prev.filter((p) => p.path !== ids[i]);  // already attached
+        return prev.map((p) => (p.path === ids[i] ? f : p));
+      }));
+    });
+  };
+
   // Drag & drop: Tauri intercepts native file drops (the webview never sees
   // HTML5 drop events for OS files) and emits drag-drop events with paths.
   useEffect(() => {
@@ -385,7 +402,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
         setDragOver(true);
       } else if (event.payload.type === 'drop') {
         setDragOver(false);
-        void Promise.all(event.payload.paths.map(attachmentFromPath)).then(addFiles);
+        attachLater(pendingFromPaths(event.payload.paths));
       } else {
         setDragOver(false);
       }
@@ -416,7 +433,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     if (!hasFiles(e)) return;
     e.preventDefault();
     setDragOver(false);
-    void attachmentsFromClipboard(e.dataTransfer).then(addFiles);
+    attachLater(pendingFromClipboard(e.dataTransfer));
   };
 
   // Ctrl+V / ⌘V: attach pasted screenshots and copied files. Keep text.
@@ -444,7 +461,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     if (!hasFile) return;
     // Don't preventDefault — text+image paste should keep the text in the textarea
     // while also attaching the image. Preventing drops the text.
-    void attachmentsFromClipboard(e.clipboardData).then(addFiles);
+    attachLater(pendingFromClipboard(e.clipboardData));
   };
 
   const isStreaming = status === 'streaming';
@@ -537,6 +554,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
       return;
     }
     if ((!text.trim() && attachedFiles.length === 0 && links.length === 0) || isStreaming || disabled) return;
+    if (attachedFiles.some((f) => f.loading)) return; // the button says so: it waits for the files
     const draftText = text;
     const draftLinks = links;
     // Links first, the way they sat in the composer; the words on the next line.
@@ -641,13 +659,12 @@ function ChatInput({ isEmpty, sendFn }, ref) {
           <EmberInvite run={ember} />
           {(attachedFiles.length > 0 || links.length > 0) && (
             <div className="flex flex-wrap gap-1 px-3 pt-2">
-              {links.map((href) => (
-                <LinkChip
-                  key={href}
-                  href={href}
-                  onRemove={() => setLinks((prev) => prev.filter((h) => h !== href))}
-                />
-              ))}
+              {links.map((href) => {
+                const remove = () => setLinks((prev) => prev.filter((h) => h !== href));
+                return isVideoLink(href)
+                  ? <VideoLinkCard key={href} href={href} onRemove={remove} />
+                  : <LinkChip key={href} href={href} onRemove={remove} />;
+              })}
               {attachedFiles.map((f) => (
                 <AttachedFileChip
                   key={f.path}
@@ -693,7 +710,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
           )}
           <div className="flex items-end gap-1 px-2 pt-2 pb-1.5">
             <div className="flex h-11 shrink-0 items-center">
-              <FileAttachButton onFilesSelected={addFiles} />
+              <FileAttachButton onPathsSelected={(paths) => attachLater(pendingFromPaths(paths))} />
             </div>
             <div className="relative min-w-0 flex-1">
               <Textarea
@@ -770,7 +787,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                 <Button
                   size="icon"
                   onClick={() => void trySend()}
-                  disabled={(!text.trim() && attachedFiles.length === 0 && rec.state !== 'preview') || disabled}
+                  disabled={(!text.trim() && attachedFiles.length === 0 && rec.state !== 'preview') || attachedFiles.some((f) => f.loading) || disabled}
                   aria-label="Send"
                   className="h-8 w-8 rounded-full"
                 >

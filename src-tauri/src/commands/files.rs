@@ -132,15 +132,47 @@ pub(crate) async fn read_file_as_data_url(path: String) -> Result<String, String
 /// agent gets a real path it can open again.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn stage_pasted_file(bytes: Vec<u8>, name: String) -> Result<String, String> {
-    if bytes.len() > 25 * 1024 * 1024 {
-        return Err("File too large (max 25 MB)".into());
+pub(crate) async fn stage_pasted_file(data: String, name: String) -> Result<String, String> {
+    // Base64, not Vec<u8>: as a JSON array of numbers a 45 MB video froze the
+    // app before it got here (29 Oct 2026). 200 MB matches STAGE_MAX in attachments.ts.
+    use base64::Engine as _;
+    if data.len() / 4 * 3 > 200 * 1024 * 1024 {
+        return Err("File too large (max 200 MB)".into());
     }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.as_bytes())
+        .map_err(|e| format!("Bad file data: {e}"))?;
     let dir = std::env::temp_dir().join("cinderpaw-attachments");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(format!("{}-{}", uuid::Uuid::new_v4(), safe_file_name(&name)));
     std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().into_owned())
+}
+
+/// A picked or dropped video reaches the composer as a path, and the webview
+/// may only load files inside the asset scope (voice notes, the image cache),
+/// so the chip showed nothing but the file name. This opens that one file to
+/// the asset protocol so the composer can show its first frame. Videos only,
+/// never the private or credential folders: the same guards as
+/// `read_file_as_data_url`, so it cannot become a read-any-file primitive.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn allow_video_preview(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    use tauri::Manager as _;
+    let canonical = std::fs::canonicalize(&path)
+        .map_err(|e| format!("Invalid path: {}", e))?;
+    deny_cinderpaw_private(&canonical)?;
+    let ext = canonical
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !matches!(ext.as_str(), "mp4" | "m4v" | "mov" | "webm") {
+        return Err(format!("Not a supported video format: .{ext}"));
+    }
+    app.asset_protocol_scope()
+        .allow_file(&canonical)
+        .map_err(|e| e.to_string())
 }
 
 /// The last path segment of `name`, with nothing that could leave the folder.

@@ -1,4 +1,5 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
+import { isVideoName, videoPreviewUrl } from '@/lib/attachments';
 import { useNavigate } from 'react-router-dom';
 import logoUrl from '@/assets/logo.svg';
 import { AlertTriangle, FileText, File as FileIcon, Image as ImageIcon, ThumbsUp, ThumbsDown } from 'lucide-react';
@@ -18,6 +19,8 @@ import { ZoomableImage } from './ZoomableImage';
 import { MessageActions, WHILE_IDLE } from './MessageActions';
 import { VoiceBubble } from './VoiceBubble';
 import { LinkChip } from './LinkChip';
+import { VideoLinkCard } from './VideoLinkCard';
+import { isVideoLink } from '@/lib/videoLinks';
 import { splitLinks } from '@/lib/linkLabel';
 import { timeline } from '@/lib/timeline';
 import { useChat, type ChatMessage } from '@/stores/chat';
@@ -26,6 +29,27 @@ import { useRlmWorkers, workersFor, type RlmWorker } from '@/stores/rlmWorkers';
 import { useT } from '@/lib/i18n';
 
 /** Read-only file chip shown in a sent user message (no remove button). */
+/**
+ * A sent video plays in the bubble, from the path its note carries; full screen
+ * is the player's own button. The asset scope forgets the file on a restart, so
+ * it is opened again here. A file that is gone or cannot be decoded stays a chip.
+ */
+function MessageVideo({ attachment }: { attachment: DisplayAttachment }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [broken, setBroken] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void videoPreviewUrl(attachment.path!).then((u) => { if (live) u ? setSrc(u) : setBroken(true); });
+    return () => { live = false; };
+  }, [attachment.path]);
+  if (broken) return <MessageAttachmentChip attachment={attachment} />;
+  if (!src) return <span className="block h-40 w-72 rounded-xl bg-bg-surface" aria-label={attachment.name} />;
+  return (
+    <video src={src} controls preload="metadata" playsInline aria-label={attachment.name} title={attachment.name}
+      onError={() => setBroken(true)} className="max-h-80 w-72 rounded-xl bg-black object-contain" />
+  );
+}
+
 function MessageAttachmentChip({ attachment }: { attachment: DisplayAttachment }) {
   const Icon =
     attachment.kind === 'image' ? ImageIcon : attachment.kind === 'binary' ? FileIcon : FileText;
@@ -106,6 +130,7 @@ export const MessageItem = memo(function MessageItem({
     const { attachments, text: visibleText } = parseUserAttachments(message.content);
     // When real pixels are in memory we render thumbnails; the image chips are
     // only the post-reload fallback, so drop them while thumbnails are shown.
+    const videoLinks = [...new Set(splitLinks(visibleText).flatMap((p) => (p.kind === 'link' && isVideoLink(p.href) ? [p.href] : [])))];
     const fileChips =
       images.length > 0 ? attachments.filter((a) => a.kind !== 'image') : attachments;
     return (
@@ -160,7 +185,9 @@ export const MessageItem = memo(function MessageItem({
           {fileChips.length > 0 && (
             <div className={cn('flex flex-wrap gap-1', visibleText && 'mb-2')}>
               {fileChips.map((a, i) => (
-                <MessageAttachmentChip key={`${a.name}-${i}`} attachment={a} />
+                a.path && isVideoName(a.name)
+                  ? <MessageVideo key={`${a.name}-${i}`} attachment={a} />
+                  : <MessageAttachmentChip key={`${a.name}-${i}`} attachment={a} />
               ))}
             </div>
           )}
@@ -170,6 +197,12 @@ export const MessageItem = memo(function MessageItem({
                 part.kind === 'link' ? <LinkChip key={i} href={part.href} /> : part.text,
               )}
             </p>
+          )}
+          {/* A video link is also shown as the video, under the words that carry it. */}
+          {videoLinks.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {videoLinks.map((href) => <VideoLinkCard key={href} href={href} />)}
+            </div>
           )}
         </div>
         )}

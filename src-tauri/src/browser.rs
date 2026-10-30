@@ -204,6 +204,16 @@ const NEW_WINDOW_SCRIPT: &str = "(() => {   const here = (u) => { try { const ur
 /// cannot forge anything worse than "close me".
 const KEY_SCRIPT: &str = "(() => { addEventListener('keydown', (e) => { if (!e.isTrusted || !(e.ctrlKey || e.metaKey) || e.altKey) return; const k = e.key.toLowerCase(); if (!['=', '+', '-', '0', 't', 'w', 'l', 'f', 'd', 'h', 'j', 'tab', '1', '2', '3', '4', '5', '6', '7', '8', '9'].includes(k)) return; e.preventDefault(); e.stopPropagation(); try { history.replaceState(history.state, '', location.pathname + location.search + '#cp-key=' + encodeURIComponent(k) + '&s=' + (e.shiftKey ? 1 : 0) + '&h=' + encodeURIComponent(location.hash.slice(1))); } catch {} }, true); })()";
 
+/// A site's own `alert` and `confirm`, back. tauri-plugin-dialog swaps both in
+/// every webview for an async call to the app, which a web page is not allowed
+/// to make: on sites `alert()` did nothing and `confirm()` returned a Promise,
+/// which `if (confirm("Delete?"))` reads as yes (found 29 Oct). Its script runs
+/// before ours, in the top frame only, so a fresh frame still holds the
+/// browser's own; called for this page, it is a real dialog again, which
+/// `hook_dialogs` puts in the app. ponytail: the page can see a hidden iframe
+/// come and go during the call.
+const NATIVE_DIALOGS_SCRIPT: &str = "(() => { if (window.top !== window) return; const native = (name) => function (...args) { const f = document.createElement('iframe'); f.style.display = 'none'; (document.body || document.documentElement).appendChild(f); try { return f.contentWindow[name].apply(window, args); } finally { f.remove(); } }; window.alert = native('alert'); window.confirm = native('confirm'); })()";
+
 /// When the agent last acted in the page (ms since the epoch, the page's clock
 /// too). A person's touch after this hands the page to them.
 static AGENT_LAST_MS: parking_lot::Mutex<f64> = parking_lot::Mutex::new(0.0);
@@ -1065,6 +1075,7 @@ fn new_tab_with(app: &AppHandle, url: Url, front: bool) -> Result<Webview, Strin
         .initialization_script(TOUCH_SCRIPT)
         .initialization_script(NEW_WINDOW_SCRIPT)
         .initialization_script(KEY_SCRIPT)
+        .initialization_script(NATIVE_DIALOGS_SCRIPT)
         .data_directory(cinderpaw_core::paths::cinderpaw_dir().join("browser-profile"));
     // Extensions ride the WebView2 environment, which is created with the first
     // tab and shared by the rest, so one installed later shows up after a restart.

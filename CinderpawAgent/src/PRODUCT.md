@@ -313,6 +313,15 @@ are fetched once through the egress door and kept in `~/.cinderpaw/cache/images`
 `heads_up` puts "something you should know" above the message box while work goes on: Learn more,
 I already knew this (the agent flags less of the obvious), Dismiss. One per chat every two minutes at most.
 
+## Videos
+
+`watch_video` looks at a video (a YouTube, Instagram or X link, or a file on this computer) as pictures
+with their times plus the words said in it, so any model can follow it. It needs yt-dlp and ffmpeg
+(~150 MB), downloaded once after the person says yes; with nobody there to say yes it refuses.
+A video link in the chat becomes a card that plays the first seconds on hover and the whole video on click.
+`show_video` puts a video the agent made (a render, a cut, a recording) in its reply with a player:
+an .mp4, .m4v, .mov or .webm file on this computer.
+
 ## Keeping its place on a long task
 
 Long runs fail by forgetting, not by being wrong. Four mechanisms, each covering

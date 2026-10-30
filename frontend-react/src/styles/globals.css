@@ -1551,7 +1551,7 @@ body { overflow: hidden; }
 }
 .word-fade {
   display: inline-block;
-  animation: fadeInWord var(--motion-base) var(--motion-ease) both;
+  animation: fadeInWord var(--motion-base) var(--motion-ease) backwards;
   /* NO `will-change` here, deliberately. It used to hint opacity+transform,
      which promotes EVERY word span to its own compositor layer — thousands of
      them in a long conversation, kept for the life of the message rather than
@@ -1769,16 +1769,23 @@ span.ember-caret {
    seconds turns into a slideshow. */
 
 /* Widgets and their rows enter from below, the direction work arrives from. */
+/* `backwards`, not `both`, on every entrance here: `both` keeps the last frame
+   applied forever, an identity transform that makes each word, widget and row
+   its own compositor layer. Measured 29 Oct 2026: 540 words and every widget
+   left on layers, in a column that starts at x = 612.73; each layer snaps its
+   half pixel differently from the text beside it, so lines, screenshots and
+   thumbnails drifted against each other while scrolling. The end state equals
+   the element's own style, so dropping it after the animation changes nothing. */
 @keyframes tw-rise {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.tw-rise { animation: tw-rise var(--motion-base) var(--motion-ease) both; }
+.tw-rise { animation: tw-rise var(--motion-base) var(--motion-ease) backwards; }
 
 /* A result row lands after the ones above it. The delay is set inline per
    index — capped in the component, because a stagger long enough to notice on
    row eight is a stagger that arrives after the reading eye has moved on. */
-.tw-row { animation: tw-rise var(--motion-base) var(--motion-ease) both; }
+.tw-row { animation: tw-rise var(--motion-base) var(--motion-ease) backwards; }
 
 /* The address bar's sweep while a search is in flight. The only infinite
    animation here, and it is a loading indicator — which is the one thing an
@@ -1831,7 +1838,7 @@ span.ember-caret {
   from { opacity: 0; transform: scale(0.6); }
   to   { opacity: 1; transform: scale(1); }
 }
-.tw-pop { animation: tw-pop var(--motion-base) var(--motion-ease) both; }
+.tw-pop { animation: tw-pop var(--motion-base) var(--motion-ease) backwards; }
 
 /* The terminal caret, while a command is still running. A filled block in the
    foreground colour, which is what a console draws — a coloured bar is an

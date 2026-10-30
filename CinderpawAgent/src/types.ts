@@ -250,6 +250,7 @@ export interface DesktopControlBridge {
     action: string,
     params: Record<string, unknown>,
     sessionId?: string,
+    timeoutMs?: number,
   ): Promise<unknown>;
 }
 
@@ -1791,7 +1792,7 @@ export type OutboundEvent =
   | { type: "tool_request"; id: string; sessionId: string; tool: string; arguments: Record<string, unknown> }
   | { type: "ask_user"; id: string; sessionId: string; questions: AskUserQuestion[]; traceId?: string }
   | { type: "ask_user_cancelled"; id: string; sessionId: string; reason: string; traceId?: string }
-  | { type: "usage"; id: string; sessionId: string; promptTokens: number; completionTokens: number; traceId?: string }
+  | { type: "usage"; id: string; sessionId: string; promptTokens: number; completionTokens: number; traceId?: string; /** What the prompt was made of (Context card). */ lanes?: { label: string; tokens: number }[] }
   | { type: "budget_warning"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; percent: number; traceId?: string }
   | { type: "budget_exceeded"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; message: string; traceId?: string }
   // The next request would exceed the provider's requests-per-minute cap, so

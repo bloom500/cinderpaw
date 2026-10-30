@@ -102,6 +102,16 @@ const PAY_WORD = /(?<!\p{L})(pay(?!ment)|buy|purchase|(place|complete|confirm|su
 // still pays unasked on a submitted form. Reading the form's button is the upgrade.
 const CHECKOUT_PATH = /checkout|payment|pay\b|plata|comanda|kasse|paiement|pago|(?<![a-z])(cart|basket|order|panier|carrito)s?(?![a-z])|warenkorb|bestell/i;
 
+// Booking in the person's name is a promise to someone else (a time, a seat, a
+// table), on any site: "Schedule Event", "Book now", "Reserve", "Programează"
+// (Darius, 30 Oct). "Schedule" also covers a post set for later, which the
+// publish question above does not catch. On a scheduling site the plain
+// "Confirm" and a submitted form book too: Cal.com's last button is "Confirm".
+// ponytail: stems plus a list of scheduling sites; a booking site missing from
+// the list still asks on its "Book"/"Schedule" button, not on a bare "Confirm".
+const BOOK_WORD = /(?<!\p{L})(schedul|book(?!\p{L})|reserv|rezerv|programea|(confirm|complete|finish)( the| your)? (booking|reservation|appointment|meeting)|buchen|réserv|agendar)/iu;
+const BOOKING_HOST = /(^|\.)(calendly\.com|cal\.com|savvycal\.com|tidycal\.com|zcal\.co|youcanbook\.me|acuityscheduling\.com|doodle\.com)$/i;
+
 function hostOf(url?: string): string | null {
   try { return url ? new URL(url).hostname : null; } catch { return null; }
 }
@@ -264,6 +274,34 @@ export function createBrowserTool(): Tool {
           }], ctx.sessionId);
           if (!(answer?.selected?.[0]?.toLowerCase().startsWith("yes") ?? false)) {
             return fail(`browser: the user declined paying on ${host}. Do not try again; tell them the order is ready for them to place.`, "purchase_declined");
+          }
+        }
+      }
+      // Not `else` either: a yes to paying is not a yes to booking ("Book and pay").
+      if ((action === "click" || action === "type") && host) {
+        const control = page!.elements.find((e) => e.ref === params.ref);
+        const scheduler = BOOKING_HOST.test(host);
+        const booking = action === "click"
+          ? (control ? BOOK_WORD.test(control.name) || (scheduler && /(?<!\p{L})confirm/iu.test(control.name)) : scheduler)
+          : params.submit === true && scheduler;
+        if (booking) {
+          const what = action === "type" ? "submit the form" : `press "${control?.name ?? "a control it has not read"}"`;
+          if (!canAskAHuman(Boolean(ctx.askUser))) {
+            return fail(`browser: refused. This would ${what} on ${host}, which may book or schedule something in the user's name, and nobody is here to approve it. Leave it for the user.`, "booking_needs_approval");
+          }
+          const [answer] = await ctx.askUser!.ask([{
+            question: `Cinderpaw wants to ${what} on ${host}. This may book or schedule something in your name. Allow it?`,
+            header: "Booking",
+            multiSelect: false,
+            // A promise to someone else in their name: never auto-answered.
+            forceEscalate: true,
+            options: [
+              { label: "Yes, book it", description: "Allow this one action." },
+              { label: "No, don't book", description: "Nothing is booked." },
+            ],
+          }], ctx.sessionId);
+          if (!(answer?.selected?.[0]?.toLowerCase().startsWith("yes") ?? false)) {
+            return fail(`browser: the user declined booking on ${host}. Do not try again; tell them it is ready for them to confirm.`, "booking_declined");
           }
         }
       }

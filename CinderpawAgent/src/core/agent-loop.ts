@@ -46,7 +46,9 @@ export interface Recaller {
   noteWrite?(leaf: { id: number; sessionId: string; ts: number }): void;
 }
 import type { MemoryExtractor } from "../memory/extractor.ts";
-import { WorkingMemory } from "../memory/working.ts";
+import { WorkingMemory, contextLanes } from "../memory/working.ts";
+import { situation } from "../memory/day.ts";
+import { permissionMode } from "./permission-mode.ts";
 import { projectAddendum } from "../projects.ts";
 import { countTokens } from "./tokenizer.ts";
 import { claimedPath, unsourcedWarning, withOpenFirst } from "./unsourced.ts";
@@ -570,6 +572,8 @@ export class AgentLoop {
    * made it drop its arguments in the first place.
    */
   readonly #sentNativeTools = new Map<string, boolean>();
+  /** The latest prompt's lanes per session, sent with each `usage` event for the Context card. */
+  readonly #lastLanes = new Map<string, { label: string; tokens: number }[]>();
 
   /**
    * Called with the cleaned text of each owner user turn. Set by boot to
@@ -1218,6 +1222,7 @@ export class AgentLoop {
     // that is only used when named is a feature nobody finds. No roster
     // (connectors, nothing installed) clears the menu.
     memory.setSkillMenu(skillsContext ?? []);
+    memory.setSituation(situation(Date.now(), process.platform, permissionMode()));
 
     // P2-#3: traceId — a unique identifier for this handle() invocation.
     // Threaded into every OutboundEvent the agent emits during the turn
@@ -1798,7 +1803,7 @@ export class AgentLoop {
       // Surface REAL token usage so the UI context ring reflects actual context
       // consumption (the latest call's prompt = full context fed to the model,
       // plus this turn's completion) instead of a rough message estimate.
-      ctx.emit({ type: "usage", id: messageId, sessionId, promptTokens, completionTokens, traceId });
+      ctx.emit({ type: "usage", id: messageId, sessionId, promptTokens, completionTokens, traceId, lanes: this.#lastLanes.get(sessionId) });
       {
         const now = Date.now();
         // A non-streaming provider never calls onToken, so the wait IS the whole
@@ -2569,6 +2574,7 @@ export class AgentLoop {
       });
       breakdown.localTotal += schemaTokens;
     }
+    this.#lastLanes.set(sessionId, contextLanes(breakdown));
 
     const dispatch = (
       maxTokens: number | undefined,

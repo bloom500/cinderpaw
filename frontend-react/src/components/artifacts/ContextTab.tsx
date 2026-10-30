@@ -14,7 +14,7 @@ import { activeContextWindow, estimateTokens } from '@/lib/contextWindow';
 import { ModelLogo, modelDisplayName } from '@/lib/modelLogos';
 import { MODES } from '@/components/chat/PermissionPill';
 import { cn } from '@/lib/utils';
-import { useChat, type MemoryUsedItem } from '@/stores/chat';
+import { useChat, type ContextLane, type MemoryUsedItem } from '@/stores/chat';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
 import { useConversations } from '@/stores/conversations';
 import { useProjects } from '@/stores/projects';
@@ -366,7 +366,15 @@ export function ContextTab({ onCompose, onAttach }: {
   }, []);
 
   const { ctxWindow } = activeContextWindow({ cinderpawConfig, loaded });
-  const pct = ctxWindow ? Math.min(1, (usedSteps * 500) / ctxWindow) : null;
+  // What the latest reply's prompt was made of, saved on that reply, so the
+  // breakdown is there after a chat switch or a restart, not only live. The
+  // array keeps its identity while a reply streams, so tokens do not re-render.
+  const lanes = useChat((s) => s.messages.findLast((m) => m.contextLanes)?.contextLanes) ?? NO_LANES;
+  // The real prompt size once a reply has run; the saved lanes, then the old
+  // step-count guess, before that.
+  const livePrompt = useChat((s) => s.livePromptTokens);
+  const used = livePrompt ?? (lanes.length > 0 ? lanes.reduce((n, l) => n + l.tokens, 0) : usedSteps * 500);
+  const pct = ctxWindow ? Math.min(1, used / ctxWindow) : null;
   const made = madeHere ? madeHere.split('\n') : [];
   const fileCount = ctx.files.length + ctx.artifactIds.length;
   const state = status === 'streaming' ? 'Working' : approvals.length > 0 ? 'Needs you' : 'Ready';
@@ -421,7 +429,7 @@ export function ContextTab({ onCompose, onAttach }: {
             <span className="flex-1" />
             <span className="text-sm text-text-muted">{pct === null ? 'Unknown' : `${pct < 0.01 ? '<1' : Math.round(pct * 100)}%`}</span>
           </div>
-          {pct !== null && (
+          {pct !== null && lanes.length === 0 && (
             <div className="h-1 overflow-hidden rounded-full bg-bg-hover" aria-hidden>
               <div
                 className={cn('h-full rounded-full', pct >= 0.9 ? 'bg-error' : pct >= 0.75 ? 'bg-warning' : 'bg-text-muted')}
@@ -429,6 +437,9 @@ export function ContextTab({ onCompose, onAttach }: {
               />
             </div>
           )}
+          {/* What the room is filled with, like Claude Code's /context: one bar in
+              lanes, then each lane with its share. Our own token count. */}
+          {ctxWindow && lanes.length > 0 && <ContextLanes lanes={lanes} window={ctxWindow} />}
         </section>
 
         <Fold id="ctx-memory" icon={Brain} title="Memory" value={count(ctx.memories.length, 'used', 'used')} onAdd={onCompose && (() => onCompose('Remember that '))} addLabel="Add a memory">
@@ -486,5 +497,40 @@ export function ContextTab({ onCompose, onAttach }: {
         </Fold>
       </div>
     </ScrollArea>
+  );
+}
+
+const NO_LANES: ContextLane[] = [];
+const LANE_TINT = ['bg-brand', 'bg-[#4f7cff]', 'bg-[#2fb37a]', 'bg-[#c58cff]', 'bg-[#e0a33a]', 'bg-text-muted', 'bg-text-disabled'];
+
+function ContextLanes({ lanes, window }: { lanes: ContextLane[]; window: number }) {
+  const total = lanes.reduce((n, l) => n + l.tokens, 0);
+  const free = Math.max(0, window - total);
+  const share = (t: number) => `${((t / window) * 100).toFixed(t / window < 0.1 ? 1 : 0)}%`;
+  const k = (t: number) => (t >= 1000 ? `${(t / 1000).toFixed(1)}k` : String(t));
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex h-1.5 overflow-hidden rounded-full bg-bg-hover" aria-hidden>
+        {lanes.map((l, i) => (
+          <div key={l.label} className={LANE_TINT[i % LANE_TINT.length]} style={{ width: `${(l.tokens / window) * 100}%` }} />
+        ))}
+      </div>
+      <ul className="flex flex-col gap-1 text-xs">
+        {lanes.map((l, i) => (
+          <li key={l.label} className="flex items-center gap-2">
+            <span className={cn('size-2 shrink-0 rounded-[2px]', LANE_TINT[i % LANE_TINT.length])} />
+            <span className="flex-1 text-text-secondary">{l.label}</span>
+            <span className="tabular-nums text-text-muted">{k(l.tokens)}</span>
+            <span className="w-11 text-right tabular-nums text-text-muted">{share(l.tokens)}</span>
+          </li>
+        ))}
+        <li className="flex items-center gap-2">
+          <span className="size-2 shrink-0 rounded-[2px] border border-border-default" />
+          <span className="flex-1 text-text-muted">Free</span>
+          <span className="tabular-nums text-text-muted">{k(free)}</span>
+          <span className="w-11 text-right tabular-nums text-text-muted">{share(free)}</span>
+        </li>
+      </ul>
+    </div>
   );
 }
