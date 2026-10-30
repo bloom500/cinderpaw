@@ -285,11 +285,14 @@ pub(crate) fn file_args(args: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// The main window on a screen too small for its 1280x800: shrunk to the
-/// screen's free area (taskbar and dock left out) and centered in it. `None`
-/// when it already fits.
+/// The main window on a screen too small for its 1262x865 (the Claude app's
+/// size, his pick 30 Oct: "a bit more air"): shrunk to 94% of the screen's free
+/// area (taskbar and dock left out), so a laptop shows a little desktop around
+/// it instead of a window pressed against every edge, and centered. `None` when
+/// it already fits.
 fn fit_into(window: (u32, u32), area: &tauri::PhysicalRect<i32, u32>) -> Option<(u32, u32, i32, i32)> {
-    let (w, h) = (window.0.min(area.size.width), window.1.min(area.size.height));
+    let room = |side: u32| side * 94 / 100;
+    let (w, h) = (window.0.min(room(area.size.width)), window.1.min(room(area.size.height)));
     if (w, h) == window {
         return None;
     }
@@ -997,7 +1000,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
                 *pending = file_args(&std::env::args().collect::<Vec<_>>());
             }
 
-            // tauri.conf.json opens the window at 1280x800. On a smaller screen
+            // tauri.conf.json opens the window at 1262x865. On a smaller screen
             // (a 1366x768 laptop, any laptop at 125%) it hung past the edges and
             // the first screen's Get started sat under the taskbar: the beta.1
             // install smoke on a 1024x768 Mac showed the welcome cut off (14 Oct).
@@ -1251,12 +1254,14 @@ mod tests {
     #[test]
     fn a_window_bigger_than_the_screen_is_shrunk_and_centered() {
         let rect = |x, y, w, h| tauri::PhysicalRect { position: tauri::PhysicalPosition::new(x, y), size: tauri::PhysicalSize::new(w, h) };
-        // A big screen: left alone.
-        assert_eq!(fit_into((1280, 800), &rect(0, 0, 1920, 1040)), None);
-        // 1366x768 with a 48 px taskbar: too tall only, so full height, centered across.
-        assert_eq!(fit_into((1280, 800), &rect(0, 0, 1366, 720)), Some((1280, 720, 43, 0)));
+        // A big screen (1920x1080, 48 px taskbar): left alone.
+        assert_eq!(fit_into((1262, 865), &rect(0, 0, 1920, 1032)), None);
+        // 1366x768 laptop: too tall only, so 94% of the height, centered both ways.
+        assert_eq!(fit_into((1262, 865), &rect(0, 0, 1366, 720)), Some((1262, 676, 52, 22)));
+        // 1920x1080 laptop at 125% (1536x826 free): a margin all round, not edge to edge.
+        assert_eq!(fit_into((1262, 865), &rect(0, 0, 1536, 826)), Some((1262, 776, 137, 25)));
         // A second monitor to the right, under a menu bar.
-        assert_eq!(fit_into((1280, 800), &rect(1920, 25, 1024, 743)), Some((1024, 743, 1920, 25)));
+        assert_eq!(fit_into((1262, 865), &rect(1920, 25, 1024, 743)), Some((962, 698, 1951, 47)));
     }
 
     #[test]

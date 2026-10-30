@@ -20,8 +20,8 @@
     "windows": [
       {
         "title": "Cinderpaw",
-        "width": 1280,
-        "height": 800,
+        "width": 1262,
+        "height": 865,
         "minWidth": 900,
         "minHeight": 600,
         "resizable": true,
