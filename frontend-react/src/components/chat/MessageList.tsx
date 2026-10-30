@@ -190,6 +190,9 @@ const Row = memo(function Row({ message: m, quiet, ...item }: ComponentProps<typ
           // Yours rises out of the composer's corner: it came from there.
           ? 'animate-in fade-in-0 slide-in-from-bottom-4 zoom-in-95 origin-bottom-right duration-(--motion-slow)'
           : 'animate-in fade-in-0 slide-in-from-bottom-2 duration-(--motion-base)'),
+        // The tool widgets inside an old row are already there too. Their entrances
+        // replayed on every open: 245 at once in a 52-message chat (30 Oct).
+        quiet && '[&_:is(.tw-rise,.tw-row,.tw-pop,.tw-type)]:animate-none',
       )}
     >
       <MessageItem message={m} {...item} />

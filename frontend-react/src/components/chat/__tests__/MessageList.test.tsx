@@ -110,6 +110,20 @@ describe('a long chat while a reply arrives', () => {
   });
 });
 
+describe('a chat opened again', () => {
+  // Rows already there replay nothing, the tool widgets inside them included:
+  // a 52-message chat replayed 245 widget entrances each time it opened (30 Oct).
+  it('stops the widget entrances in rows that were already there, and keeps them for new ones', () => {
+    const turn = (id: string) => ({ id, role: 'assistant' as const, content: id, createdAt: 1 });
+    useChat.setState({ streamStatus: 'idle', messages: [turn('a'), turn('b'), turn('c')] });
+    const { container } = render(<MessageList />);
+    const row = (id: string) => container.querySelector(`[data-id="${id}"]`)!.closest('.message-row')!;
+    expect(row('a').className).toContain('animate-none');
+    act(() => { useChat.setState({ messages: [...useChat.getState().messages, turn('d')] }); });
+    expect(row('d').className).not.toContain('animate-none');
+  });
+});
+
 describe('chat tool widgets', () => {
   it('draws the call widget open while the reply streams, folds it after, and reopens on click', () => {
     const running = startActivity('web_search', { query: 'Cinderpaw guide' });

@@ -71,6 +71,17 @@ describe('the chat model picker', () => {
     const focused = document.activeElement;
     expect(focused?.textContent ?? '').not.toContain('bge');
   });
+
+  // Reading a size while drawing forces the browser to lay out the whole page
+  // first. The closed button redraws with every chat, and it did: 150 ms of a
+  // chat opening went to this one read (production build, 30 Oct).
+  it('reads no sizes while it is closed', () => {
+    const read = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get');
+    const { rerender } = render(<ModelPickerPopover />);
+    rerender(<ModelPickerPopover />);
+    expect(read).not.toHaveBeenCalled();
+    read.mockRestore();
+  });
 });
 
 describe('the Model Switcher (spec 8)', () => {

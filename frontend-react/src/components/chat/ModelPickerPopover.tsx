@@ -408,6 +408,12 @@ export function ModelPickerPopover() {
     </>
   );
 
+  // The island lies over its button, so it needs the button's height. Read only
+  // while open: these props are built on every render, and reading a size in
+  // render forced a layout of the whole page each time the chat redrew (150 ms
+  // when a chat opened, production build, 30 Oct).
+  const triggerHeight = open ? (triggerRef.current?.offsetHeight ?? 32) : 32;
+
   return (
     // Controlled: the island's last row closes it, and so does enabling a provider.
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -456,7 +462,7 @@ export function ModelPickerPopover() {
       <DropdownMenuContent
         side="top"
         align="start"
-        sideOffset={-(triggerRef.current?.offsetHeight ?? 32)}
+        sideOffset={-triggerHeight}
         collisionPadding={12}
         // 22rem again since 29 Oct: at 22 the roles' lines once ended in "…"
         // ("Balanced for most t…", 28 Oct) because the model's name sat beside
@@ -513,7 +519,7 @@ export function ModelPickerPopover() {
           tabIndex={-1}
           aria-label={`${label}: close the list`}
           onClick={() => setOpen(false)}
-          style={{ height: triggerRef.current?.offsetHeight ?? 32 }}
+          style={{ height: triggerHeight }}
           className="flex w-full items-center gap-1.5 pl-2.5 pr-2 text-xs text-text-secondary hover:text-text-primary transition-colors outline-hidden"
         >
           {face}

@@ -174,6 +174,19 @@ describe('MessageChain (the Activity Strip)', () => {
     expect(steps.map((s) => big.has(s.id))).toEqual([false, true, false, false, false, false, false, true]);
   });
 
+  // Radix measures a mounted fold even when it is closed, and each measure laid out the
+  // whole page: a chat with 12 folded lines froze up to 760 ms as it opened (30 Oct).
+  it('builds its folded steps only when someone reaches for the line', () => {
+    const step = finishActivity(startActivity('web_search', { query: 'lalele' }), { ok: true, content: '' });
+    const { getByTestId } = render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[step]} streaming={false} />);
+    const line = getByTestId('activity-line');
+    expect(line.querySelector('[data-state][id]:not(button)')).toBeNull();
+    fireEvent.pointerEnter(screen.getByText('Searched the web'));
+    expect(line.querySelector('[data-state="closed"][id]:not(button)')).not.toBeNull();
+    fireEvent.click(screen.getByText('Searched the web'));
+    expect(screen.getAllByText('Searched the web')).toHaveLength(2);
+  });
+
   it('draws nothing when there was no reasoning and no tool', () => {
     const { container } = render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[]} streaming />);
     expect(container).toBeEmptyDOMElement();

@@ -1,7 +1,7 @@
 import { tauri } from '@/lib/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { useChat } from '@/stores/chat';
@@ -109,17 +109,26 @@ export function ChatPage() {
   const panelTab        = useArtifacts((s) => s.panelTab);
   const contextVisible  = useContextVisible();
   const contextOpen     = useUI((s) => s.contextOpen);
-  // The chat column's width, for how far the transcript steps aside for the
-  // Context cards (contextShove). Measured, not guessed: the nav, the window
-  // and the zoom all change it.
+  // How far the transcript steps aside for the Context cards (contextShove),
+  // from the chat column's measured width: the nav, the window and the zoom
+  // all change it. Written straight onto the container as --cards-shove, not
+  // kept in React state: the column resizes on every frame of the sidebar's
+  // slide, and a state update per frame re-rendered the whole chat each time
+  // (4 frames of ~100 ms on a production build, 30 Oct). Only whether the
+  // cards fit at all is state, and that changes once, not per frame.
   const columnRef = useRef<HTMLDivElement>(null);
-  const [columnWidth, setColumnWidth] = useState(0);
+  const [cardsFit, setCardsFit] = useState(true);
+  const shoveFor = useRef<() => void>(() => {});
+  shoveFor.current = () => {
+    const width = columnRef.current?.clientWidth ?? 0;
+    const shove = contextVisible && !isEmpty && width > 0 ? contextShove(width) : 0;
+    containerRef.current?.style.setProperty('--cards-shove', `${shove ?? 0}px`);
+    setCardsFit(shove !== null);
+  };
   useLayoutEffect(() => {
     const el = columnRef.current;
-    if (!el) return;
-    setColumnWidth(el.clientWidth);
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => setColumnWidth(el.clientWidth));
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => shoveFor.current());
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -129,9 +138,7 @@ export function ChatPage() {
   // frame. Waiting for the ResizeObserver left one painted frame with the old
   // width, so the Context cards came back a step after the chat did (29 Oct,
   // recording C5). Measured here, before the paint.
-  useLayoutEffect(() => {
-    if (columnRef.current) setColumnWidth(columnRef.current.clientWidth);
-  }, [panelOpen, panelTab, browserOpen, contextVisible]);
+  useLayoutEffect(() => shoveFor.current(), [panelOpen, panelTab, browserOpen, contextVisible, isEmpty]);
   // Everything a side panel moves, moves together (his "totul impreuna", 29
   // Oct): the layout changes in one frame, then the reading column and the
   // composer glide from where they were to where they are, in the panels' own
@@ -354,9 +361,6 @@ export function ChatPage() {
     chatInputRef.current?.focus();
   }, []);
 
-  // null: the chat is too narrow to keep the cards beside it, so they stay away.
-  const cardsShove = contextVisible && !isEmpty && columnWidth > 0 ? contextShove(columnWidth) : 0;
-
   // The conversation column is a value so it can be placed either beside the
   // panels or, in the browser's wide mode, inside the panel's own drawer,
   // without two copies of it in the tree.
@@ -383,7 +387,7 @@ export function ChatPage() {
           the glide above carries the column there. A transition on the padding
           itself squeezed the text to one letter a line while an artifact
           opened: the column narrowed at once, the padding only slowly. */}
-      <div ref={containerRef} className="relative flex-1 overflow-hidden" style={{ '--cards-shove': `${cardsShove ?? 0}px` } as CSSProperties}>
+      <div ref={containerRef} className="relative flex-1 overflow-hidden">
         {/* The top fade is gone. It faded to `--bg-primary`, the app's opaque
             base — which was the right colour back when the page behind it was
             that colour too. On glass it is a dark band painted across the top
@@ -524,7 +528,7 @@ export function ChatPage() {
             the cards and slides off them again, one move each way. Taken away,
             they faded out over the arriving panel and came back after it left
             (29 Oct, recordings C4 and C5). */}
-        {contextOpen && !browserOpen && !isEmpty && cardsShove !== null && (
+        {contextOpen && !browserOpen && !isEmpty && cardsFit && (
           <ContextColumn
             key="context-column"
             covered={!contextVisible}

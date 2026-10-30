@@ -417,6 +417,13 @@ export function MessageChain({
   // ask, after Claude's line): the line itself says what happens now, and the
   // steps, the reasoning and each tool's widget are one click away.
   const [open, setOpen] = useState(false);
+  // The folded steps are not built until someone reaches for the line. Radix
+  // mounts a closed CollapsibleContent anyway and measures it on mount, and each
+  // measure forced a layout of the whole page: a chat with 12 folded lines froze
+  // ~300-760 ms as it opened (production build, 30 Oct). Once opened, it stays
+  // mounted so the fold keeps its close animation.
+  const [everOpened, setEverOpened] = useState(false);
+  if (open && !everOpened) setEverOpened(true);
   // First drawn while the agent works, its rows arrive with a little bounce. A
   // chat opened again draws it as it is: nothing is replayed.
   const [live] = useState(streaming);
@@ -469,7 +476,13 @@ export function MessageChain({
   return (
     <Collapsible open={open} onOpenChange={setOpen} data-testid="activity-line">
       <div className="flex items-center gap-2">
-        <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-2 py-1 text-left">
+        {/* Built on the way in (hover or focus), so it is there closed and the
+            first open still slides down instead of appearing at once. */}
+        <CollapsibleTrigger
+          onPointerEnter={() => setEverOpened(true)}
+          onFocus={() => setEverOpened(true)}
+          className="group flex min-w-0 flex-1 items-center gap-2 py-1 text-left"
+        >
           <LineIcon streaming={streaming} failed={failed} />
           {/* Working, the words say what happens now and a light passes over
               them. Done, it is a quiet line of what happened, not a green
@@ -512,7 +525,7 @@ export function MessageChain({
           {firstPictures.map((src, i) => <FirstLook key={`${i}-${src.length}`} src={src} />)}
         </div>
       )}
-      <CollapsibleContent
+      {everOpened && <CollapsibleContent
         className={cn(
           'ml-[7px] overflow-hidden border-l border-border-subtle pl-4 outline-none',
           'data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down',
@@ -550,7 +563,7 @@ export function MessageChain({
             )}
           </div>
         )}
-      </CollapsibleContent>
+      </CollapsibleContent>}
     </Collapsible>
   );
 }
