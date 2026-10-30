@@ -12,6 +12,7 @@ import logoUrl from '@/assets/logo.svg';
 import { Widget, summaryOf } from './CallToolScreen';
 import { CinderpawMascot } from './mascot/CinderpawMascot';
 import { ZoomableImage } from './ZoomableImage';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 
 /** Pictures shown on the folded line, newest last (Claude's "+3" strip). */
 const LINE_THUMBS = 3;
@@ -28,14 +29,27 @@ const QUIET = 'text-text-muted/70';
 function Thumbs({ images, small }: { images: string[]; small?: boolean }) {
   return (
     <div className="flex shrink-0 items-center gap-1.5" data-testid="step-thumbs">
-      {images.map((src, i) => (
-        <ZoomableImage
-          key={`${i}-${src.length}`}
-          src={src}
-          alt={`What the agent saw, picture ${i + 1}`}
-          thumbClassName={small ? 'h-7 w-auto max-w-14 rounded-md object-cover' : 'h-16 w-auto max-w-32 rounded-md object-cover'}
-        />
-      ))}
+      {images.map((src, i) => {
+        const thumb = (
+          <ZoomableImage
+            src={src}
+            alt={`What the agent saw, picture ${i + 1}`}
+            thumbClassName={small ? 'h-7 w-auto max-w-14 rounded-md object-cover' : 'h-16 w-auto max-w-32 rounded-md object-cover'}
+          />
+        );
+        if (!small) return <span key={`${i}-${src.length}`}>{thumb}</span>;
+        // A 28 px picture on the line says "there is a picture", not what is in
+        // it. Hovering shows it bigger, like Claude's previews (his ask, 30 Oct);
+        // a click still opens it whole.
+        return (
+          <HoverCard key={`${i}-${src.length}`} openDelay={150} closeDelay={60}>
+            <HoverCardTrigger asChild><span className="inline-flex">{thumb}</span></HoverCardTrigger>
+            <HoverCardContent side="top" className="w-auto p-1.5 rounded-xl">
+              <img src={src} alt="" className="block max-h-56 w-auto max-w-80 rounded-lg object-contain" data-testid="thumb-preview" />
+            </HoverCardContent>
+          </HoverCard>
+        );
+      })}
     </div>
   );
 }

@@ -154,6 +154,18 @@ describe('MessageChain (the Activity Strip)', () => {
     expect(screen.queryByText('+2')).not.toBeInTheDocument();
   });
 
+  it('shows a picture on the line bigger while the pointer rests on it', () => {
+    const png = 'data:image/png;base64,QUJD';
+    const shot = finishActivity(startActivity('read_file', { path: 'a.png' }), { ok: true, content: '', images: ['data:image/png;base64,Rk9P', png] });
+    render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[shot]} streaming={false} />);
+    // The first picture is shown big under the line; the second rides on the line, small.
+    const thumb = screen.getByTestId('step-thumbs').querySelector('span')!;
+    expect(screen.queryByTestId('thumb-preview')).toBeNull();
+    fireEvent.pointerEnter(thumb, { pointerType: 'mouse' });
+    act(() => { vi.advanceTimersByTime(200); });
+    expect(screen.getByTestId('thumb-preview').getAttribute('src')).toBe(png);
+  });
+
   it('a first look at a new place is big; later pictures from the same place are not', () => {
     const shot = 'data:image/jpeg;base64,/9j/AAAA';
     let n = 0;
