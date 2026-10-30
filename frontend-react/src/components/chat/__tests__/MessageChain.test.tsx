@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessageChain, doneSentence, elapsedLabel, firstLooks, sideChips, stepDetail, stepTitle, thoughtHeadline } from '../MessageChain';
 import type { RlmWorker } from '@/stores/rlmWorkers';
-import { finishActivity, startActivity } from '@/hooks/useLiveToolActivity';
+import { finishActivity, startActivity, videoOf } from '@/hooks/useLiveToolActivity';
 
 vi.mock('@tauri-apps/plugin-shell', () => ({ open: vi.fn() }));
 // The sprite is a canvas, which jsdom cannot draw.
@@ -280,5 +280,38 @@ describe('side activities and helpers', () => {
     });
     render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[asked]} streaming={false} />);
     expect(screen.getByTestId('your-answers')).toHaveTextContent('You answered: 5.000 – 8.000 lei · Video și grafică');
+  });
+});
+
+vi.mock('@/lib/attachments', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/attachments')>()),
+  videoPreviewUrl: vi.fn(async (path: string) => (path.includes('gone') ? null : `asset://localhost/${path}`)),
+}));
+
+describe('a video the agent made', () => {
+  // His ask, 30 Oct: a film the agent rendered plays in the chat, not a path to go and find.
+  const shown = (path: string) => finishActivity(startActivity('show_video', { path }), {
+    ok: true, content: 'shown', data: { video: { path, name: path.split('/').pop() } },
+  });
+
+  it('plays under the line, folded or not', async () => {
+    vi.useRealTimers();
+    render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[shown('/films/Cinderpaw.mp4')]} streaming={false} />);
+    const video = await screen.findByTestId('agent-video');
+    expect(video.getAttribute('src')).toBe('asset://localhost//films/Cinderpaw.mp4');
+    expect(video.hasAttribute('controls')).toBe(true);
+  });
+
+  it('says its name when the file is gone, instead of a broken player', async () => {
+    vi.useRealTimers();
+    render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[shown('/films/gone.mp4')]} streaming={false} />);
+    expect((await screen.findByTestId('agent-video-missing')).textContent).toContain('gone.mp4');
+  });
+
+  it('keeps only videos the player can play, from a result or a saved row', () => {
+    expect(videoOf({ data: { video: { path: 'C:/a/film.MOV', name: 'film.MOV' } } })).toEqual({ video: { path: 'C:/a/film.MOV', name: 'film.MOV' } });
+    expect(videoOf({ video: { path: '/a/b.webm' } })).toEqual({ video: { path: '/a/b.webm', name: 'b.webm' } });
+    expect(videoOf({ data: { video: { path: '/a/loop.gif' } } })).toEqual({});
+    expect(videoOf(null)).toEqual({});
   });
 });

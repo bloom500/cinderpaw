@@ -13,6 +13,7 @@ import { Widget, summaryOf } from './CallToolScreen';
 import { CinderpawMascot } from './mascot/CinderpawMascot';
 import { ZoomableImage } from './ZoomableImage';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
+import { videoPreviewUrl } from '@/lib/attachments';
 
 /** Pictures shown on the folded line, newest last (Claude's "+3" strip). */
 const LINE_THUMBS = 3;
@@ -249,6 +250,29 @@ function StatusRing({ status }: { status: ToolActivity['status'] }) {
 }
 
 /** A first look at a place, at the chat's width (Claude's "Captured page" picture). */
+/**
+ * A video the agent handed over with `show_video` (his ask, 30 Oct: a render
+ * should play in the chat, not be a path). The page may only load files the
+ * host has opened to it, so it asks first; a file that is gone or will not
+ * play stays its name, with nothing broken drawn.
+ */
+function AgentVideo({ video }: { video: { path: string; name: string } }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [broken, setBroken] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void videoPreviewUrl(video.path).then((u) => { if (live) u ? setSrc(u) : setBroken(true); });
+    return () => { live = false; };
+  }, [video.path]);
+  if (broken) return <p className={cn('mb-1 mt-1.5 text-sm', QUIET)} data-testid="agent-video-missing">{video.name} (could not be played here)</p>;
+  if (!src) return <div className="mb-1 mt-1.5 aspect-video w-full max-w-xl rounded-xl bg-bg-surface" aria-label={video.name} />;
+  return (
+    <video src={src} controls preload="metadata" playsInline aria-label={video.name} title={video.name}
+      onError={() => setBroken(true)} data-testid="agent-video"
+      className="mb-1 mt-1.5 block max-h-[28rem] w-full max-w-xl rounded-xl bg-black object-contain" />
+  );
+}
+
 function FirstLook({ src }: { src: string }) {
   return (
     <ZoomableImage
@@ -533,6 +557,9 @@ export function MessageChain({
           <Widget activity={big} flat />
         </div>
       )}
+      {/* A film the agent made is the answer, not a step: it plays under the
+          line whether the steps are open or not. */}
+      {steps.flatMap((a) => (a.video ? [<AgentVideo key={a.id} video={a.video} />] : []))}
       {!open && firstPictures.length > 0 && (
         // Two places in one line sit side by side: stacked, they were a wall.
         <div className={cn('mb-1 mt-1.5 grid gap-2', firstPictures.length > 1 && 'grid-cols-2')}>

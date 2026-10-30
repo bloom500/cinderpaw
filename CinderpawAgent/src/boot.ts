@@ -100,6 +100,7 @@ import { CheckpointStore } from "./memory/checkpoint.ts";
 import { createGitStatusTool, createGitDiffTool, createGitLogTool, createGitCommitTool, createGitBranchTool } from "./tools/builtin/git.ts";
 import { createHttpRequestTool } from "./tools/builtin/http-request.ts";
 import { createTimeDateTool } from "./tools/builtin/time-date.ts";
+import { createShowVideoTool } from "./tools/builtin/show-video.ts";
 import { createCalculatorTool } from "./tools/builtin/calculator.ts";
 import { createShowWidgetTool } from "./tools/builtin/show-widget.ts";
 import { createWebSearchTool } from "./tools/builtin/web-search.ts";
@@ -887,6 +888,9 @@ export async function boot(transportOverride?: Transport) {
   registry.register(createHttpRequestTool(httpDomains.length > 0 ? httpDomains : ["*"]));
   // time_date + calculator: pure utilities, no permissions
   registry.register(createTimeDateTool());
+  // Advertised, not drawered: the moment to use it is right after a render, and
+  // a drawered tool is one the model never thinks of (tiers.ts).
+  registry.register(createShowVideoTool());
   registry.register(createCalculatorTool());
   registry.register(createShowWidgetTool(config.workspaceRoots));
   registry.register(createWebSearchTool({ searxngOrigin: searxng }));
