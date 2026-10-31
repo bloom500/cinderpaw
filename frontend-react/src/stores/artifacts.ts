@@ -1027,6 +1027,11 @@ const FILE_MIME: Record<string, string> = {
   code: 'text/plain', json: 'application/json', table: 'application/json', pdf: 'application/pdf',
 };
 
+/** A CSV the agent saved as a file (some were filed as code): a table in all but kind. */
+export function isCsvFile(kind: string, title: string): boolean {
+  return (kind === 'file' || kind === 'code') && /\.csv$/i.test(title.trim());
+}
+
 /**
  * How one kind goes to one Google place, or null when it cannot: Docs takes
  * text and HTML (a PDF would go through OCR and lose its layout), Sheets a
@@ -1034,7 +1039,7 @@ const FILE_MIME: Record<string, string> = {
  * or a CSV the agent wrote as a file, which is already that.
  */
 export function googlePlan(kind: string, dest: GoogleDest = 'docs', content = '', title = ''): { mime: string; convert: boolean; content?: string } | null {
-  const csvFile = kind === 'file' && /\.csv$/i.test(title.trim());
+  const csvFile = isCsvFile(kind, title);
   switch (dest) {
     case 'drive':
     case 'gmail':

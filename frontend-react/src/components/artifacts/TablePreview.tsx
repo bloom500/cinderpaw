@@ -1,9 +1,41 @@
 import { useMemo } from 'react';
 
-/** Accept the same three JSON shapes as artifact export. Keep every column. */
+/**
+ * CSV as the agent writes it: quoted cells may hold commas, quotes ("") and
+ * line breaks. The separator is whichever of , ; or tab the first line uses most.
+ * Null for one column: that is a list, not a table.
+ */
+export function readCsv(content: string): { columns: string[]; rows: unknown[][] } | null {
+  const text = content.replace(/^﻿/, '');
+  const head = text.split(/\r?\n/, 1)[0] ?? '';
+  const sep = [',', ';', '\t'].reduce((a, b) => (head.split(b).length > head.split(a).length ? b : a));
+  const rows: string[][] = [];
+  let row: string[] = []; let field = ''; let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (ch === '"') quoted = false;
+      else field += ch;
+    } else if (ch === '"' && field === '') quoted = true;
+    else if (ch === sep) { row.push(field); field = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); field = '';
+      if (row.some((c) => c !== '')) rows.push(row);
+      row = [];
+    } else field += ch;
+  }
+  row.push(field);
+  if (row.some((c) => c !== '')) rows.push(row);
+  if (rows.length < 2 || rows[0].length < 2) return null;
+  return { columns: rows[0], rows: rows.slice(1) };
+}
+
+/** Accept the same three JSON shapes as artifact export, or CSV. Keep every column. */
 function readTable(content: string): { columns: string[]; rows: unknown[][] } | null {
   let value: unknown;
-  try { value = JSON.parse(content); } catch { return null; }
+  try { value = JSON.parse(content); } catch { return readCsv(content); }
   const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
   if (Array.isArray(value)) {
     if (!value.length) return { columns: [], rows: [] };

@@ -33,7 +33,7 @@ function Loading() {
   );
 }
 import { useShallow } from 'zustand/react/shallow';
-import { useArtifacts, shownKind, type ArtifactRow, type GoogleDest } from '@/stores/artifacts';
+import { useArtifacts, shownKind, isCsvFile, type ArtifactRow, type GoogleDest } from '@/stores/artifacts';
 import { GoogleMenu, googleCanTake } from './GoogleMenu';
 import { ContextTab } from './ContextTab';
 import { ArtifactCover } from './ArtifactCover';
@@ -984,7 +984,7 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
  */
 function Preview({ kind, title, content, id = '', ember }: { kind: string; title: string; content: string; id?: string; ember?: Ember }) {
   if (kind === 'building') return <Building content={content} />;
-  if (kind === 'table') return <TablePreview title={title} content={content} />;
+  if (kind === 'table' || isCsvFile(kind, title)) return <TablePreview title={title} content={content} />;
   const image = kind === 'image' ? artifactImageSource(content) : null;
   if (image) {
     return (
