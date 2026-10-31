@@ -53,7 +53,7 @@ describe("recall block — today's date", () => {
 
   // bun test runs in UTC, where London's day and the user's agree; Bun honours a runtime TZ.
   test("today is the user's own day, also just after midnight east of London", () => {
-    const tz = process.env.TZ;
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone; // deleting TZ would not bring UTC back
     process.env.TZ = "Europe/Bucharest";
     const db = openDatabase(":memory:");
     try {
@@ -65,7 +65,7 @@ describe("recall block — today's date", () => {
       expect(result.context).toContain("(today is 2026-10-29)");
     } finally {
       db.close();
-      process.env.TZ = tz;
+      process.env.TZ = zone;
     }
   });
 

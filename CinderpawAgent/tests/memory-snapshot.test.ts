@@ -67,7 +67,7 @@ describe("helpers", () => {
   // was London's (toISOString). bun test runs in UTC, where the two agree, so
   // the zone is set here; Bun honours a runtime TZ.
   test("today is the user's own day, not London's", () => {
-    const tz = process.env.TZ;
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone; // deleting TZ would not bring UTC back
     process.env.TZ = "Europe/Bucharest";
     try {
       const night = new Date(2026, 9, 29, 0, 30).getTime(); // a Thursday, 00:30 in Bucharest
@@ -75,7 +75,7 @@ describe("helpers", () => {
       expect(s.startsWith(`${SNAPSHOT_HEADER} (today is 2026-10-29, Thursday)`)).toBe(true);
       expect(ago(night, new Date(2026, 9, 28, 23, 50).getTime())).toBe("yesterday");
     } finally {
-      process.env.TZ = tz;
+      process.env.TZ = zone;
     }
   });
   test("snapshotBudgetChars clamps to 2000..8000", () => {

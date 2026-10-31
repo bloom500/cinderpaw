@@ -3,8 +3,7 @@
  * change. It used to know only the date, and found its permission mode by
  * being refused (29 Oct 2026).
  */
-process.env.TZ = "Europe/Bucharest";
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { situation } from "../src/memory/day.ts";
 import { WorkingMemory } from "../src/memory/working.ts";
 
@@ -12,6 +11,18 @@ import { WorkingMemory } from "../src/memory/working.ts";
 const LATE = Date.UTC(2026, 9, 28, 22, 30);
 
 describe("the situation block", () => {
+  // Bun honours a runtime TZ, for every test file in the same process: set at
+  // the top of this file it was never put back, and later files' dates moved.
+  // Put back the zone itself: bun test runs in UTC with TZ unset, and deleting
+  // TZ falls to the machine's own zone, not to UTC.
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  beforeAll(() => {
+    process.env.TZ = "Europe/Bucharest";
+  });
+  afterAll(() => {
+    process.env.TZ = zone;
+  });
+
   test("says the local hour and day, the OS and the mode in the words the person sees", () => {
     const s = situation(LATE, "win32", "read_only");
     expect(s).toContain("Thursday 2026-10-29, 00:30 (Europe/Bucharest)");
