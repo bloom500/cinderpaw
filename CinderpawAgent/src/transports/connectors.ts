@@ -1475,8 +1475,9 @@ export class WhatsAppConnector {
     const latest = await fetchLatest?.({}).catch(() => null);
     // The library's own QR timing (first code 60 s, each next one 20 s). Keeping
     // every code up 60 s (31 Oct) got "Check your connection and try again" on
-    // his phone: the codes after the first expire on WhatsApp's side long
-    // before that. The last phone that linked (26 Sep) did it on these defaults.
+    // his phone, most likely because the codes after the first expire on
+    // WhatsApp's side long before that (not proven: no phone here to test).
+    // The last phone that linked (26 Sep) did it on these defaults.
     const sock = makeWASocket({ auth: state, ...(latest?.version ? { version: latest.version } : {}) });
     this.#sock = sock;
     sock.ev.on("creds.update", saveCreds);
