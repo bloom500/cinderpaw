@@ -35,6 +35,20 @@ describe('the image viewer', () => {
     expect(screen.getByRole('button', { name: 'Close image preview' }).className).toContain('bg-black/0');
   });
 
+  // His report, 31 Oct: after the click that zoomed in, the picture followed the
+  // mouse with no button held.
+  it('a zoomed picture moves only while the button is held', async () => {
+    const lens = await openViewer();
+    fireEvent.pointerDown(lens, { clientX: 100, clientY: 80, pointerId: 1 });
+    fireEvent.pointerUp(lens, { pointerId: 1 });
+    fireEvent.click(lens, { clientX: 100, clientY: 80 });
+    const zoomed = lens.style.transform;
+    expect(zoomed).toContain('scale(2.5)');
+
+    fireEvent.pointerMove(lens, { clientX: 300, clientY: 260, pointerId: 1 });
+    expect(lens.style.transform).toBe(zoomed);
+  });
+
   it('a second click on the picture zooms back out', async () => {
     const lens = await openViewer();
     fireEvent.click(lens, { clientX: 10, clientY: 10 });

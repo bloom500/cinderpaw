@@ -38,7 +38,7 @@ export function ZoomableImage({ src, alt, thumbClassName, className }: {
   const thumb = useRef<HTMLImageElement>(null);
   const big = useRef<HTMLImageElement>(null);
   const lens = useRef<HTMLDivElement>(null);
-  const press = useRef<{ x: number; y: number; vx: number; vy: number; moved: boolean } | null>(null);
+  const press = useRef<{ x: number; y: number; vx: number; vy: number; moved: boolean; down: boolean } | null>(null);
 
   /** The transform that lays the big picture exactly over the thumbnail. */
   const overThumb = () => {
@@ -106,19 +106,25 @@ export function ZoomableImage({ src, alt, thumbClassName, className }: {
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
-    press.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false };
+    press.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false, down: true };
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
   };
+  // Only a held button drags. The press outlives its release (the click after it
+  // reads `moved`), and a released one used to keep panning: after the click that
+  // zoomed in, the picture followed the bare mouse (Darius, 31 Oct).
   const onPointerMove = (e: React.PointerEvent) => {
     const p = press.current;
-    if (!p || view.zoom === 1) return;
+    if (!p?.down || view.zoom === 1) return;
     const dx = e.clientX - p.x, dy = e.clientY - p.y;
     if (!p.moved && Math.hypot(dx, dy) < DRAG_SLOP) return;
     p.moved = true;
     setDragging(true);
     setView((v) => ({ ...v, x: p.vx + dx, y: p.vy + dy }));
   };
-  const onPointerUp = () => { setDragging(false); };
+  const onPointerUp = () => {
+    if (press.current) press.current.down = false;
+    setDragging(false);
+  };
   // A click on the picture zooms in where it landed, or back out; a drag is not a click.
   const onPictureClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -176,6 +182,7 @@ export function ZoomableImage({ src, alt, thumbClassName, className }: {
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
             onClick={onPictureClick}
             style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}
             className={cn(
