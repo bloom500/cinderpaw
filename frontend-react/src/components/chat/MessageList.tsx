@@ -25,9 +25,11 @@ import { useChatDockHeight } from '@/lib/chatDock';
  * are at the bottom, and a wheel, key or touch that moves away stops the follow.
  * Opening a saved chat lands on its latest turn.
  */
-export function MessageList({ onFollowUp }: {
+export function MessageList({ onFollowUp, onAnswer }: {
   /** A follow-up chip was picked: fill the composer with its words. */
   onFollowUp?: (text: string) => void;
+  /** A next-step card was answered: send the answer. */
+  onAnswer?: (text: string) => void;
 } = {}) {
   const messages = useChat((s) => s.messages);
   // Rows that arrive together (a chat opened, history loaded) are already
@@ -133,6 +135,7 @@ export function MessageList({ onFollowUp }: {
                 streaming={status === 'streaming' && i === messages.length - 1 && m.role === 'assistant'}
                 head={i === messages.length - 1 ? head : undefined}
                 onFollowUp={i === messages.length - 1 && m.role === 'assistant' ? onFollowUp : undefined}
+                onAnswer={i === messages.length - 1 && m.role === 'assistant' ? onAnswer : undefined}
                 // Retry under a reply resends the question above it; Send under
                 // an edited question resends that one. Both drop everything
                 // below, which is why they are off while a reply is arriving:

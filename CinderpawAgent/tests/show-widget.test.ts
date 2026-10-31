@@ -33,6 +33,15 @@ describe("show_widget", () => {
     expect(validateWidget({ kind: "followups", next: [3] })).toBeNull();
   });
 
+  // 31 Oct: Darius wants Claude's next-step card, one question and two clear answers.
+  test("followups with ask: one question, one or two answers, and the turn is told to end", async () => {
+    const r = await run({ kind: "followups", ask: "Should I send it to Ana?", next: ["Yes, send it", "Not now"] });
+    expect(r.data).toEqual({ kind: "followups", ask: "Should I send it to Ana?", next: ["Yes, send it", "Not now"] });
+    expect(r.content).toContain("write nothing more");
+    expect(validateWidget({ kind: "followups", ask: "Which one?", next: ["a", "b", "c"] })).toBeNull();
+    expect(validateWidget({ kind: "followups", ask: "x".repeat(101), next: ["Yes"] })).toBeNull();
+  });
+
   test("an unknown kind is a fallback too", async () => {
     const r = await run({ kind: "map", text: "Lisbon" });
     expect(r.ok).toBe(true);

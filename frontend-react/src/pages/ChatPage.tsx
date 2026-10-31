@@ -360,6 +360,8 @@ export function ChatPage() {
     chatInputRef.current?.setText(text);
     chatInputRef.current?.focus();
   }, []);
+  // A next-step card's answer is the person's reply, sent at once (like Claude's box).
+  const handleAnswer = useCallback((text: string) => { void cinderpawSend(text); }, [cinderpawSend]);
 
   // The conversation column is a value so it can be placed either beside the
   // panels or, in the browser's wide mode, inside the panel's own drawer,
@@ -400,7 +402,7 @@ export function ChatPage() {
 
         {/* Content: the messages. A new chat's notes live in the composer's
             wrapper below, under the intent cards. */}
-        {!isEmpty && <MessageList onFollowUp={handleFollowUp} />}
+        {!isEmpty && <MessageList onFollowUp={handleFollowUp} onAnswer={handleAnswer} />}
 
         {/* Live agent-to-agent transcript (Agent Cowork). Self-hiding: with
             zero cowork traffic it renders nothing, so a fresh install sees

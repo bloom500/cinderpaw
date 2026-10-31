@@ -22,6 +22,9 @@ describe('parseWidget', () => {
     expect(parseWidget({ kind: 'followups', next: [' Add charts ', 'a', 'b', 'c', 'd'] }))
       .toEqual({ kind: 'followups', next: ['Add charts', 'a', 'b', 'c'] });
     expect(parseWidget({ kind: 'followups', next: [] })).toBeNull();
+    // With a question it is the next-step card: two answers at most.
+    expect(parseWidget({ kind: 'followups', ask: 'Send it to Ana?', next: ['Yes', 'Not now', 'Later'] }))
+      .toEqual({ kind: 'followups', ask: 'Send it to Ana?', next: ['Yes', 'Not now'] });
   });
 
   it('drops an image that is not https, and keeps the card', () => {

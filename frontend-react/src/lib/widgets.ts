@@ -21,8 +21,8 @@ export type WidgetData =
   | { kind: 'verdict'; title?: string; text: string }
   /** Pictures that are the result, kept by the sidecar: a squircle gallery in the reply. */
   | { kind: 'photos'; title?: string; items: { imageFile: string; title?: string }[] }
-  /** Not drawn in place: chips at the end of the latest reply (spec 7.5). */
-  | { kind: 'followups'; next: string[] }
+  /** Not drawn in place: chips at the end of the latest reply (spec 7.5); with `ask`, the next-step card. */
+  | { kind: 'followups'; ask?: string; next: string[] }
   /** Not drawn in place: a task the agent offered (`suggest_task`), closing its reply. */
   | { kind: 'task'; card: TaskCard }
   /** The live WhatsApp code, after `connectors_manage` started pairing. Holds no code itself: it is read while shown. */
@@ -132,7 +132,9 @@ function strict(d: Rec): WidgetData | null {
     }
     case 'followups': {
       const next = Array.isArray(d.next) ? d.next.filter((l): l is string => typeof l === 'string' && l.trim() !== '').map((l) => l.trim()) : [];
-      return next.length > 0 ? { kind: 'followups', next: next.slice(0, 4) } : null;
+      const ask = str(d.ask)?.trim().slice(0, 100);
+      if (next.length === 0) return null;
+      return ask ? { kind: 'followups', ask, next: next.slice(0, 2) } : { kind: 'followups', next: next.slice(0, 4) };
     }
     case 'list': {
       const lines = Array.isArray(d.lines) ? d.lines.filter((l): l is string => typeof l === 'string' && l.trim() !== '') : [];

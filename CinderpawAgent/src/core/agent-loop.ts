@@ -2280,6 +2280,19 @@ export class AgentLoop {
         if (policy.deferredOnly && taskCard) {
           return { text: taskAcknowledgement(taskCard.when, policy.language), toolCallCount, outcome: "completed" };
         }
+        // The next-step card closes a finished reply, so the reply that came
+        // with it is the answer. Asking the model again got it written twice:
+        // told to stop it went quiet, and the empty reply was nudged with "state
+        // what you did" (31 Oct, Haiku). The write-claim check still applies.
+        if (
+          parsed.toolCalls.length === 1 && call.name === "show_widget" && result.ok &&
+          (result.data as { kind?: string } | undefined)?.kind === "followups"
+        ) {
+          const reply = stripThinking(parsed.text).trim();
+          if (reply && (await unkeptWriteClaims(reply)).length === 0) {
+            return { text: reply, toolCallCount, outcome: "completed" };
+          }
+        }
         if (policy.deferredOnly && call.name === "suggest_task" && result.ok) {
           const status = (result.data as { taskSuggestionStatus?: string } | undefined)?.taskSuggestionStatus;
           if (status === "already_offered" || status === "rate_limited") {
