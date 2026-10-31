@@ -14,7 +14,7 @@
  * Requires `fs:read`.
  */
 
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, statSync, type Dirent } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { resolveAllowedPath, firstAllowedPath } from "../../egress/tool-permissions.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
@@ -125,27 +125,28 @@ export function createFileSearchTool(allowedPaths: string[]): Tool {
         if (hits.length >= max || outOfTime || ctx.signal?.aborted) return;
         if (++dirsSinceBreath >= DIRS_PER_BREATH) { dirsSinceBreath = 0; await breathe(); }
         if (Date.now() - startedAt > TIME_BUDGET_MS) { outOfTime = true; return; }
-        let entries: string[];
-        try { entries = readdirSync(dir); } catch { return; }
-        for (const name of entries) {
+        // Types come from the folder's own listing: no file is opened to learn
+        // what it is. A stat on every entry opened every file under the home
+        // folder, OneDrive's "Personal Vault.lnk" among them, and Windows asked
+        // for the person's security key in the middle of a search for a missing
+        // .txt (Darius, 31 Oct). Only a match is opened, for its size. Links and
+        // junctions are not followed: a loop, or someone else's drive.
+        let entries: Dirent[];
+        try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+        for (const entry of entries) {
+          const name = entry.name;
           if (hits.length >= max) { truncated = true; return; }
           if (outOfTime || ctx.signal?.aborted) return;
           // Skip dot-dirs and the usual noise. Hidden files inside a
           // searched dir can still be matched explicitly via ".*".
           if (name.startsWith(".") && !pattern.startsWith(".")) continue;
           const full = join(dir, name);
-          let stat;
-          try { stat = statSync(full); } catch { continue; }
           const rel = relative(root, full).split(sep).join("/");
-          const isDir = stat.isDirectory();
-          if (!isDir || includeDirs) {
-            if (matcher(rel)) {
-              hits.push({
-                path: full,
-                type: isDir ? "dir" : "file",
-                size: isDir ? undefined : stat.size,
-              });
-            }
+          const isDir = entry.isDirectory();
+          if ((!isDir || includeDirs) && matcher(rel)) {
+            let size: number | undefined;
+            if (!isDir) { try { size = statSync(full).size; } catch { /* listed, then gone or locked */ } }
+            hits.push({ path: full, type: isDir ? "dir" : "file", size });
           }
           if (isDir && !SKIP_DIRS.has(name)) await visit(full, depth + 1);
         }

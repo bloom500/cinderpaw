@@ -6,7 +6,8 @@
  * structured result.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -350,6 +351,21 @@ describe("file_search", () => {
       const names = data.results.map((r) => r.path.split(/[\\/]/).pop());
       expect(names.sort()).toEqual(["index.ts", "list.ts", "loop.ts", "registry.ts"]);
     } finally { cleanup(); }
+  });
+
+  it("opens only the files it found, never every file on the way", async () => {
+    // 31 Oct: a stat on every entry under the home folder opened OneDrive's
+    // "Personal Vault.lnk", and Windows asked Darius for his security key.
+    writeFileSync(join(tmp, "Personal Vault.lnk"), "shortcut");
+    const tool = createFileSearchTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    const stat = spyOn(fs, "statSync");
+    try {
+      const result = await tool.execute({ pattern: "**/registry.ts", path: tmp }, ctx);
+      expect(result.ok).toBe(true);
+      const opened = stat.mock.calls.map((c) => String(c[0]).split(/[\\/]/).pop());
+      expect(opened).toEqual(["registry.ts"]);
+    } finally { stat.mockRestore(); cleanup(); }
   });
 
   it("stops with 'cancelled' when the call's signal aborts", async () => {
