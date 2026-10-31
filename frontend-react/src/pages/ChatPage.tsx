@@ -189,6 +189,15 @@ export function ChatPage() {
   // (15 Oct 2026, Darius). Never while the first-run wizard is on screen.
   const [showAgentOnboarding, setShowAgentOnboarding] = useState(false);
   const wizardActive = useOnboarding((s) => s.active);
+  // The job picked on the wizard's last card goes in the composer once the
+  // wizard closes, and stops there: pressing Enter is the person's.
+  useEffect(() => {
+    if (wizardActive) return;
+    const task = useOnboarding.getState().firstTask;
+    if (!task) return;
+    useOnboarding.getState().setFirstTask(null);
+    chatInputRef.current?.setText(task);
+  }, [wizardActive]);
 
   // Recompute centering offset whenever isEmpty or onboarding visibility changes.
   // Without showAgentOnboarding in deps, the effect fires while the container

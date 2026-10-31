@@ -57,13 +57,13 @@ beforeEach(() => {
 const renderStep = () => render(<MemoryRouter><ProviderStep /></MemoryRouter>);
 
 describe('ProviderStep', () => {
-  it('offers Cloud, Hugging Face and Local, and recommends Cloud on a machine that cannot run 27B', () => {
+  it('leads with the free sign-in, and offers a key or this computer', () => {
     renderStep();
-    expect(screen.getByRole('button', { name: /^Online/ })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: /^Hugging Face/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^This computer/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Sign in with OpenRouter/ })).toHaveTextContent('Free');
+    expect(screen.getByRole('button', { name: /^I have a key/ })).toHaveAttribute('aria-pressed', 'false');
+    // A 12 GB card cannot run the ~27B the tools need: not called "strong enough".
+    expect(screen.getByRole('button', { name: /^This computer/ })).toHaveTextContent('Needs a strong computer');
     expect(cubbyVoiceUrl).toHaveBeenCalledWith('onboarding.provider');
-    expect(screen.getByText(/start with Online/)).toBeInTheDocument();
   });
 
   it('local download starts the recommended-tier model with the exact repo + file', async () => {
@@ -79,7 +79,8 @@ describe('ProviderStep', () => {
   it('saving a curated provider calls saveByokProvider with its id (enabled)', async () => {
     mockSave.mockResolvedValue(undefined);
     renderStep();
-    await userEvent.click(await screen.findByRole('button', { name: /OpenAI/ }));
+    await userEvent.click(screen.getByRole('button', { name: /^I have a key/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /^OpenAI/ }));
     await userEvent.type(screen.getByPlaceholderText('sk-...'), 'sk-test');
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
     expect(mockSave).toHaveBeenCalledWith(

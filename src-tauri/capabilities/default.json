@@ -16,6 +16,8 @@
     "core:window:allow-set-focus",
     "core:window:allow-is-visible",
     "core:window:allow-toggle-maximize",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen",
     "core:window:allow-close",
     "core:window:allow-is-minimized",
     "core:window:allow-current-monitor",

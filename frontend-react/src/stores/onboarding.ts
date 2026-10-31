@@ -1,9 +1,12 @@
 /**
  * useOnboarding — first-run wizard state.
  *
- * Six boards (1 Oct 2026): welcome, names, a model, connections, the
- * workspace, done. The names are written to this record on finish and read
- * by the agent's system prompt; the user's name can be changed in Settings.
+ * Three cards (31 Oct 2026, Darius's release gate: "almost Apple intuitive"):
+ * what it does (the "Your AI team" film), a brain, and the first task with
+ * the names. Connections and the workspace tour left the wizard: they are
+ * met where they are used. The names are written to this record on finish
+ * and read by the agent's system prompt; the user's name can be changed in
+ * Settings.
  *
  * Persistence: on `finish()` or `skip()`, the state is written to
  * `~/.cinderpaw/onboarding.json` via the Tauri fs API. On next launch the
@@ -43,7 +46,7 @@ import { useSettings } from '@/stores/settings';
  * distinct wizard steps, add them here — `totalSteps`, the progress
  * dots, and the next/prev bounds all derive from this list.
  */
-export const STEP_IDS = ['welcome', 'names', 'provider', 'connect', 'workspace', 'done'] as const;
+export const STEP_IDS = ['welcome', 'provider', 'done'] as const;
 const TOTAL_STEPS: number = STEP_IDS.length;
 const FIRST_STEP: number = 0;
 const LAST_STEP: number = STEP_IDS.length - 1;
@@ -91,6 +94,19 @@ export interface OnboardingState {
    * why. Cleared whenever a write succeeds.
    */
   persistFailed: boolean;
+  /**
+   * The job picked on the last card. The chat puts it in the composer once the
+   * wizard closes, and stops there: the person presses Enter, like the Home
+   * intents (sending on their behalf would be guessing their sentence).
+   */
+  firstTask: string | null;
+  setFirstTask: (task: string | null) => void;
+  /**
+   * A brain found on this machine passed a real completion on the brain card
+   * ("Use this"). Some of those (a model on disk, Ollama) leave no trace in
+   * the model or key stores the card's Continue reads, so it is said here.
+   */
+  brainVerified: boolean;
   /** Total number of steps in the wizard (used by progress bar + next/prev).
    *  Derived from STEP_IDS.length — see audit M-R1 fix. */
   totalSteps: number;
@@ -136,6 +152,8 @@ export const DEFAULTS = {
   countInstall: true,
   heardFrom: null,
   shareUsage: false,
+  firstTask: null,
+  brainVerified: false,
   active: false,
   step: FIRST_STEP,
   totalSteps: TOTAL_STEPS,
@@ -273,6 +291,7 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
   setCountInstall: (on: boolean) => set({ countInstall: on }),
   setHeardFrom: (source: string | null) => set({ heardFrom: source }),
   setShareUsage: (on: boolean) => set({ shareUsage: on }),
+  setFirstTask: (task: string | null) => set({ firstTask: task }),
 
   loadPersisted: async () => {
     // Try the layered persistence: localStorage first (sync, no I/O,
