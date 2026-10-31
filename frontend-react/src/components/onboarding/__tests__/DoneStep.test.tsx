@@ -52,6 +52,21 @@ describe('the welcome card', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: 'Your AI team, full screen' })).not.toBeInTheDocument();
   });
+
+  // His report, 31 Oct: pressing the player's full-screen button again did not get him out.
+  it("the player's own full-screen button brings it back too", () => {
+    useOnboarding.setState({ step: 0 });
+    renderWizard();
+    fireEvent.click(screen.getByRole('button', { name: /Full screen/ }));
+    const video = screen.getByRole('dialog', { name: 'Your AI team, full screen' }).querySelector('video');
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => video });
+    try {
+      fireEvent(document, new Event('fullscreenchange'));
+    } finally {
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => null });
+    }
+    expect(screen.queryByRole('dialog', { name: 'Your AI team, full screen' })).not.toBeInTheDocument();
+  });
 });
 
 // A stranger must not click through to a chat that answers "no model", and a

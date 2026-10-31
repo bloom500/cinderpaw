@@ -20,7 +20,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, ArrowLeft, CalendarCheck, Check, ChevronRight, Download, ExternalLink, Eye, EyeOff, KeyRound, Laptop, Loader2, Maximize2, Megaphone, MessageCircle, Search, Shield, ShieldAlert, ShieldCheck, Sparkles, Volume2, VolumeX, X, type LucideIcon } from 'lucide-react';
+import { ArrowRight, ArrowLeft, CalendarCheck, Check, ChevronRight, Download, ExternalLink, Eye, EyeOff, KeyRound, Laptop, Loader2, Maximize2, Megaphone, Minimize2, MessageCircle, Search, Shield, ShieldAlert, ShieldCheck, Sparkles, Volume2, VolumeX, type LucideIcon } from 'lucide-react';
 import { STEP_IDS, useOnboarding } from '@/stores/onboarding';
 import { useSystemInfo } from '@/stores/systemInfo';
 import { useDownload } from '@/stores/download';
@@ -350,9 +350,19 @@ function FilmFullScreen({ from, sound, onClose }: { from: number; sound: boolean
       } catch { /* not inside the app (a browser preview): the page is the whole screen */ }
     })();
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+    // The player's own full-screen button is where people press "again" to get out
+    // (Darius, 31 Oct): it used to put the already-full video in full screen once
+    // more and change nothing. Now it is the way out, like the button that opened it.
+    const onFull = () => {
+      if (!document.fullscreenElement) return;
+      void document.exitFullscreen?.()?.catch(() => {});
+      close();
+    };
     window.addEventListener('keydown', onKey);
+    document.addEventListener('fullscreenchange', onFull);
     return () => {
       window.removeEventListener('keydown', onKey);
+      document.removeEventListener('fullscreenchange', onFull);
       if (filmMadeWindowFull) {
         filmMadeWindowFull = false;
         try { void getCurrentWindow().setFullscreen(false).catch(() => {}); } catch { /* not inside the app */ }
@@ -372,7 +382,7 @@ function FilmFullScreen({ from, sound, onClose }: { from: number; sound: boolean
         onClick={close}
         className="absolute right-4 top-4 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-sm text-white transition-colors hover:bg-white/25"
       >
-        <X size={16} /> Close
+        <Minimize2 size={16} /> Exit full screen
       </button>
     </div>,
     document.body,
