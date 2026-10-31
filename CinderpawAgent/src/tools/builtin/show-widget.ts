@@ -229,6 +229,9 @@ export function createShowWidgetTool(allowedPaths: string[] = []): Tool {
     name: "show_widget",
     description:
       "Show structured information to the user as a themed widget in the chat, instead of a markdown list. " +
+      "When you finish a task, or answer something with an obvious next step, end with `followups`: 2-3 short " +
+      "next requests in the person's own voice (\"Make it shorter\", \"Send it to Ana\", \"Do the same for March\"). " +
+      "Do it on most finished tasks; skip it only for small talk and when you just asked them a question. " +
       "Kinds: `facts` (items: 2-6 {label, value, icon?}), `checklist` (items: {text, done, note?}), " +
       "`cards` (items: 2-6 {title, subtitle?, image?, url?}, https only; a card with a url and no image gets " +
       "the picture that page shows in link previews, so link the real product or place page), `breakdown` (items: {label, value}, total?), " +
@@ -237,7 +240,7 @@ export function createShowWidgetTool(allowedPaths: string[] = []): Tool {
       "`photos` (items: 1-8 {image, title?}: pictures that ARE the result, shown large in the reply; `image` is " +
       "an https address or the path of an image file on this computer, e.g. a chart you made. What you looked at " +
       "on the way is already in your steps: use photos for what you hand over), " +
-      "`followups` (next: 1-4 short strings, next requests the user might send, in their voice; only after a finished task, last). " +
+      "`followups` (next: 1-4 short strings, next requests the user might send, in their voice; after a finished task, last). " +
       `Icons: ${WIDGET_ICONS.join(", ")}. Say in your text what the widget shows; do not repeat its contents. ` +
       "A board, dashboard, itinerary or plan the user asked for is not a widget: make it with artifact_create, kind `board`.",
     // fs:read only with a folder to read: a manifest with the permission and no
