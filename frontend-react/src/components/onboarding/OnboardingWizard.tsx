@@ -315,7 +315,7 @@ function TeamFilm() {
         onClick={openBig}
         className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-sm text-white transition-colors hover:bg-black/75"
       >
-        <Maximize2 size={15} /> Full screen
+        <Maximize2 size={16} /> Full screen
       </button>
       {big !== null && <FilmFullScreen from={big} sound={sound} onClose={closeBig} />}
     </div>
@@ -511,20 +511,20 @@ export function ProviderStep() {
             {signedIn ? 'I am ready to answer. Press Continue.' : 'Free, with a daily limit. Works on any computer. Sign in with Google or email.'}
           </span>
         </span>
-        {signedIn ? <Check size={22} className="shrink-0 text-brand" /> : busy ? <Loader2 size={20} className="shrink-0 animate-spin text-brand" /> : <ArrowRight size={20} className="shrink-0 text-brand" />}
+        {signedIn ? <Check size={20} className="shrink-0 text-brand" /> : busy ? <Loader2 size={20} className="shrink-0 animate-spin text-brand" /> : <ArrowRight size={20} className="shrink-0 text-brand" />}
       </button>
 
       <p className="mt-5 text-sm font-medium text-text-secondary">Or</p>
       <div className="mt-2 grid gap-3 sm:grid-cols-2">
         <ForkCard
-          icon={<KeyRound size={26} className="text-text-secondary" />}
+          icon={<KeyRound size={28} className="text-text-secondary" />}
           title="I have a key"
           subtitle="OpenAI, Claude, Gemini and more."
           selected={other === 'key'}
           onClick={() => setOther((o) => (o === 'key' ? null : 'key'))}
         />
         <ForkCard
-          icon={<Laptop size={26} className="text-text-secondary" />}
+          icon={<Laptop size={28} className="text-text-secondary" />}
           title="This computer"
           subtitle={localFits ? 'Free and private. Your computer is strong enough.' : 'Free and private. Needs a strong computer.'}
           selected={other === 'local'}
