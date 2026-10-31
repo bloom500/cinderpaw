@@ -758,12 +758,13 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
           return;
         }
         const live = p.version === undefined && prev ? liveAfter(prev, row, e.content, e.encoding, !!get().editing) : undefined;
-        set({
+        const content = e.content;
+        const show = () => set({
           busy: false,
           error: null,
           open: {
             row,
-            content: e.content,
+            content,
             encoding: e.encoding,
             fields: e.fields,
             showing: p.version ?? row.version,
@@ -774,6 +775,19 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
             ...(live ? { live } : {}),
           },
         });
+        // A PDF saved while the draft's letters are still coming in: they finish,
+        // then the pages. Swapping at once stopped the writing mid-line and put
+        // the rest down in one go (Darius, 31 Oct).
+        const lettersLeft = !live && p.version === undefined && e.encoding === 'base64' && prev?.row.version === 0 && prev.live && !prev.live.stopped
+          ? liveUntil(prev.live.runs) - Date.now()
+          : 0;
+        if (lettersLeft > 0) {
+          const draftId = prev!.row.id;
+          // Unless the person moved on (another document, the list) meanwhile.
+          setTimeout(() => { if (wanted === row.id && get().open?.row.id === draftId) show(); }, lettersLeft);
+          return;
+        }
+        show();
         return;
       }
       case 'versions': {
