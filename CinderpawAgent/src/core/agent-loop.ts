@@ -1681,6 +1681,10 @@ export class AgentLoop {
     // than after a third identical attempt.
     const recentToolKeys: string[] = [];
     const toolFailureCounts = new Map<string, number>();
+    // Heads Up is reminded at the moment it is useful, once a turn, the way a
+    // harness reminds Claude: a rule in a long prompt alone left it at 1 call
+    // in 9,647 on Darius's install, and small models read rules least (31 Oct).
+    let headsUpShownOrNudged = false;
     // Every counter above keys on the ARGUMENTS, and some failures have nothing
     // to do with them. The live case: DuckDuckGo Lite paces at one query per
     // five seconds and, once tripped, refuses everything for two minutes —
@@ -2197,13 +2201,34 @@ export class AgentLoop {
 
         // Record any decision ask_user made on the user's behalf (autonomous
         // mode or a timeout auto-resolve), for the end-of-turn summary.
+        let decidedForThem = false;
         if (call.name === "ask_user" && result.ok) {
           const d = result.data as { autoResolved?: boolean; answers?: Array<{ question?: string; selected?: string[] }> } | undefined;
           if (d?.autoResolved && Array.isArray(d.answers)) {
+            decidedForThem = true;
             for (const a of d.answers) {
               autoDecisions.push(`"${a.question ?? "(question)"}" → ${a.selected?.join(", ") || "(none)"}`);
             }
           }
+        }
+
+        // The two moments a person most wants to hear about while work goes
+        // on: a step that failed (so the result will differ from what they
+        // expect) and a choice made for them. Owner chats only: the card is
+        // drawn in the app.
+        if (call.name === "heads_up") headsUpShownOrNudged = true;
+        if (
+          !headsUpShownOrNudged && !profile && !policy.deferredOnly &&
+          (decidedForThem || (!result.ok && call.name !== "show_widget")) &&
+          this.#registry.list().some((t) => t.manifest.name === "heads_up")
+        ) {
+          headsUpShownOrNudged = true;
+          memory.addUser(
+            decidedForThem
+              ? "(system: you just answered a question for the person. Tell them now with heads_up, one line on what was chosen, then continue.)"
+              : `(system: "${call.name}" failed: ${result.content.slice(0, 160)}. If this changes what the person will get ` +
+                "(a file or source you could not reach, a step you skip or do another way), tell them now with heads_up, one line, then continue.)",
+          );
         }
 
         // M1: detect a stuck model. See the declarations above for why this
