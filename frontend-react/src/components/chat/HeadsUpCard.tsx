@@ -75,7 +75,9 @@ export function HeadsUpCard() {
   if (!card) return null;
 
   return (
-    <section aria-label="Something you should know" className="mx-auto w-full max-w-[764px] px-4 pb-2">
+    // Right padding: Cubby perches on the composer's right corner, 104 px tall
+    // (MascotPerch), and stood on top of the card's right side (31 Oct).
+    <section aria-label="Something you should know" className="mx-auto w-full max-w-[764px] pl-4 pr-[120px] pb-2">
       <GooeyCard key={card.id}>
         <button type="button" aria-label="Close" onClick={() => choose('dismiss')}
           className="absolute right-2 top-2 rounded-full p-1 text-text-muted hover:bg-text-primary/5 hover:text-text-primary">

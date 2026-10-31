@@ -136,6 +136,8 @@ export function MessageList({ onFollowUp, onAnswer }: {
                 head={i === messages.length - 1 ? head : undefined}
                 onFollowUp={i === messages.length - 1 && m.role === 'assistant' ? onFollowUp : undefined}
                 onAnswer={i === messages.length - 1 && m.role === 'assistant' ? onAnswer : undefined}
+                // An answered next-step card stays, greyed, with the reply the person sent marked.
+                answered={m.role === 'assistant' && messages[i + 1]?.role === 'user' ? messages[i + 1].content : undefined}
                 // Retry under a reply resends the question above it; Send under
                 // an edited question resends that one. Both drop everything
                 // below, which is why they are off while a reply is arriving:

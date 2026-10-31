@@ -97,6 +97,7 @@ export const MessageItem = memo(function MessageItem({
   head,
   onFollowUp,
   onAnswer,
+  answered,
 }: {
   message: ChatMessage;
   streaming?: boolean;
@@ -106,6 +107,8 @@ export const MessageItem = memo(function MessageItem({
   onFollowUp?: (text: string) => void;
   /** Send a next-step card's answer as the person's message. Only the latest reply gets it. */
   onAnswer?: (text: string) => void;
+  /** What the person wrote next, when this reply is no longer the latest: its card stays, answered. */
+  answered?: string;
   /** Send this turn again. Absent while a reply is still arriving. */
   onRetry?: () => void;
   /** Send this user turn again with different words. */
@@ -338,7 +341,7 @@ export const MessageItem = memo(function MessageItem({
       )}
       {!streaming && taskCards.map((c) => <TaskSuggestionCard key={c.id} card={c} sessionId={sessionId} />)}
       {!streaming && followUps?.kind === 'followups' && (followUps.ask
-        ? onAnswer && <NextStepCard ask={followUps.ask} next={followUps.next} onAnswer={onAnswer} />
+        ? (onAnswer || answered !== undefined) && <NextStepCard ask={followUps.ask} next={followUps.next} onAnswer={onAnswer} answered={answered} />
         : onFollowUp && <FollowUps next={followUps.next} onPick={onFollowUp} />
       )}
       {head && <ReplyHead writing={head === 'writing'} />}
