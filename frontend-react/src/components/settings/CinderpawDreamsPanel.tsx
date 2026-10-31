@@ -485,13 +485,13 @@ export function CinderpawDreamsPanel() {
             setDreamsBusy(false);
           }}
           className={cn(
-            'w-10 h-6 rounded-full transition-colors duration-200 relative shrink-0',
+            'w-10 h-6 rounded-full transition-colors duration-(--motion-base) relative shrink-0',
             settings?.dreams_enabled ? 'bg-success' : 'bg-border-default',
           )}
         >
           <span
             className={cn(
-              'absolute top-1 left-0 w-4 h-4 rounded-full bg-white transition-transform duration-200',
+              'absolute top-1 left-0 w-4 h-4 rounded-full bg-white transition-transform duration-(--motion-base)',
               settings?.dreams_enabled ? 'translate-x-5' : 'translate-x-1',
             )}
           />

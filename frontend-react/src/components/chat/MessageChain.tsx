@@ -1,26 +1,87 @@
 import { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, Ban, Check, ChevronDown, Loader2, X } from 'lucide-react';
 import { Streamdown } from 'streamdown';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { thinkingLabel } from '@/components/ai-elements/reasoning';
+import { ShimmeringText } from '@/components/ui/shimmering-text';
 import type { ToolActivity } from '@/hooks/useLiveToolActivity';
 import { useUI } from '@/stores/ui';
 import { displayName, type RlmWorker } from '@/stores/rlmWorkers';
 import logoUrl from '@/assets/logo.svg';
 import { Widget, summaryOf } from './CallToolScreen';
 import { CinderpawMascot } from './mascot/CinderpawMascot';
-import { GooeyCard } from './GooeyCard';
+import { ZoomableImage } from './ZoomableImage';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
+import { videoPreviewUrl } from '@/lib/attachments';
 
-/** How long the finished answer is on screen before the steps fold away. */
-const FOLD_DELAY_MS = 1000;
+/** Pictures shown on the folded line, newest last (Claude's "+3" strip). */
+const LINE_THUMBS = 3;
+/**
+ * The line's own grey (28 Oct, Darius: "nu e gri, tot alba e"). The dark
+ * theme's muted tier is near white on purpose, for text on glass; the activity
+ * line is the one place meant to step back from the answer, so it is that tier
+ * at 70%, in both themes, hovered or not (a `group-hover` here answered the
+ * whole reply's `group`, so the cursor anywhere over the reply turned it white).
+ */
+const QUIET = 'text-text-muted/70';
 
-/** A side chip ("Using memory") pops in when it starts and shrinks away when it
- *  ends. No blur: a filter is repainted every frame, where scale is not. */
-const CHIP_AWAY = { scale: 0.3, opacity: 0 };
-const CHIP_HERE = { scale: 1, opacity: 1 };
-const CHIP_SPRING = { type: 'spring' as const, bounce: 0.45, duration: 0.45 };
+/** A step's pictures (screenshots, images it read), each opening full size. */
+function Thumbs({ images, small }: { images: string[]; small?: boolean }) {
+  return (
+    <div className="flex shrink-0 items-center gap-1.5" data-testid="step-thumbs">
+      {images.map((src, i) => {
+        const thumb = (
+          <ZoomableImage
+            src={src}
+            alt={`What the agent saw, picture ${i + 1}`}
+            thumbClassName={small ? 'h-7 w-auto max-w-14 rounded-md object-cover' : 'h-16 w-auto max-w-32 rounded-md object-cover'}
+          />
+        );
+        if (!small) return <span key={`${i}-${src.length}`}>{thumb}</span>;
+        // A 28 px picture on the line says "there is a picture", not what is in
+        // it. Hovering shows it bigger, like Claude's previews (his ask, 30 Oct);
+        // a click still opens it whole.
+        return (
+          <HoverCard key={`${i}-${src.length}`} openDelay={150} closeDelay={60}>
+            <HoverCardTrigger asChild><span className="inline-flex">{thumb}</span></HoverCardTrigger>
+            <HoverCardContent side="top" className="w-auto p-1.5 rounded-xl">
+              <img src={src} alt="" className="block max-h-56 w-auto max-w-80 rounded-lg object-contain" data-testid="thumb-preview" />
+            </HoverCardContent>
+          </HoverCard>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Where a step is, for `firstLooks`: a site's host, or the app it named. */
+function placeOf(subject: string): string {
+  try { return new URL(/^[a-z]+:\/\//i.test(subject) ? subject : `https://${subject}`).hostname; } catch { return subject; }
+}
+
+/**
+ * The steps whose picture is shown big: the first picture after the agent
+ * arrives somewhere new (a site it opened, an app it named), like Claude's
+ * first look at a page. Every later picture from the same place is a
+ * thumbnail (Darius, 27 Oct: "o poza mare cu siteul, dupa care doar miniaturi").
+ * ponytail: a place is what a browser or app step NAMED; a click that leads to
+ * another site is not seen as a move. Read the page's url from the result if
+ * that matters.
+ */
+export function firstLooks(steps: ToolActivity[]): Set<string> {
+  const big = new Set<string>();
+  let place = '';
+  let shown: string | null = null;
+  for (const a of steps) {
+    if (a.subject && (a.tool === 'browser' || a.kind === 'desktop')) place = placeOf(a.subject);
+    if (a.images?.length && place !== shown) {
+      big.add(a.id);
+      shown = place;
+    }
+  }
+  return big;
+}
 
 /** No Streamdown plugins, for the same bundle reason as reasoning.tsx. */
 const NO_PLUGINS = {};
@@ -43,6 +104,8 @@ const PHRASES: Record<string, [string, string]> = {
   todo_write: ['Updating the plan', 'Updated the plan'],
   cowork_send: ['Messaging a teammate', 'Messaged a teammate'],
   rlm: ['Starting helpers', 'Started helpers'],
+  // The built-in browser. Without it the line said "Browser".
+  browser: ['Using the browser', 'Used the browser'],
 };
 
 /**
@@ -50,9 +113,12 @@ const PHRASES: Record<string, [string, string]> = {
  * ("Searching the web", "Searched the web"). From the tool's kind and name,
  * never from its output. A tool with no phrase keeps its own name.
  */
-export function stepTitle(a: Pick<ToolActivity, 'tool' | 'kind' | 'status' | 'artifact'>): string {
+export function stepTitle(a: Pick<ToolActivity, 'tool' | 'kind' | 'status' | 'artifact'> & Partial<Pick<ToolActivity, 'desktop' | 'images'>>): string {
   const now = a.status === 'running';
   const pick = (running: string, done: string) => (now ? running : done);
+  // The built-in browser is a tool of its own (kind 'generic', not the web
+  // search widget), and only its `screenshot` brings a picture back.
+  if (a.tool === 'browser' && a.images?.length) return 'Took a picture of the page';
   switch (a.kind) {
     case 'browser':
       if (/^(web_search|deep_research)/.test(a.tool)) return pick('Searching the web', 'Searched the web');
@@ -64,7 +130,9 @@ export function stepTitle(a: Pick<ToolActivity, 'tool' | 'kind' | 'status' | 'ar
     case 'terminal': return pick('Running a command', 'Ran a command');
     case 'memory':   return pick('Checking memory', 'Checked memory');
     case 'agent':    return pick('Asking a helper', 'Asked a helper');
-    case 'desktop':  return pick('Using an app', 'Used an app');
+    case 'desktop':
+      if (a.desktop?.action === 'screenshot') return pick('Taking a picture', 'Took a picture');
+      return pick('Using an app', 'Used an app');
     case 'artifact': {
       const title = a.artifact?.title;
       // An edit is a change, often one part of a document drafted in parts.
@@ -104,6 +172,8 @@ export function stepDetail(a: ToolActivity): string {
   if (a.hits.length > 0) return plural(a.hits.length, 'source');
   if (a.files.length > 0) return plural(a.files.length, 'file');
   if (a.facts.length > 0) return plural(a.facts.length, 'memory', 'memories');
+  // "Took a picture" said "Taking a picture" again on its right; the app is the news.
+  if (a.desktop?.action === 'screenshot') return a.desktop.app;
   return summaryOf(a);
 }
 
@@ -114,8 +184,13 @@ export function stepDetail(a: ToolActivity): string {
  * thinking or writing after them (UX lab, report item 5).
  */
 export function doneSentence(steps: ToolActivity[]): string {
-  const said = [...new Set(steps.map((a) => stepTitle({ ...a, status: 'done' })))];
-  const shown = said.slice(0, 3).map((s, i) => (i === 0 ? s : s.charAt(0).toLowerCase() + s.slice(1)));
+  const titles = steps.map((a) => stepTitle({ ...a, status: 'done' }));
+  const said = [...new Set(titles)];
+  // "Took a picture of the page 3 times", like Claude's "captured page 5 times".
+  const times = (s: string) => titles.filter((t) => t === s).length;
+  const shown = said.slice(0, 3)
+    .map((s) => (times(s) > 1 ? `${s} ${times(s)} times` : s))
+    .map((s, i) => (i === 0 ? s : s.charAt(0).toLowerCase() + s.slice(1)));
   const more = said.length - shown.length;
   const failed = steps.filter((a) => a.status === 'failed').length;
   return shown.join(', ') + (more > 0 ? `, and ${more} more` : '')
@@ -174,9 +249,84 @@ function StatusRing({ status }: { status: ToolActivity['status'] }) {
   return <Check size={16} className="shrink-0 text-success" />;
 }
 
+/** A first look at a place, at the chat's width (Claude's "Captured page" picture). */
+/**
+ * A video the agent handed over with `show_video` (his ask, 30 Oct: a render
+ * should play in the chat, not be a path). The page may only load files the
+ * host has opened to it, so it asks first; a file that is gone or will not
+ * play stays its name, with nothing broken drawn.
+ */
+function AgentVideo({ video }: { video: { path: string; name: string } }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [broken, setBroken] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void videoPreviewUrl(video.path).then((u) => { if (live) u ? setSrc(u) : setBroken(true); });
+    return () => { live = false; };
+  }, [video.path]);
+  if (broken) return <p className={cn('mb-1 mt-1.5 text-sm', QUIET)} data-testid="agent-video-missing">{video.name} (could not be played here)</p>;
+  if (!src) return <div className="mb-1 mt-1.5 aspect-video w-full max-w-xl rounded-xl bg-bg-surface" aria-label={video.name} />;
+  return (
+    <video src={src} controls preload="metadata" playsInline aria-label={video.name} title={video.name}
+      onError={() => setBroken(true)} data-testid="agent-video"
+      className="mb-1 mt-1.5 block max-h-[28rem] w-full max-w-xl rounded-xl bg-black object-contain" />
+  );
+}
+
+function FirstLook({ src }: { src: string }) {
+  return (
+    <ZoomableImage
+      src={src}
+      alt="What the agent saw when it got there"
+      className="w-full"
+      thumbClassName="block max-h-[30rem] w-full rounded-xl object-cover object-top"
+    />
+  );
+}
+
+/** Kinds whose widget is a picture of the work: a terminal, a results page, an
+ *  app window, the files. A generic tool's widget is one line; the memories a
+ *  lookup found already close the reply (MemoryPeek), and twice was noise. */
+const MINI_KINDS = new Set<ToolActivity['kind']>(['browser', 'terminal', 'desktop', 'files']);
+/** Widget tiles under the folded line, newest last; the rest are counted. */
+const MINI_WIDGETS = 3;
+
+/**
+ * A step's own widget, shrunk to a tile under the folded line (27 Oct, his ask:
+ * the widgets stay in the chat even when the line is closed). Laid out at
+ * 400 px and zoomed to half, so it is the same widget, live while it runs, not a
+ * summary of it. A click shows that one widget full size under the tiles, and
+ * a second click puts it away (28 Oct, Darius: opening every step to see one
+ * widget was impractical).
+ */
+function MiniWidget({ a, shown, onToggle }: { a: ToolActivity; shown: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={stepTitle(a)}
+      aria-label={`${stepTitle(a)}, ${shown ? 'hide' : 'show'} it full size`}
+      aria-pressed={shown}
+      className={cn(
+        // As tall as the widget it shows, at most 110 px: a fixed 110 px box
+        // around a half-size widget left an empty band under short ones,
+        // which read as a gap in the reply (28 Oct, his screenshot).
+        'max-h-[110px] w-[200px] shrink-0 self-start overflow-hidden rounded-xl text-left',
+        shown && 'ring-2 ring-brand/60',
+      )}
+    >
+      {/* `zoom`, not a transform: a zoomed box takes its drawn size in the layout. */}
+      <span aria-hidden className="pointer-events-none block w-[400px]" style={{ zoom: 0.5 }}>
+        <Widget activity={a} flat />
+      </span>
+    </button>
+  );
+}
+
 /** One step: ring, what it did, its count. Click for the tool's own widget.
- *  `pop`: it arrived while the agent works, so it pops in (`.row-pop`). */
-function StepRow({ a, pop }: { a: ToolActivity; pop: boolean }) {
+ *  `pop`: it arrived while the agent works, so it pops in (`.row-pop`).
+ *  `big`: its first picture is a first look at a new place (`firstLooks`). */
+function StepRow({ a, pop, big }: { a: ToolActivity; pop: boolean; big: boolean }) {
   // `null` is "nobody chose": the running step shows its widget, the rest fold.
   const [choice, setChoice] = useState<boolean | null>(null);
   const open = choice ?? a.status === 'running';
@@ -189,13 +339,20 @@ function StepRow({ a, pop }: { a: ToolActivity; pop: boolean }) {
         className="flex w-full items-center gap-3 py-1.5 text-left"
       >
         <StatusRing status={a.status} />
-        <span className={cn('min-w-0 flex-1 truncate text-sm', a.status === 'running' ? 'font-medium text-text-primary' : 'text-text-muted')}>
+        <span className={cn('min-w-0 flex-1 truncate text-sm', a.status === 'running' ? 'font-medium text-text-primary' : QUIET)}>
           {stepTitle(a)}
         </span>
-        <span className="max-w-[45%] shrink-0 truncate text-2xs text-text-disabled" title={stepDetail(a)}>
+        <span className={cn('max-w-[45%] shrink-0 truncate text-2xs', QUIET)} title={stepDetail(a)}>
           {stepDetail(a)}
         </span>
       </button>
+      {/* What it saw stays in view, folded or not: a picture is the step's proof. */}
+      {a.images && a.images.length > 0 && (
+        <div className="mb-1.5 ml-7 flex flex-col items-start gap-1.5">
+          {big && <FirstLook src={a.images[0]!} />}
+          {(big ? a.images.slice(1) : a.images).length > 0 && <Thumbs images={big ? a.images.slice(1) : a.images} />}
+        </div>
+      )}
       {open && (
         <div className="mb-1.5 ml-7">
           <Widget activity={a} flat />
@@ -218,8 +375,8 @@ function HelperRow({ w, now }: { w: RlmWorker; now: number }) {
   return (
     <div className="flex items-center gap-3 py-1.5" data-testid="strip-helper">
       {icon}
-      <span className="min-w-0 flex-1 truncate text-sm text-text-muted" title={w.name}>{displayName(w.name)}</span>
-      <span className="shrink-0 text-2xs text-text-disabled">
+      <span className={cn('min-w-0 flex-1 truncate text-sm', QUIET)} title={w.name}>{displayName(w.name)}</span>
+      <span className={cn('shrink-0 text-2xs', QUIET)}>
         {HELPER_WORD[w.status]} · {elapsedLabel((w.endedAt ?? now) - w.startedAt)}
       </span>
     </div>
@@ -240,33 +397,45 @@ export function sideChips(steps: ToolActivity[], helpers: RlmWorker[]): string[]
   ];
 }
 
-/** The clay mascot at work, 48 px; the logo head when the mascot is turned off. */
+/** The clay mascot at work, sized to the line's icon slot; the logo head when the mascot is turned off. */
 function WorkingFigure() {
   const mascot = useUI((s) => s.mascotEnabled);
-  if (!mascot) return <img src={logoUrl} alt="" className="h-8 w-8 shrink-0" />;
+  if (!mascot) return <img src={logoUrl} alt="" className="size-5" />;
+  return <CinderpawMascot state="calling" width={24} />;
+}
+
+/**
+ * What stands before the line's words, always in the same 24 px slot: the
+ * figure at work, the warning when a step failed, the still logo head once
+ * done. It used to be a 48 px figure that was simply gone after, so the words
+ * slid ~56 px sideways each time a step ended (his "loose screws", 29 Oct).
+ */
+function LineIcon({ streaming, failed }: { streaming: boolean; failed: boolean }) {
   return (
-    <span aria-hidden className="relative -my-2 h-12 w-12 shrink-0 overflow-hidden">
-      <span className="absolute left-0 top-0 origin-top-left scale-[0.375]">
-        <CinderpawMascot state="calling" />
-      </span>
+    <span data-testid="activity-icon" aria-hidden className="grid size-6 shrink-0 place-items-center overflow-hidden">
+      {streaming ? <WorkingFigure />
+        : failed ? <AlertTriangle size={14} className="text-warning" />
+        : <img src={logoUrl} alt="" className="size-4 opacity-70" />}
     </span>
   );
 }
 
 /**
- * The Activity Strip (spec 7.5): what the agent did in this part of the turn,
- * as one card. Its header says what is happening now and for how long; the
- * rows are each tool it ran and its reasoning. Replaces the step card.
+ * The activity line (spec 7.5): what the agent did in this part of the turn,
+ * as one quiet line over the answer. It says what is happening now and for how
+ * long, with the newest pictures the agent took; open, it is a thin timeline of
+ * each tool it ran and its reasoning. Replaces the card (27 Oct).
  *
  * The steps come from `toolActivity`, which the stream already records as
  * structured events, not from guessing steps out of the reasoning text.
  *
- * Open while the turn streams, so the steps arrive live. Folds itself a beat
- * after the WHOLE answer is written, never when the answer merely starts (that
- * was the bug that made the old block vanish mid-read). A click reopens it.
+ * Folded, always, until the person opens it: while the agent works the line's
+ * words change with each step and shimmer, like Claude's. It used to open by
+ * itself while streaming and fold a beat after the answer; the steps and a
+ * running tool's widget then pushed the answer down while it was being read.
  */
 export function MessageChain({
-  thinking, thinkingComplete, durationSec, steps, streaming, helpers = [],
+  thinking, thinkingComplete, durationSec, steps, streaming, helpers = [], looks: given,
 }: {
   /** null when the model gave none, or the person turned reasoning off. */
   thinking: string | null;
@@ -277,26 +446,29 @@ export function MessageChain({
   /** This chat's `rlm()` helpers. Only the latest reply's last strip gets them:
    *  they belong to the session, and they run after the reply that started them. */
   helpers?: RlmWorker[];
+  /** The steps whose picture is a first look, decided over the WHOLE reply
+   *  (`firstLooks`): a reply drawn as several lines must not show a big picture
+   *  on each. Left out, this line decides for its own steps. */
+  looks?: Set<string>;
 }) {
-  const [open, setOpen] = useState(streaming);
-  // First drawn while the agent works: it pours in like Sileo's pills, and its
-  // chips and rows arrive with a little bounce (his pick of three mockups, 26
-  // Oct). A chat opened again draws it as it is: nothing is replayed.
+  // Folded until the person opens it, while the agent works too (27 Oct, his
+  // ask, after Claude's line): the line itself says what happens now, and the
+  // steps, the reasoning and each tool's widget are one click away.
+  const [open, setOpen] = useState(false);
+  // The folded steps are not built until someone reaches for the line. Radix
+  // mounts a closed CollapsibleContent anyway and measures it on mount, and each
+  // measure forced a layout of the whole page: a chat with 12 folded lines froze
+  // ~300-760 ms as it opened (production build, 30 Oct). Once opened, it stays
+  // mounted so the fold keeps its close animation.
+  const [everOpened, setEverOpened] = useState(false);
+  if (open && !everOpened) setEverOpened(true);
+  // First drawn while the agent works, its rows arrive with a little bounce. A
+  // chat opened again draws it as it is: nothing is replayed.
   const [live] = useState(streaming);
-  const wasStreaming = useRef(streaming);
   const [reasoningOpen, setReasoningOpen] = useState(false);
+  // The tile shown full size, by step id; none until one is clicked.
+  const [bigMini, setBigMini] = useState<string | null>(null);
   const now = useNow(streaming || helpers.some((w) => w.status === 'running'));
-
-  useEffect(() => {
-    const before = wasStreaming.current;
-    wasStreaming.current = streaming;
-    if (streaming && !before) setOpen(true);
-    if (before && !streaming) {
-      const t = setTimeout(() => setOpen(false), FOLD_DELAY_MS);
-      return () => clearTimeout(t);
-    }
-    return undefined;
-  }, [streaming]);
 
   if (thinking === null && steps.length === 0 && helpers.length === 0) return null;
   const chips = sideChips(streaming ? steps : [], helpers);
@@ -320,34 +492,87 @@ export function MessageChain({
     detail = count;
   }
   const failed = !streaming && steps.some((a) => a.status === 'failed');
+  const looks = given ?? firstLooks(steps);
+  // Folded, a first look stays in view at full width under the line, and the
+  // other pictures ride on the line: the newest three, and how many more.
+  const firstPictures = steps.flatMap((a) => (looks.has(a.id) && a.images?.length ? [a.images[0]!] : []));
+  const others = steps.flatMap((a) => (looks.has(a.id) ? (a.images ?? []).slice(1) : (a.images ?? [])));
+  const lineImages = open ? [] : others.slice(-LINE_THUMBS);
+  const more = open ? 0 : others.length - lineImages.length;
+  // A step with pictures already shows them; the rest show their widget.
+  const withWidget = open ? [] : steps.filter((a) => MINI_KINDS.has(a.kind) && !a.images?.length);
+  const minis = withWidget.slice(-MINI_WIDGETS);
+  const big = minis.find((a) => a.id === bigMini);
+  // The question card leaves the chat once answered (so a run of "Allow"
+  // prompts leaves no trail of cards). What the person picked stays here,
+  // outside the fold: folded, "Asked you, 2 steps" was all that was left.
+  const answered = steps.flatMap((a) => (a.tool === 'ask_user' && a.answers ? a.answers : []));
 
-  const strip = (
-    <Collapsible
-      open={open}
-      onOpenChange={setOpen}
-      className="overflow-hidden rounded-2xl border border-border-default bg-bg-surface"
-    >
-      <CollapsibleTrigger className="flex w-full items-center gap-3 px-3.5 py-2.5 text-left">
-        {streaming ? <WorkingFigure /> : failed && <AlertTriangle size={16} className="shrink-0 text-warning" />}
-        {/* Done, it is a quiet line of what happened, not a green "finished":
-            the answer may still be arriving below it. */}
-        <span className={cn('min-w-0 flex-1 truncate text-sm', streaming ? 'font-semibold text-text-primary' : 'text-text-muted')}>{title}</span>
-        <AnimatePresence initial={false}>
-          {chips.map((c) => (
-            <motion.span key={c} initial={CHIP_AWAY} animate={CHIP_HERE} exit={CHIP_AWAY} transition={CHIP_SPRING}
-              className="shrink-0 rounded-full bg-bg-active px-2 py-0.5 text-2xs font-medium text-brand">{c}</motion.span>
+  // 27 Oct, his ask: no card, no pill, no chips. The steps are a quiet line of
+  // text over the answer (Claude's "Clicked, waited, captured page 4 times ›"),
+  // and open into a thin timeline under it, so they read as part of the reply.
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} data-testid="activity-line">
+      <div className="flex items-center gap-2">
+        {/* Built on the way in (hover or focus), so it is there closed and the
+            first open still slides down instead of appearing at once. */}
+        <CollapsibleTrigger
+          onPointerEnter={() => setEverOpened(true)}
+          onFocus={() => setEverOpened(true)}
+          className="group flex min-w-0 flex-1 items-center gap-2 py-1 text-left"
+        >
+          <LineIcon streaming={streaming} failed={failed} />
+          {/* Working, the words say what happens now and a light passes over
+              them. Done, it is a quiet line of what happened, not a green
+              "finished": the answer may still be arriving below it. */}
+          {streaming
+            ? <ShimmeringText text={title} color="color-mix(in srgb, var(--text-muted) 70%, transparent)" className="min-w-0 truncate text-sm font-medium" />
+            : <span className={cn('min-w-0 truncate text-sm', QUIET)}>{title}</span>}
+          {/* What also runs ("Using memory") is words on the line, not a chip. */}
+          {[...chips, detail].filter(Boolean).length > 0 && (
+            <span className={cn('shrink-0 text-2xs', QUIET)}>{[...chips, detail].filter(Boolean).join(' · ')}</span>
+          )}
+          <ChevronDown size={14} className={cn('shrink-0 transition-transform', QUIET, open ? 'rotate-0' : '-rotate-90')} />
+        </CollapsibleTrigger>
+        {more > 0 && <span className={cn('shrink-0 text-2xs', QUIET)}>+{more}</span>}
+        {lineImages.length > 0 && <Thumbs images={lineImages} small />}
+      </div>
+      {answered.length > 0 && (
+        <p className="mb-1 text-sm text-text-secondary" data-testid="your-answers">
+          You answered: {answered.join(' · ')}
+        </p>
+      )}
+      {minis.length > 0 && (
+        <div className="mb-1 mt-1.5 flex items-start gap-2" data-testid="mini-widgets">
+          {minis.map((a) => (
+            <MiniWidget key={a.id} a={a} shown={a.id === bigMini} onToggle={() => setBigMini(a.id === bigMini ? null : a.id)} />
           ))}
-        </AnimatePresence>
-        {detail && <span className="shrink-0 text-2xs text-text-disabled">{detail}</span>}
-        <ChevronDown size={16} className={cn('shrink-0 text-text-muted transition-transform', open && 'rotate-180')} />
-      </CollapsibleTrigger>
-      <CollapsibleContent
+          {withWidget.length > minis.length && (
+            <span className={cn('shrink-0 text-2xs', QUIET)}>+{withWidget.length - minis.length}</span>
+          )}
+        </div>
+      )}
+      {big && (
+        <div className="mb-1 mt-1.5" data-testid="mini-widget-full">
+          <Widget activity={big} flat />
+        </div>
+      )}
+      {/* A film the agent made is the answer, not a step: it plays under the
+          line whether the steps are open or not. */}
+      {steps.flatMap((a) => (a.video ? [<AgentVideo key={a.id} video={a.video} />] : []))}
+      {!open && firstPictures.length > 0 && (
+        // Two places in one line sit side by side: stacked, they were a wall.
+        <div className={cn('mb-1 mt-1.5 grid gap-2', firstPictures.length > 1 && 'grid-cols-2')}>
+          {firstPictures.map((src, i) => <FirstLook key={`${i}-${src.length}`} src={src} />)}
+        </div>
+      )}
+      {everOpened && <CollapsibleContent
         className={cn(
-          'overflow-hidden border-t border-border-subtle px-3.5 py-1.5 outline-none',
+          'ml-[7px] overflow-hidden border-l border-border-subtle pl-4 outline-none',
           'data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down',
         )}
       >
-        {steps.map((a) => <StepRow key={a.id} a={a} pop={live && streaming} />)}
+        {steps.map((a) => <StepRow key={a.id} a={a} pop={live && streaming} big={looks.has(a.id)} />)}
         {helpers.map((w) => <HelperRow key={w.childId} w={w} now={now} />)}
         {/* ponytail: reasoning is drawn after the tools. The stream keeps only the
             latest segment's reasoning, which is the one after the last tool, so
@@ -364,7 +589,7 @@ export function MessageChain({
               {thinkingLive
                 ? <Loader2 size={16} className="shrink-0 animate-spin text-brand" />
                 : <Check size={16} className="shrink-0 text-success" />}
-              <span className={cn('flex-1 text-sm', thinkingLive ? 'font-medium text-text-primary' : 'text-text-muted')}>
+              <span className={cn('flex-1 text-sm', thinkingLive ? 'font-medium text-text-primary' : QUIET)}>
                 {thinkingLive ? 'Thinking' : 'Reasoning'}
               </span>
             </button>
@@ -379,8 +604,7 @@ export function MessageChain({
             )}
           </div>
         )}
-      </CollapsibleContent>
+      </CollapsibleContent>}
     </Collapsible>
   );
-  return live ? <GooeyCard bare settle>{strip}</GooeyCard> : strip;
 }

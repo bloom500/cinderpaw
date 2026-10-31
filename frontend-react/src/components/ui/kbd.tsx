@@ -100,7 +100,7 @@ export function Kbd({ keys, className }: { keys: string[]; className?: string })
             // other way of doing this moves the row around it.
             className={cn(
               'min-w-5 rounded border border-border-default bg-bg-elevated px-1 text-center font-sans text-2xs leading-4 text-text-muted',
-              'transition-[transform,border-width,background-color,color] duration-75',
+              'transition-[transform,border-width,background-color,color] duration-(--motion-fast)',
               isDown
                 ? 'translate-y-px border-b border-brand bg-brand/15 text-brand'
                 : 'border-b-2',

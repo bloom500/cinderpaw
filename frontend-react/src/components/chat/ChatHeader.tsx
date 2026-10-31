@@ -4,6 +4,8 @@ import { useConversations } from '@/stores/conversations';
 import { useProjects } from '@/stores/projects';
 import { useArtifacts } from '@/stores/artifacts';
 import { useBrowser } from '@/stores/browser';
+import { useUI } from '@/stores/ui';
+import { useContextVisible } from '@/components/artifacts/ContextColumn';
 import { ConversationActions, RenameDialog } from '@/components/items/ItemActions';
 
 export function ChatHeader() {
@@ -13,12 +15,13 @@ export function ChatHeader() {
   const project   = useProjects((s) =>
     current ? s.list.find((p) => p.conversation_ids.includes(current.id)) : undefined);
   const [renaming, setRenaming] = useState(false);
-  const contextOpen = useArtifacts((s) => s.panelOpen && s.panelTab === 'context');
-  // The Context tab exists for every chat (spec 7.5); this is its way in.
+  const contextOpen = useContextVisible();
+  // The Context cards are their own column (29 Oct), not an Artifacts tab.
   const toggleContext = () => {
-    if (contextOpen) { useArtifacts.setState({ panelOpen: false }); return; }
+    if (contextOpen) { useUI.getState().setContextOpen(false); return; }
     useBrowser.getState().setPanel(false);
-    useArtifacts.setState({ panelOpen: true, panelTab: 'context' });
+    useArtifacts.setState({ panelOpen: false });
+    useUI.getState().setContextOpen(true);
   };
 
   if (!current) {

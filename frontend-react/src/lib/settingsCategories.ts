@@ -19,20 +19,23 @@ export type Category =
 // Linux box, and on Windows installs without the full symbol set, half of
 // this list rendered as empty boxes. lucide is already a dependency and
 // draws the same meaning as SVG on every machine.
+// Ordered by how often a person comes looking: what they connect, what it can
+// do and what it remembers sat under Hardware and API Server, which almost
+// nobody opens (28 Oct). The machine-room tabs go last, before About.
 export const CATS: { id: Category; label: string; icon: LucideIcon }[] = [
   { id: 'general',    label: 'General',     icon: Settings },
   { id: 'appearance', label: 'Appearance',  icon: Palette },
-  { id: 'hardware',   label: 'Hardware',    icon: Cpu },
-  { id: 'api',        label: 'API Server',  icon: ArrowLeftRight },
-  { id: 'agent',      label: 'Agent and team', icon: Bot },
-  { id: 'learning',   label: 'Learning',    icon: Moon },
-  { id: 'privacy',    label: 'Privacy',     icon: ShieldCheck },
   // Named for what the user is looking for, not for the subsystem underneath:
   // 'skill', 'extension' and 'connector' are banned from the primary interface
   // by the UX contract. They stay legal inside these screens, which is what
   // progressive disclosure means.
-  { id: 'capabilities', label: 'Capabilities', icon: Sparkles },
   { id: 'accounts',     label: 'Accounts',     icon: Link2 },
+  { id: 'capabilities', label: 'Capabilities', icon: Sparkles },
   { id: 'memory',       label: 'Memory',       icon: Brain },
+  { id: 'agent',      label: 'Agent and team', icon: Bot },
+  { id: 'learning',   label: 'Learning',    icon: Moon },
+  { id: 'privacy',    label: 'Privacy',     icon: ShieldCheck },
+  { id: 'hardware',   label: 'Hardware',    icon: Cpu },
+  { id: 'api',        label: 'API Server',  icon: ArrowLeftRight },
   { id: 'about',      label: 'About',       icon: Info },
 ];

@@ -4,6 +4,7 @@ import { tauri, type Conversation } from '@/lib/tauri';
 import { useChat } from '../chat';
 import { useConversations } from '../conversations';
 import { useNotifications } from '../notifications';
+import { useArtifacts } from '../artifacts';
 
 vi.mock('@/lib/tauri', () => ({
   tauri: {
@@ -32,6 +33,14 @@ beforeEach(() => {
 });
 
 describe('the latest conversation choice wins', () => {
+  it('hides the previous artifact on a new chat without discarding its edit', () => {
+    const editing = { draft: 'Unsaved changes', base: 1 };
+    useArtifacts.setState({ panelOpen: true, editing });
+    useConversations.getState().newChat();
+    expect(useArtifacts.getState().panelOpen).toBe(false);
+    expect(useArtifacts.getState().editing).toBe(editing);
+    useArtifacts.setState({ editing: null });
+  });
   it('keeps provider waits with their session and clears them when a turn ends', () => {
     useConversations.getState().markStreaming('waiting');
     useConversations.getState().setProviderWait('waiting', 30_000);

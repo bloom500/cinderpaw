@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { listen } from '@tauri-apps/api/event';
 import { tauri } from '@/lib/tauri';
+import { useNotifications } from '@/stores/notifications';
 
 /**
  * The built-in browser panel: whether it is open, and what the page is doing.
@@ -21,6 +22,21 @@ export interface BrowserTab {
   blocked: number;
   /** Cinderpaw opened it for its own work; the person's tabs are never reused. */
   agent?: boolean;
+}
+
+/**
+ * A page's own question (`alert`, `confirm`, `prompt`, or "Leave site?"),
+ * asked in the app's dialog: see `hook_dialogs` in src-tauri/src/browser.rs.
+ */
+export interface PageQuestion {
+  id: number;
+  /** The tab asking; null when it was already closed. */
+  tab: number | null;
+  kind: 'alert' | 'confirm' | 'prompt' | 'leave';
+  site: string;
+  message: string;
+  /** What a prompt's box starts with. */
+  text: string;
 }
 
 /** The start page: the host parks the tab's page and the panel shows its own. */
@@ -107,6 +123,10 @@ interface BrowserStore {
   reopenTab: () => Promise<void>;
   /** What was downloaded this session, newest first: the list every browser has. */
   downloads: Array<{ name: string; at: number; dest?: string; artifact?: boolean; error?: string }>;
+  /** Pages' questions waiting for the person, oldest first. The page waits too. */
+  dialogs: PageQuestion[];
+  /** The person's answer to the first one: OK or Leave (`ok`), Cancel or Stay. */
+  answerDialog: (ok: boolean, text?: string) => void;
 }
 
 function fromState(st: { active: number | null; tabs: BrowserTab[] }) {
@@ -211,6 +231,13 @@ export const useBrowser = create<BrowserStore>((set, get) => ({
   },
   closed: [],
   downloads: [],
+  dialogs: [],
+  answerDialog: (ok, text) => {
+    const [first, ...rest] = get().dialogs;
+    if (!first) return;
+    set({ dialogs: rest });
+    void tauri.browser.ui('dialog_answer', { id: first.id, ok, text: text ?? null }).catch((e) => set({ error: String(e) }));
+  },
   reopenTab: async () => {
     const [last, ...rest] = get().closed;
     if (!last) return;
@@ -233,7 +260,10 @@ export function applyHostState(st: { active: number | null; tabs: BrowserTab[] }
   const next = fromState(st);
   const now = useBrowser.getState();
   const moved = next.url !== now.url || next.active !== now.active;
-  useBrowser.setState(moved ? { ...next, error: null, notice: null } : next);
+  // A closed tab's question goes with it: its page is gone, nobody waits for the answer.
+  const dialogs = now.dialogs.filter((d) => d.tab == null || st.tabs.some((t) => t.id === d.tab));
+  const asked = dialogs.length === now.dialogs.length ? {} : { dialogs };
+  useBrowser.setState(moved ? { ...next, ...asked, error: null, notice: null } : { ...next, ...asked });
 }
 void listen<{ active: number | null; tabs: BrowserTab[] }>('browser://state', (e) => applyHostState(e.payload)).catch(() => {});
 // A download. A PDF or Word file goes to Artifacts, and `artifact: true`
@@ -275,4 +305,21 @@ void listen<{ op: string; url?: string; ref?: string; busy: boolean }>('browser:
 }).catch(() => {});
 void listen<{ url: string }>('browser://open', (e) => {
   useBrowser.setState({ panelOpen: true, url: e.payload.url, error: null });
+}).catch(() => {});
+// A page asks the person something. Asked in the app, where it can be seen.
+void listen<PageQuestion>('browser://dialog', (e) => {
+  useBrowser.setState((st) => ({ dialogs: [...st.dialogs, e.payload] }));
+}).catch(() => {});
+// A page with unsaved changes was left while nobody could see it: its tab was
+// closed, or the page changed behind the person's own tab. The draft is gone,
+// and this is the only place that says so. Sticky: it happened out of sight.
+void listen<{ site: string; closed: boolean }>('browser://left', (e) => {
+  const { site, closed } = e.payload;
+  useNotifications.getState().push(
+    'info',
+    `Left ${site} without saving`,
+    `${site} had something not saved yet, like a draft. ${closed ? 'The tab was closed' : 'The page changed while its tab was hidden'}, so it is gone.`,
+    undefined,
+    { sticky: true },
+  );
 }).catch(() => {});

@@ -269,6 +269,8 @@ test("turning WhatsApp on starts pairing when no phone is linked, and says where
     const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true }, ctx);
     expect(pairs).toBe(linked ? 0 : 1);
     if (!linked) expect(res.content).toContain("Linked devices");
+    // The desktop chat draws the live code only while one is coming.
+    expect((res.data as { whatsappPairing?: boolean }).whatsappPairing).toBe(linked ? undefined : true);
   }
 });
 

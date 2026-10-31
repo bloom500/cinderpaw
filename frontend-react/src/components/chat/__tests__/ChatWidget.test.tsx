@@ -37,6 +37,13 @@ describe('ChatWidget', () => {
     expect(document.querySelectorAll('img')).toHaveLength(1);
     expect(document.querySelector('img')?.getAttribute('src')).toBe('asset://localhost//p/a.jpg');
 
+    rerender(<ChatWidget w={{ kind: 'photos', items: [{ imageFile: '/p/1.png', title: 'Sales' }, { imageFile: '/p/2.png' }, { imageFile: '/p/3.png' }] }} />);
+    // The pictures the agent hands over: a row of three squircle tiles, each opening full size.
+    const gallery = screen.getByTestId('photo-gallery');
+    expect(gallery.style.gridTemplateColumns).toBe('repeat(3, minmax(0, 1fr))');
+    expect([...gallery.querySelectorAll('img')].map((i) => i.getAttribute('src'))).toEqual(['asset://localhost//p/1.png', 'asset://localhost//p/2.png', 'asset://localhost//p/3.png']);
+    expect(screen.getByRole('button', { name: 'View Sales full size' })).toBeTruthy();
+
     rerender(<ChatWidget w={{ kind: 'list', title: 'Laptops', lines: ['RAM · 16 GB'] }} />);
     expect(screen.getByText('RAM · 16 GB')).toBeTruthy();
   });

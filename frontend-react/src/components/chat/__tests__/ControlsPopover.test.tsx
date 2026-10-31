@@ -11,6 +11,8 @@ vi.mock('@/stores/cinderpaw', () => ({ useCinderpawStore: vi.fn() }));
 const mockUseModel = vi.mocked(useModel);
 const mockUseCinderpaw = vi.mocked(useCinderpawStore);
 const mockSetModelContext = vi.fn().mockResolvedValue(undefined);
+const mockSetEffort = vi.fn();
+const HAIKU = { provider: 'anthropic', model: 'claude-haiku-5-5', base_url: 'https://api.anthropic.com' };
 
 const MINIMAX = { provider: 'minimax', model: 'MiniMax-M3', base_url: 'https://api.minimax.io/v1' };
 const LOCAL_ENGINE = { provider: 'cinderpaw-local', model: 'qwen', base_url: 'http://localhost:11435' };
@@ -33,6 +35,8 @@ function setup(
       setModelContext: mockSetModelContext,
       inferParams: { temperature: 0.8, top_p: 0.95, max_tokens: 4096 },
       setInferParams: vi.fn(),
+      effort: 'auto',
+      setEffort: mockSetEffort,
     }),
   );
   mockUseCinderpaw.mockImplementation((sel: any) => sel({ modelConfig: agentTarget }));
@@ -41,14 +45,25 @@ function setup(
 describe('ControlsPopover — context window', () => {
   beforeEach(() => { vi.clearAllMocks(); setup(); });
 
-  it('cloud target: temperature only, no Top-P, no context slider', async () => {
+  it('cloud target: no sliders; a model without effort says so', async () => {
     setup(null, MINIMAX);
     render(<ControlsPopover />);
     await userEvent.click(screen.getByRole('button'));
-    // Only Temperature — Top-P (localOnly) and the context slider are gone.
-    expect(screen.getAllByRole('slider')).toHaveLength(1);
+    // Cloud gets Effort in place of Temperature; MiniMax takes no effort.
+    expect(screen.queryAllByRole('slider')).toHaveLength(0);
+    expect(screen.getByText(/no effort setting/i)).toBeInTheDocument();
     expect(screen.getByText(/auto-managed for cloud models/i)).toBeInTheDocument();
     expect(screen.queryByText('Top-P')).not.toBeInTheDocument();
+  });
+
+  it('a Claude model gets Effort, and a pick is saved', async () => {
+    setup(null, HAIKU);
+    render(<ControlsPopover />);
+    await userEvent.click(screen.getByRole('button', { name: 'Reply settings' }));
+    expect(screen.getByRole('radio', { name: 'Auto' })).toHaveAttribute('aria-checked', 'true');
+    await userEvent.click(screen.getByRole('radio', { name: 'High' }));
+    expect(mockSetEffort).toHaveBeenCalledWith('high');
+    expect(screen.queryByText('Temperature')).not.toBeInTheDocument();
   });
 
   it('a resident local GGUF must not expose its context slider while a cloud model is active', async () => {
@@ -63,7 +78,7 @@ describe('ControlsPopover — context window', () => {
     await userEvent.click(screen.getByRole('button'));
     expect(screen.getByText(/auto-managed for cloud models/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /apply.*reload/i })).not.toBeInTheDocument();
-    expect(screen.getAllByRole('slider')).toHaveLength(1); // temperature only
+    expect(screen.queryAllByRole('slider')).toHaveLength(0); // cloud: Effort, no sliders
   });
 
   it('local target: auto-detects the ceiling from the model n_ctx_train', async () => {

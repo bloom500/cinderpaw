@@ -58,9 +58,9 @@ describe('ConnectorAccounts', () => {
     expect(poll).not.toHaveBeenCalled();
   });
 
-  it('a fresh install says it has no accounts instead of showing an empty box', async () => {
+  it('a fresh install draws nothing, not a promise the cards below never keep', async () => {
     vi.spyOn(tauri.connectors, 'accounts').mockResolvedValue([]);
-    render(<ConnectorAccounts />);
-    expect(await screen.findByText(/No accounts yet/i)).toBeTruthy();
+    const { container } = render(<ConnectorAccounts />);
+    await waitFor(() => expect(container.innerHTML).toBe(''));
   });
 });

@@ -42,7 +42,7 @@ function EmbeddingDownloadBanner({ state }: { state: ReturnType<typeof useEmbedd
         className="ml-1 h-1 w-16 overflow-hidden rounded-full bg-bg-elevated"
       >
         <span
-          className="block h-full bg-brand transition-[width] duration-150"
+          className="block h-full bg-brand transition-[width] duration-(--motion-fast)"
           style={{ width: `${pct}%` }}
         />
       </span>

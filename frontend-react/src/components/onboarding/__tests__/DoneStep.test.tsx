@@ -5,55 +5,108 @@ import { OnboardingWizard } from '../OnboardingWizard';
 import { tauri } from '@/lib/tauri';
 import { useOnboarding } from '@/stores/onboarding';
 import { useModel } from '@/stores/model';
+import { useDownload } from '@/stores/download';
+import { useSettings } from '@/stores/settings';
 
 vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
+
+const OPENAI = { providerId: 'openai', providerName: 'OpenAI', modelId: 'gpt-4o' };
 
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.spyOn(tauri.mcp, 'list').mockResolvedValue([]);
   vi.spyOn(tauri.connectors, 'list').mockResolvedValue([]);
-  useOnboarding.setState({ active: true, step: 5 });
+  vi.spyOn(tauri.raw, 'setupDetect').mockResolvedValue([]);
+  vi.spyOn(tauri.system, 'countInstall').mockResolvedValue(undefined as never);
+  vi.spyOn(tauri.system, 'setUsageSharing').mockResolvedValue(undefined as never);
+  useModel.setState({ cloudModel: null, loaded: null });
+  useDownload.setState({ active: null, done: false });
+  useSettings.setState({ byok: [] });
+  useOnboarding.setState({ active: true, step: 2, brainVerified: false, firstTask: null, userName: '', agentName: 'Cinderpaw' });
 });
 
-const renderLast = () => render(<MemoryRouter><OnboardingWizard /></MemoryRouter>);
+const renderWizard = () => render(<MemoryRouter><OnboardingWizard /></MemoryRouter>);
 
-describe('the names board', () => {
-  it('waits for your name, and shows both names in the preview', async () => {
-    useOnboarding.setState({ step: 1, userName: '', agentName: 'Cinderpaw' });
-    renderLast();
+describe('the welcome card', () => {
+  it('plays the film without sound, and one button turns the music on', () => {
+    useOnboarding.setState({ step: 0 });
+    const { container } = renderWizard();
+    const video = container.querySelector('video')!;
+    // WebM first for Linux webviews, MP4 for the rest.
+    expect([...video.querySelectorAll('source')].map((s) => s.type)).toEqual(['video/webm', 'video/mp4']);
+    expect(video.muted).toBe(true);
+    // The path starts with the install already done, not at zero.
+    expect(screen.getByLabelText('Installed. Step 1 of 3')).toBeInTheDocument();
+    const sound = screen.getByRole('button', { name: /Sound on/ });
+    fireEvent.click(sound);
+    expect(video.muted).toBe(false);
+    expect(screen.getByRole('button', { name: /Sound off/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('opens over the whole screen, and Esc brings it back', () => {
+    useOnboarding.setState({ step: 0 });
+    renderWizard();
+    fireEvent.click(screen.getByRole('button', { name: /Full screen/ }));
+    const big = screen.getByRole('dialog', { name: 'Your AI team, full screen' });
+    expect(big.querySelector('video')).toHaveAttribute('controls');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Your AI team, full screen' })).not.toBeInTheDocument();
+  });
+});
+
+// A stranger must not click through to a chat that answers "no model", and a
+// Continue that does nothing must say why and leave a way on.
+describe('the brain card', () => {
+  it('holds Continue until something will answer, and says how to go on anyway', () => {
+    useOnboarding.setState({ step: 1 });
+    renderWizard();
     expect(screen.getByRole('button', { name: /Continue/ })).toBeDisabled();
-    // The grey button says why, and the preview does not call the person "you".
-    expect(screen.getByText('Type your name to continue.')).toBeInTheDocument();
-    expect(screen.getByText(/Sure! What can I help you with/)).toBeInTheDocument();
-    useOnboarding.setState({ userName: 'Ana', agentName: 'Ember' });
-    expect(await screen.findByText(/Sure, Ana!/)).toBeInTheDocument();
-    expect(screen.getByText('Ember:')).toBeInTheDocument();
+    expect(screen.getByText(/Pick one way above so I can answer you/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'skip for now' }));
+    expect(useOnboarding.getState().step).toBe(2);
+  });
+
+  it('lets you on once a model will answer', () => {
+    useOnboarding.setState({ step: 1 });
+    useModel.setState({ cloudModel: OPENAI });
+    renderWizard();
+    expect(screen.getByRole('button', { name: /Continue/ })).toBeEnabled();
+    expect(screen.queryByText(/Pick one way above/)).not.toBeInTheDocument();
+  });
+
+  it('counts a download on its way, it will answer when it lands', () => {
+    useOnboarding.setState({ step: 1 });
+    useDownload.setState({ active: { repoId: 'r', filename: 'f', progress: 0.2 } as never });
+    renderWizard();
     expect(screen.getByRole('button', { name: /Continue/ })).toBeEnabled();
   });
 });
 
-// The board ticks all three; a stranger who skipped the model step must not
-// be told a model is selected and then meet "no model" on the first message.
-describe('the last board', () => {
-  it('says what is still missing instead of ticking it', async () => {
-    useModel.setState({ cloudModel: null, loaded: null });
-    renderLast();
-    expect(await screen.findByText('Pick a model in Models')).toBeInTheDocument();
-    expect(screen.getByText('Connect apps in Settings')).toBeInTheDocument();
-    expect(screen.getByText('Workspace ready')).toBeInTheDocument();
+describe('the last card', () => {
+  it('says what is still missing instead of "ready", one click back to the brain card', () => {
+    renderWizard();
+    expect(screen.getByText('Pick a model so I can answer you.')).toBeInTheDocument();
+    expect(screen.queryByText(/What should/)).not.toBeInTheDocument();
     // Alpha is said once, here, with where to report a problem.
     expect(screen.getByText(/still in alpha/)).toHaveTextContent('Report a bug');
-    // Not "ready" with nothing to answer, and one click back to the model board.
-    expect(screen.queryByText(/ready to explore/)).not.toBeInTheDocument();
-    expect(screen.getByText('Pick a model so I can answer you.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Choose a model/ }));
-    expect(useOnboarding.getState().step).toBe(2);
+    expect(useOnboarding.getState().step).toBe(1);
   });
 
-  it('ticks the model once one will answer', async () => {
-    useModel.setState({ cloudModel: { providerId: 'openai', providerName: 'OpenAI', modelId: 'gpt-4o' } });
-    renderLast();
-    expect(await screen.findByText('Model selected')).toBeInTheDocument();
+  it('lets you start without a name', () => {
+    useModel.setState({ cloudModel: OPENAI });
+    renderWizard();
+    expect(screen.getByText('Pick a job, or ask me anything.')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Your name/)).toHaveValue('');
+    expect(screen.getByRole('button', { name: /Start exploring/ })).toBeEnabled();
+  });
+
+  it('a first task closes the wizard and waits in the chat box, unsent', () => {
+    useModel.setState({ cloudModel: OPENAI });
+    renderWizard();
+    fireEvent.click(screen.getByRole('button', { name: /coffee machines/ }));
+    expect(useOnboarding.getState().firstTask).toBe('Find the five best-reviewed coffee machines and put them in a table');
+    expect(useOnboarding.getState().active).toBe(false);
   });
 });
 
@@ -62,7 +115,7 @@ describe('the last board', () => {
 describe('where did you hear about Cinderpaw', () => {
   it('shows buttons only while the count is ticked, and a click picks one', async () => {
     useOnboarding.setState({ countInstall: true, heardFrom: null });
-    renderLast();
+    renderWizard();
     const reddit = await screen.findByRole('button', { name: 'Reddit' });
     expect(reddit).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(reddit);

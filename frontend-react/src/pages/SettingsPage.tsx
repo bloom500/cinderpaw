@@ -91,11 +91,12 @@ export function SettingsPage() {
             // Colour alone said which category was open. A screen reader read
             // eleven identical buttons.
             aria-current={cat === c.id ? 'page' : undefined}
+            // The sidebar's own type: 15px, secondary tone, white only where you are.
             className={cn(
               'flex items-center gap-2.5 px-4 py-2 text-sm text-left transition-colors',
               cat === c.id
-                ? 'bg-bg-active text-text-primary font-medium'
-                : 'text-text-secondary hover:bg-bg-hover',
+                ? 'bg-bg-active text-text-primary'
+                : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
             )}
           >
             <c.icon className="size-4 shrink-0" aria-hidden />
@@ -103,18 +104,23 @@ export function SettingsPage() {
           </button>
         ))}
       </aside>
-      <div className={cn(
-        'flex-1 overflow-hidden',
-        FULL_BLEED.includes(cat) ? '' : 'overflow-y-auto p-6 max-w-2xl',
-      )}>
-        {cat === 'general'    && <GeneralTab />}
-        {cat === 'appearance' && <AppearanceTab />}
-        {cat === 'hardware'   && <HardwareTab />}
-        {cat === 'api'        && <ApiServerTab />}
-        {cat === 'agent'      && <AgentSettingsTab />}
-        {cat === 'learning'   && <LearningTab />}
-        {cat === 'privacy'    && <PrivacyTab />}
-        {cat === 'about'      && <AboutTab />}
+      {/* One column for every tab, the same one the three full pages draw
+          (max-w-4xl, centred): the eight forms used to sit left in a 2xl box
+          with its scrollbar floating mid-window, and the content jumped 275px
+          sideways on every switch to or from Capabilities, Accounts, Memory. */}
+      <div className={cn('flex-1', FULL_BLEED.includes(cat) ? 'overflow-hidden' : 'overflow-y-auto [scrollbar-gutter:stable]')}>
+        {!FULL_BLEED.includes(cat) && (
+          <div className="mx-auto max-w-4xl px-6 py-8">
+            {cat === 'general'    && <GeneralTab />}
+            {cat === 'appearance' && <AppearanceTab />}
+            {cat === 'hardware'   && <HardwareTab />}
+            {cat === 'api'        && <ApiServerTab />}
+            {cat === 'agent'      && <AgentSettingsTab />}
+            {cat === 'learning'   && <LearningTab />}
+            {cat === 'privacy'    && <PrivacyTab />}
+            {cat === 'about'      && <AboutTab />}
+          </div>
+        )}
         <Suspense fallback={null}>
           {cat === 'capabilities' && <CapabilitiesTab />}
           {cat === 'accounts'     && <AccountsTab />}

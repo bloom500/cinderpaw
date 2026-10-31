@@ -13,8 +13,9 @@ import { sanitizeFact } from "../src/memory/extractor.ts";
 describe("sanitizeFact", () => {
   it("accepts a clean key: value line", () => {
     expect(sanitizeFact("name", "Darius")).toEqual({ key: "name", value: "Darius", category: "fact" });
+    // The alias table's "preferred language", underscored: same fact, one key (28 Oct).
     expect(sanitizeFact("preferred_language", "Romanian")).toEqual({
-      key: "preferred_language",
+      key: "language",
       value: "Romanian",
       category: "fact",
     });

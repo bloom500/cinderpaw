@@ -29,6 +29,18 @@ describe("browser tool", () => {
     expect(t.calls).toEqual([{ action: "browser.open", params: { url: "example.ro" } }]);
   });
 
+  test("screenshot brings the page's picture back as an image, not as text", async () => {
+    const picture = "data:image/jpeg;base64,/9j/AAAA";
+    const t = setup(() => ({ ok: true, url: "https://example.ro/", data_url: picture }));
+    const res = await t.tool.execute({ action: "screenshot" }, t.ctx);
+    expect(t.calls).toEqual([{ action: "browser.screenshot", params: {} }]);
+    expect(res.ok).toBe(true);
+    expect(res.images).toEqual([picture]);
+    expect(res.content).not.toContain("base64");
+    const empty = setup(() => ({ ok: true, url: "https://example.ro/" }));
+    expect((await empty.tool.execute({ action: "screenshot" }, empty.ctx)).ok).toBe(false);
+  });
+
   test("click and type act on a control by its number", async () => {
     const t = setup(() => ({ ok: true }));
     await t.tool.execute({ action: "click", ref: 12 }, t.ctx);
@@ -324,6 +336,41 @@ describe("paying on any site waits for the person", () => {
     await t.tool.execute({ action: "snapshot" }, t.ctx); // the agent's own tab
     expect(await t.tool.execute({ action: "click", ref: "2", tab: "user" }, t.ctx)).toMatchObject({ ok: false, error: "bad_args" });
     expect(t.calls).toEqual(["browser.snapshot"]);
+  });
+
+  test("booking buttons in English, Romanian, German, French and Spanish are asked about, on any site", async () => {
+    for (const name of ["Schedule Event", "Book now", "Book", "Reserve a table", "Complete booking", "Confirm appointment",
+      "Programează", "Rezervă acum", "Termin buchen", "Réserver", "Agendar"]) {
+      const t = store(shop(name, "https://restaurant.example/table"));
+      await t.tool.execute({ action: "snapshot" }, t.ctx);
+      expect({ name, res: await t.tool.execute({ action: "click", ref: "2" }, t.ctx) }).toMatchObject({ name, res: { error: "booking_needs_approval" } });
+      expect(t.calls).toEqual(["browser.snapshot"]);
+    }
+  });
+
+  test("the person says yes: the booking goes through; no: it does not", async () => {
+    const yes = store(shop("Schedule Event", "https://calendly.com/ana/30min"), "Yes, book it");
+    await yes.tool.execute({ action: "snapshot" }, yes.ctx);
+    expect((await yes.tool.execute({ action: "click", ref: "2" }, yes.ctx)).ok).toBe(true);
+    expect(yes.asked[0]).toStartWith('true:Booking:Cinderpaw wants to press "Schedule Event" on calendly.com. This may book or schedule something in your name.');
+    const no = store(shop("Schedule Event", "https://calendly.com/ana/30min"), "No, don't book");
+    await no.tool.execute({ action: "snapshot" }, no.ctx);
+    expect(await no.tool.execute({ action: "click", ref: "2" }, no.ctx)).toMatchObject({ ok: false, error: "booking_declined" });
+    expect(no.calls).toEqual(["browser.snapshot"]);
+  });
+
+  test("a bare Confirm or a submitted form books on a scheduling site, not elsewhere; Books and Bookmarks never", async () => {
+    for (const url of ["https://cal.com/ana/15min", "https://app.savvycal.com/x"]) {
+      const t = store(shop("Confirm", url));
+      await t.tool.execute({ action: "snapshot" }, t.ctx);
+      expect({ url, res: await t.tool.execute({ action: "click", ref: "2" }, t.ctx) }).toMatchObject({ url, res: { error: "booking_needs_approval" } });
+      expect({ url, res: await t.tool.execute({ action: "type", ref: "1", text: "Ana", submit: true }, t.ctx) }).toMatchObject({ url, res: { error: "booking_needs_approval" } });
+    }
+    for (const name of ["Confirm", "Books", "Bookmark", "Facebook", "Notebook"]) {
+      const t = store(shop(name, "https://librarie.example/home"));
+      await t.tool.execute({ action: "snapshot" }, t.ctx);
+      expect({ name, ok: (await t.tool.execute({ action: "click", ref: "2" }, t.ctx)).ok }).toEqual({ name, ok: true });
+    }
   });
 
   test("on a checkout page an unread control, or a submitted form, is asked about too", async () => {

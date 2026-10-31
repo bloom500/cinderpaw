@@ -12,6 +12,8 @@ use tauri::State;
 pub struct CinderpawInferParams {
     pub temperature: Option<f64>,
     pub max_tokens: Option<u32>,
+    /// The Effort control on a cloud model ("auto", "low", "medium", "high").
+    pub effort: Option<String>,
 }
 
 /// Is the sidecar ready right now?
@@ -100,6 +102,7 @@ pub(crate) async fn cinderpaw_send_message(
         payload["inferParams"] = serde_json::json!({
             "temperature": p.temperature,
             "max_tokens": p.max_tokens,
+            "effort": p.effort,
         });
     }
     let msg = payload.to_string();
@@ -928,6 +931,10 @@ fn cron_op_line(
     let msg = match action {
         "list" => serde_json::json!({ "type": "cron_list", "id": request_id }),
         "followups" => serde_json::json!({ "type": "cron_list", "id": request_id, "followUps": true }),
+        // The Tasks page's "Send a test": a real notice to the owner's phone,
+        // answered with where it went (28 Oct, Darius: notifications must be
+        // ultra simple to get, and proven, not promised).
+        "test_notify" => serde_json::json!({ "type": "cron_list", "id": request_id, "testNotify": true }),
         "limit" => serde_json::json!({ "type": "cron_list", "id": request_id }),
         "add" | "edit" => {
             if action == "edit" && !present(&job_id) { return Err("no task selected".into()); }

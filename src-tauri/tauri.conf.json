@@ -20,8 +20,8 @@
     "windows": [
       {
         "title": "Cinderpaw",
-        "width": 1280,
-        "height": 800,
+        "width": 1262,
+        "height": 865,
         "minWidth": 900,
         "minHeight": 600,
         "resizable": true,
@@ -39,7 +39,7 @@
       "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: asset: http://asset.localhost; font-src 'self' data:; media-src 'self' data: blob: asset: http://asset.localhost; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* ws://127.0.0.1:* https: asset: http://asset.localhost; frame-src 'self' cinderpaw-frame: http://cinderpaw-frame.localhost; object-src 'none'; base-uri 'self'; frame-ancestors 'self'",
       "assetProtocol": {
         "enable": true,
-        "scope": ["$HOME/.cinderpaw/voice/**", "$HOME/.feral/voice/**", "$HOME/.cinderpaw/cache/images/**"]
+        "scope": ["$HOME/.cinderpaw/voice/**", "$HOME/.feral/voice/**", "$HOME/.cinderpaw/cache/images/**", "$HOME/.cinderpaw/cache/videos/**"]
       }
     }
   },

@@ -17,7 +17,7 @@ import { useNotifications, type Toast } from '@/stores/notifications';
 /** The pill's colour: the app's solid surface for the theme. It must be
  *  opaque: the gooey filter sharpens alpha, and the glass tokens (24-34%)
  *  came out invisible, leaving bare text at the window's edge (24 Oct). */
-const SOLID = { dark: 'rgb(54, 48, 43)', light: 'rgb(251, 247, 241)' } as const;
+const SOLID = { dark: 'rgb(52, 39, 31)', light: 'rgb(255, 253, 250)' } as const;
 function useFill(): string {
   const read = () => (document.documentElement.getAttribute('data-theme') === 'light' ? SOLID.light : SOLID.dark);
   const [fill, setFill] = useState(read);

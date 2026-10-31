@@ -92,6 +92,10 @@ export function ConnectorAccounts() {
   };
 
   if (loading) return <div className="h-24 rounded-xl bg-bg-hover animate-pulse" />;
+  // Nothing at all when there is nothing: "No accounts yet. Connect one below
+  // and it will show up here" sat above Discord, Slack, WhatsApp and Telegram,
+  // none of which ever show up here, set up or not (28 Oct, his own screen).
+  if (accounts.length === 0 && !error) return null;
 
   return (
     <div className="space-y-3">
@@ -100,15 +104,9 @@ export function ConnectorAccounts() {
           {error}
         </p>
       )}
-      {accounts.length === 0 ? (
-        <p className="text-sm text-text-muted">
-          No accounts yet. Connect one below and it will show up here.
-        </p>
-      ) : (
-        accounts.map((a) => (
-          <AccountCard key={a.connector_id} account={a} onConnect={(id) => void connect(id)} />
-        ))
-      )}
+      {accounts.map((a) => (
+        <AccountCard key={a.connector_id} account={a} onConnect={(id) => void connect(id)} />
+      ))}
     </div>
   );
 }

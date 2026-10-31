@@ -250,6 +250,7 @@ export interface DesktopControlBridge {
     action: string,
     params: Record<string, unknown>,
     sessionId?: string,
+    timeoutMs?: number,
   ): Promise<unknown>;
 }
 
@@ -1551,7 +1552,7 @@ export interface InboundMessage {
    * this session only — the summarizer and memory extractor keep their own
    * fixed params. Values are validated and clamped by the agent loop.
    */
-  inferParams?: { temperature?: number; max_tokens?: number };
+  inferParams?: { temperature?: number; max_tokens?: number; effort?: string };
   /**
    * Roster of currently-installed LOCAL skills, rebuilt by Rust on every send.
    * The agent loop renders this as a short "Available skills" menu inside the
@@ -1596,6 +1597,8 @@ export interface InboundMessage {
   /** Matches the id of the original "ask_user" outbound event. */
   /** Explicit desktop task subscriber requesting unfinished-work suggestions. */
   followUps?: boolean;
+  /** cron_list: send a test notice to the owner's phone and say where it went. */
+  testNotify?: boolean;
   /** cron_list: set the weekly task limit first (number, or null = none). */
   taskLimit?: { weeklyUsd: number | null };
   requestId?: string;
@@ -1789,7 +1792,7 @@ export type OutboundEvent =
   | { type: "tool_request"; id: string; sessionId: string; tool: string; arguments: Record<string, unknown> }
   | { type: "ask_user"; id: string; sessionId: string; questions: AskUserQuestion[]; traceId?: string }
   | { type: "ask_user_cancelled"; id: string; sessionId: string; reason: string; traceId?: string }
-  | { type: "usage"; id: string; sessionId: string; promptTokens: number; completionTokens: number; traceId?: string }
+  | { type: "usage"; id: string; sessionId: string; promptTokens: number; completionTokens: number; traceId?: string; /** What the prompt was made of (Context card). */ lanes?: { label: string; tokens: number }[] }
   | { type: "budget_warning"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; percent: number; traceId?: string }
   | { type: "budget_exceeded"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; message: string; traceId?: string }
   // The next request would exceed the provider's requests-per-minute cap, so
@@ -2314,6 +2317,9 @@ export type OutboundEvent =
       error?: string;
       jobs: Array<Pick<CronJob, "id" | "name" | "task" | "schedule" | "enabled" | "nextRunMs" | "lastRunMs" | "kind" | "history" | "watch" | "expiresAt" | "budgetUsd" | "spentUsd">>;
       taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number };
+      /** Where a fired task reaches the owner away from the computer (a
+       *  messenger id), or null; `tested` when this answer sent a test. */
+      phone?: { via: string | null; tested: boolean };
     }
   // Dream Cycle lifecycle — emitted by the host when an evolutionary episode
   // starts (`phase:"started"`) and ends (`phase:"ended"`). Forwarded verbatim

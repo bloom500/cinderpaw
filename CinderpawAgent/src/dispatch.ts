@@ -2047,7 +2047,12 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           try { limit.set(msg.taskLimit.weeklyUsd); } catch (error) { limitError = error instanceof Error ? error.message : String(error); }
         }
         const jobs = cronRepo.list();
-        transport.send(cronListResult(msg.id ?? "", jobs, limitError, limit.view()));
+        // Where a fired task would reach the person, and on request a real
+        // test, so "will I hear about it?" is answered on the Tasks page.
+        const phone = msg.testNotify
+          ? { via: await connectors.notifyOwner("✅ Cinderpaw can reach you here. Tasks you set up will tell you in this chat."), tested: true }
+          : { via: connectors.ownerChannel(), tested: false };
+        transport.send({ ...cronListResult(msg.id ?? "", jobs, limitError, limit.view()), phone });
         log(`cron_list → ${jobs.length} job(s)`);
         break;
       }

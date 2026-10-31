@@ -12,7 +12,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, Loader2, RefreshCw, Trash2, ShieldAlert, Check } from 'lucide-react';
+import { ArrowUpRight, Loader2, MessageSquare, RefreshCw, Trash2, ShieldAlert, Check } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import {
   tauri,
   type ConnectorCatalogEntry,
@@ -24,6 +25,7 @@ import { BrandLogo } from '@/lib/brandLogos';
 import { ConnectorAccounts } from '@/components/connectors/ConnectorAccounts';
 import { IS_MAC } from '@/components/ui/kbd';
 import { announceWhenLive, useConnected } from '@/stores/connected';
+import { useConversations } from '@/stores/conversations';
 
 export function ConnectorsPage() {
   const [catalog, setCatalog] = useState<ConnectorCatalogEntry[]>([]);
@@ -64,12 +66,12 @@ export function ConnectorsPage() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex-1 overflow-y-auto scrollbar-hide">
+      <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         <div className="max-w-4xl mx-auto px-6 py-8">
           {/* Hero */}
           <div className="mb-6">
-            <h1 className="text-2xl font-bold text-text-primary tracking-tight">
-              Accounts <span aria-hidden="true">⚯</span>
+            <h1 className="text-lg font-semibold text-text-primary">
+              Accounts
             </h1>
             <p className="text-sm text-text-muted mt-1">
               Talk to your assistant from the apps you already use. It stays on this machine, with your model and your tools.
@@ -79,14 +81,14 @@ export function ConnectorsPage() {
           {/* Accounts that pair by signing in, rather than by pasting a token.
               They come first because a card mid-pairing is showing a code the
               person is holding in their other hand. */}
-          <div className="mb-8">
+          <div className="mb-8 empty:hidden">
             <ConnectorAccounts />
           </div>
 
           {/* Security banner */}
           <div className="mb-8 rounded-xl border border-warning/30 bg-warning/10 p-3 flex items-start gap-2.5">
             <ShieldAlert size={14} className="text-warning shrink-0 mt-0.5" />
-            <p className="text-xs text-warning leading-relaxed">
+            <p className="text-sm text-warning">
               Anyone you add to a connector's allowed list can command your assistant, and everything it can do, on this
               computer. Add only people you trust. Leave the list empty and no one but you can reach it.
             </p>
@@ -114,7 +116,9 @@ export function ConnectorsPage() {
           )}
 
           {!loading && !error && (
-            <div className="grid grid-cols-2 gap-3">
+            // items-start: a card is as tall as itself. Stretched to its row, a
+            // short card next to an open one was a big empty box (28 Oct).
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
               {/* coming_soon connectors stay out of the grid — shelf space
                   advertising an absence (audit 2026-07-10, Part 2). As of
                   19 Sep 2026 all 21 are live, so nothing is filtered and the
@@ -167,7 +171,30 @@ export function ConnectorCard({
   // (UX lab, item 30). A connector already set up opens with its settings.
   const [setupOpen, setSetupOpen] = useState(configured || startOpen);
   const isQr = entry.auth_kind === 'qr';
+  // Every card can be set up by asking (28 Oct, Darius: most people ask the AI
+  // for everything; doing it with them is how trust is built). A new chat with
+  // the words in the box, like the command palette: nothing is sent for them.
+  const navigate = useNavigate();
+  const askCinderpaw = () => {
+    useConversations.getState().newChat();
+    navigate('/chat', { state: { compose: `Help me connect ${entry.name}.` } });
+  };
+  const askButton = (
+    <button
+      type="button"
+      onClick={askCinderpaw}
+      className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+    >
+      <MessageSquare size={12} aria-hidden /> Ask Cinderpaw
+    </button>
+  );
   const linked = state?.linked ?? false;
+  // What the card says about itself, in words; an off connector says nothing.
+  const status = !enabled ? null
+    : state?.live === false ? { label: 'Not connected', className: 'bg-warning/15 text-warning' }
+    : isQr && !linked ? { label: 'Waiting for your phone', className: 'bg-warning/15 text-warning' }
+    : state?.live === true || linked ? { label: 'Connected', className: 'bg-success/15 text-success' }
+    : { label: 'On', className: 'bg-bg-hover text-text-secondary' };
   // A phone that links while this card is open gets its moment.
   const wasLinked = useRef(linked);
   useEffect(() => {
@@ -327,30 +354,37 @@ export function ConnectorCard({
   return (
     <div
       className={cn(
-        'rounded-xl border bg-bg-surface p-4 flex flex-col',
-        entry.coming_soon ? 'border-border-subtle opacity-60' : 'border-border-default',
+        'rounded-xl border bg-bg-surface p-4 flex flex-col transition-colors',
+        entry.coming_soon ? 'border-border-subtle opacity-60'
+          : enabled ? 'border-brand/30' : 'border-border-subtle hover:border-border-default',
       )}
     >
       <div className="flex items-start gap-3">
         <BrandLogo id={entry.id} name={entry.name} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-semibold text-text-primary truncate">{entry.name}</p>
+            <p className="text-base font-medium text-text-primary truncate">{entry.name}</p>
             {entry.coming_soon ? (
               <span className="text-micro px-1.5 py-0.5 rounded bg-bg-hover text-text-muted shrink-0">
                 Coming soon
               </span>
             ) : (
-              <span
-                className={cn(
-                  'h-1.5 w-1.5 rounded-full shrink-0',
-                  enabled ? 'bg-success' : 'bg-text-muted/40',
-                )}
-                title={enabled ? 'On' : 'Off'}
-              />
+              status && (
+                <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-micro font-medium', status.className)}>
+                  <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current" />
+                  {status.label}
+                </span>
+              )
             )}
           </div>
-          <p className="text-xs text-text-muted mt-0.5 leading-relaxed">{entry.description}</p>
+          {/* Two lines until the card is opened: some read like a manual
+              (LINE, Google Chat) and made every row uneven. Whole when open. */}
+          <p
+            className={cn('text-sm text-text-muted mt-0.5', !setupOpen && 'line-clamp-2')}
+            title={setupOpen ? undefined : entry.description}
+          >
+            {entry.description}
+          </p>
         </div>
 
         {!entry.coming_soon && (
@@ -376,13 +410,16 @@ export function ConnectorCard({
       </div>
 
       {!entry.coming_soon && !setupOpen && (
-        <button
-          type="button"
-          onClick={() => setSetupOpen(true)}
-          className="mt-3 self-start rounded-lg border border-border-default px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-bg-hover"
-        >
-          Set up
-        </button>
+        <div className="mt-3 flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setSetupOpen(true)}
+            className="h-8 rounded-lg border border-border-default px-3 text-sm font-medium text-text-primary hover:bg-bg-hover"
+          >
+            Set up
+          </button>
+          {askButton}
+        </div>
       )}
 
       {!entry.coming_soon && setupOpen && (
@@ -401,6 +438,14 @@ export function ConnectorCard({
             <div className="rounded-md border border-border-default bg-bg-primary px-2.5 py-2 text-2xs leading-relaxed">
               {linked ? (
                 <span className="text-success">✅ Linked to WhatsApp.</span>
+              ) : enabled && !waQr && state?.live === false && state.liveError ? (
+                // The engine's reason, on the card (28 Oct): on a fresh machine
+                // it is "support is not downloaded yet, ask in the chat", and
+                // the spinner below used to hide it behind "turn it off and on".
+                <div className="space-y-1.5">
+                  <span className="block text-warning">{state.liveError}</span>
+                  {askButton}
+                </div>
               ) : enabled && waQr ? (
                 <div className="space-y-1.5">
                   <span className="text-text-muted">
@@ -452,7 +497,7 @@ export function ConnectorCard({
           ) : (
             entry.fields.map((f) => (
               <label key={f.key} className="block">
-                <span className="text-2xs text-text-secondary">
+                <span className="text-xs text-text-secondary">
                   {f.label}
                   {filled.has(f.key) && <span className="text-success"> · saved</span>}
                 </span>
@@ -461,14 +506,14 @@ export function ConnectorCard({
                   value={secrets[f.key] ?? ''}
                   placeholder={filled.has(f.key) ? 'Leave blank to keep current' : ''}
                   onChange={(e) => setSecrets((s) => ({ ...s, [f.key]: e.target.value }))}
-                  className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-hidden"
+                  className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2.5 py-1.5 text-sm text-text-primary focus:border-brand outline-hidden"
                 />
               </label>
             ))
           )}
 
           <label className="block">
-            <span className="text-2xs text-text-secondary">
+            <span className="text-xs text-text-secondary">
               {allowLabel}
               <span className="text-text-muted">{allowHint}</span>
             </span>
@@ -477,12 +522,12 @@ export function ConnectorCard({
               onChange={(e) => setAllowlist(e.target.value)}
               rows={2}
               placeholder={entry.id === 'whatsapp' ? 'e.g. 40712345678' : 'e.g. 215094730484056064'}
-              className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-hidden resize-y font-mono"
+              className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2.5 py-1.5 text-sm text-text-primary focus:border-brand outline-hidden resize-y font-mono"
             />
           </label>
 
           <label className="block">
-            <span className="text-2xs text-text-secondary">
+            <span className="text-xs text-text-secondary">
               {channelLabel}
               <span className="text-text-muted">{channelHint}</span>
             </span>
@@ -491,13 +536,13 @@ export function ConnectorCard({
               onChange={(e) => setChannels(e.target.value)}
               rows={2}
               placeholder={channelPlaceholder}
-              className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-hidden resize-y font-mono"
+              className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2.5 py-1.5 text-sm text-text-primary focus:border-brand outline-hidden resize-y font-mono"
             />
           </label>
 
           {entry.id === 'whatsapp' && (
             <div className="rounded-md border border-border-default bg-bg-primary p-2.5 space-y-2">
-              <span className="text-2xs text-text-secondary font-medium">Who can it talk to?</span>
+              <span className="text-xs text-text-secondary font-medium">Who can it talk to?</span>
               <div className="flex gap-1.5">
                 <button
                   type="button"
@@ -532,7 +577,7 @@ export function ConnectorCard({
                     get the full assistant.
                   </p>
                   <label className="block">
-                    <span className="text-2xs text-text-secondary">
+                    <span className="text-xs text-text-secondary">
                       What it can tell people
                       <span className="text-text-muted"> (products, prices, FAQ, hours; answers come only from this)</span>
                     </span>
@@ -541,7 +586,7 @@ export function ConnectorCard({
                       onChange={(e) => setKnowledgeBase(e.target.value)}
                       rows={6}
                       placeholder={'e.g.\nWe sell handmade leather bags.\nPrices: tote €120, crossbody €85.\nShipping: 3–5 days in the EU, free over €100.\nFor orders or a callback, leave your name and number.'}
-                      className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-hidden resize-y"
+                      className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2.5 py-1.5 text-sm text-text-primary focus:border-brand outline-hidden resize-y"
                     />
                   </label>
                 </>
@@ -565,7 +610,7 @@ export function ConnectorCard({
               onClick={() => void save()}
               disabled={busy}
               className={cn(
-                'inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg text-brand-foreground disabled:opacity-50 transition-colors',
+                'inline-flex h-8 items-center justify-center gap-1.5 text-sm font-medium px-3 rounded-lg text-brand-foreground disabled:opacity-50 transition-colors',
                 justSaved ? 'bg-success' : 'bg-brand hover:bg-brand/90',
               )}
             >

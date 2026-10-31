@@ -19,10 +19,14 @@ export type WidgetData =
   | { kind: 'progress'; title?: string; done: number; total: number; label: string }
   | { kind: 'table'; title?: string; columns: { title: string; subtitle?: string; image?: string; imageFile?: string }[]; rows: { label: string; cells: string[] }[] }
   | { kind: 'verdict'; title?: string; text: string }
-  /** Not drawn in place: chips at the end of the latest reply (spec 7.5). */
-  | { kind: 'followups'; next: string[] }
+  /** Pictures that are the result, kept by the sidecar: a squircle gallery in the reply. */
+  | { kind: 'photos'; title?: string; items: { imageFile: string; title?: string }[] }
+  /** Not drawn in place: chips at the end of the latest reply (spec 7.5); with `ask`, the next-step card. */
+  | { kind: 'followups'; ask?: string; next: string[] }
   /** Not drawn in place: a task the agent offered (`suggest_task`), closing its reply. */
   | { kind: 'task'; card: TaskCard }
+  /** The live WhatsApp code, after `connectors_manage` started pairing. Holds no code itself: it is read while shown. */
+  | { kind: 'whatsapp_pair' }
   | { kind: 'list'; title?: string; lines: string[] };
 
 /** What `suggest_task` offers. Nothing exists until the person presses Create. */
@@ -118,9 +122,19 @@ function strict(d: Rec): WidgetData | null {
       const text = str(d.text);
       return text ? { kind: 'verdict', title, text } : null;
     }
+    case 'photos': {
+      // A picture the cache no longer has is left out, not drawn blank.
+      const rows = (items ?? []).flatMap((it) => {
+        const imageFile = cached(it.imageFile);
+        return imageFile ? [{ imageFile, title: str(it.title) }] : [];
+      });
+      return rows.length > 0 ? { kind: 'photos', title, items: rows.slice(0, 8) } : null;
+    }
     case 'followups': {
       const next = Array.isArray(d.next) ? d.next.filter((l): l is string => typeof l === 'string' && l.trim() !== '').map((l) => l.trim()) : [];
-      return next.length > 0 ? { kind: 'followups', next: next.slice(0, 4) } : null;
+      const ask = str(d.ask)?.trim().slice(0, 100);
+      if (next.length === 0) return null;
+      return ask ? { kind: 'followups', ask, next: next.slice(0, 2) } : { kind: 'followups', next: next.slice(0, 4) };
     }
     case 'list': {
       const lines = Array.isArray(d.lines) ? d.lines.filter((l): l is string => typeof l === 'string' && l.trim() !== '') : [];
@@ -163,6 +177,7 @@ export function widgetOf(tool: string, result: unknown): WidgetData | null {
     if (t.kind === 'watch' && (!watch || schedule.kind === 'at')) return null;
     return { kind: 'task', card: { id, title, task, when, kind: t.kind, schedule, ...(watch ? {watch,expiryDays:num(t.expiryDays) ?? 30} : {}) } };
   }
+  if (tool === 'connectors_manage' && isRec(data) && data.whatsappPairing === true) return { kind: 'whatsapp_pair' };
   if (tool === 'todo_write' && isRec(data) && Array.isArray(data.items)) {
     // The store lists newest change first; a plan reads in the order it was written.
     const byCreation = (data.items as unknown[]).filter(isRec)

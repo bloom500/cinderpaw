@@ -12,6 +12,7 @@
  * Pure. Spec: docs/superpowers/specs/2026-09-27-observational-memory-design.md
  */
 import type { Note } from "./observations.ts";
+import { localDay } from "./day.ts";
 
 export const SNAPSHOT_HEADER = "## What you remember";
 
@@ -35,8 +36,9 @@ export function snapshotBudgetChars(transcriptBudgetTokens: number): number {
   return Math.max(2000, Math.min(8000, Math.floor(transcriptBudgetTokens * 4 * 0.08)));
 }
 
-const day = (ts: number) => Math.floor(ts / DAY);
-const stamp = (ts: number) => new Date(ts).toISOString().slice(0, 10);
+// The user's days, not London's (day.ts): "today" and "yesterday" turn at local midnight.
+const day = (ts: number) => Math.floor((ts - new Date(ts).getTimezoneOffset() * 60_000) / DAY);
+const stamp = localDay;
 
 export function ago(now: number, ts: number): string {
   const d = day(now) - day(ts);
@@ -57,7 +59,7 @@ export function buildSnapshot(i: SnapshotInput): string {
 
   const d = new Date(i.now);
   const out: string[] = [
-    `${SNAPSHOT_HEADER} (today is ${stamp(i.now)}, ${WEEKDAYS[d.getUTCDay()]})`,
+    `${SNAPSHOT_HEADER} (today is ${stamp(i.now)}, ${WEEKDAYS[d.getDay()]})`,
     "Background from earlier conversations with this user. Use it when it helps; do not recite it.",
   ];
   let used = out.join("\n").length;

@@ -73,6 +73,14 @@ describe('a long chat while a reply arrives', () => {
   const turn = (id: string, role: 'user' | 'assistant') => ({ id, role, content: id, createdAt: 1 });
   const chat = () => [...Array(20)].flatMap((_, i) => [turn(`q${i}`, 'user'), turn(`a${i}`, 'assistant')]);
 
+  it('leaves the scroll to the scroller: no browser scroll anchoring to fight it', () => {
+    // With anchoring on, a streaming reply moved the page 28 px down and back
+    // on every other line (28 Oct, measured in Chromium; jsdom has no layout).
+    useChat.setState({ streamStatus: 'streaming', messages: chat() });
+    render(<MessageList />);
+    expect(screen.getByRole('region', { name: 'Conversation' }).className).toContain('[overflow-anchor:none]');
+  });
+
   it('draws only the reply being written for each new piece of it', () => {
     useChat.setState({ streamStatus: 'streaming', messages: chat() });
     render(<MessageList />);
@@ -99,6 +107,20 @@ describe('a long chat while a reply arrives', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry a3' }));
     fireEvent.click(screen.getByRole('button', { name: 'Edit q3' }));
     expect(resend).not.toHaveBeenCalled();
+  });
+});
+
+describe('a chat opened again', () => {
+  // Rows already there replay nothing, the tool widgets inside them included:
+  // a 52-message chat replayed 245 widget entrances each time it opened (30 Oct).
+  it('stops the widget entrances in rows that were already there, and keeps them for new ones', () => {
+    const turn = (id: string) => ({ id, role: 'assistant' as const, content: id, createdAt: 1 });
+    useChat.setState({ streamStatus: 'idle', messages: [turn('a'), turn('b'), turn('c')] });
+    const { container } = render(<MessageList />);
+    const row = (id: string) => container.querySelector(`[data-id="${id}"]`)!.closest('.message-row')!;
+    expect(row('a').className).toContain('animate-none');
+    act(() => { useChat.setState({ messages: [...useChat.getState().messages, turn('d')] }); });
+    expect(row('d').className).not.toContain('animate-none');
   });
 });
 
@@ -194,16 +216,16 @@ describe('chat tool widgets', () => {
       expect(container.firstElementChild).toHaveClass('relative');
     });
 
-    it('clears the composer by its measured height, never a fixed number', () => {
-      // `bottom-20` was a flat 80px: right for a one-line draft, wrong the
-      // moment the composer grew. The height is published by ChatPage.
+    it('reserves the measured dock and puts the jump button in its clear upper space', () => {
       setChatDockHeight(140);
       const { container } = render(<MessageList />);
       scrollUp(container);
       const button = screen.getByRole('button', { name: /Jump to bottom|new/ });
-      expect(button.style.bottom).toBe('152px');
+      expect(button.style.bottom).toBe('92px');
+      expect(screen.getByRole('region', { name: 'Conversation' }).style.height).toContain('140px');
       act(() => setChatDockHeight(200));
-      expect(button.style.bottom).toBe('212px');
+      expect(button.style.bottom).toBe('152px');
+      expect(screen.getByRole('region', { name: 'Conversation' }).style.height).toContain('200px');
       expect(button.className).not.toMatch(/bottom-\d/);
     });
 

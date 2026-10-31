@@ -87,3 +87,12 @@ describe("AgentLoop.compactSession (/compact)", () => {
     cleanup();
   });
 });
+
+describe("the cloud transcript budget", () => {
+  test("leaves the whole prompt inside a 128K window, so a cloud chat compacts before it overflows", async () => {
+    // 27 Oct: at 200K the transcript alone could fill a 200K model, and a real
+    // evening chat reached 154K tokens per call without ever compacting.
+    const { AgentLoop } = await import("../src/core/agent-loop.ts");
+    expect(AgentLoop.CLOUD_TRANSCRIPT_BUDGET + AgentLoop.CLOUD_PROMPT_OVERHEAD).toBeLessThan(128_000);
+  });
+});

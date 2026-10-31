@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { atRest, boundsFrom, leanDegrees, squashFor, step, type Body } from '../physics';
+import { atRest, boundsFrom, leanDegrees, narrowByWalls, squashFor, step, type Body } from '../physics';
 
 const FRAME = 1 / 60;
 const WIDE = { minX: -1_000, maxX: 1_000, minY: -1_000 };
@@ -143,5 +143,20 @@ describe('mascot physics', () => {
     // once puts it 1100px below a floor it never touched.
     const oneSecond = step({ x: 0, y: -20, vx: 0, vy: 0 }, 1, WIDE).body;
     expect(oneSecond.y).toBe(0);
+  });
+});
+
+
+describe('narrowByWalls', () => {
+  const area = { left: 0, right: 1000, top: 0 };
+  const home = { left: 400, width: 100 };
+
+  it('stops the creature at a side panel to its right', () => {
+    expect(narrowByWalls(area, home, [{ left: 680, right: 1000 }]).right).toBe(680);
+  });
+
+  it('stops it at one to its left, and ignores a wall it overlaps', () => {
+    expect(narrowByWalls(area, home, [{ left: 0, right: 250 }]).left).toBe(250);
+    expect(narrowByWalls(area, home, [{ left: 450, right: 900 }])).toEqual(area);
   });
 });

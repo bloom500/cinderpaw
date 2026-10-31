@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Settings2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { useModel, type InferParamsUI } from '@/stores/model';
+import { useModel, type Effort, type InferParamsUI } from '@/stores/model';
+import { cn } from '@/lib/utils';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { activeContextWindow } from '@/lib/contextWindow';
 
@@ -177,6 +178,64 @@ function ContextWindowRow({ isLocalActive }: { isLocalActive: boolean }) {
   );
 }
 
+// ponytail: a copy of ANTHROPIC_TAKES_EFFORT in
+// CinderpawAgent/src/egress/inference-providers.ts; change both together.
+const ANTHROPIC_TAKES_EFFORT =
+  /^claude-(?:opus-4-[5-9]|sonnet-4-[6-9]|(?:opus|sonnet|haiku|fable|mythos)-[5-9](?:-\d+)?)(?:-\d{8})?$/;
+
+/** Whether the engine passes Effort on to this model (anthropicEffort /
+ *  openAIReasoning): newer Claude models, and anything through OpenRouter. */
+function effortReaches(cfg: { provider: string; model: string; base_url: string } | null): boolean {
+  if (!cfg) return false;
+  if (/openrouter\.ai/i.test(cfg.base_url)) return true;
+  return (cfg.provider === 'anthropic' || /anthropic\.com/i.test(cfg.base_url)) && ANTHROPIC_TAKES_EFFORT.test(cfg.model);
+}
+
+const EFFORTS: Array<{ id: Effort; label: string }> = [
+  { id: 'auto', label: 'Auto' },
+  { id: 'low', label: 'Low' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'high', label: 'High' },
+];
+
+/**
+ * Cloud models get Effort in place of Temperature (28 Oct): the new Claude
+ * models refuse any temperature, so the slider did nothing there, while how
+ * hard the model thinks is a choice a person can actually feel.
+ */
+function EffortRow({ reaches }: { reaches: boolean }) {
+  const effort    = useModel((s) => s.effort);
+  const setEffort = useModel((s) => s.setEffort);
+  if (!reaches) {
+    return <p className="text-micro text-text-muted leading-snug mb-3">This model has no effort setting. It decides by itself.</p>;
+  }
+  return (
+    <div className="mb-3">
+      <span className="text-xs text-text-secondary">Effort</span>
+      <div role="radiogroup" aria-label="Effort" className="mt-1.5 grid grid-cols-4 gap-1 rounded-lg bg-bg-surface p-0.5">
+        {EFFORTS.map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            role="radio"
+            aria-checked={effort === id}
+            onClick={() => setEffort(id)}
+            className={cn(
+              'rounded-md py-1 text-xs transition-colors',
+              effort === id ? 'bg-bg-active text-text-primary' : 'text-text-muted hover:text-text-secondary',
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="text-micro text-text-muted mt-1.5 leading-snug">
+        How long it thinks before it answers. Higher is slower and costs more.
+      </p>
+    </div>
+  );
+}
+
 export function ControlsPopover() {
   const inferParams    = useModel((s) => s.inferParams);
   const setInferParams = useModel((s) => s.setInferParams);
@@ -189,17 +248,26 @@ export function ControlsPopover() {
   const { isLocal } = activeContextWindow({ cinderpawConfig, loaded });
   const isLocalActive = isLocal && !!loaded;
 
-  const rows = ROWS.filter((r) => isLocalActive || !r.localOnly);
+  // Cloud: Effort alone. Local: Temperature (and Top-P once a model is loaded).
+  const rows = isLocal ? ROWS.filter((r) => isLocalActive || !r.localOnly) : [];
 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button className="flex items-center justify-center h-full px-2.5 text-text-muted hover:text-text-secondary transition-colors outline-hidden">
+        <button
+          // An icon alone, with no name: nobody could tell what it opened
+          // before pressing it, and a screen reader said only "button" (28 Oct).
+          type="button"
+          aria-label="Reply settings"
+          title="Reply settings"
+          className="flex items-center justify-center h-full px-2.5 text-text-muted hover:text-text-secondary transition-colors outline-hidden"
+        >
           <Settings2 size={12} />
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={8} className="w-60">
         <p className="text-xs font-medium text-text-secondary mb-3">Controls</p>
+        {!isLocal && <EffortRow reaches={effortReaches(cinderpawConfig)} />}
         {rows.map(({ key, label, min, max, step, decimals, warn }) => (
           <ParamRow
             key={key}

@@ -51,6 +51,8 @@ export class DesktopControlBridgeImpl implements DesktopControlBridge {
     action: string,
     params: Record<string, unknown>,
     sessionId: string = "default",
+    /** Longer than the default for work that takes minutes (a video download). */
+    timeoutMs: number = this.#config.timeoutMs,
   ): Promise<unknown> {
     const id = randomUUID();
     return new Promise<unknown>((resolve, reject) => {
@@ -58,8 +60,8 @@ export class DesktopControlBridgeImpl implements DesktopControlBridge {
         const p = this.#pending.get(id);
         if (!p) return;
         this.#pending.delete(id);
-        reject(new DesktopControlTimeoutError(id, this.#config.timeoutMs));
-      }, this.#config.timeoutMs);
+        reject(new DesktopControlTimeoutError(id, timeoutMs));
+      }, timeoutMs);
 
       this.#pending.set(id, { resolve, reject, timer });
       this.#emit({ type: "desktop_control_request", id, sessionId, action, params });

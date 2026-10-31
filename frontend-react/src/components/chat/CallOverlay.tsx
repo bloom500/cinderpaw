@@ -51,8 +51,10 @@ import { useArtifacts } from '@/stores/artifacts';
 import { ArtifactsPanel } from '@/components/artifacts/ArtifactsPanel';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { uiZoom } from '@/lib/uiZoom';
 import type { CallPhase, CallStage } from '@/hooks/useCallSession';
 import { SelectMenu } from '@/components/ui/select-menu';
+import { BASE, FAST, LOOP_CSS } from '@/lib/motion';
 
 /**
  * The in-call screen: one orb, one line of state, two buttons.
@@ -671,7 +673,7 @@ export function CallOverlay({
       aria-modal="true"
       aria-label={t('call.title')}
       className="fixed inset-0 z-40 flex"
-      style={{ backgroundColor: 'var(--bg-primary, #1C1814)' }}
+      style={{ backgroundColor: 'var(--bg-primary, #1B1410)' }}
     >
       {/* The frameless window still has to be movable while a call covers the
           screen. This strip spans the top and does nothing else. */}
@@ -779,7 +781,7 @@ export function CallOverlay({
         {(phase === 'listening' || phase === 'speaking') && (
           <div
             aria-hidden
-            className="orb-motion pointer-events-none absolute inset-0 transition-opacity duration-500"
+            className="orb-motion pointer-events-none absolute inset-0 transition-opacity duration-(--motion-slow)"
             style={{
               background:
                 'radial-gradient(ellipse 58% 46% at 62% 28%, rgba(224,132,56,0.22) 0%, rgba(198,104,44,0.11) 34%, rgba(150,72,30,0.04) 52%, transparent 70%)',
@@ -796,7 +798,7 @@ export function CallOverlay({
             without it the ball floats a centimetre off the surface. */}
         <div
           aria-hidden
-          className="pointer-events-none absolute left-1/2 top-1/2 h-[560px] w-[560px] -translate-x-1/2 -translate-y-1/2 rounded-full transition-opacity duration-700"
+          className="pointer-events-none absolute left-1/2 top-1/2 h-[560px] w-[560px] -translate-x-1/2 -translate-y-1/2 rounded-full transition-opacity duration-(--motion-slow)"
           style={{
             background:
               // The sphere's own light spilling onto the room. Bigger and
@@ -984,7 +986,7 @@ export function CallOverlay({
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 0.18 }}
+                transition={FAST}
                 onClick={() => setSettingsOpen(false)}
               >
               <motion.div
@@ -993,7 +995,7 @@ export function CallOverlay({
                 initial={{ opacity: 0, scale: 0.96, y: 8 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.96, y: 8 }}
-                transition={{ duration: 0.18, ease: 'easeOut' }}
+                transition={BASE}
               >
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="font-display text-xl text-text-primary">{t('call.settings')}</h2>
@@ -1566,7 +1568,7 @@ function Orb({
         ['--flow' as string]: duration,
         animationName: 'orb-flow',
         animationDuration: 'var(--flow)',
-        animationTimingFunction: 'cubic-bezier(0.45, 0, 0.55, 1)',
+        animationTimingFunction: LOOP_CSS,
         animationDelay: delay,
         animationIterationCount: 'infinite',
         animationDirection: 'alternate',
@@ -2444,8 +2446,9 @@ function CallBrowserPanel() {
       frame = requestAnimationFrame(() => {
         if (!el) return;
         const r = el.getBoundingClientRect();
+        const z = uiZoom(); // window pixels, as in BrowserPanel's place()
         void tauri.browser
-          .ui('set_bounds', { x: r.left, y: r.top, width: r.width, height: r.height, visible: true })
+          .ui('set_bounds', { x: r.left * z, y: r.top * z, width: r.width * z, height: r.height * z, visible: true })
           .catch(() => {});
       });
     };

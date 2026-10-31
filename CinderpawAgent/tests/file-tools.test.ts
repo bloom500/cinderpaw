@@ -161,6 +161,25 @@ describe("read_file states the line count instead of leaving it to be guessed", 
     }
   });
 
+  it("says a video is binary and how to look at it, instead of returning raw bytes", async () => {
+    // 27 Oct: an attached MP4 came back as 64 KB of bytes with line numbers.
+    const f = join(tmp, "news.mp4");
+    writeFileSync(f, Buffer.concat([Buffer.from([0, 0, 0, 0x20]), Buffer.from("ftypisom"), Buffer.alloc(4000)]));
+    const utf16 = join(tmp, "out.txt");
+    writeFileSync(utf16, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("hi\r\n", "utf16le")]));
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const r = await createReadFileTool([tmp]).execute({ path: f }, ctx);
+      expect(r).toMatchObject({ ok: false, error: "binary_file" });
+      expect(r.content).toContain("ffmpeg");
+      expect(r.content).not.toContain("ftyp");
+      // UTF-16 text has NULs too, but it is text: still read.
+      expect((await createReadFileTool([tmp]).execute({ path: utf16 }, ctx)).ok).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
   it("refuses an oversized image with the size in the message", async () => {
     // Providers reject past ~5 MB anyway. A refusal that names the number is
     // something the agent can act on: crop it, resize it, read the smaller one.

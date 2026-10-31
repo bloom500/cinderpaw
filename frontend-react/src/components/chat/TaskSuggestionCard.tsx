@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import type { TaskCard } from '@/lib/widgets';
 import { isCreated, useTasks } from '@/stores/tasks';
 import { GooeyCard } from './GooeyCard';
+import { BASE } from '@/lib/motion';
 
 /**
  * A task the agent offered (`suggest_task`), at the end of the reply it came
@@ -66,8 +67,8 @@ export function TaskSuggestionCard({ card, sessionId }: { card: TaskCard; sessio
       aria-label="Suggested task"
       initial={false}
       animate={{ opacity: 1, y: 0, height: 'auto' }}
-      exit={reduced ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.96, height: 0, marginTop: 0, paddingTop: 0, paddingBottom: 0, filter: 'blur(6px)' }}
-      transition={reduced ? { duration: 0 } : { type: 'spring', stiffness: 320, damping: 30 }}>
+      exit={reduced ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.96, height: 0, marginTop: 0, paddingTop: 0, paddingBottom: 0 }}
+      transition={reduced ? { duration: 0 } : BASE}>
       <GooeyCard key={card.id}>
       <div className="min-w-0 p-1">
           <div className="flex items-start gap-1.5 text-xs text-text-muted">

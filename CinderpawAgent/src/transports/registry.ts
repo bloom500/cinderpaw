@@ -69,6 +69,12 @@ export interface LiveConnector {
    * Throws a sentence the person can act on (too large, bot lacks permission).
    */
   sendFile?(sessionId: string, file: OutboundFile): Promise<void>;
+  /**
+   * The session that reaches the person who owns this connection, when the
+   * transport knows it better than its allowlist does (WhatsApp: the linked
+   * account's own "Message yourself" chat). Null when not linked yet.
+   */
+  ownerSession?(): string | null;
 }
 
 export interface OutboundFile {

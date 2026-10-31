@@ -73,6 +73,20 @@ describe("suggest_task", () => {
     expect((quick.data as { taskSuggestion?: unknown })?.taskSuggestion).toBeUndefined();
   });
 
+  test("with no phone connected, the first card in a chat offers WhatsApp once; a connected phone never hears it", async () => {
+    let t = NOW.getTime();
+    const card = (title: string) => ({ title, task: "x", kind: "reminder", repeat: "daily", time: "09:00" });
+    const offline = createSuggestTaskTool(new SuggestionLedger(), () => new Date(t), () => null);
+    const first = await offline.execute(card("Water the plants"), ctx);
+    expect(first.content).toMatch(/WhatsApp.*connectors_manage/);
+    t += 10 * 60_000;
+    const second = await offline.execute(card("Feed the cat"), ctx);
+    expect(second.ok).toBe(true);
+    expect(second.content).not.toMatch(/WhatsApp/);
+    const online = createSuggestTaskTool(new SuggestionLedger(), () => NOW, () => "telegram");
+    expect((await online.execute(card("Water the plants"), ctx)).content).not.toMatch(/WhatsApp/);
+  });
+
   test("never reaches a stranger on a connector", () => {
     expect(isOwnerOnlyTool("suggest_task")).toBe(true);
   });

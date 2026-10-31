@@ -37,6 +37,7 @@ import {
 import { useConversations } from '@/stores/conversations';
 import { useChat } from '@/stores/chat';
 import { CopiedCheck } from '@/components/ui/copied-check';
+import { BASE, FAST } from '@/lib/motion';
 
 const AVATAR_COLORS = [
   'bg-sky-500',
@@ -200,7 +201,7 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
       id={`cowork-msg-${m.key}`}
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.16 }}
+      transition={BASE}
       className={cn('group/bubble flex w-full gap-1.5', right ? 'justify-end' : 'justify-start')}
     >
       {/* The avatar column keeps its width on a continued run, so consecutive
@@ -971,7 +972,7 @@ export function CoworkTranscriptPanel() {
         style={{ top: pos.top, right: pos.right, borderRadius: 9999 }}
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.14, ease: 'easeOut' }}
+        transition={FAST}
         // Hover and press are framer's too. As Tailwind's `hover:scale-105
         // active:scale-95 transition-transform` they were a second animation
         // writing the same `transform` property that framer writes inline every
@@ -1044,7 +1045,7 @@ export function CoworkTranscriptPanel() {
       // there is nothing writing the radius but the class.
       initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.16, ease: 'easeOut' }}
+      transition={BASE}
       // z-30, not z-20: the chat input wrapper is z-20 AND comes later in the
       // DOM, so at the same level it painted its own panel straight over a
       // floating window the person had dragged there. Modals (z-40+) still

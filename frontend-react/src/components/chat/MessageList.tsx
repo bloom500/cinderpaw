@@ -25,9 +25,11 @@ import { useChatDockHeight } from '@/lib/chatDock';
  * are at the bottom, and a wheel, key or touch that moves away stops the follow.
  * Opening a saved chat lands on its latest turn.
  */
-export function MessageList({ onFollowUp }: {
+export function MessageList({ onFollowUp, onAnswer }: {
   /** A follow-up chip was picked: fill the composer with its words. */
   onFollowUp?: (text: string) => void;
+  /** A next-step card was answered: send the answer. */
+  onAnswer?: (text: string) => void;
 } = {}) {
   const messages = useChat((s) => s.messages);
   // Rows that arrive together (a chat opened, history loaded) are already
@@ -89,24 +91,39 @@ export function MessageList({ onFollowUp }: {
     : undefined;
 
   return (
-    <MessageScroller.Provider autoScroll defaultScrollPosition="last-anchor">
+    // scrollEdgeThreshold 24, not the library's 8 (28 Oct, Darius: "Jump to
+    // bottom" stayed at the bottom). The scroller counts each row's 8 px of
+    // paint room (`-my-2 py-2` on Row) as content, so at the very bottom it
+    // saw exactly 8 px left; any fraction of a pixel (the composer measured at
+    // 121.3 px) tipped it over the threshold and the button never went away.
+    <MessageScroller.Provider autoScroll defaultScrollPosition="last-anchor" scrollEdgeThreshold={24}>
       {/* The root is the positioning context and is NOT the element that
           scrolls: an absolute child of a scroll container is laid out against
           the scrolled content, so "Jump to bottom" used to ride up and out of
           view with the transcript. */}
       <MessageScroller.Root className="h-full relative">
         {/* No `scroll-smooth`: programmatic follow on every streamed frame
-            turns into overlapping animations, visible jank on long chats. */}
-        <MessageScroller.Viewport aria-label="Conversation" className="@container h-full overflow-y-auto overscroll-contain thin-scrollbar outline-hidden">
-          {/* Clears the dock's measured height, not a flat 12rem: the dock grows
-              with the workers card, the error notice and a multi-line draft,
-              and a flat pad let the last reply slide under it. */}
+            turns into overlapping animations, visible jank on long chats.
+            No scroll anchoring either (28 Oct, Darius: "sare la fiecare
+            token"): the scroller places the scroll and the room below your
+            question itself, and the browser's anchoring moved it again on every
+            line; the two corrected each other, 28 px down and back. Measured on
+            this list, one reply: 29 scroll moves, 14 of them backwards; with
+            anchoring off, 4 and 1. */}
+        <MessageScroller.Viewport aria-label="Conversation" className="@container overflow-y-auto overscroll-contain thin-scrollbar outline-hidden [overflow-anchor:none]"
+          // The Context cards' step aside is padding here (ChatPage sets
+          // --cards-shove), so the column moves and the scrollbar stays at the edge.
+          style={{ height: `calc(100% - ${dockH ?? 192}px)`, minHeight: 0, paddingRight: 'var(--cards-shove, 0px)' }}>
+          {/* The viewport ends above the measured dock; text cannot scroll
+              underneath the composer or its mascot. */}
           {/* 748 = the spec's 700 px reading column plus the 24 px gutters. */}
           <MessageScroller.Content
+            // ChatPage glides this column when a side panel moves it.
+            data-reading-column=""
             data-replying={status === 'streaming' ? '' : undefined}
             className="max-w-[748px] mx-auto px-6 py-6 flex flex-col gap-7"
             style={{
-              paddingBottom: dockH === null ? '12rem' : `${dockH + 32}px`,
+              paddingBottom: '48px',
               ...(chatFont === 'system' ? { fontFamily: SYSTEM_FONT } : {}),
             }}
           >
@@ -118,6 +135,9 @@ export function MessageList({ onFollowUp }: {
                 streaming={status === 'streaming' && i === messages.length - 1 && m.role === 'assistant'}
                 head={i === messages.length - 1 ? head : undefined}
                 onFollowUp={i === messages.length - 1 && m.role === 'assistant' ? onFollowUp : undefined}
+                onAnswer={i === messages.length - 1 && m.role === 'assistant' ? onAnswer : undefined}
+                // An answered next-step card stays, greyed, with the reply the person sent marked.
+                answered={m.role === 'assistant' && messages[i + 1]?.role === 'user' ? messages[i + 1].content : undefined}
                 // Retry under a reply resends the question above it; Send under
                 // an edited question resends that one. Both drop everything
                 // below, which is why they are off while a reply is arriving:
@@ -135,7 +155,10 @@ export function MessageList({ onFollowUp }: {
             )}
           </MessageScroller.Content>
         </MessageScroller.Viewport>
-        <JumpToBottom count={messages.length} />
+        {/* Keyed by the chat's first message: kept across a chat switch, it
+            counted the opened chat's whole length as arrivals ("↓ 22 new" on
+            yesterday's chat, 28 Oct). A new chat starts counting from zero. */}
+        <JumpToBottom key={messages[0]?.id ?? 'empty'} count={messages.length} />
         {/* Qwen-style chapter rail: one tick per user turn, with a popup list. */}
         <ChapterRail />
       </MessageScroller.Root>
@@ -170,8 +193,11 @@ const Row = memo(function Row({ message: m, quiet, ...item }: ComponentProps<typ
         'message-row [contain:layout_paint] -mx-4 px-4 -my-2 py-2',
         !quiet && (m.role === 'user'
           // Yours rises out of the composer's corner: it came from there.
-          ? 'animate-in fade-in-0 slide-in-from-bottom-4 zoom-in-95 origin-bottom-right duration-300'
-          : 'animate-in fade-in-0 slide-in-from-bottom-2 duration-200'),
+          ? 'animate-in fade-in-0 slide-in-from-bottom-4 zoom-in-95 origin-bottom-right duration-(--motion-slow)'
+          : 'animate-in fade-in-0 slide-in-from-bottom-2 duration-(--motion-base)'),
+        // The tool widgets inside an old row are already there too. Their entrances
+        // replayed on every open: 245 at once in a 52-message chat (30 Oct).
+        quiet && '[&_:is(.tw-rise,.tw-row,.tw-pop,.tw-type)]:animate-none',
       )}
     >
       <MessageItem message={m} {...item} />
@@ -207,8 +233,9 @@ function JumpToBottom({ count }: { count: number }) {
         state.active ? (
           <button
             {...props}
-            style={{ bottom: dockH === null ? '5.75rem' : `${dockH + 12}px` }}
-            className="absolute left-1/2 -translate-x-1/2 z-10 rounded-full bg-(--surface-typing) text-text-primary text-xs px-3 py-1.5 shadow-sm hover:bg-bg-hover flex items-center gap-1.5 border border-border-default"
+            // Centred on the reading column, which the Context cards push left.
+            style={{ bottom: `${Math.max(0, (dockH ?? 192) - 48)}px`, left: 'calc((100% - var(--cards-shove, 0px)) / 2)' }}
+            className="absolute -translate-x-1/2 z-10 rounded-full bg-(--surface-typing) text-text-primary text-xs px-3 py-1.5 shadow-sm hover:bg-bg-hover flex items-center gap-1.5 border border-border-default"
           >
             ↓ {unread > 0 ? `${unread} new` : 'Jump to bottom'}
           </button>

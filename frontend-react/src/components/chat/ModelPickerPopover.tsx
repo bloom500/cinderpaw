@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, Cloud, HardDrive, Settings2 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -18,7 +18,7 @@ import { tauri, type ModelInfo, type ByokProvider } from '@/lib/tauri';
 import { router } from '@/router';
 import { signInWithOpenRouter } from '@/lib/openrouterSignIn';
 import { BackendBadge } from '@/components/BackendBadge';
-import { ROLES, resolveRole, roleModelName, sameModel, type RoleModel } from '@/lib/modelRoles';
+import { ROLES, resolveRole, roleModelName, sameModel, type Role, type RoleModel } from '@/lib/modelRoles';
 import { cn } from '@/lib/utils';
 import logoUrl from '@/assets/logo.svg';
 import { isLocalEngineUrl, localApiBase } from '@/lib/localApi';
@@ -32,6 +32,85 @@ function formatBytes(n: number): string {
   if (n > 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)} GB`;
   if (n > 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`;
   return `${(n / 1024).toFixed(0)} KB`;
+}
+
+/**
+ * The four roles. The model's name sits on the role's own line, where there is
+ * room for all of it: beside the description it was cut to "Minimax m3.1
+ * Flas…" (29 Oct). An empty role opens its choices right here; it used to send
+ * the person to the Models page to choose ("ma duce in tabul Models", 29 Oct).
+ */
+function RoleRows({ roles, active, firstLocal, candidates, onPick }: {
+  roles: Partial<Record<Role, RoleModel>>;
+  active: RoleModel | null;
+  firstLocal: RoleModel | null;
+  candidates: RoleModel[];
+  onPick: (m: RoleModel) => void;
+}) {
+  const [choosing, setChoosing] = useState<Role | null>(null);
+  return (
+    <>
+      {ROLES.map((r) => {
+        const m = resolveRole(r.id, roles, active, firstLocal);
+        const on = !!m && sameModel(m, active);
+        const options = r.id === 'local' ? candidates.filter((c) => c.kind === 'local') : candidates;
+        return (
+          <Fragment key={r.id}>
+            <DropdownMenuItem
+              // A role with no model does nothing when pressed; its own button
+              // opens the choices. Leaving the chat is a decision (22 Sep).
+              onSelect={(e) => { if (!m) e.preventDefault(); }}
+              onClick={() => { if (m) onPick(m); }}
+              className={cn(
+                'mb-0.5 flex items-start gap-2.5 rounded-xl border px-2.5 py-2',
+                on ? 'border-brand/50 bg-bg-active' : 'border-transparent',
+              )}
+            >
+              {/* A plain mark on the name's line, not a 36 px tile: the tiles
+                  made four rows read as four cards. */}
+              <r.icon size={16} className="mt-0.5 shrink-0 text-brand" />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2">
+                  <span className="shrink-0 text-sm font-semibold text-text-primary">{r.label}</span>
+                  {m ? (
+                    <span className="ml-auto min-w-0 truncate rounded-full bg-bg-active px-2 py-0.5 text-2xs font-medium text-brand" title={roleModelName(m)}>
+                      {m.kind === 'cloud' ? modelDisplayName(m.modelId) : m.name}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-expanded={choosing === r.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // Nothing here to choose from: then the Models page is the only way on.
+                        if (options.length === 0) { void router.navigate(r.id === 'local' ? '/models' : '/models?tab=roles'); return; }
+                        setChoosing((c) => (c === r.id ? null : r.id));
+                      }}
+                      className="ml-auto shrink-0 rounded-full border border-border-default px-2 py-0.5 text-2xs text-brand hover:bg-text-primary/5"
+                    >
+                      {r.id === 'local' && options.length === 0 ? 'Download a model' : 'Choose a model'}
+                    </button>
+                  )}
+                </span>
+                <span className="block text-xs text-text-muted">{r.line}</span>
+              </span>
+              {on && <Check size={16} className="shrink-0 text-brand" />}
+            </DropdownMenuItem>
+            {choosing === r.id && options.map((c) => (
+              <DropdownMenuItem
+                key={c.kind === 'cloud' ? `${c.providerId}/${c.modelId}` : c.path || c.name}
+                onClick={() => { useModel.getState().setRole(r.id, c); onPick(c); }}
+                className="mb-1 ml-12 flex flex-col items-start gap-0.5 rounded-lg"
+              >
+                <span className="text-sm text-text-primary">{c.kind === 'cloud' ? modelDisplayName(c.modelId) : c.name}</span>
+                <span className="text-xs text-text-muted">{c.kind === 'cloud' ? c.providerName : 'On this computer'}</span>
+              </DropdownMenuItem>
+            ))}
+          </Fragment>
+        );
+      })}
+    </>
+  );
 }
 
 export function ModelPickerPopover() {
@@ -209,6 +288,18 @@ export function ModelPickerPopover() {
     }
     void selectLocalAgent(info);
   };
+  // What an empty role can take without leaving the chat: the model answering
+  // now, any role's model, each switched-on provider's default and every model
+  // on this computer. A model this list does not know needs its id typed, in
+  // Models > Roles ("Manage models").
+  const candidates: RoleModel[] = [];
+  const offer = (m: RoleModel | null | undefined) => { if (m && !candidates.some((c) => sameModel(c, m))) candidates.push(m); };
+  offer(active);
+  Object.values(roles).forEach(offer);
+  for (const p of cloudProviders) {
+    if (p.enabled && p.default_model) offer({ kind: 'cloud', providerId: p.id, providerName: p.name, modelId: p.default_model });
+  }
+  for (const m of localModels) offer({ kind: 'local', path: m.path, name: m.name });
   // Every model, as the picker listed them before roles: behind "All models".
   const allModels = (
     <>
@@ -317,6 +408,12 @@ export function ModelPickerPopover() {
     </>
   );
 
+  // The island lies over its button, so it needs the button's height. Read only
+  // while open: these props are built on every render, and reading a size in
+  // render forced a layout of the whole page each time the chat redrew (150 ms
+  // when a chat opened, production build, 30 Oct).
+  const triggerHeight = open ? (triggerRef.current?.offsetHeight ?? 32) : 32;
+
   return (
     // Controlled: the island's last row closes it, and so does enabling a provider.
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -365,58 +462,22 @@ export function ModelPickerPopover() {
       <DropdownMenuContent
         side="top"
         align="start"
-        sideOffset={-(triggerRef.current?.offsetHeight ?? 32)}
+        sideOffset={-triggerHeight}
         collisionPadding={12}
+        // 22rem again since 29 Oct: at 22 the roles' lines once ended in "…"
+        // ("Balanced for most t…", 28 Oct) because the model's name sat beside
+        // them; it sits on the role's own line now, so every line has the width.
         className="model-island relative w-[22rem] overflow-visible rounded-3xl p-0"
       >
         {/* The Model Switcher (spec 8): roles first, the head peeking over the
             top edge. Not clipped: the scroll lives on the inner box. */}
         <img src={logoUrl} alt="" className="pointer-events-none absolute -top-9 right-6 h-12 w-12" />
         <div className="model-island-body max-h-[min(55vh,30rem)] overflow-y-auto thin-scrollbar p-2">
-        <div className="px-2 pb-2 pt-1">
-          <p className="font-display text-lg leading-tight text-text-primary">Model Switcher</p>
-          <p className="text-xs text-text-muted">Choose the best model for your task.</p>
-        </div>
-        {ROLES.map((r) => {
-          const m = resolveRole(r.id, roles, active, firstLocal);
-          const on = !!m && sameModel(m, active);
-          const empty = r.id === 'local' ? 'Download a model' : 'Choose a model';
-          return (
-            <DropdownMenuItem
-              key={r.id}
-              // A role with no model does nothing when pressed; its own button
-              // below goes to the Models page. Leaving is a decision (22 Sep).
-              onSelect={(e) => { if (!m) e.preventDefault(); }}
-              onClick={() => { if (m) pick(m); }}
-              className={cn(
-                'mb-1 flex items-center gap-3 rounded-xl border p-2.5',
-                on ? 'border-brand/50 bg-bg-active' : 'border-transparent',
-              )}
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-bg-active text-brand">
-                <r.icon size={20} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-text-primary">{r.label}</span>
-                <span className="block truncate text-xs text-text-muted">{r.line}</span>
-              </span>
-              {m ? (
-                <span className="max-w-[8.5rem] shrink-0 truncate rounded-full bg-bg-active px-2 py-0.5 text-2xs font-medium text-brand" title={roleModelName(m)}>
-                  {m.kind === 'cloud' ? modelDisplayName(m.modelId) : m.name}
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); void router.navigate(r.id === 'local' ? '/models' : '/models?tab=roles'); }}
-                  className="shrink-0 rounded-full border border-border-default px-2 py-0.5 text-2xs text-brand hover:bg-text-primary/5"
-                >
-                  {empty}
-                </button>
-              )}
-              {on && <Check size={16} className="shrink-0 text-brand" />}
-            </DropdownMenuItem>
-          );
-        })}
+        {/* Named for screen readers only: on screen the button it grows out of
+            already says what this is, and the title and subtitle cost the list
+            ~50 px of height (his "prea mare", 29 Oct). */}
+        <p className="sr-only">Model Switcher</p>
+        <RoleRows roles={roles} active={active} firstLocal={firstLocal} candidates={candidates} onPick={pick} />
         <DropdownMenuSeparator />
         {!hasLocal && !hasCloud ? (
           <>
@@ -458,7 +519,7 @@ export function ModelPickerPopover() {
           tabIndex={-1}
           aria-label={`${label}: close the list`}
           onClick={() => setOpen(false)}
-          style={{ height: triggerRef.current?.offsetHeight ?? 32 }}
+          style={{ height: triggerHeight }}
           className="flex w-full items-center gap-1.5 pl-2.5 pr-2 text-xs text-text-secondary hover:text-text-primary transition-colors outline-hidden"
         >
           {face}

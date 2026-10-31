@@ -127,6 +127,16 @@ export interface ToolActivity {
   /** A chat widget (`show_widget`, or `todo_write`'s plan), drawn in place of
    *  the step. From the tool's `data`, like `artifact`. */
   widget?: WidgetData | null;
+  /** Pictures the tool brought back (a screenshot, an image it read), as data
+   *  URLs, so the person sees what the agent saw. Absent when there were none. */
+  images?: string[];
+  /** A video the agent made and handed over with `show_video`, played in the
+   *  reply. A path on this computer; the app opens it to its player. */
+  video?: { path: string; name: string };
+  /** What the person picked on an ask_user card, one entry per question. The
+   *  card leaves the chat once answered, so this is the only place the choice
+   *  stays visible. From the tool's `data`, like `artifact`. */
+  answers?: string[];
   /** Present when the tool failed, so the panel can say so rather than empty. */
   error: string | null;
   /** Where in the reply's text this call was made (a character offset into
@@ -272,10 +282,13 @@ export function desktopDone(fact: DesktopFact | null, result: unknown): DesktopF
   return next;
 }
 
+/** Tools called together start in the same millisecond; the time alone gave them one id. */
+let started = 0;
+
 /** A fresh, running activity for a tool that just started. */
 export function startActivity(tool: string, args: Record<string, unknown> | undefined): ToolActivity {
   return {
-    id: `${tool}-${Date.now()}`,
+    id: `${tool}-${Date.now()}-${++started}`,
     tool,
     kind: kindOf(tool),
     subject: subjectOf(args),
@@ -295,10 +308,37 @@ export function startActivity(tool: string, args: Record<string, unknown> | unde
   };
 }
 
+/** Most pictures kept per step: a conversation is saved with them, and a page
+ *  of screenshots is a few hundred KB each. */
+const MAX_IMAGES = 4;
+
+/**
+ * The pictures in a tool's result (`ToolResult.images`). Inline data URLs only:
+ * a saved conversation is untrusted, and a remote URL would load from a server
+ * the moment the chat is opened.
+ */
+export function imagesOf(source: unknown): string[] {
+  const list = (source as { images?: unknown } | null)?.images;
+  if (!Array.isArray(list)) return [];
+  return list.filter((s): s is string => typeof s === 'string' && s.startsWith('data:image/')).slice(-MAX_IMAGES);
+}
+
+/**
+ * The video in `show_video`'s `data.video`, or on a saved row's `video`. Checked,
+ * not trusted: a path and a name, and a format the player can play.
+ */
+export function videoOf(source: unknown): { video: { path: string; name: string } } | Record<string, never> {
+  const s = source as { video?: unknown; data?: { video?: unknown } } | null;
+  const v = (s?.data?.video ?? s?.video) as { path?: unknown; name?: unknown } | undefined;
+  if (typeof v?.path !== 'string' || !/\.(mp4|m4v|mov|webm)$/i.test(v.path)) return {};
+  return { video: { path: v.path, name: typeof v.name === 'string' ? v.name : v.path.split(/[\\/]/).pop()! } };
+}
+
 /** The same activity, finished: everything the result can tell a widget. */
 export function finishActivity(a: ToolActivity, result: unknown): ToolActivity {
   const res = result as { ok?: boolean; content?: string } | null;
   const ok = res?.ok !== false;
+  const images = imagesOf(result);
   // shell_exec opens its result with the command again, the folder and
   // "[exit 0, 31ms]", for the model. On the card that header took three of the
   // six lines and all of a failure's 120-character reason (UX lab, 19 Oct).
@@ -324,7 +364,23 @@ export function finishActivity(a: ToolActivity, result: unknown): ToolActivity {
     // a search that found nothing look identical otherwise — and one of them
     // is a bug.
     error: ok ? null : (content || 'failed').slice(0, 120),
+    ...(images.length > 0 ? { images } : {}),
+    ...(ok ? videoOf(result) : {}),
+    ...(a.tool === 'ask_user' && ok ? answersOf(result) : {}),
   };
+}
+
+/** The picks from ask_user's `data.answers`; nothing when there are none. */
+function answersOf(result: unknown): { answers: string[] } | Record<string, never> {
+  const data = (result as { data?: { answers?: unknown } } | null)?.data;
+  if (!Array.isArray(data?.answers)) return {};
+  const answers = data.answers
+    .map((a: { selected?: unknown; customText?: unknown } | null) =>
+      [...(Array.isArray(a?.selected) ? a.selected : []), a?.customText]
+        .filter((s): s is string => typeof s === 'string' && s.trim() !== '')
+        .join(', '))
+    .filter((s: string) => s !== '');
+  return answers.length > 0 ? { answers } : {};
 }
 
 /**
@@ -343,6 +399,7 @@ export function toolsFromPersisted(raw: unknown): ToolActivity[] | undefined {
     const r = row as Partial<ToolActivity>;
     if (typeof r.tool !== 'string' || typeof r.subject !== 'string') continue;
     const running = r.status === 'running';
+    const images = imagesOf(r);
     out.push({
       id: typeof r.id === 'string' ? r.id : `${r.tool}-${out.length}`,
       tool: r.tool,
@@ -365,6 +422,11 @@ export function toolsFromPersisted(raw: unknown): ToolActivity[] | undefined {
       widget: parseWidget(r.widget),
       error: running ? 'interrupted' : typeof r.error === 'string' ? r.error : null,
       ...(typeof r.at === 'number' ? { at: r.at } : {}),
+      ...(images.length > 0 ? { images } : {}),
+      ...videoOf(r),
+      ...(Array.isArray(r.answers) && r.answers.every((s) => typeof s === 'string')
+        ? { answers: r.answers }
+        : {}),
     });
   }
   return out.length > 0 ? out : undefined;

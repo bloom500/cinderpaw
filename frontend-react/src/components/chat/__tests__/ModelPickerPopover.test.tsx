@@ -71,6 +71,17 @@ describe('the chat model picker', () => {
     const focused = document.activeElement;
     expect(focused?.textContent ?? '').not.toContain('bge');
   });
+
+  // Reading a size while drawing forces the browser to lay out the whole page
+  // first. The closed button redraws with every chat, and it did: 150 ms of a
+  // chat opening went to this one read (production build, 30 Oct).
+  it('reads no sizes while it is closed', () => {
+    const read = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get');
+    const { rerender } = render(<ModelPickerPopover />);
+    rerender(<ModelPickerPopover />);
+    expect(read).not.toHaveBeenCalled();
+    read.mockRestore();
+  });
 });
 
 describe('the Model Switcher (spec 8)', () => {
@@ -89,6 +100,27 @@ describe('the Model Switcher (spec 8)', () => {
     await userEvent.click(local);
     expect(load).toHaveBeenCalledWith('C:/models/Qwen3.8-4B-Q6_K.gguf');
     load.mockRestore();
+  });
+
+  // 29 Oct, Darius: "if I want to select the model I use, it takes me to the
+  // Models tab". An empty role chooses in place, from the models already here.
+  it('an empty role chooses its model in the switcher, without leaving the chat', async () => {
+    useModel.setState({ roles: {}, cloudModel: null, loaded: null });
+    const load = vi.spyOn(useModel.getState(), 'load').mockResolvedValue(undefined);
+    const at = window.location.pathname;
+    render(<ModelPickerPopover />);
+    await userEvent.click(screen.getByRole('button'));
+
+    const fast = (await screen.findByText('Fast')).closest('[role="menuitem"]')!;
+    await userEvent.click(within(fast as HTMLElement).getByRole('button', { name: 'Choose a model' }));
+    expect(window.location.pathname).toBe(at);
+    const option = await screen.findByRole('menuitem', { name: /Qwen3\.8-4B-Q6_K\.gguf.*On this computer/ });
+    await userEvent.click(option);
+
+    expect(useModel.getState().roles.fast).toMatchObject({ kind: 'local', path: 'C:/models/Qwen3.8-4B-Q6_K.gguf' });
+    expect(load).toHaveBeenCalledWith('C:/models/Qwen3.8-4B-Q6_K.gguf');
+    load.mockRestore();
+    useModel.setState({ roles: {} });
   });
 
   // 26 Oct, Darius's pick from the mockups (C, Dynamic Island): the menu grows

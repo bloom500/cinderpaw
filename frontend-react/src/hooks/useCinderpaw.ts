@@ -8,11 +8,12 @@
 import { useEffect, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import { useChat, type ChatMessage, type MemoryUsedItem, type TurnEnd, TOOL_CALL_LINGER_MS } from '@/stores/chat';
+import { useChat, type ChatMessage, type ContextLane, type MemoryUsedItem, type TurnEnd, TOOL_CALL_LINGER_MS } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
 import { useAgent } from '@/stores/agent';
 import { useModel } from '@/stores/model';
 import { useCinderpawStore } from '@/stores/cinderpaw';
+import { isLocalBaseUrl } from '@/lib/contextWindow';
 import { useNotifications } from '@/stores/notifications';
 import { useFollowUps } from '@/stores/followUps';
 import { notifyIfBackground, preview } from '@/lib/systemNotify';
@@ -51,7 +52,7 @@ interface StreamCallbacks {
   onTruncated?: (reason: string) => void;
   onToolStart?: (callId: string, tool: string, args: Record<string, unknown>) => void;
   onToolDone?:  (callId: string, tool: string, result: unknown) => void;
-  onUsage?:     (promptTokens: number, completionTokens: number) => void;
+  onUsage?:     (promptTokens: number, completionTokens: number, lanes?: { label: string; tokens: number }[]) => void;
   onMemoryUsed?: (items: MemoryUsedItem[]) => void;
   /**
    * React-side id of the assistant message that this stream will populate.
@@ -89,6 +90,16 @@ export { type MascotStateSink };
  * after the LAST tool call survived (the rest was wiped on tool_start).
  */
 const joinSegments = (a: string, b: string): string => (a && b ? a + '\n\n' + b : a + b);
+
+/**
+ * True when the model says, before its next tool, exactly what it said before
+ * the last one: a 27 Oct reply read "Am înțeles - pregătesc postarea cu
+ * videoul." twice in a row. The repeat is kept once.
+ */
+export function repeatsLastSegment(committed: string, segment: string): boolean {
+  const s = segment.trim();
+  return s.length > 0 && committed.trimEnd().endsWith(s);
+}
 
 /**
  * `JSON.stringify` that cannot throw.
@@ -136,12 +147,16 @@ export function useCinderpawStream(chatSessionId: string) {
         // reply, and a long document written in one tool call was cut off and
         // shown as "The model returned an empty response" (25 Oct). Without it
         // the sidecar picks its own ceiling per provider.
-        const { temperature } = useModel.getState().inferParams;
+        // A local model gets the Temperature slider; a cloud model gets Effort
+        // instead (28 Oct): new Claude models refuse any temperature, and the
+        // provider's own default suits the rest.
+        const { inferParams: { temperature }, effort } = useModel.getState();
+        const local = isLocalBaseUrl(useCinderpawStore.getState().modelConfig?.base_url);
         messageId = await invoke<string>('cinderpaw_send_message', {
           content,
           sessionId: chatSessionId,
           images: images && images.length > 0 ? images : null,
-          inferParams: { temperature },
+          inferParams: local ? { temperature } : { effort },
           // Declared per message, not per session: the same conversation is
           // spoken to and typed in alternately, and the format brief has to follow
           // whichever is happening right now. Typed is 'text': it also tells the
@@ -274,6 +289,8 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         // The memories this turn was given, kept here so a reply that finishes
         // while another chat is on screen still saves them.
         memoryUsed: undefined as MemoryUsedItem[] | undefined,
+        // What the prompt was made of, saved with the reply for the Context card.
+        contextLanes: undefined as ContextLane[] | undefined,
       };
       /**
        * A turn that ends with a tool still open never gets that tool's result.
@@ -327,6 +344,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           created_at: m.createdAt,
           ended: m.id === asstId ? state.ended : m.ended,
           memory_used: mem?.length ? mem : undefined,
+          context_lanes: m.id === asstId ? state.contextLanes : m.contextLanes,
           }; });
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted, agentId);
@@ -400,7 +418,9 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           // Commit the prose emitted before this tool call so it survives the
           // buffer reset; otherwise only the segment after the LAST tool call
           // reached the bubble (the "only the last sentence" bug).
-          if (state.answer.trim()) state.committed = joinSegments(state.committed, state.answer);
+          if (state.answer.trim() && !repeatsLastSegment(state.committed, state.answer)) {
+            state.committed = joinSegments(state.committed, state.answer);
+          }
           // Everything said so far is `committed` now, so its length is where
           // this call sits in the reply: the timeline draws the tool there.
           state.tools.push({ ...startActivity(tool, args), at: state.committed.length });
@@ -502,13 +522,15 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           state.memoryUsed = items;
           if (isActive()) useChat.getState().updateLastAssistantMessage({ memoryUsed: items });
         },
-        onUsage: (promptTokens, completionTokens) => {
+        onUsage: (promptTokens, completionTokens, lanes) => {
           // Real per-completion token counts from the sidecar router. Mirror
           // them so the context ring rehydrates correctly after a tab switch,
           // and push to the store live when this session is on screen.
           updateLiveSession(sessionId, { promptTokens, completionTokens });
+          if (lanes?.length) state.contextLanes = lanes;
           if (isActive()) {
             useChat.getState().setLiveTokens(promptTokens, completionTokens);
+            if (lanes?.length) useChat.getState().updateLastAssistantMessage({ contextLanes: lanes });
           }
         },
         onDone: async (finalContent?: string, stopped = false) => {

@@ -22,6 +22,9 @@ describe('parseWidget', () => {
     expect(parseWidget({ kind: 'followups', next: [' Add charts ', 'a', 'b', 'c', 'd'] }))
       .toEqual({ kind: 'followups', next: ['Add charts', 'a', 'b', 'c'] });
     expect(parseWidget({ kind: 'followups', next: [] })).toBeNull();
+    // With a question it is the next-step card: two answers at most.
+    expect(parseWidget({ kind: 'followups', ask: 'Send it to Ana?', next: ['Yes', 'Not now', 'Later'] }))
+      .toEqual({ kind: 'followups', ask: 'Send it to Ana?', next: ['Yes', 'Not now'] });
   });
 
   it('drops an image that is not https, and keeps the card', () => {
@@ -43,6 +46,11 @@ describe('widgetOf', () => {
     });
   });
 
+  it('draws the WhatsApp code only when connectors_manage started pairing', () => {
+    expect(widgetOf('connectors_manage', { ok: true, data: { id: 'whatsapp', whatsappPairing: true } })).toEqual({ kind: 'whatsapp_pair' });
+    expect(widgetOf('connectors_manage', { ok: true, data: { id: 'whatsapp', enabled: true } })).toBeNull();
+  });
+
   it('is null for any other tool', () => {
     expect(widgetOf('web_search', { ok: true, data: { kind: 'verdict', text: 'x' } })).toBeNull();
   });
@@ -58,6 +66,13 @@ describe('cached pictures', () => {
     ] });
     const items = (w as { items: { imageFile?: string }[] }).items;
     expect(items.map((i) => i.imageFile)).toEqual([file, undefined, 'C:\\Users\\ana\\.cinderpaw\\cache\\images\\' + 'b'.repeat(40) + '.png']);
+  });
+
+  it('photos keep only pictures from the cache, and are nothing when none is left', () => {
+    const w = parseWidget({ kind: 'photos', items: [{ imageFile: file, title: 'Sales' }, { imageFile: '/home/ana/.ssh/id_rsa' }] });
+    expect(w).toEqual({ kind: 'photos', title: undefined, items: [{ imageFile: file, title: 'Sales' }] });
+    // Nothing left to draw: the titles as a plain list, never a blank gallery.
+    expect(parseWidget({ kind: 'photos', items: [{ imageFile: '/etc/passwd', title: 'x' }] })?.kind).toBe('list');
   });
 });
 

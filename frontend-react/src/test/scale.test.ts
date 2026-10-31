@@ -19,8 +19,8 @@ const RAW = import.meta.glob(['/src/**/*.tsx', '!/src/**/__tests__/**'], { query
 const FILES = Object.entries(RAW).map(([p, text]) => ({ p, text }));
 const CSS = readFileSync('src/styles/globals.css', 'utf8');
 
-/** Icons come in four sizes: inline, default, navigation, hero-ish. 28 is the one empty-state glyph. */
-const ICON_SIZES = new Set([12, 14, 16, 20, 28]);
+/** Icons: inline, default, sidebar (18, 41f6bd8), navigation, hero-ish. 28 is the one empty-state glyph. */
+const ICON_SIZES = new Set([12, 14, 16, 18, 20, 28]);
 
 function hits(re: RegExp, keep: (m: RegExpMatchArray) => boolean = () => true): string[] {
   return FILES.flatMap(({ p, text }) =>
@@ -29,9 +29,10 @@ function hits(re: RegExp, keep: (m: RegExpMatchArray) => boolean = () => true): 
 }
 
 describe('type', () => {
-  test('the smallest step is 11 px and the next is 12 px', () => {
-    expect(CSS).toMatch(/--text-micro:\s*11px;/);
-    expect(CSS).toMatch(/--text-2xs:\s*12px;/);
+  test('the smallest step is 12 px and the next is 13 px', () => {
+    // 27 Oct: raised a pixel, after "uneori mi se pare ilizibil".
+    expect(CSS).toMatch(/--text-micro:\s*12px;/);
+    expect(CSS).toMatch(/--text-2xs:\s*13px;/);
   });
 
   test('no one-off pixel font sizes in components', () => {
