@@ -1473,7 +1473,11 @@ export class WhatsAppConnector {
     const fetchLatest = (wa as { fetchLatestWaWebVersion?: (o: object) => Promise<{ version?: [number, number, number] }> })
       .fetchLatestWaWebVersion;
     const latest = await fetchLatest?.({}).catch(() => null);
-    const sock = makeWASocket({ auth: state, ...(latest?.version ? { version: latest.version } : {}) });
+    // Every QR lives 60 s. The library gives the first one 60 s and each next one
+    // 20 s, too short to open WhatsApp, find Linked devices and aim the camera
+    // (Darius, 31 Oct: "nu apuc sa il scanez"). 60 s is the life the library
+    // itself trusts a code with; longer could show a code WhatsApp already dropped.
+    const sock = makeWASocket({ auth: state, qrTimeout: 60_000, ...(latest?.version ? { version: latest.version } : {}) });
     this.#sock = sock;
     sock.ev.on("creds.update", saveCreds);
 
