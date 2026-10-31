@@ -1269,6 +1269,10 @@ export async function loadWhatsAppModule(): Promise<typeof import("@whiskeysocke
   return import(url);
 }
 
+/** What an enabled WhatsApp with no phone says, on its card and in the log. */
+export const WHATSAPP_NOT_LINKED =
+  "No phone is linked yet. Ask Cinderpaw to connect WhatsApp, or turn this off and on, then scan the code that appears.";
+
 export class WhatsAppConnector {
   readonly #allow: Set<string>;
   readonly #channels: Set<string>;
@@ -1292,6 +1296,8 @@ export class WhatsAppConnector {
   readonly #sent = new Set<string>();
   /** Dead keys being deleted; a new pairing waits for it. */
   #forgetting: Promise<void> = Promise.resolve();
+  /** Enabled with no phone linked, waiting on purpose for the person to start pairing. */
+  #idle = false;
 
   constructor(opts: { allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; mode?: ConnectorMode; desk?: LeadDesk; ask?: ChannelAskRouter; profileId?: string; onSender?: (id: string, name: string) => void }) {
     const allow = opts.allowlist.map(digits).filter(Boolean);
@@ -1386,10 +1392,11 @@ export class WhatsAppConnector {
    */
   async start(opts: { pair?: boolean } = {}): Promise<void> {
     this.#stopped = false;
-    if (!opts.pair && !WhatsAppConnector.isLinked()) {
+    this.#idle = !opts.pair && !WhatsAppConnector.isLinked();
+    if (this.#idle) {
       this.#log(
         "whatsapp: enabled but no phone is linked — staying idle. " +
-          "Run `/connectors qr` (or open the Connectors page) to scan a code and link one.",
+          `Run \`/connectors qr\` in the terminal app to scan a code and link one. On the card: ${WHATSAPP_NOT_LINKED}`,
       );
       return;
     }
@@ -1431,6 +1438,9 @@ export class WhatsAppConnector {
   /** "Live" must mean a phone is on the other end. An unlinked connector
    *  spinning through pairing retries is not up, and not broken either. */
   health(): ConnectorHealth {
+    // Idle on purpose says why, or the card waits on a code nobody asked for
+    // ("Getting a QR code ready…", then "no pairing code is arriving"; 31 Oct).
+    if (this.#idle) return { live: false, error: WHATSAPP_NOT_LINKED };
     return { live: WhatsAppConnector.isLinked() };
   }
 

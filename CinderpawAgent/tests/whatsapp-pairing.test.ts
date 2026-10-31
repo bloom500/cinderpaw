@@ -11,7 +11,7 @@ import { expect, test, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { WhatsAppConnector } from "../src/transports/connectors.ts";
+import { WHATSAPP_NOT_LINKED, WhatsAppConnector } from "../src/transports/connectors.ts";
 
 const original = process.env.CINDERPAW_HOME;
 const made: string[] = [];
@@ -75,5 +75,8 @@ test("an unlinked connector stays idle at boot and says how to link it", async (
   // The user is told what to DO. A connector that goes quiet without saying why
   // is indistinguishable from one that is broken.
   expect(lines.some((l) => l.includes("/connectors qr"))).toBe(true);
+  // And the desktop card is told too (31 Oct): with no reason in its health it
+  // spun on "Getting a QR code ready…" for a code nobody had asked for.
+  expect(conn.health()).toEqual({ live: false, error: WHATSAPP_NOT_LINKED });
   await conn.stop();
 });
