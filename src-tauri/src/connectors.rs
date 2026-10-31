@@ -426,11 +426,14 @@ pub async fn connectors_set_enabled(
 /// can render it — a GUI user has no terminal window to scan from.
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct WhatsappQr {
-    /// Raw pairing payload (what the QR encodes).
+    /// Raw pairing payload (what the QR encodes). Empty when `code` is set.
     pub qr: String,
     /// Terminal-style half-block ASCII rendering of the QR. Does not scan
     /// reliably on screen (seen 25 Sep): show `svg` when there is one.
     pub ascii: String,
+    /// The 8-character code to type on the phone, when a number to link was
+    /// given (no QR then). WhatsApp, Linked devices, Link with phone number.
+    pub code: Option<String>,
     /// The QR as an SVG picture, square modules on white. None from files an
     /// older engine wrote.
     pub svg: Option<String>,
@@ -445,10 +448,14 @@ pub fn connectors_whatsapp_qr() -> Option<WhatsappQr> {
     #[derive(serde::Deserialize)]
     struct QrFile {
         ts: f64,
+        #[serde(default)]
         qr: String,
+        #[serde(default)]
         ascii: String,
         #[serde(default)]
         svg: Option<String>,
+        #[serde(default)]
+        code: Option<String>,
     }
     let raw = std::fs::read_to_string(paths::cinderpaw_dir().join("whatsapp-qr.json")).ok()?;
     let f: QrFile = serde_json::from_str(&raw).ok()?;
@@ -462,7 +469,7 @@ pub fn connectors_whatsapp_qr() -> Option<WhatsappQr> {
     if now_ms - f.ts > 120_000.0 {
         return None;
     }
-    Some(WhatsappQr { qr: f.qr, ascii: f.ascii, svg: f.svg, ts: f.ts })
+    Some(WhatsappQr { qr: f.qr, ascii: f.ascii, code: f.code, svg: f.svg, ts: f.ts })
 }
 
 #[tauri::command]

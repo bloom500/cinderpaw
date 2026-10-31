@@ -253,11 +253,16 @@ export interface ConnectorView {
   liveError?: string;      // why not, beside live:false
 }
 export interface WhatsappQr {
-  qr: string;     // raw pairing payload
+  qr: string;     // raw pairing payload; empty when `code` is set
   ascii: string;  // terminal-style QR art (does not scan reliably on screen)
   svg: string | null; // the scannable picture; null from an older engine
+  /** The 8-character code to type on the phone when a number to link was given (no QR then). */
+  code?: string | null;
   ts: number;     // Unix ms when the sidecar wrote this code (rotates ~20s)
 }
+
+/** A WhatsApp link code the way the phone shows it: "ABCD-1234". */
+export const linkCodeShown = (code: string) => (code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code);
 
 // HF types — field names match Rust snake_case serialization exactly
 export interface HfModelSummary {

@@ -630,6 +630,17 @@ function digits(s: string): string {
 }
 
 /**
+ * A number WhatsApp can send a link code for: international, country code
+ * first ("+40 712 345 678", "0040712345678"). A local "0712 345 678" names no
+ * country, so it gets the QR instead of a code that would never arrive.
+ */
+export function linkNumber(s: string): string | null {
+  let n = digits(s);
+  if (n.startsWith("00")) n = n.slice(2);
+  return /^[1-9]\d{7,14}$/.test(n) ? n : null;
+}
+
+/**
  * Session id for one Slack speaker.
  *
  * Same shape and same reason as `discordSessionId`: a Slack `event.channel` is
@@ -1298,8 +1309,17 @@ export class WhatsAppConnector {
   #forgetting: Promise<void> = Promise.resolve();
   /** Enabled with no phone linked, waiting on purpose for the person to start pairing. */
   #idle = false;
+  /** The code to type on the phone for this socket, once WhatsApp gave one. */
+  #linkCode: string | null = null;
+  /** A code was asked for this socket (asked once; a QR shows if it fails). */
+  #codeAsked = false;
+  #codeFailed = false;
 
-  constructor(opts: { allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; mode?: ConnectorMode; desk?: LeadDesk; ask?: ChannelAskRouter; profileId?: string; onSender?: (id: string, name: string) => void }) {
+  /** The number to link, when the person gave one: they get a code to type, not a QR. */
+  readonly #linkTo: string;
+
+  constructor(opts: { allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; mode?: ConnectorMode; desk?: LeadDesk; ask?: ChannelAskRouter; profileId?: string; onSender?: (id: string, name: string) => void; linkTo?: string }) {
+    this.#linkTo = opts.linkTo ?? "";
     const allow = opts.allowlist.map(digits).filter(Boolean);
     this.#allow = new Set(allow);
     this.#channels = new Set(opts.channels.map((s) => s.trim()).filter(Boolean));
@@ -1482,19 +1502,58 @@ export class WhatsAppConnector {
     this.#sock = sock;
     sock.ev.on("creds.update", saveCreds);
 
+    // A new socket needs its own code: the last one belonged to the old socket.
+    this.#linkCode = null;
+    this.#codeAsked = false;
+    this.#codeFailed = false;
+    // Only the number given for linking, never a guess from the allowlist: with
+    // the advised second number, the owner's own number would get the code on
+    // the wrong phone.
+    const number = linkNumber(this.#linkTo);
+    const writeCode = (code: string) =>
+      void writeFile(join(cinderpawHome(), "whatsapp-qr.json"), JSON.stringify({ ts: Date.now(), code })).catch(() => {});
+    const showQr = (qr: string) => {
+      this.#log("whatsapp: scan this QR with WhatsApp → Settings → Linked devices:");
+      qrcode.generate(qr, { small: true }, (ascii) => {
+        process.stderr.write("\n" + ascii + "\n");
+        // Mirror the QR to a file so GUI surfaces (desktop Connectors page)
+        // can render it — a GUI user has no terminal to scan from.
+        void writeFile(
+          join(cinderpawHome(), "whatsapp-qr.json"),
+          JSON.stringify({ ts: Date.now(), qr, ascii, svg: qrSvg(qr) }),
+        ).catch(() => {});
+      });
+    };
+
     sock.ev.on("connection.update", (u) => {
       const { connection, lastDisconnect, qr } = u;
-      if (qr) {
-        this.#log("whatsapp: scan this QR with WhatsApp → Settings → Linked devices:");
-        qrcode.generate(qr, { small: true }, (ascii) => {
-          process.stderr.write("\n" + ascii + "\n");
-          // Mirror the QR to a file so GUI surfaces (desktop Connectors page)
-          // can render it — a GUI user has no terminal to scan from.
-          void writeFile(
-            join(cinderpawHome(), "whatsapp-qr.json"),
-            JSON.stringify({ ts: Date.now(), qr, ascii, svg: qrSvg(qr) }),
-          ).catch(() => {});
-        });
+      // A number to link was given: a code to type on the phone, like ChatGPT's
+      // Dot, instead of a square to aim a camera at while it changes every 20 s
+      // (Darius, 31 Oct). WhatsApp gives the code only once the socket is
+      // waiting, which is when a QR comes.
+      if (qr && number && !state.creds.registered && !this.#codeFailed) {
+        if (this.#linkCode) {
+          writeCode(this.#linkCode); // fresh time on the same code: the card keeps it up
+        } else if (!this.#codeAsked) {
+          this.#codeAsked = true;
+          sock.requestPairingCode(number).then(
+            (code) => {
+              // A code for a socket that was replaced meanwhile links nothing.
+              if (this.#sock !== sock) return;
+              this.#linkCode = code;
+              this.#log("whatsapp: link code ready. On the phone: Linked devices → Link a device → Link with phone number instead.");
+              writeCode(code);
+            },
+            (e) => {
+              // The square still works: shown now, not a minute later at the next one.
+              this.#codeFailed = true;
+              this.#log(`whatsapp: WhatsApp gave no link code for that number (${String(e)}); showing a QR instead.`);
+              showQr(qr);
+            },
+          );
+        }
+      } else if (qr) {
+        showQr(qr);
       }
       if (connection === "open") {
         this.#open = true;
@@ -1937,6 +1996,7 @@ registerTransport("whatsapp", (): LiveConnector => {
         ask: ctx.askRouter,
         ...(ctx.personaProfileId ? { profileId: ctx.personaProfileId } : {}),
         ...(ctx.onSender ? { onSender: ctx.onSender } : {}),
+        linkTo: ctx.secrets.WHATSAPP_LINK_NUMBER ?? "",
       });
       await inner.start();
     },
@@ -1985,6 +2045,8 @@ export class ConnectorManager {
   readonly #keys = new Map<string, string>();
   /** Which ids were enabled after the last reconcile; null before the first. */
   #wasEnabled: Set<string> | null = null;
+  /** The WhatsApp number to link after the last reconcile; null before the first. */
+  #wasLinkTo: string | null = null;
   readonly #leadDesk: LeadDesk | null;
   /** Serialize reloads so overlapping pokes can't double-start a connection. */
   #reloading: Promise<void> = Promise.resolve();
@@ -2219,7 +2281,12 @@ export class ConnectorManager {
     // turning it on anywhere but the chat left it idle and no code ever came.
     const turnedOn = this.#wasEnabled !== null && wanted.has("whatsapp") && !this.#wasEnabled.has("whatsapp");
     this.#wasEnabled = new Set(wanted.keys());
-    if (turnedOn && !WhatsAppConnector.isLinked()) {
+    // A number to link typed on an already-on WhatsApp is the same asking: the
+    // code comes now, not after the person thinks to switch it off and on.
+    const linkTo = wanted.get("whatsapp")?.secrets?.WHATSAPP_LINK_NUMBER?.trim() ?? "";
+    const numberGiven = this.#wasLinkTo !== null && linkTo !== "" && linkTo !== this.#wasLinkTo;
+    this.#wasLinkTo = linkTo;
+    if ((turnedOn || numberGiven) && !WhatsAppConnector.isLinked()) {
       try {
         await this.pairWhatsApp();
       } catch (e) {

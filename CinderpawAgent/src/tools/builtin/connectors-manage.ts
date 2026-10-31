@@ -22,7 +22,7 @@ import { readFile, mkdir } from "node:fs/promises";
 import { atomicWriteFile } from "../../atomic-write.ts";
 import { dirname } from "node:path";
 import type { Tool, ToolManifest } from "../../types.ts";
-import { configPath, WhatsAppConnector, whatsappAvailable, type ConnectorRow } from "../../transports/connectors.ts";
+import { configPath, linkNumber, WhatsAppConnector, whatsappAvailable, type ConnectorRow } from "../../transports/connectors.ts";
 import { installWhatsApp } from "../../transports/whatsapp-install.ts";
 import { sessionHasCards } from "../../core/card-surface.ts";
 
@@ -88,12 +88,15 @@ export const CATALOG: Record<string, CatalogEntry> = {
   },
   whatsapp: {
     secrets: [],
-    note: "No secrets — pairing is QR-based. Enable it, then the user scans the QR code shown in the Cinderpaw app (Connectors page or TUI).",
+    note:
+      "No secrets. Ask for the number of the WhatsApp account to link (theirs, or a second number), country code " +
+      "first, and configure with enabled:true and link_number: they get a code to type on the phone, no QR. Without " +
+      "link_number it falls back to a QR to scan.",
     steps: [
-      "WhatsApp needs no token. You link it with your phone.",
-      "Say the word and I will turn it on. The first time, I ask to download what WhatsApp needs.",
-      "A square code then shows up right here, under our chat. In the desktop app it is on the Connectors page. In the terminal chat, type /connectors qr.",
-      "On your phone, open WhatsApp. Tap Settings, then Linked devices, then Link a device. Point the camera at the square.",
+      "WhatsApp needs no token. You link it with a phone number.",
+      "Tell me the WhatsApp number to link, with the country code first. In Romania that is +40, then the number without its first 0.",
+      "The first time, I ask to download what WhatsApp needs. Then a code of 8 letters and numbers shows up right here, under our chat.",
+      "On that phone, open WhatsApp. Tap Settings, then Linked devices, then Link a device. Tap Link with phone number instead, and type the code.",
     ],
   },
   // Every other transport the sidecar can run. Without an entry the agent
@@ -526,6 +529,14 @@ export function createConnectorsManageTool(
         required: false,
         schema: { type: "array", items: { type: "string" } },
       },
+      link_number: {
+        type: "string",
+        description:
+          "WhatsApp only (configure): the number of the WhatsApp account to link to this computer, country code " +
+          "first (e.g. +40 712 345 678). Ask for it before turning WhatsApp on: the person then types a code on " +
+          "that phone instead of scanning a QR.",
+        required: false,
+      },
     },
     async execute(args, ctx) {
       const action = typeof args.action === "string" ? args.action : "";
@@ -623,6 +634,19 @@ export function createConnectorsManageTool(
       }
       const rows = await readRows();
       const row: ConnectorRow = rows.find((r) => r.id === id) ?? { id };
+      if (id === "whatsapp" && typeof args.link_number === "string" && args.link_number.trim()) {
+        // Refused, not guessed: a number with no country code gets a code that never arrives.
+        if (!linkNumber(args.link_number)) {
+          return {
+            ok: false,
+            content:
+              `"${args.link_number}" has no country code. Ask for the number with the country code first ` +
+              "(Romania: +40, then the number without its first 0) and call configure again.",
+            error: "bad_args",
+          };
+        }
+        row.secrets = { ...row.secrets, WHATSAPP_LINK_NUMBER: args.link_number.trim() };
+      }
       if (typeof args.enabled === "boolean") row.enabled = args.enabled;
       if (args.secrets && typeof args.secrets === "object" && !Array.isArray(args.secrets)) {
         row.secrets = { ...row.secrets };
@@ -685,10 +709,14 @@ export function createConnectorsManageTool(
       const hint =
         row.enabled && missing.length > 0
           ? ` Still missing secrets: ${missing.join(", ")} — the connector stays offline until provided.`
-          : pairing
+          : pairing && linkNumber(row.secrets?.WHATSAPP_LINK_NUMBER ?? "")
             // Before the allowlist: nobody can message a WhatsApp that has no phone yet.
+            ? " A code to type on the phone is on its way. In the Cinderpaw app it shows up right in this chat, under your reply; in the terminal chat: /connectors qr. " +
+              "Tell the user: on that phone open WhatsApp, then Settings, Linked devices, Link a device, tap Link with phone number instead, and type the code."
+          : pairing
             ? " A QR code is on its way. In the Cinderpaw app and on the Cinderpaw page it shows up right in this chat, under your reply; in the terminal chat: /connectors qr. " +
-              "Tell the user: on your phone open WhatsApp, then Settings, Linked devices, Link a device, and point the camera at the code."
+              "Tell the user: on your phone open WhatsApp, then Settings, Linked devices, Link a device, and point the camera at the code. " +
+              "A code to type instead of a QR comes when you call configure again with link_number (the number to link, country code first)."
             : deaf
               ? ` WARNING: ${id} is online but its allowlist is EMPTY, which means it ` +
                 `answers NOBODY — not "everyone". ` +

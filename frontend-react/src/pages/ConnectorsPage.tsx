@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, Loader2, MessageSquare, RefreshCw, Trash2, ShieldAlert, Check } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
+  linkCodeShown,
   tauri,
   type ConnectorCatalogEntry,
   type ConnectorView,
@@ -446,6 +447,20 @@ export function ConnectorCard({
                   <span className="block text-warning">{state.liveError}</span>
                   {askButton}
                 </div>
+              ) : enabled && waQr?.code ? (
+                // A number to link was given: 8 characters to type, no camera (31 Oct, like ChatGPT's Dot).
+                <div className="space-y-1.5 text-center">
+                  <span className="block text-left text-text-muted">
+                    On that phone: <span className="text-text-secondary">WhatsApp → Settings → Linked devices → Link a device → Link with phone number instead</span>, and type:
+                  </span>
+                  <span className="block select-all font-mono text-xl tracking-widest text-text-primary" aria-label="WhatsApp link code">
+                    {linkCodeShown(waQr.code)}
+                  </span>
+                  <span className="block text-left text-text-muted">The code stays here until the phone is linked. No rush.</span>
+                  <span className="block text-left text-warning">
+                    Use a secondary number. Automation can get a number banned.
+                  </span>
+                </div>
               ) : enabled && waQr ? (
                 <div className="space-y-1.5">
                   <span className="text-text-muted">
@@ -488,13 +503,15 @@ export function ConnectorCard({
                 </span>
               ) : (
                 <span className="text-text-muted">
-                  Turn this on and a QR code will appear here. Scan it with{' '}
-                  <span className="text-text-secondary">WhatsApp → Settings → Linked devices</span>.{' '}
+                  Type the number to link below and save, then turn this on: you get a code to type in{' '}
+                  <span className="text-text-secondary">WhatsApp → Settings → Linked devices</span>. With no number, you scan a square code instead.{' '}
                   <span className="text-warning">Use a secondary number. Automation can get a number banned.</span>
                 </span>
               )}
             </div>
-          ) : (
+          ) : null}
+          {/* The number to link is WhatsApp's one field; once the phone is linked it has done its job. */}
+          {(!isQr || !linked) && (
             entry.fields.map((f) => (
               <label key={f.key} className="block">
                 <span className="text-xs text-text-secondary">

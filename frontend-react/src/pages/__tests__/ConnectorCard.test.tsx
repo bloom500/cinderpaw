@@ -47,6 +47,21 @@ describe('a connector card on the Accounts page', () => {
     expect(navigate).toHaveBeenCalledWith('/chat', { state: { compose: 'Help me connect WhatsApp.' } });
   });
 
+  // 31 Oct: the number to link is asked on the card, and goes once the phone is linked.
+  it('WhatsApp asks for the number to link until the phone is linked', () => {
+    const wa = {
+      ...entry, id: 'whatsapp', name: 'WhatsApp', auth_kind: 'qr',
+      fields: [{ key: 'WHATSAPP_LINK_NUMBER', label: 'Number to link, country code first (+40 712 345 678)', secret: false }],
+    } as unknown as ConnectorCatalogEntry;
+    const off = { id: 'whatsapp', enabled: false, linked: false, allowlist: [], channels: [], filled: [] } as unknown as ConnectorView;
+    const { unmount } = render(<ConnectorCard entry={wa} state={off} onChanged={() => {}} />);
+    expect(screen.getByText(/Number to link/)).toBeInTheDocument();
+    expect(screen.getByText(/you get a code to type/)).toBeInTheDocument();
+    unmount();
+    render(<ConnectorCard entry={wa} state={{ ...off, enabled: true, linked: true } as ConnectorView} onChanged={() => {}} />);
+    expect(screen.queryByText(/Number to link/)).toBeNull();
+  });
+
   it('offers to set it up by asking Cinderpaw, beside Set up', () => {
     render(<ConnectorCard entry={entry} state={null} onChanged={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: 'Ask Cinderpaw' }));

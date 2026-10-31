@@ -238,10 +238,18 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "whatsapp".into(),
             device_flow: None,
             name: "WhatsApp".into(),
-            description: "Reach your assistant on WhatsApp. Ask Cinderpaw in the chat to connect WhatsApp: the first time it downloads WhatsApp support (it asks you first), then shows a code. Scan it in WhatsApp, Settings, Linked devices. A second number is safest: WhatsApp can ban a number it sees as automated.".into(),
+            description: "Reach your assistant on WhatsApp. Ask Cinderpaw in the chat to connect WhatsApp: the first time it downloads WhatsApp support (it asks you first). Give the number to link and you get a code to type in WhatsApp, Settings, Linked devices; or leave it empty and scan a square code. A second number is safest: WhatsApp can ban a number it sees as automated.".into(),
             icon: "💚".into(),
             logo_url: Some("https://cdn.simpleicons.org/whatsapp".into()),
-            pairing_fields: Vec::new(),
+            // Optional: with it the phone gets a code to type, like ChatGPT's Dot,
+            // instead of a QR that changes every 20 s (Darius, 31 Oct). Not a
+            // secret; it rides in `secrets` because that map is what the sidecar
+            // reads and what a save keeps.
+            pairing_fields: vec![PairingFieldDef {
+                key: "WHATSAPP_LINK_NUMBER".into(),
+                label: "Number to link, country code first (+40 712 345 678)".into(),
+                secret: false,
+            }],
             pairing_method: Qr,
             coming_soon: false,
             console_url: None,

@@ -32,6 +32,18 @@ describe('WhatsappPairCard', () => {
     expect(screen.getByText(/Your phone is linked/)).toBeTruthy();
   });
 
+  // 31 Oct, Darius: like ChatGPT's Dot, a number and a code to type.
+  it('with a number to link, shows 8 characters to type instead of a square', async () => {
+    vi.useFakeTimers();
+    qr.mockResolvedValue({ qr: '', ascii: '', svg: null, code: 'ABCD1234', ts: Date.now() });
+    list.mockResolvedValue(wa({}));
+    mount();
+    await wait(0);
+    expect(screen.getByLabelText('WhatsApp link code').textContent).toBe('ABCD-1234');
+    expect(screen.getByText(/Link with phone number instead/)).toBeTruthy();
+    expect(screen.queryByAltText('WhatsApp link code')).toBeNull();
+  });
+
   it('says why when no code ever arrives, and where to retry', async () => {
     vi.useFakeTimers();
     qr.mockResolvedValue(null);

@@ -13,7 +13,7 @@ import { afterAll, expect, test } from "bun:test";
 import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { createConnectorsManageTool } from "../src/tools/builtin/connectors-manage.ts";
-import { configPath } from "../src/transports/connectors.ts";
+import { configPath, linkNumber } from "../src/transports/connectors.ts";
 
 const file = configPath();
 const hadFile = existsSync(file);
@@ -272,6 +272,41 @@ test("turning WhatsApp on starts pairing when no phone is linked, and says where
     // The desktop chat draws the live code only while one is coming.
     expect((res.data as { whatsappPairing?: boolean }).whatsappPairing).toBe(linked ? undefined : true);
   }
+});
+
+// 31 Oct, Darius: like ChatGPT's Dot, a number and a code to type, not a QR to aim at.
+test("a WhatsApp number to link is kept, and the person is told to type the code", async () => {
+  writeFileSync(file, JSON.stringify({ connectors: [] }), "utf8");
+  const tool = createConnectorsManageTool(
+    { reload: async () => {}, pairWhatsApp: async () => true },
+    { isLinked: () => false, hasWhatsApp: () => true },
+  );
+  const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true, link_number: "+40 712 345 678" }, ctx);
+  expect(res.ok).toBe(true);
+  expect(res.content).toContain("Link with phone number instead");
+  const saved = JSON.parse(readFileSync(file, "utf8")).connectors.find((r: { id: string }) => r.id === "whatsapp");
+  expect(saved.secrets.WHATSAPP_LINK_NUMBER).toBe("+40 712 345 678");
+});
+
+test("a WhatsApp number with no country code is refused, not saved", async () => {
+  writeFileSync(file, JSON.stringify({ connectors: [] }), "utf8");
+  let pairs = 0;
+  const tool = createConnectorsManageTool(
+    { reload: async () => {}, pairWhatsApp: async () => (++pairs, true) },
+    { isLinked: () => false, hasWhatsApp: () => true },
+  );
+  const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true, link_number: "0712 345 678" }, ctx);
+  expect(res.ok).toBe(false);
+  expect(res.content).toContain("country code");
+  expect(pairs).toBe(0);
+  expect(JSON.parse(readFileSync(file, "utf8")).connectors).toEqual([]);
+});
+
+test("linkNumber keeps international numbers and refuses local ones", () => {
+  expect(linkNumber("+40 712 345 678")).toBe("40712345678");
+  expect(linkNumber("0040712345678")).toBe("40712345678");
+  expect(linkNumber("0712 345 678")).toBeNull();
+  expect(linkNumber("")).toBeNull();
 });
 
 function asking(answer: string, asked: string[] = []) {
