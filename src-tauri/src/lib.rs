@@ -4,6 +4,7 @@ mod agent_overlay;
 mod browser;
 mod call_pill;
 mod downloads_card;
+mod keep_awake;
 mod google;
 mod commands;
 mod connectors;
@@ -683,6 +684,8 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             test_byok_provider,
             chat_cloud_complete,
             read_file_as_text,
+            open_local_file,
+            keep_awake::keep_awake,
             read_file_as_data_url,
             extract_file_text,
             stage_pasted_file,

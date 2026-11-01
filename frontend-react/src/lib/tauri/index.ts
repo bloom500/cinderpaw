@@ -987,6 +987,8 @@ const raw = {
   testByokProvider:      (providerId: string, apiKey: string, baseUrl?: string | null) =>
     invoke<object>('test_byok_provider', { providerId, apiKey, baseUrl }),
   readFileAsText:        (path: string) => invoke<string>('read_file_as_text', { path }),
+  /** Open a file on disk, or show it in its folder (`reveal`). Programs are only ever shown. */
+  openLocalFile:         (path: string, reveal: boolean) => invoke<void>('open_local_file', { path, reveal }),
   listInstalledSkills:      () => invoke<SkillMeta[]>('list_installed_skills'),
   getInstalledSkillContent: (id: string) => invoke<string>('get_installed_skill_content', { id }),
   fetchRemoteSkills:        () => invoke<SkillMeta[]>('fetch_remote_skills'),

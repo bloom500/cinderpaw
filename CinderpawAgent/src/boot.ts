@@ -185,6 +185,7 @@ import { HostToolBridge, loadHostTools } from "./core/host-tool-bridge.ts";
 import { setHostToolNames } from "./tools/tiers.ts";
 import { createAskUserTool } from "./tools/builtin/ask-user.ts";
 import { createHeadsUpTool } from "./tools/builtin/heads-up.ts";
+import { createSetAppearanceTool } from "./tools/builtin/set-appearance.ts";
 import { createSuggestTaskTool } from "./tools/builtin/suggest-task.ts";
 import { createTaskLimitTool } from "./tools/builtin/task-limit.ts";
 import { TaskLimit } from "./cron/limit.ts";
@@ -1006,6 +1007,7 @@ export async function boot(transportOverride?: Transport) {
   // pure event emission through the AskUserBridge in the tool context.
   registry.register(createAskUserTool());
   registry.register(createHeadsUpTool());
+  registry.register(createSetAppearanceTool());
   // Set once the connectors exist: which messenger a fired task reaches, for
   // the card's one-time offer to connect WhatsApp. null = none connected.
   let phoneChannel: () => string | null = () => "unknown";

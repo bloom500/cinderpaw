@@ -10,6 +10,7 @@ import { MessageToolWidgets } from './MessageToolWidgets';
 import { ChatWidget } from './ChatWidget';
 import { TaskSuggestionCard } from './TaskSuggestionCard';
 import { SourcesContext, SourcesList } from './Sources';
+import { WrittenFiles, writtenFiles } from './WrittenFiles';
 import { MemoryPeek } from './MemoryPeek';
 import { FollowUps } from './FollowUps';
 import { NextStepCard } from './NextStepCard';
@@ -311,6 +312,7 @@ export const MessageItem = memo(function MessageItem({
         </>
       )}
       <SourcesList hits={cited} />
+      {!streaming && <WrittenFiles paths={writtenFiles(activity)} />}
       {/* The injected memories, then what a recall lookup found (no Forget:
           its facts arrive as sentences, with no edge to remove). */}
       {!streaming && (

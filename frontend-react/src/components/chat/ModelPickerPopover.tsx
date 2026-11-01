@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Star } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,6 +44,23 @@ function formatBytes(n: number): string {
   return `${(n / 1024).toFixed(0)} KB`;
 }
 
+/**
+ * Starred models, at the top of the cloud side: one click to the two or three a
+ * person really uses, instead of provider, page, scroll (Hermes ships the same,
+ * 1 Nov). Kept in this browser's storage: a convenience, never a setting the
+ * engine needs.
+ */
+type Fav = { provider: string; model: string };
+const FAV_KEY = 'cinderpaw.favoriteModels';
+function readFavs(): Fav[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(FAV_KEY) ?? '[]');
+    return Array.isArray(v) ? v.filter((f): f is Fav => typeof f?.provider === 'string' && typeof f?.model === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 const modelName = (m: ProviderModel) => (m.name ? m.name.replace(/^[^:]{1,40}:\s+/, '') : modelDisplayName(m.id));
 
 /** A model's name as its provider writes it ("GPT 6.1 Sol"), once its list is in; else one made from the id. */
@@ -84,6 +101,16 @@ export function ModelPickerPopover() {
   const [query, setQuery] = useState('');
   // A provider's list arriving redraws the names that come from it.
   const [, listsIn] = useState(0);
+  const [favs, setFavs] = useState<Fav[]>(readFavs);
+  const isFav = (provider: string, model: string) => favs.some((f) => f.provider === provider && f.model === model);
+  const toggleFav = (provider: string, model: string) =>
+    setFavs((prev) => {
+      const next = prev.some((f) => f.provider === provider && f.model === model)
+        ? prev.filter((f) => !(f.provider === provider && f.model === model))
+        : [...prev, { provider, model }];
+      try { localStorage.setItem(FAV_KEY, JSON.stringify(next)); } catch { /* per-viewer convenience only */ }
+      return next;
+    });
 
   /**
    * Every provider that HAS a key, enabled or not.
@@ -300,6 +327,8 @@ export function ModelPickerPopover() {
   };
 
   const check = <Check size={16} aria-label="In use" className="shrink-0 text-text-primary" />;
+  // A favorite whose provider lost its key, or was switched off, is not offered.
+  const favRows = favs.filter((f) => cloudProviders.some((p) => p.id === f.provider && p.enabled));
 
   const cloudRoot = !hasCloud ? (
     <div className="space-y-3 px-2 py-2">
@@ -315,7 +344,29 @@ export function ModelPickerPopover() {
       </DropdownMenuItem>
     </div>
   ) : (
-    cloudProviders.map((p) => {
+    <>
+    {favRows.length > 0 && (
+      <>
+        <p className="px-2.5 pb-1 text-xs text-text-muted">Favorites</p>
+        {favRows.map((f) => (
+          <DropdownMenuItem
+            key={`${f.provider}/${f.model}`}
+            onClick={() => void selectCloudAgent(f.provider, f.model)}
+            title={f.model}
+            className={cn('flex items-center gap-3 rounded-xl px-2.5 py-2', isActive(f.provider, f.model) && 'bg-bg-active')}
+          >
+            <ModelLogo modelId={f.model} provider={f.provider} className="size-5" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm text-text-primary">{nameFor(f.provider, f.model)}</span>
+              <span className="block truncate text-xs text-text-muted">{providerName(f.provider)}</span>
+            </span>
+            {isActive(f.provider, f.model) && check}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
+      </>
+    )}
+    {cloudProviders.map((p) => {
       const inUse = !onLocal && cinderpawConfig?.provider === p.id;
       const line = !p.enabled
         ? 'Key saved, turned off. Click to turn it on'
@@ -343,7 +394,8 @@ export function ModelPickerPopover() {
           <ChevronRight size={16} className="shrink-0 text-text-muted" />
         </DropdownMenuItem>
       );
-    })
+    })}
+    </>
   );
 
   const providerPage = pageProvider && (
@@ -405,6 +457,18 @@ export function ModelPickerPopover() {
             >
               <span className="min-w-0 flex-1 truncate text-sm text-text-primary">{modelName(m)}</span>
               {on && check}
+              <button
+                type="button"
+                aria-label={isFav(pageProvider.id, m.id) ? `Remove ${modelName(m)} from favorites` : `Add ${modelName(m)} to favorites`}
+                aria-pressed={isFav(pageProvider.id, m.id)}
+                title={isFav(pageProvider.id, m.id) ? 'Remove from favorites' : 'Add to favorites'}
+                // The star is not the row: it must not pick the model.
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleFav(pageProvider.id, m.id); }}
+                className="shrink-0 rounded-md p-1 text-text-muted hover:bg-bg-hover hover:text-text-primary"
+              >
+                <Star size={16} fill={isFav(pageProvider.id, m.id) ? 'currentColor' : 'none'} />
+              </button>
             </DropdownMenuItem>
           );
         })

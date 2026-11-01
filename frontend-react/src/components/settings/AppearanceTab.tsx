@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { SYSTEM_FONT, useUI, type ChatFont, type ThemePref } from '@/stores/ui';
+import { SYSTEM_FONT, useUI, type ChatFont, type ChatTextSize, type StartOn, type ThemePref } from '@/stores/ui';
 import { useEffect, useState } from 'react';
 import { tauri } from '@/lib/tauri';
 import { useNotifications } from '@/stores/notifications';
@@ -100,6 +100,10 @@ export function AppearanceTab() {
   const setTheme = useUI((s) => s.setTheme);
   const chatFont    = useUI((s) => s.chatFont);
   const setChatFont = useUI((s) => s.setChatFont);
+  const chatTextSize    = useUI((s) => s.chatTextSize);
+  const setChatTextSize = useUI((s) => s.setChatTextSize);
+  const startOn    = useUI((s) => s.startOn);
+  const setStartOn = useUI((s) => s.setStartOn);
   const glassEffects    = useUI((s) => s.glassEffects);
   const setGlassEffects = useUI((s) => s.setGlassEffects);
   const mascotEnabled    = useUI((s) => s.mascotEnabled);
@@ -180,6 +184,35 @@ export function AppearanceTab() {
           options={[
             { value: 'geist', label: 'Geist', note: "Cinderpaw's own typeface", font: "'Geist Variable', Geist, sans-serif" },
             { value: 'system', label: 'System font', note: 'The one your computer uses everywhere else', font: SYSTEM_FONT },
+          ]}
+        />
+      </section>
+
+      <section className="space-y-3">
+        <h3 className="text-sm font-semibold text-text-primary">Chat text size</h3>
+        <Choice<ChatTextSize>
+          name="chat-text-size"
+          value={chatTextSize}
+          onPick={setChatTextSize}
+          options={[
+            { value: 'small', label: 'Small', note: 'More fits on the screen' },
+            { value: 'default', label: 'Default', note: 'As Cinderpaw ships' },
+            { value: 'large', label: 'Large', note: 'Easier to read' },
+            { value: 'larger', label: 'Larger', note: 'Easiest to read' },
+          ]}
+        />
+      </section>
+
+      <section className="space-y-3">
+        <h3 className="text-sm font-semibold text-text-primary">When Cinderpaw opens</h3>
+        <Choice<StartOn>
+          name="start-on"
+          value={startOn}
+          onPick={setStartOn}
+          options={[
+            { value: 'recent', label: 'Pick up where you left off', note: 'Your last chat if you used it in the past 12 hours, else a new one' },
+            { value: 'new', label: 'A new chat', note: 'Always start fresh' },
+            { value: 'last', label: 'Your last chat', note: 'Always open the chat you had last' },
           ]}
         />
       </section>

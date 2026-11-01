@@ -96,6 +96,8 @@ export interface FileFact {
   path: string;
   lines: number | null;
   bytes: number | null;
+  /** The agent's own working file (its scratchpad), not something made for the person. */
+  scratch?: boolean;
 }
 
 export interface ToolActivity {
@@ -542,6 +544,7 @@ export function filesOf(result: unknown): FileFact[] {
       path,
       lines: typeof r.lines === 'number' ? r.lines : null,
       bytes: typeof r.bytes === 'number' ? r.bytes : typeof r.size === 'number' ? r.size : null,
+      ...(r.scratch === true ? { scratch: true } : {}),
     });
     if (out.length >= 12) break;
   }

@@ -12,8 +12,20 @@ import { StreamingIndicator } from './StreamingIndicator';
 import { ApprovalCard } from './ApprovalCard';
 import { MetaProposalCard } from './MetaProposalCard';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
-import { SYSTEM_FONT, useUI } from '@/stores/ui';
+import { SYSTEM_FONT, useUI, type ChatTextSize } from '@/stores/ui';
 import { useChatDockHeight } from '@/lib/chatDock';
+
+/**
+ * The chat's text sizes, apart from the app's zoom: the column redefines the two
+ * type tokens its messages use (globals.css), so a bigger chat leaves the sidebar
+ * and the menus as they are. Each size keeps its own line height.
+ */
+const CHAT_TEXT = {
+  small: { '--text-base': '14.5px', '--text-base--line-height': '23px', '--text-sm': '13.5px', '--text-sm--line-height': '20px' },
+  default: {},
+  large: { '--text-base': '18px', '--text-base--line-height': '29px', '--text-sm': '16px', '--text-sm--line-height': '24px' },
+  larger: { '--text-base': '20px', '--text-base--line-height': '32px', '--text-sm': '17.5px', '--text-sm--line-height': '26px' },
+} as Record<ChatTextSize, React.CSSProperties>;
 
 /**
  * The transcript, on shadcn's MessageScroller.
@@ -70,6 +82,7 @@ export function MessageList({ onFollowUp, onAnswer }: {
   const agentTool = useChat((s) => s.agentTool);
   // Settings > Appearance > Chat font. Code keeps its own monospace face.
   const chatFont = useUI((s) => s.chatFont);
+  const chatTextSize = useUI((s) => s.chatTextSize);
   const dockH = useChatDockHeight();
 
   // Approval requests belong to the chat they were raised in, as cards in its
@@ -125,6 +138,7 @@ export function MessageList({ onFollowUp, onAnswer }: {
             style={{
               paddingBottom: '48px',
               ...(chatFont === 'system' ? { fontFamily: SYSTEM_FONT } : {}),
+              ...CHAT_TEXT[chatTextSize],
             }}
           >
             {messages.map((m, i) => (

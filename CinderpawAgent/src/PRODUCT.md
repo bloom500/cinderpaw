@@ -315,6 +315,8 @@ are fetched once through the egress door and kept in `~/.cinderpaw/cache/images`
 `find_images` returns credited photos; Pexels/Unsplash need `CINDERPAW_PEXELS_KEY` / `CINDERPAW_UNSPLASH_KEY`.
 `heads_up` puts "something you should know" above the message box while work goes on: Learn more,
 I already knew this (the agent flags less of the obvious), Dismiss. One per chat every two minutes at most.
+`set_appearance` changes the desktop app's look when asked in words ("make it dark", "bigger text"):
+theme light, dark or system, and chat text size small, default, large or larger. Settings > Appearance has the same.
 
 ## Videos
 

@@ -3,7 +3,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { createPortal } from 'react-dom';
 import { motion, Reorder } from 'framer-motion';
 import { ArrowLeft, ArrowRight, BookOpen, ChevronDown, ChevronUp, Download, Globe, History, Lock, LockOpen, Star, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, ScrollText, Search, Settings2, ShieldCheck, X } from 'lucide-react';
-import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { tauri } from '@/lib/tauri';
 import { SEARCH_ENGINES, useBrowser } from '@/stores/browser';
 import { useUI } from '@/stores/ui';
@@ -1031,7 +1030,7 @@ function BrowserSettings({ engine, onEngine }: { engine: string; onEngine: (e: s
             ? ext.extensions.map((e) => `${e.name} ${e.version}`).join(', ')
             : 'Drop an unpacked Chrome extension in the folder; it loads when Cinderpaw next opens.'}
         >
-          <button type="button" onClick={() => void shellOpen(ext.path)} className={btn}>Open folder</button>
+          <button type="button" onClick={() => void tauri.raw.openLocalFile(ext.path, false).catch(() => {})} className={btn}>Open folder</button>
         </SettingRow>
       )}
       <SettingRow title="Site data" hint={cleared ?? 'Cookies, cache and storage every site kept. Clearing signs you out everywhere.'}>

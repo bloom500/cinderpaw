@@ -430,3 +430,59 @@ mod stage_pasted_file_tests {
         assert_eq!(safe_file_name("a:b?.pdf"), "ab.pdf");
     }
 }
+
+/// Open a file the agent wrote, or show it in its folder (`reveal`). The
+/// shell plugin's `open` lets only web links through from the page, so "Show
+/// in folder" on a browser download did nothing (1 Nov). A program or a script
+/// is never opened, only shown: a click on Open must not run something the
+/// agent wrote. The private folder and the key folders stay closed, as for the
+/// readers above.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_local_file(app: tauri::AppHandle, path: String, reveal: bool) -> Result<(), String> {
+    let canonical = std::fs::canonicalize(&path).map_err(|_| format!("{path} is not there any more."))?;
+    deny_cinderpaw_private(&canonical)?;
+    // A program or a script opens its folder instead: the person can still run
+    // it from there, on purpose.
+    let reveal = reveal || runs_when_opened(&canonical);
+    // Explorer does not read the `\\?\` form canonicalize gives on Windows.
+    let shown = canonical.to_string_lossy().trim_start_matches(r"\\?\").to_string();
+    if reveal {
+        #[cfg(windows)]
+        return std::process::Command::new("explorer").arg(format!("/select,{shown}")).spawn().map(|_| ()).map_err(|e| e.to_string());
+        #[cfg(target_os = "macos")]
+        return std::process::Command::new("open").arg("-R").arg(&shown).spawn().map(|_| ()).map_err(|e| e.to_string());
+    }
+    let target = if reveal { canonical.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or(shown) } else { shown };
+    use tauri_plugin_shell::ShellExt;
+    // The Rust side of `open` has no web-only rule; the checks above are ours.
+    #[allow(deprecated)]
+    app.shell().open(target, None).map_err(|e| e.to_string())
+}
+
+/// Opened by a double click, these run instead of showing.
+fn runs_when_opened(path: &std::path::Path) -> bool {
+    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    !path.is_dir()
+        && matches!(
+            ext.as_str(),
+            "exe" | "msi" | "bat" | "cmd" | "com" | "scr" | "pif" | "cpl" | "ps1" | "psm1" | "vbs" | "vbe" | "js" | "jse"
+                | "wsf" | "wsh" | "hta" | "lnk" | "reg" | "jar" | "py" | "pyw" | "sh" | "command" | "app" | "appimage"
+        )
+}
+
+#[cfg(test)]
+mod open_local_file_tests {
+    use super::runs_when_opened;
+    use std::path::Path;
+
+    #[test]
+    fn programs_and_scripts_are_shown_never_run() {
+        for f in ["setup.exe", "run.BAT", "x.ps1", "a.vbs", "b.lnk", "c.py"] {
+            assert!(runs_when_opened(Path::new(f)), "{f}");
+        }
+        for f in ["orase.csv", "raport.pdf", "notes.txt", "pagina.html", "poza.png"] {
+            assert!(!runs_when_opened(Path::new(f)), "{f}");
+        }
+    }
+}
