@@ -617,8 +617,10 @@ function ChatInput({ isEmpty, sendFn }, ref) {
   return (
     <TooltipProvider delayDuration={300}>
       {/* data-composer: ChatPage measures it to glide the dock with a side panel. */}
+      {/* @container: the button row reads its own width (a side panel narrows
+          it), not the window's, to decide which names fit. */}
       <div data-composer="" className={cn(
-        'px-4 py-3 mx-auto w-full',
+        '@container px-4 py-3 mx-auto w-full',
         // In a conversation the composer lines up with the transcript's
         // 700px column (MessageList, max-w-[748px] minus px-6), 16px wider
         // on each side as the canvas draws it, instead of spanning the pane.
@@ -708,11 +710,11 @@ function ChatInput({ isEmpty, sendFn }, ref) {
               </button>
             </div>
           )}
-          <div className="flex items-end gap-1 px-2 pt-2 pb-1.5">
-            <div className="flex h-11 shrink-0 items-center">
-              <FileAttachButton onPathsSelected={(paths) => attachLater(pendingFromPaths(paths))} />
-            </div>
-            <div className="relative min-w-0 flex-1">
+          {/* Two rows, after the 21st.dev prompt composer (MIT) Darius picked on
+              1 Nov: the words get the whole width, and every button lives on
+              one row under them. */}
+          <div className="px-3 pt-2">
+            <div className="relative min-w-0">
               <Textarea
                 ref={taRef}
                 value={text}
@@ -746,7 +748,21 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                 </div>
               )}
             </div>
-            <div className="flex h-11 shrink-0 items-center gap-1">
+          </div>
+          {/* Stable controls: focusing, sending and finishing a reply must not
+              move the composer, mascot or transcript. The left group gives way
+              (the model name truncates); the right group never does. */}
+          <div className="flex items-center justify-between gap-2 px-2.5 pt-1 pb-2.5">
+            <div className="flex min-w-0 items-center gap-1">
+              <FileAttachButton onPathsSelected={(paths) => attachLater(pendingFromPaths(paths))} />
+              <ModelPill />
+              {/* ponytail: the "Shift+Enter for newline" hint is gone from this
+                  row. Invisible until typing, it still took ~140px, and with every
+                  button on one row it cut the model's name to "Claude S…". */}
+              <PermissionPill />
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <ContextRing />
               {!isStreaming && (
                 <button
                   type="button"
@@ -755,9 +771,13 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                   onPointerUp={clearMicHold}
                   onPointerLeave={clearMicHold}
                   aria-label={rec.state === 'recording' ? 'Stop recording' : 'Record voice message (hold to choose provider)'}
-                  className={cn('p-1.5 rounded-full hover:bg-bg-hover', rec.state === 'recording' ? 'text-error animate-pulse' : 'text-text-muted')}
+                  className={cn(
+                    'group flex h-8 items-center rounded-full border border-border-default bg-bg-hover px-2 transition-colors hover:bg-bg-active',
+                    rec.state === 'recording' ? 'text-error animate-pulse' : 'text-text-secondary hover:text-text-primary',
+                  )}
                 >
-                  {rec.state === 'recording' ? <Square size={16} /> : <Mic size={16} />}
+                  {rec.state === 'recording' ? <Square size={16} className="shrink-0" /> : <Mic size={16} className="shrink-0" />}
+                  <span className="composer-slide-label text-sm">{rec.state === 'recording' ? 'Stop' : 'Record'}</span>
                 </button>
               )}
               {!isStreaming && (
@@ -768,7 +788,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                   disabled={disabled}
                   aria-label={t('call.aria')}
                   title={t('call.title')}
-                  className="h-8 w-8 rounded-full text-text-muted hover:text-brand"
+                  className="h-8 w-8 rounded-full border border-border-default bg-bg-hover text-text-secondary hover:bg-bg-active hover:text-brand"
                 >
                   <Phone size={16} />
                 </Button>
@@ -794,30 +814,6 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                   <ArrowUp size={16} />
                 </Button>
               )}
-            </div>
-          </div>
-          {/* Stable controls: focusing, sending and finishing a reply must not
-              move the composer, mascot or transcript. */}
-          <div>
-            {/* The left group gives way (the model name truncates); the right
-                group never does. */}
-            <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
-              <div className="flex min-w-0 items-center gap-1">
-                <ModelPill />
-                <PermissionPill />
-                <span
-                  className={cn(
-                    'hidden truncate text-2xs text-text-muted transition-opacity duration-(--motion-fast) sm:inline',
-                    text.length > 0 ? 'opacity-100' : 'opacity-0',
-                  )}
-                  aria-hidden={text.length === 0}
-                >
-                  Shift+Enter for newline
-                </span>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <ContextRing />
-              </div>
             </div>
           </div>
         </div>

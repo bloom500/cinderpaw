@@ -1986,6 +1986,29 @@ span.ember-caret {
 .composer-letter-out {
   animation: composer-letter-out var(--motion-fast) var(--motion-ease) both;
 }
+/* ── Composer button names (FileAttachButton, the microphone in ChatInput) ──
+   An icon button whose name slides out on hover or keyboard focus, as in the
+   21st.dev prompt composer (MIT) Darius picked on 1 Nov: the name is there
+   when the hand is, and the row stays quiet otherwise. */
+.composer-slide-label {
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 0;
+  transition:
+    max-width var(--motion-fast) var(--motion-ease),
+    margin-left var(--motion-fast) var(--motion-ease),
+    opacity var(--motion-fast) var(--motion-ease);
+}
+.group:hover > .composer-slide-label,
+.group:focus-visible > .composer-slide-label {
+  max-width: 6rem;
+  margin-left: 0.375rem;
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-slide-label { transition: none; }
+}
 /* Opacity and position only: an animated blur repaints each letter on every
    frame (the 26 Oct rule for micro-animations). */
 @keyframes composer-letter-in {
