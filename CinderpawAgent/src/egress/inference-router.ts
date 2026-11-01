@@ -416,7 +416,12 @@ export class InferenceRouter {
 
   #isLocalHost(url: string): boolean {
     try {
-      const host = new URL(url).hostname;
+      const { hostname: host, pathname } = new URL(url);
+      // A ChatGPT plan answers through the host's own API (`/chatgpt` holds its
+      // token), from OpenAI: on loopback, not on this computer. Called local, it
+      // got a local model's few-K budget and compacted before every turn, and
+      // passed the gates that keep the agent's source and memory on-device (1 Nov).
+      if (/^\/chatgpt\/?$/.test(pathname)) return false;
       return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
     } catch {
       return false;
