@@ -5,7 +5,7 @@ import {
 } from '@shadcn/react/message-scroller';
 import { useChat } from '@/stores/chat';
 import { cn } from '@/lib/utils';
-import { MessageItem, ReplyHead } from './MessageItem';
+import { MessageItem } from './MessageItem';
 import { ChapterRail } from './ChapterRail';
 import { useResendTurn } from '@/hooks/useResendTurn';
 import { StreamingIndicator } from './StreamingIndicator';
@@ -81,9 +81,9 @@ export function MessageList({ onFollowUp, onAnswer }: {
   const last = messages[messages.length - 1];
   const hasActiveThinking = Boolean(last?.thinking && !last.thinkingComplete);
   const waitingForFirstToken = status === 'streaming' && last?.content === '' && !hasActiveThinking;
-  // The logo head goes after the latest reply only: moving while it is being
-  // written, still once there is a finished reply to sit under. Before the
-  // first token it is the status line's icon instead, so it is drawn once.
+  // Marks the latest reply (it carries the helpers): 'writing' while it
+  // streams, 'still' once there is a finished reply. Before the first token
+  // the status line stands in for it.
   const head: 'writing' | 'still' | undefined =
     last?.role !== 'assistant' || waitingForFirstToken ? undefined
     : status === 'streaming' ? 'writing'
@@ -151,7 +151,7 @@ export function MessageList({ onFollowUp, onAnswer }: {
             {/* L6 asks here before it changes how Cinderpaw practices. */}
             <MetaProposalCard />
             {waitingForFirstToken && (
-              <StreamingIndicator phase={agentPhase ?? 'thinking'} tool={agentTool} icon={<ReplyHead writing />} />
+              <StreamingIndicator phase={agentPhase ?? 'thinking'} tool={agentTool} />
             )}
           </MessageScroller.Content>
         </MessageScroller.Viewport>

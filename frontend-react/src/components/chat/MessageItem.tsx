@@ -1,7 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import { isVideoName, videoPreviewUrl } from '@/lib/attachments';
 import { useNavigate } from 'react-router-dom';
-import logoUrl from '@/assets/logo.svg';
 import { AlertTriangle, FileText, File as FileIcon, Image as ImageIcon, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { parseUserAttachments, type DisplayAttachment } from '@/lib/attachmentDisplay';
@@ -62,26 +61,6 @@ function MessageAttachmentChip({ attachment }: { attachment: DisplayAttachment }
   );
 }
 
-/**
- * The logo head at the end of the latest reply (spec 6). It stands in for a
- * spinner: moving while the reply is being written, still once it is done.
- * `prefers-reduced-motion` makes it still throughout.
- */
-export function ReplyHead({ writing }: { writing: boolean }) {
-  // A CSS animation (`.reply-head-writing`, globals.css), not framer-motion:
-  // separate y and rotate values are driven from script, a style write on
-  // every frame of every reply; a keyframed transform runs on the compositor.
-  return (
-    <img
-      src={logoUrl}
-      alt=""
-      data-testid="reply-head"
-      data-writing={writing}
-      className={cn('h-7 w-7 shrink-0', writing && 'reply-head-writing')}
-    />
-  );
-}
-
 const NO_HELPERS: RlmWorker[] = [];
 /** The artifact tools whose result is something the reply made; the rest of them are steps. */
 const MAKES = new Set(['artifact_create', 'artifact_edit']);
@@ -101,7 +80,8 @@ export const MessageItem = memo(function MessageItem({
 }: {
   message: ChatMessage;
   streaming?: boolean;
-  /** The logo head after this reply: only the latest reply carries one. */
+  /** Set on the latest reply only, which carries the chat's helpers. (It drew a
+   *  logo head under the reply until 1 Nov: one Cubby too many on screen.) */
   head?: 'writing' | 'still';
   /** Put a follow-up chip's words in the composer. Only the latest reply gets it. */
   onFollowUp?: (text: string) => void;
@@ -344,7 +324,6 @@ export const MessageItem = memo(function MessageItem({
         ? (onAnswer || answered !== undefined) && <NextStepCard ask={followUps.ask} next={followUps.next} onAnswer={onAnswer} answered={answered} />
         : onFollowUp && <FollowUps next={followUps.next} onPick={onFollowUp} />
       )}
-      {head && <ReplyHead writing={head === 'writing'} />}
       {/* Only on a finished reply: a copy button beside text that is still
           arriving would copy half of it. */}
       {!streaming && (

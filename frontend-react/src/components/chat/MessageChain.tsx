@@ -6,11 +6,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { thinkingLabel } from '@/components/ai-elements/reasoning';
 import { ShimmeringText } from '@/components/ui/shimmering-text';
 import type { ToolActivity } from '@/hooks/useLiveToolActivity';
-import { useUI } from '@/stores/ui';
 import { displayName, type RlmWorker } from '@/stores/rlmWorkers';
-import logoUrl from '@/assets/logo.svg';
 import { Widget, summaryOf } from './CallToolScreen';
-import { CinderpawMascot } from './mascot/CinderpawMascot';
 import { ZoomableImage } from './ZoomableImage';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { videoPreviewUrl } from '@/lib/attachments';
@@ -397,25 +394,21 @@ export function sideChips(steps: ToolActivity[], helpers: RlmWorker[]): string[]
   ];
 }
 
-/** The clay mascot at work, sized to the line's icon slot; the logo head when the mascot is turned off. */
-function WorkingFigure() {
-  const mascot = useUI((s) => s.mascotEnabled);
-  if (!mascot) return <img src={logoUrl} alt="" className="size-5" />;
-  return <CinderpawMascot state="calling" width={24} />;
-}
-
 /**
- * What stands before the line's words, always in the same 24 px slot: the
- * figure at work, the warning when a step failed, the still logo head once
- * done. It used to be a 48 px figure that was simply gone after, so the words
- * slid ~56 px sideways each time a step ended (his "loose screws", 29 Oct).
+ * What stands before the line's words, always in the same 24 px slot: a
+ * spinner at work, the warning when a step failed, a quiet check once done.
+ * It used to be a 48 px figure that was simply gone after, so the words slid
+ * ~56 px sideways each time a step ended (his "loose screws", 29 Oct). Then it
+ * was Cubby at work and the logo head after: with the logo, the composer's
+ * Cubby and the reply's head that made four on screen, "cheap" (1 Nov). The
+ * icons are the timeline rows' own, muted to match the line.
  */
 function LineIcon({ streaming, failed }: { streaming: boolean; failed: boolean }) {
   return (
     <span data-testid="activity-icon" aria-hidden className="grid size-6 shrink-0 place-items-center overflow-hidden">
-      {streaming ? <WorkingFigure />
+      {streaming ? <Loader2 size={14} className="animate-spin text-text-muted" />
         : failed ? <AlertTriangle size={14} className="text-warning" />
-        : <img src={logoUrl} alt="" className="size-4 opacity-70" />}
+        : <Check size={14} className="text-text-muted" />}
     </span>
   );
 }

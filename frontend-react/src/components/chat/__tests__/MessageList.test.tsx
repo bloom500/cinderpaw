@@ -26,7 +26,6 @@ vi.mock('../MessageItem', () => ({
       </div>
     );
   },
-  ReplyHead: () => null,
 }));
 vi.mock('../StreamingIndicator', () => ({ StreamingIndicator: () => <span>Thinking…</span> }));
 
@@ -331,7 +330,9 @@ describe('chat tool widgets', () => {
   });
 });
 
-describe('the logo head after the latest reply', () => {
+// The mark no longer draws a logo head (1 Nov); it still says which reply is
+// the latest, the one that carries the chat's helpers.
+describe('the latest-reply mark', () => {
   const headOf = (id: string) => document.querySelector(`[data-id="${id}"]`)?.getAttribute('data-head');
   const turn = (status: 'streaming' | 'done', last: string) => useChat.setState({
     streamStatus: status,

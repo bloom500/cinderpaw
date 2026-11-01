@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useChat, type AgentPhase } from '@/stores/chat';
 import { useModel } from '@/stores/model';
 import { onCloudModel, useCinderpawStore } from '@/stores/cinderpaw';
@@ -10,8 +10,6 @@ import { stepTitle } from './MessageChain';
 interface StreamingIndicatorProps {
   phase?: AgentPhase;
   tool?: string | null;
-  /** Drawn in place of the hopping dots (the chat passes the logo head). */
-  icon?: ReactNode;
 }
 
 /** #16: after this long with zero tokens, explain WHY nothing is happening. */
@@ -57,7 +55,7 @@ function progressLabel(p: StreamProgressEvent): string {
   return 'Writing…';
 }
 
-export function StreamingIndicator({ phase = 'thinking', tool, icon }: StreamingIndicatorProps) {
+export function StreamingIndicator({ phase = 'thinking', tool }: StreamingIndicatorProps) {
   const sessionId = useChat((s) => s.sessionId);
   const [visible, setVisible] = useState(true);
   // `baseLabel` comes from phase transitions (model load, calling, processing) — faded.
@@ -137,7 +135,7 @@ export function StreamingIndicator({ phase = 'thinking', tool, icon }: Streaming
     <div role="status" className="flex items-center gap-2 px-4 py-2 text-text-muted text-xs">
       {/* Hopping dots rather than three that pulse in place: movement reads as
           "working" at a glance, a pulse reads as "waiting for something". */}
-      {icon ?? <MessageLoading className="shrink-0" />}
+      <MessageLoading className="shrink-0" />
       <span
         style={{ transition: 'opacity var(--motion-fast) var(--motion-ease)' }}
         className={visible ? 'opacity-100' : 'opacity-0'}

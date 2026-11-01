@@ -6,7 +6,6 @@ import { finishActivity, startActivity, videoOf } from '@/hooks/useLiveToolActiv
 
 vi.mock('@tauri-apps/plugin-shell', () => ({ open: vi.fn() }));
 // The sprite is a canvas, which jsdom cannot draw.
-vi.mock('../mascot/CinderpawMascot', () => ({ CinderpawMascot: () => <span data-testid="mascot" /> }));
 
 beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
@@ -104,10 +103,12 @@ describe('MessageChain (the Activity Strip)', () => {
     const props = { thinking: null, thinkingComplete: true, durationSec: undefined };
     const { rerender } = render(<MessageChain {...props} steps={[search]} streaming />);
     const working = screen.getByTestId('activity-icon').className;
-    expect(screen.getByTestId('activity-icon')).toContainElement(screen.getByTestId('mascot'));
+    // 1 Nov: no Cubby and no logo head on the line, in any state (four on screen read as cheap).
+    expect(screen.getByTestId('activity-icon').querySelector('img')).toBeNull();
 
     rerender(<MessageChain {...props} steps={[finishActivity(search, { ok: true, content: '' })]} streaming={false} />);
     expect(screen.getByTestId('activity-icon').className).toBe(working);
+    expect(screen.getByTestId('activity-icon').querySelector('img')).toBeNull();
 
     rerender(<MessageChain {...props} steps={[finishActivity(search, { ok: false, content: 'rate limited' })]} streaming={false} />);
     expect(screen.getByTestId('activity-icon').className).toBe(working);
