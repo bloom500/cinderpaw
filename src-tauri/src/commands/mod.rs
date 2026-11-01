@@ -157,7 +157,8 @@ mod command_count_test {
     // 207 -> 211 = + chatgpt_account, chatgpt_sign_in, chatgpt_models, chatgpt_sign_out
     // (OpenAI Subscription: a ChatGPT plan instead of an API key, 1 Nov 2026).
     // 211 -> 212 = + provider_models (the model picker lists each provider's models, 1 Nov 2026).
-    const EXPECTED_COMMAND_COUNT: usize = 212;
+    // 212 -> 214 = + agent_overlay_stop, agent_overlay_state (the computer-use overlay, 1 Nov 2026).
+    const EXPECTED_COMMAND_COUNT: usize = 214;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts
