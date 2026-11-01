@@ -384,3 +384,58 @@ describe("paying on any site waits for the person", () => {
     expect((await t.tool.execute({ action: "click", ref: "2" }, t.ctx)).ok).toBe(true); // "Continue", read: not a pay word
   });
 });
+
+describe("browser tabs", () => {
+  // 1 Nov: ten job links ran one after another in what looked like one tab.
+  const STRIP = {
+    active: 3, working: 3,
+    tabs: [
+      { id: 1, title: "My video", url: "https://youtube.com/watch?v=x", agent: false },
+      { id: 2, title: "Job A", url: "https://jobs.example/a", agent: true },
+      { id: 3, title: "Job B", url: "https://jobs.example/b", agent: true },
+    ],
+  };
+
+  function withTabs(answer?: string) {
+    const calls: string[] = [];
+    const asked: string[] = [];
+    const ctx = {
+      sessionId: "s1",
+      askUser: answer === undefined ? undefined : {
+        ask: async (qs: Array<{ question: string }>) => { asked.push(qs[0]!.question); return [{ selected: [answer] }]; },
+      },
+      desktopControl: {
+        request: async (action: string, params: Record<string, unknown>) => {
+          calls.push(`${action}${params.id === undefined ? "" : ` ${params.id}`}`);
+          return STRIP;
+        },
+      },
+    } as never;
+    return { tool: createBrowserTool(), ctx, calls, asked };
+  }
+
+  test("tabs lists every tab with whose it is and where the agent works", async () => {
+    const t = withTabs();
+    const res = await t.tool.execute({ action: "tabs" }, t.ctx);
+    expect(res.content).toContain("[1] My video (https://youtube.com/watch?v=x): the user's");
+    expect(res.content).toContain("[3] Job B (https://jobs.example/b): yours, in front, you work here");
+  });
+
+  test("switch_tab and closing its own tab go straight to the host", async () => {
+    const t = withTabs();
+    expect((await t.tool.execute({ action: "switch_tab", id: 2 }, t.ctx)).ok).toBe(true);
+    expect((await t.tool.execute({ action: "close_tab", id: 2 }, t.ctx)).ok).toBe(true);
+    expect(t.calls).toEqual(["browser.switch_tab 2", "browser.tabs", "browser.close_tab 2"]);
+    expect((await t.tool.execute({ action: "switch_tab" }, t.ctx)).ok).toBe(false);
+  });
+
+  test("closing the user's tab asks first, and keeps it on a no", async () => {
+    const no = withTabs("No, keep it");
+    expect((await no.tool.execute({ action: "close_tab", id: 1 }, no.ctx)).ok).toBe(false);
+    expect(no.asked[0]).toContain('"My video"');
+    expect(no.calls).toEqual(["browser.tabs"]);
+    const yes = withTabs("Yes, close it");
+    expect((await yes.tool.execute({ action: "close_tab", id: 1 }, yes.ctx)).ok).toBe(true);
+    expect(yes.calls).toEqual(["browser.tabs", "browser.close_tab 1"]);
+  });
+});

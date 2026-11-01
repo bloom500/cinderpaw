@@ -20,7 +20,23 @@ import type { Tool, ToolManifest, ToolResult } from "../../types.ts";
 import { guardWebText } from "../../security/injection.ts";
 import { canAskAHuman } from "../../core/permission-mode.ts";
 
-const ACTIONS = ["open", "snapshot", "screenshot", "click", "type", "scroll", "back", "forward", "reload", "extract"] as const;
+const ACTIONS = ["open", "snapshot", "screenshot", "click", "type", "scroll", "back", "forward", "reload", "extract", "tabs", "switch_tab", "close_tab"] as const;
+
+interface TabRow { id: number; title?: string; url?: string; agent?: boolean }
+
+/** The tab strip as the model reads it: one line a tab, with whose it is. */
+export function renderTabs(s: { active?: number | null; working?: number | null; tabs?: TabRow[] }): string {
+  const rows = s.tabs ?? [];
+  const working = s.working;
+  if (rows.length === 0) return "No tabs are open.";
+  return [
+    "Tabs (switch_tab or close_tab by id):",
+    ...rows.map((t) => {
+      const marks = [t.agent ? "yours" : "the user's", s.active === t.id ? "in front" : "", working === t.id ? "you work here" : ""].filter(Boolean);
+      return `[${t.id}] ${t.title?.trim() || "(untitled)"} (${t.url || "new tab"}): ${marks.join(", ")}`;
+    }),
+  ].join("\n");
+}
 type Action = (typeof ACTIONS)[number];
 
 interface PageElement {
@@ -133,7 +149,11 @@ export function createBrowserTool(): Tool {
       "web_search and fetch_url are faster and do not take over the screen. `open` always " +
       "opens a NEW tab of your own and never replaces a page the user has open; when they " +
       "are on a page of their own (a video, say), yours opens behind it, so tell them where " +
-      "it is. Every other action works in your tab. When they ask about the page THEY have " +
+      "it is. Your earlier tabs stay open, so several links are several tabs: open each one, " +
+      "then `tabs` lists every tab (id, page, yours or the user's), `switch_tab` with `id` makes " +
+      "that tab the one you work in, and `close_tab` with `id` closes one you are done with " +
+      "(closing a tab the user opened asks them first). Every other action works in the tab you " +
+      "opened or switched to last. When they ask about the page THEY have " +
       "in front (\"this page\", \"what am I looking at\", \"summarize this\"), pass " +
       "tab: \"user\". `open` a url " +
       "(or search words), `snapshot` to read the page and its numbered controls, " +
@@ -169,9 +189,10 @@ export function createBrowserTool(): Tool {
     parameters: {
       action: {
         type: "string",
-        description: "open | snapshot | screenshot | click | type | scroll | back | forward | reload | extract",
+        description: "open | snapshot | screenshot | click | type | scroll | back | forward | reload | extract | tabs | switch_tab | close_tab",
         required: true,
       },
+      id: { type: "number", description: "switch_tab / close_tab: the tab's id from `tabs`.", required: false },
       url: { type: "string", description: "open: an address, a domain, or words to search for.", required: false },
       ref: { type: "string", description: "click / type: the control's number from the latest snapshot.", required: false },
       text: { type: "string", description: "type: what to enter (replaces the field's content).", required: false },
@@ -209,6 +230,43 @@ export function createBrowserTool(): Tool {
       if (action !== "open" && args.tab === "user") params.tab = "user";
 
       const sid = ctx.sessionId ?? "";
+
+      if (action === "tabs" || action === "switch_tab" || action === "close_tab") {
+        const id = Number(args.id);
+        if (action !== "tabs" && !Number.isInteger(id)) return fail(`browser: ${action} needs \`id\`, a tab's id from action "tabs".`, "bad_args");
+        try {
+          if (action === "close_tab") {
+            // A tab the person opened may hold their work (a draft, a video):
+            // theirs to close, so it is asked about, and refused with nobody here.
+            const strip = (await ctx.desktopControl.request("browser.tabs", {}, ctx.sessionId)) as { tabs?: TabRow[] };
+            const tab = strip.tabs?.find((t) => t.id === id);
+            if (!tab) return fail(`browser: no tab ${id}. Call action "tabs" for the list.`, "bad_args");
+            if (!tab.agent) {
+              if (!canAskAHuman(Boolean(ctx.askUser))) {
+                return fail("browser: refused. That tab is the user's and nobody is here to approve closing it. Leave it open.", "close_needs_approval");
+              }
+              const [answer] = await ctx.askUser!.ask([{
+                question: `Cinderpaw wants to close your tab "${tab.title?.trim() || tab.url || id}". Close it?`,
+                header: "Close tab",
+                multiSelect: false,
+                options: [
+                  { label: "Yes, close it", description: "Close this one tab." },
+                  { label: "No, keep it", description: "The tab stays open." },
+                ],
+              }], ctx.sessionId);
+              if (!(answer?.selected?.[0]?.toLowerCase().startsWith("yes") ?? false)) {
+                return fail("browser: the user kept that tab open. Do not close it.", "close_declined");
+              }
+            }
+          }
+          const data = await ctx.desktopControl.request(`browser.${action}`, action === "tabs" ? {} : { id }, ctx.sessionId);
+          // Another tab means other controls: a ref read in the old one means nothing here.
+          if (action !== "tabs") lastPage.delete(`${sid}\u0000own`);
+          return { ok: true, content: renderTabs(data as Parameters<typeof renderTabs>[0]) };
+        } catch (e) {
+          return fail(e instanceof Error ? e.message : String(e));
+        }
+      }
       // One page per tab: a click in the user's tab is judged by the user's page,
       // never by what the agent last read in its own tab.
       const tabKey = `${sid}\u0000${params.tab === "user" ? "user" : "own"}`;

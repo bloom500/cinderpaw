@@ -136,9 +136,11 @@ fn restore_once(app: &AppHandle) {
 const HOME: &str = "about:blank";
 
 fn tabs_json() -> Value {
+    let working = live_agent_tab(); // before the lock below: it takes the same one
     let t = tabs().lock();
     json!({
         "active": t.active,
+        "working": working,
         "tabs": t.list.iter().map(|tab| json!({
             "id": tab.id,
             "title": tab.title,
@@ -1668,10 +1670,32 @@ pub async fn handle_from_agent(app: AppHandle, op: &str, params: &Value) -> Resu
         let _ = app.emit("browser://agent", json!({ "op": "paused", "busy": false, "ok": false }));
         return Err(format!("browser: {}", crate::call_pill::OUT_OF_SIGHT));
     }
+    // The agent moves between its tabs like a person does. Switching makes that
+    // tab the one it works in (in front, unless the person is on a page of their
+    // own); closing its current one hands the work to its newest other tab.
+    // Neither touches a page's content, so a take-over does not block them.
+    // Closing a tab the PERSON opened is asked about in the tool, before this.
+    if op == "switch_tab" {
+        let id = params.get("id").and_then(|v| v.as_u64()).ok_or_else(|| "browser: \"id\" is required".to_string())? as u32;
+        if !tabs().lock().list.iter().any(|x| x.id == id) {
+            return Err("browser: no such tab. Call action \"tabs\" for the list.".into());
+        }
+        if let Ok(mut g) = AGENT_TAB.lock() { *g = Some(id); }
+        if !person_on_own_page() { handle(app.clone(), "switch_tab", params).await?; }
+        return Ok(tabs_json());
+    }
+    if op == "close_tab" {
+        let out = handle(app.clone(), "close_tab", params).await?;
+        if live_agent_tab().is_none() {
+            let newest = tabs().lock().list.iter().filter(|x| x.agent).map(|x| x.id).max();
+            if let Ok(mut g) = AGENT_TAB.lock() { *g = newest; }
+        }
+        return Ok(out);
+    }
     // The agent works in tabs of its own (20 Oct): `open` makes a new one, and
-    // every other action works there, or on the person's page when the agent
-    // asked for it (`tab: "user"`, "summarize this page"). Never on a page the
-    // person opened, unasked.
+    // every other action works in its current one, or on the person's page when
+    // the agent asked for it (`tab: "user"`, "summarize this page"). Never on a
+    // page the person opened, unasked.
     let opening = matches!(op, "open" | "navigate");
     let target = if params.get("tab").and_then(|v| v.as_str()) == Some("user") { None } else { live_agent_tab() };
     AGENT_TARGET.scope(target, async move {
@@ -1695,29 +1719,44 @@ fn live_agent_tab() -> Option<u32> {
     tabs().lock().list.iter().any(|t| t.id == id).then_some(id)
 }
 
-/// The agent opens a page: always in a new tab of its own. In front, unless
-/// the person is on a page of their own in the open panel; then behind it, and
-/// their page keeps the screen and the keyboard. The agent's previous tab is
-/// done and closes, unless the person has it in front.
+/// The person is on a page of their own in the open panel: what the agent opens
+/// or switches to goes behind it, and their page keeps the screen and the keyboard.
+fn person_on_own_page() -> bool {
+    let b = *bounds().lock();
+    let t = tabs().lock();
+    b.visible && t.active.and_then(|id| t.list.iter().find(|x| x.id == id))
+        .is_some_and(|tab| !tab.agent && tab.history.get(tab.cursor).is_some_and(|u| u != HOME))
+}
+
+/// How many tabs of its own the agent keeps before the oldest one closes.
+/// ponytail: a fixed number; ten job links fit, a runaway loop does not pile up
+/// webviews. Make it a setting if someone needs more at once.
+const MAX_AGENT_TABS: usize = 12;
+
+/// The agent opens a page: always in a new tab of its own, which becomes the one
+/// it works in. In front, unless the person is on a page of their own. Its
+/// earlier tabs stay open: ten links are ten tabs. Each `open` used to close the
+/// tab before it, so ten job links ran one after another in what looked like a
+/// single tab (Darius, 1 Nov).
 async fn agent_open(app: &AppHandle, params: &Value) -> Result<Value, String> {
     restore_once(app);
     let url = parse_address(param_str(params, "url")?)?;
-    let behind = {
-        let b = *bounds().lock();
-        let t = tabs().lock();
-        b.visible && t.active.and_then(|id| t.list.iter().find(|x| x.id == id))
-            .is_some_and(|tab| !tab.agent && tab.history.get(tab.cursor).is_some_and(|u| u != HOME))
-    };
+    let behind = person_on_own_page();
     if !behind {
         // Ask the panel to show itself: the person should see what the agent opens.
         let _ = app.emit("browser://open", json!({ "url": url.as_str() }));
     }
-    let previous = live_agent_tab();
     let wv = new_tab_with(app, url, !behind)?;
     let id = tabs().lock().list.iter_mut().find(|x| x.label == wv.label()).map(|tab| { tab.agent = true; tab.id });
     if let Ok(mut g) = AGENT_TAB.lock() { *g = id; }
-    if let Some(old) = previous.filter(|old| tabs().lock().active != Some(*old)) {
-        let _ = handle(app.clone(), "close_tab", &json!({ "id": old })).await;
+    loop {
+        let oldest = {
+            let t = tabs().lock();
+            let mine: Vec<u32> = t.list.iter().filter(|x| x.agent).map(|x| x.id).collect();
+            if mine.len() <= MAX_AGENT_TABS { None } else { mine.into_iter().filter(|&x| t.active != Some(x) && Some(x) != id).min() }
+        };
+        let Some(old) = oldest else { break };
+        if handle(app.clone(), "close_tab", &json!({ "id": old })).await.is_err() { break; }
     }
     emit_state(app);
     settle(Duration::from_secs(20)).await;
