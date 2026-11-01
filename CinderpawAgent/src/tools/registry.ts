@@ -30,7 +30,7 @@
 import type { EgressProxy } from "../egress/egress-proxy.ts";
 import type { AuditLog } from "../egress/audit-log.ts";
 import { validateManifest } from "../egress/tool-permissions.ts";
-import { isConsequential, pageSourcedDestination, tainted } from "../security/injection.ts";
+import { isConsequential, pageSourcedDestination, reopensTaintSource, tainted } from "../security/injection.ts";
 import { readEnv } from "../config.ts";
 import type {
   AskUserBridge,
@@ -300,14 +300,13 @@ export class ToolRegistry {
     sessionId: string,
   ): Promise<boolean> {
     if (!this.#askUser) return false;
-    const summary = safeJson(args).slice(0, 200);
     try {
       const answers = await this.#askUser.ask(
         [
           {
             question:
-              `A web page this session read ${reason}. The agent now wants to run "${name}" ` +
-              `with ${summary}. This could be the page acting, not you. Allow it?`,
+              `A web page this session read ${reason}. The agent now wants to ${describeCall(name, args)}. ` +
+              `This could be the page acting, not you. Allow it?`,
             header: "Web page",
             options: [{ label: "Allow" }, { label: "Deny", recommended: true }],
             multiSelect: false,
@@ -464,7 +463,7 @@ export class ToolRegistry {
     // call, with the reason on screen. Reads pass: an attack that can only
     // make the agent read more achieved nothing. Checked only for
     // consequential tools so reads do not spend the taint budget.
-    if (isConsequential(name, args)) {
+    if (isConsequential(name, args) && !reopensTaintSource(sessionId, name, args)) {
       const dest = pageSourcedDestination(sessionId, name, args);
       const reason = tainted(sessionId) ?? (dest ? `named the destination "${dest}" that this call now uses` : null);
       if (reason) {
@@ -880,6 +879,24 @@ function safeJson(value: unknown): string {
   } catch {
     return '"[unserializable args]"';
   }
+}
+
+/**
+ * The call in words for the person deciding on it. The browser is the one they
+ * meet most and could read least: `run "browser" with {"action":"open","dy":0,…}`
+ * (1 Nov). Other tools keep their name and arguments.
+ */
+export function describeCall(name: string, args: Record<string, unknown>): string {
+  if (name === "browser") {
+    const url = typeof args.url === "string" ? args.url : "";
+    const text = typeof args.text === "string" ? args.text.slice(0, 80) : "";
+    switch (String(args.action ?? "")) {
+      case "open": return url ? `open the page ${url}` : "open a page";
+      case "click": return "click something on the page";
+      case "type": return text ? `type "${text}" on the page` : "type on the page";
+    }
+  }
+  return `run "${name}" with ${safeJson(args).slice(0, 200)}`;
 }
 
 /** Linear backoff base — see module docstring for rationale. */
