@@ -960,6 +960,16 @@ const raw = {
   byokHasKey:            (providerId: string) => invoke<boolean>('byok_has_key', { providerId }),
   /** One-button OpenRouter sign-in (OAuth in the system browser). Resolves with the model it set. */
   openrouterSignIn:      () => invoke<string>('openrouter_sign_in'),
+  /** OpenAI Subscription: who is signed in with ChatGPT, or null. */
+  chatgptAccount:        () => invoke<{ email: string | null; name: string | null } | null>('chatgpt_account'),
+  /** Sign in with ChatGPT in the browser; resolves with the model it picked. */
+  chatgptSignIn:         () => invoke<string>('chatgpt_sign_in'),
+  /** The models the signed-in ChatGPT account may use. */
+  chatgptModels:         () => invoke<{ id: string; name: string | null }[]>('chatgpt_models'),
+  /** Every chat model a connected provider offers (ChatGPT plan included), for the model picker. */
+  providerModels:        (providerId: string) => invoke<{ id: string; name: string | null }[]>('provider_models', { providerId }),
+  /** Sign out of ChatGPT here and at OpenAI; rejects when OpenAI could not confirm. */
+  chatgptSignOut:        () => invoke<void>('chatgpt_sign_out'),
   /** Appearance -> Background: solid (true) or glass (false). Applied to the open window at once. */
   setWindowSolid:        (solid: boolean) => invoke<void>('set_window_solid', { solid }),
   /** Files the app was launched with (Send to > Cinderpaw), handed over once. */

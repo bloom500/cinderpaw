@@ -28,6 +28,8 @@ pub mod live;
 pub mod livekit;
 pub mod migrate;
 pub mod openrouter_signin;
+pub mod chatgpt_signin;
+pub mod chatgpt_gateway;
 pub mod migrate_agent_db;
 pub mod migrate_home;
 pub mod models;

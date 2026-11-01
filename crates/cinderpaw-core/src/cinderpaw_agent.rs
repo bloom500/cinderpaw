@@ -426,7 +426,20 @@ pub async fn spawn(
     let env_byok = crate::env::env_var("CINDERPAW_BYOK_PROVIDER");
     let route_is_source = env_byok.is_none() && persisted_route.is_some();
     let byok_pid = env_byok.or_else(|| persisted_route.as_ref().map(|(pid, _)| pid.clone()));
-    let byok = byok_pid.as_deref().and_then(load_byok_provider_endpoint);
+    let byok = byok_pid.as_deref().and_then(|pid| {
+        // A ChatGPT plan answers through this host's own API, which holds
+        // its token: there is no key to load, only a sign-in to still have.
+        if pid == crate::chatgpt_signin::PROVIDER_ID {
+            crate::chatgpt_signin::account()?;
+            return Some(ByokEndpoint {
+                family: crate::byok::Provider::Openai.family(),
+                base_url: crate::chatgpt_signin::engine_base_url(api_port),
+                api_key: String::new(),
+                model: crate::byok::load(&crate::settings::load()).get_provider(pid)?.default_model.clone(),
+            });
+        }
+        load_byok_provider_endpoint(pid)
+    });
 
     // Without the BYOK family an Anthropic key booted onto Anthropic's
     // OpenAI-compatible door, which never names a workspace: every chat after a

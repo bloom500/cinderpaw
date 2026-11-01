@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { CinderpawModelConfigView, CinderpawModelSelection } from '@/lib/tauri';
 import { tauri } from '@/lib/tauri';
+import { isChatgptRoute } from '@/lib/localApi';
 
 interface CinderpawStore {
   /** Active model in the sidecar. Null until cinderpaw_get_model_config resolves. */
@@ -42,7 +43,8 @@ interface CinderpawStore {
 
 /** The model in use answers from the internet (a key), not from this machine. */
 export const onCloudModel = (s: Pick<CinderpawStore, 'modelConfig'>): boolean =>
-  !!s.modelConfig?.base_url && !/^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(s.modelConfig.base_url);
+  !!s.modelConfig?.base_url &&
+  (!/^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(s.modelConfig.base_url) || isChatgptRoute(s.modelConfig.base_url));
 
 export const useCinderpawStore = create<CinderpawStore>((set) => ({
   modelConfig: null,

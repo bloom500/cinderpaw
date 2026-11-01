@@ -154,7 +154,10 @@ mod command_count_test {
     // 200 -> 201 = + cinderpaw_cron_op (the Tasks page and the task card, 24 Oct 2026).
     // 201 -> 207 = + allow_video_preview, video_tools_ready, install_video_tools,
     // video_link_info, video_link_preview, video_link_full (videos in the chat, 29-30 Oct 2026).
-    const EXPECTED_COMMAND_COUNT: usize = 207;
+    // 207 -> 211 = + chatgpt_account, chatgpt_sign_in, chatgpt_models, chatgpt_sign_out
+    // (OpenAI Subscription: a ChatGPT plan instead of an API key, 1 Nov 2026).
+    // 211 -> 212 = + provider_models (the model picker lists each provider's models, 1 Nov 2026).
+    const EXPECTED_COMMAND_COUNT: usize = 212;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

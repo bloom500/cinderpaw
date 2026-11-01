@@ -95,6 +95,9 @@ dirs = "5"
 # here uses the same algorithm but a separate chain so a tamper on one side
 # cannot mask a tamper on the other.
 sha2 = "0.10"
+# RS256 check of the ChatGPT sign-in identity (chatgpt_signin). Already in the
+# tree through rustls; named here to call it.
+ring = "0.17"
 # One HMAC-SHA256 signature, for the LiveKit access token. Same authors as
 # sha2 above; the alternative was a whole JWT crate for nine lines.
 hmac = "0.12"

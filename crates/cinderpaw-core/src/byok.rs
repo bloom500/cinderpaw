@@ -218,6 +218,20 @@ impl ByokSettings {
                 default_model: config.default_model.clone(),
             });
         }
+        // Signed in with ChatGPT: its row exists only then, and holds no key
+        // (the token lives in `chatgpt_signin`), so the row itself is the
+        // "connected". Listed like any provider so the picker offers it.
+        if let Some(config) = self.providers.get(crate::chatgpt_signin::PROVIDER_ID) {
+            all.push(ProviderInfo {
+                id: crate::chatgpt_signin::PROVIDER_ID.into(),
+                name: crate::chatgpt_signin::PROVIDER_NAME.into(),
+                provider: Provider::Openai,
+                enabled: config.enabled,
+                has_api_key: true,
+                base_url: None,
+                default_model: config.default_model.clone(),
+            });
+        }
         all
     }
 
@@ -1059,6 +1073,55 @@ pub async fn test_provider(
 /// any trailing `/` from `base`. The provider tests above use it to build
 /// `https://api.example.com/v1/models` from `default_base_url()` outputs
 /// that may or may not include a trailing slash.
+/// The chat models a provider offers this key, as (id, the provider's own name
+/// for it when it gives one), in the provider's order: what the model picker
+/// lists under each provider, so a person picks "Haiku 5.5" instead of typing
+/// an id into Settings (1 Nov, Darius). Anthropic pages its list; one page of
+/// 100 holds every model it has.
+pub async fn list_models(provider_id: &str, api_key: &str, base_url: Option<&str>) -> Result<Vec<(String, Option<String>)>, String> {
+    let provider = Provider::from_id(provider_id);
+    let base = base_url.map(str::to_string).unwrap_or_else(|| default_base_url_for(provider_id));
+    let mut url = url_join(&base, "models");
+    if provider == Provider::Anthropic {
+        url.push_str("?limit=100");
+    }
+    let mut req = reqwest::Client::builder()
+        .user_agent("cinderpaw/0.1")
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?
+        .get(&url)
+        .header(provider.api_key_header(), format!("{}{}", provider.api_key_prefix(), api_key));
+    for (name, value) in provider.extra_headers() {
+        req = req.header(name, value);
+    }
+    let response = req.send().await.map_err(|_| "The provider is not reachable right now. Check that you are online.".to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(match status.as_u16() {
+            401 | 403 => "The provider refused the saved key. Check it in Models > Cloud.".into(),
+            code => format!("The provider could not list its models (HTTP {code})."),
+        });
+    }
+    let body: serde_json::Value = response.json().await.map_err(|_| "The provider sent a list Cinderpaw could not read.".to_string())?;
+    Ok(parse_model_list(&body))
+}
+
+/// `{"data":[{"id", "display_name"|"name"}]}`, chat models only.
+fn parse_model_list(body: &serde_json::Value) -> Vec<(String, Option<String>)> {
+    body["data"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|m| {
+            // Gemini's OpenAI door names them "models/gemini-…"; the chat call takes the bare id.
+            let id = m["id"].as_str()?.trim_start_matches("models/");
+            let name = m["display_name"].as_str().or_else(|| m["name"].as_str()).filter(|n| !n.is_empty() && *n != id);
+            can_chat(id).then(|| (id.to_string(), name.map(str::to_string)))
+        })
+        .collect()
+}
+
 fn url_join(base: &str, path: &str) -> String {
     let base = base.trim_end_matches('/');
     let path = path.trim_start_matches('/');
@@ -1329,6 +1392,21 @@ fn write_metadata(settings: &ByokSettings) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_model_list_keeps_names_and_chat_models_only() {
+        let body = serde_json::json!({ "data": [
+            { "id": "claude-haiku-5-5", "display_name": "Haiku 5.5" },
+            { "id": "anthropic/claude-opus-5.5", "name": "Anthropic: Claude Opus 5.5" },
+            { "id": "models/gemini-3.1-pro" },
+            { "id": "gpt-6-mini:batch" },
+        ] });
+        assert_eq!(parse_model_list(&body), vec![
+            ("claude-haiku-5-5".to_string(), Some("Haiku 5.5".to_string())),
+            ("anthropic/claude-opus-5.5".to_string(), Some("Anthropic: Claude Opus 5.5".to_string())),
+            ("gemini-3.1-pro".to_string(), None),
+        ]);
+    }
 
     #[test]
     fn batch_only_models_are_not_offered_for_chat() {

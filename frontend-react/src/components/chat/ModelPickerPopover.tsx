@@ -1,10 +1,9 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, Cloud, HardDrive, Settings2 } from 'lucide-react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -12,13 +11,12 @@ import { useModel } from '@/stores/model';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { useNotifications } from '@/stores/notifications';
 import { useT } from '@/lib/i18n';
-import { modelLabel, refreshCatalog } from '@/lib/modelCatalog';
+import { refreshCatalog } from '@/lib/modelCatalog';
 import { ModelLogo, modelDisplayName, providerName } from '@/lib/modelLogos';
 import { tauri, type ModelInfo, type ByokProvider } from '@/lib/tauri';
 import { router } from '@/router';
-import { signInWithOpenRouter } from '@/lib/openrouterSignIn';
+import { CHATGPT_ID, MANAGE_USAGE, planFirst, signInWithChatGPT } from '@/lib/chatgptSignIn';
 import { BackendBadge } from '@/components/BackendBadge';
-import { ROLES, resolveRole, roleModelName, sameModel, type Role, type RoleModel } from '@/lib/modelRoles';
 import { cn } from '@/lib/utils';
 import logoUrl from '@/assets/logo.svg';
 import { isLocalEngineUrl, localApiBase } from '@/lib/localApi';
@@ -28,91 +26,39 @@ import { isLocalEngineUrl, localApiBase } from '@/lib/localApi';
 // the model loaded in the Models tab.
 const LOCAL_PROVIDER_ID = 'cinderpaw-local';
 
+/** A provider's models, asked once per session: they change in months, not minutes. */
+type ProviderModel = { id: string; name: string | null };
+const modelsByProvider = new Map<string, ProviderModel[]>();
+
+/** Past this many models a provider page gets a search box (OpenRouter has 300+). */
+const SEARCH_FROM = 12;
+/**
+ * Rows drawn at once. All 320 of OpenRouter's froze the window for 416 ms when
+ * its page opened (dev build, 1 Nov); nobody reads 320 rows, they type a name.
+ */
+const LIST_CAP = 40;
+
 function formatBytes(n: number): string {
   if (n > 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)} GB`;
   if (n > 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`;
   return `${(n / 1024).toFixed(0)} KB`;
 }
 
-/**
- * The four roles. The model's name sits on the role's own line, where there is
- * room for all of it: beside the description it was cut to "Minimax m3.1
- * Flas…" (29 Oct). An empty role opens its choices right here; it used to send
- * the person to the Models page to choose ("ma duce in tabul Models", 29 Oct).
- */
-function RoleRows({ roles, active, firstLocal, candidates, onPick }: {
-  roles: Partial<Record<Role, RoleModel>>;
-  active: RoleModel | null;
-  firstLocal: RoleModel | null;
-  candidates: RoleModel[];
-  onPick: (m: RoleModel) => void;
-}) {
-  const [choosing, setChoosing] = useState<Role | null>(null);
-  return (
-    <>
-      {ROLES.map((r) => {
-        const m = resolveRole(r.id, roles, active, firstLocal);
-        const on = !!m && sameModel(m, active);
-        const options = r.id === 'local' ? candidates.filter((c) => c.kind === 'local') : candidates;
-        return (
-          <Fragment key={r.id}>
-            <DropdownMenuItem
-              // A role with no model does nothing when pressed; its own button
-              // opens the choices. Leaving the chat is a decision (22 Sep).
-              onSelect={(e) => { if (!m) e.preventDefault(); }}
-              onClick={() => { if (m) onPick(m); }}
-              className={cn(
-                'mb-0.5 flex items-start gap-2.5 rounded-xl border px-2.5 py-2',
-                on ? 'border-brand/50 bg-bg-active' : 'border-transparent',
-              )}
-            >
-              {/* A plain mark on the name's line, not a 36 px tile: the tiles
-                  made four rows read as four cards. */}
-              <r.icon size={16} className="mt-0.5 shrink-0 text-brand" />
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2">
-                  <span className="shrink-0 text-sm font-semibold text-text-primary">{r.label}</span>
-                  {m ? (
-                    <span className="ml-auto min-w-0 truncate rounded-full bg-bg-active px-2 py-0.5 text-2xs font-medium text-brand" title={roleModelName(m)}>
-                      {m.kind === 'cloud' ? modelDisplayName(m.modelId) : m.name}
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      aria-expanded={choosing === r.id}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        // Nothing here to choose from: then the Models page is the only way on.
-                        if (options.length === 0) { void router.navigate(r.id === 'local' ? '/models' : '/models?tab=roles'); return; }
-                        setChoosing((c) => (c === r.id ? null : r.id));
-                      }}
-                      className="ml-auto shrink-0 rounded-full border border-border-default px-2 py-0.5 text-2xs text-brand hover:bg-text-primary/5"
-                    >
-                      {r.id === 'local' && options.length === 0 ? 'Download a model' : 'Choose a model'}
-                    </button>
-                  )}
-                </span>
-                <span className="block text-xs text-text-muted">{r.line}</span>
-              </span>
-              {on && <Check size={16} className="shrink-0 text-brand" />}
-            </DropdownMenuItem>
-            {choosing === r.id && options.map((c) => (
-              <DropdownMenuItem
-                key={c.kind === 'cloud' ? `${c.providerId}/${c.modelId}` : c.path || c.name}
-                onClick={() => { useModel.getState().setRole(r.id, c); onPick(c); }}
-                className="mb-1 ml-12 flex flex-col items-start gap-0.5 rounded-lg"
-              >
-                <span className="text-sm text-text-primary">{c.kind === 'cloud' ? modelDisplayName(c.modelId) : c.name}</span>
-                <span className="text-xs text-text-muted">{c.kind === 'cloud' ? c.providerName : 'On this computer'}</span>
-              </DropdownMenuItem>
-            ))}
-          </Fragment>
-        );
-      })}
-    </>
-  );
-}
+const modelName = (m: ProviderModel) => (m.name ? m.name.replace(/^[^:]{1,40}:\s+/, '') : modelDisplayName(m.id));
 
+/** A model's name as its provider writes it ("GPT 6.1 Sol"), once its list is in; else one made from the id. */
+const nameFor = (providerId: string | undefined, modelId: string) => {
+  const m = providerId ? modelsByProvider.get(providerId)?.find((x) => x.id === modelId) : undefined;
+  return m ? modelName(m) : modelDisplayName(modelId);
+};
+
+/**
+ * The model picker, option B of the 1 Nov mockups (his pick): Cloud or this
+ * computer, then a provider, then its models by name. Before, each provider
+ * showed only its default model, and any other one had to be typed as an id in
+ * Models > Roles. Roles and effort stay where they are (Roles and settings;
+ * the effort button), so this only answers "which model answers me".
+ */
 export function ModelPickerPopover() {
   const loaded        = useModel((s) => s.loaded);
   const isLoading     = useModel((s) => s.isLoading);
@@ -130,6 +76,14 @@ export function ModelPickerPopover() {
   const [cloudProviders, setCloudProviders] = useState<ByokProvider[]>([]);
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  // Where the picker stands: a side, and on the cloud side maybe one provider's page.
+  const [side, setSide] = useState<'cloud' | 'local'>('cloud');
+  const [page, setPage] = useState<string | null>(null);
+  const [models, setModels] = useState<ProviderModel[] | null>(null);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  // A provider's list arriving redraws the names that come from it.
+  const [, listsIn] = useState(0);
 
   /**
    * Every provider that HAS a key, enabled or not.
@@ -144,7 +98,7 @@ export function ModelPickerPopover() {
   const refreshCloud = () =>
     tauri.raw
       .getByokSettings()
-      .then((providers) => setCloudProviders(providers.filter((p) => p.has_api_key)))
+      .then((providers) => setCloudProviders(planFirst(providers.filter((p) => p.has_api_key))))
       .catch(() => {});
 
   // Once at mount as well as on every open. Asked only on open, the trigger
@@ -156,8 +110,15 @@ export function ModelPickerPopover() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, at mount
   }, []);
 
+  const onLocal = !!cinderpawConfig && (cinderpawConfig.provider === LOCAL_PROVIDER_ID || isLocalEngineUrl(cinderpawConfig.base_url));
+
   useEffect(() => {
     if (!open) return;
+    // It opens on the side of the model answering now, at the top level; with
+    // none chosen yet, on the side that has something to pick.
+    const noneChosen = !cinderpawConfig?.model;
+    setSide(onLocal || (noneChosen && cloudProviders.length === 0 && localModels.length > 0) ? 'local' : 'cloud');
+    setPage(null);
       // Embedding models are on disk but cannot hold a conversation, and
       // `bge-m3` sorts before every chat model on a normal install, so it was
       // the first row here and menus focus their first row on open. Opening the
@@ -169,13 +130,40 @@ export function ModelPickerPopover() {
       .list()
       .then((all) => setLocalModels(all.filter((m) => !m.is_embedding)))
       .catch(() => {});
-    void refreshCloud();
+    // Each switched-on provider's list, once a session: the rows then say each
+    // model as its provider names it, the same on every row and on the button.
+    void tauri.raw
+      .getByokSettings()
+      .then((providers) => {
+        setCloudProviders(planFirst(providers.filter((p) => p.has_api_key)));
+        for (const p of providers) {
+          if (!p.has_api_key || !p.enabled || modelsByProvider.has(p.id)) continue;
+          void tauri.raw.providerModels(p.id).then((list) => { modelsByProvider.set(p.id, list); listsIn((n) => n + 1); }).catch(() => {});
+        }
+      })
+      .catch(() => {});
     // Names for cloud models come from the published catalogue, cached for a
     // day. Asked when the picker opens rather than at startup, so a local-only
     // install still never calls out.
     void refreshCatalog();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshCloud is stable enough; open is the trigger
   }, [open]);
+
+  const openProvider = (id: string) => {
+    setPage(id);
+    setQuery('');
+    setModelsError(null);
+    const known = modelsByProvider.get(id);
+    setModels(known ?? null);
+    if (known) return;
+    void tauri.raw
+      .providerModels(id)
+      .then((list) => {
+        modelsByProvider.set(id, list);
+        setModels(list);
+      })
+      .catch((e) => setModelsError(String(e)));
+  };
 
   /**
    * Turn a provider on AND select it — one click, because that is what clicking it
@@ -190,9 +178,11 @@ export function ModelPickerPopover() {
     await tauri.raw.saveByokProvider(p.id, true, '');
     await refreshCloud();
     const modelId = p.default_model ?? '';
-    // No default model to route to: the row now renders the "set one in Settings"
-    // hint, so leave the menu open on it rather than closing on a no-op.
-    if (!modelId) return;
+    // No default model to route to: its page lists them to choose from.
+    if (!modelId) {
+      openProvider(p.id);
+      return;
+    }
     await selectCloudAgent(p.id, modelId);
     setOpen(false);
   };
@@ -232,6 +222,12 @@ export function ModelPickerPopover() {
     }
   };
 
+  const chatgptSignIn = () => {
+    void signInWithChatGPT()
+      .then(() => refreshCloud())
+      .catch((err) => useNotifications.getState().push('error', 'ChatGPT sign-in did not finish', String(err)));
+  };
+
   const hasLocal = localModels.length > 0;
   const hasCloud = cloudProviders.length > 0;
 
@@ -250,7 +246,7 @@ export function ModelPickerPopover() {
   // the model they already had.
   const unpinnedLabel = cinderpawStarting ? 'Starting…' : hasLocal || hasCloud ? t('model.automatic') : t('model.add');
 
-  // The model shown with its maker's mark, and the route only in the tooltip.
+  // The model shown with its maker's mark, and where it runs beside it.
   // It read "openrouter · meta/muse-spark-1.3-contributor": two ids and a dot.
   let shown: { modelId: string; provider: string } | null = null;
   if (!cinderpawSwitching && !isLoading && cinderpawConfig?.model) {
@@ -261,150 +257,33 @@ export function ModelPickerPopover() {
     : isLoading
       ? `Loading ${progress?.percentage.toFixed(0) ?? 0}%`
       : shown
-        ? modelDisplayName(shown.modelId)
+        ? nameFor(onLocal ? undefined : shown.provider, shown.modelId)
         : loaded?.name ?? unpinnedLabel;
-  const route = shown ? providerName(shown.provider) : '';
+  const route = shown ? (onLocal ? 'This computer' : providerName(shown.provider)) : '';
 
-  const roles = useModel((s) => s.roles);
-  const [showAll, setShowAll] = useState(false);
-  // The model answering now, in the roles' terms: the check mark, and
-  // Primary's default until one is chosen (lib/modelRoles.ts).
-  const active: RoleModel | null = cinderpawConfig?.model
-    ? cinderpawConfig.provider === LOCAL_PROVIDER_ID || isLocalEngineUrl(cinderpawConfig.base_url)
-      ? { kind: 'local', path: '', name: cinderpawConfig.model }
-      : { kind: 'cloud', providerId: cinderpawConfig.provider, providerName: providerName(cinderpawConfig.provider), modelId: cinderpawConfig.model }
-    : null;
-  const firstLocal: RoleModel | null = localModels[0] ? { kind: 'local', path: localModels[0].path, name: localModels[0].name } : null;
-  /** Switch to a role's model, the same way picking it from the list does. */
-  const pick = (m: RoleModel) => {
-    if (m.kind === 'cloud') {
-      void selectCloudAgent(m.providerId, m.modelId);
-      return;
-    }
-    const info = localModels.find((x) => x.path === m.path || x.name === m.name);
-    if (!info) {
-      useNotifications.getState().push('error', 'That model is not on this computer any more', `${m.name} was chosen for a role. Pick another one in Models.`);
-      return;
-    }
-    void selectLocalAgent(info);
-  };
-  // What an empty role can take without leaving the chat: the model answering
-  // now, any role's model, each switched-on provider's default and every model
-  // on this computer. A model this list does not know needs its id typed, in
-  // Models > Roles ("Manage models").
-  const candidates: RoleModel[] = [];
-  const offer = (m: RoleModel | null | undefined) => { if (m && !candidates.some((c) => sameModel(c, m))) candidates.push(m); };
-  offer(active);
-  Object.values(roles).forEach(offer);
-  for (const p of cloudProviders) {
-    if (p.enabled && p.default_model) offer({ kind: 'cloud', providerId: p.id, providerName: p.name, modelId: p.default_model });
-  }
-  for (const m of localModels) offer({ kind: 'local', path: m.path, name: m.name });
-  // Every model, as the picker listed them before roles: behind "All models".
-  const allModels = (
-    <>
-        {hasLocal && (
-          <>
-            <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-text-muted">
-              <HardDrive size={12} /> Local
-            </DropdownMenuLabel>
-            {localModels.map((m) => (
-              <DropdownMenuItem
-                key={m.path}
-                onClick={() => void selectLocalAgent(m)}
-                className="flex flex-col items-start gap-0.5"
-              >
-                <span className="text-text-primary">{m.name}</span>
-                <span className="text-xs text-text-muted">{formatBytes(m.size_bytes)}</span>
-              </DropdownMenuItem>
-            ))}
-          </>
-        )}
-        {hasCloud && (
-          <>
-            {hasLocal && <DropdownMenuSeparator />}
-            <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-text-muted">
-              <Cloud size={12} /> Cloud
-            </DropdownMenuLabel>
-            {cloudProviders.map((p) => {
-              const modelId = p.default_model ?? '';
-              // A key is stored but the provider is switched off. Selecting it
-              // would silently do nothing, so the row turns it on instead — one
-              // click, in the place the user is already looking.
-              if (!p.enabled) {
-                return (
-                  <DropdownMenuItem
-                    key={p.id}
-                    onSelect={(e) => {
-                      e.preventDefault(); // keep the menu open so the row updates in place
-                      void enableProvider(p);
-                    }}
-                    className="flex flex-col items-start gap-0.5"
-                  >
-                    <span className="flex items-center gap-1.5 text-text-secondary">
-                      {p.name}
-                      <span className="rounded bg-warning/15 px-1.5 py-0.5 text-micro text-warning">
-                        off
-                      </span>
-                    </span>
-                    <span className="text-xs text-text-muted">
-                      Key saved · click to turn this provider on
-                    </span>
-                  </DropdownMenuItem>
-                );
-              }
-              return (
-                <DropdownMenuItem
-                  key={p.id}
-                  // Not `disabled`: a disabled row is drawn at half opacity, and
-                  // the one line on it is an instruction ("set a default model in
-                  // Cloud Keys") that measured 2.7:1 in the light theme (20 Sep).
-                  //
-                  // The row used to PERFORM that instruction, which threw the
-                  // person out of the picker and into Settings on a plain click:
-                  // "I press the model selector and the app takes me to Cloud
-                  // Keys", twice in a row, in the middle of something else (22
-                  // Sep). Leaving is a decision, so it needs its own button (the
-                  // arrow below); a row with no model now just says so.
-                  onSelect={(e) => { if (!modelId) e.preventDefault(); }}
-                  onClick={() => {
-                    if (!modelId) return;
-                    void selectCloudAgent(p.id, modelId);
-                  }}
-                  className="flex flex-col items-start gap-0.5"
-                >
-                  <span className="text-text-primary">{p.name}</span>
-                  {modelId ? (
-                    <span className="text-xs text-text-muted">{modelLabel(modelId)}</span>
-                  ) : (
-                    // The way out, asked for rather than taken on the person's
-                    // behalf. `stopPropagation` so pressing the row itself still
-                    // does nothing: only this button leaves the conversation.
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); void router.navigate('/models?tab=cloud'); }}
-                      className="text-xs text-brand underline-offset-2 hover:underline"
-                    >
-                      No default model · choose one in Models → Cloud
-                    </button>
-                  )}
-                </DropdownMenuItem>
-              );
-            })}
-          </>
-        )}
-    </>
-  );
+  const isActive = (providerId: string, modelId: string) =>
+    !onLocal && cinderpawConfig?.provider === providerId && cinderpawConfig?.model === modelId;
+  const pageProvider = page ? cloudProviders.find((p) => p.id === page) ?? null : null;
+  const needle = query.trim().toLowerCase();
+  const matching = (models ?? []).filter((m) => !needle || m.id.toLowerCase().includes(needle) || modelName(m).toLowerCase().includes(needle));
+  const capped = matching.slice(0, LIST_CAP);
+  // The model in use is always on the page, even when it sorts past the cap.
+  const activeHere = page ? matching.find((m) => isActive(page, m.id)) : undefined;
+  const shownModels = activeHere && !capped.includes(activeHere) ? [activeHere, ...capped.slice(0, LIST_CAP - 1)] : capped;
+  const unshown = matching.length - shownModels.length;
 
   // The button's face, drawn twice: as the trigger, and as the island's last row.
+  // Where it runs rides beside the name: "GPT 6.1 Sol · ChatGPT plan" says the
+  // plan is being spent, as OpenAI asks of apps that use it.
   const face = (
     <>
       {shown && <ModelLogo modelId={shown.modelId} provider={shown.provider} />}
       <span className="truncate max-w-[150px]">{label}</span>
+      {route && <span className="hidden max-w-[110px] shrink truncate text-text-muted sm:inline">{route}</span>}
       {/* Only meaningful when the agent answers on the local engine; a
           GGUF left resident behind a cloud model is not where the answer
           comes from. */}
-      {active?.kind === 'local' && !isLoading && <BackendBadge />}
+      {onLocal && !isLoading && <BackendBadge />}
     </>
   );
 
@@ -413,6 +292,165 @@ export function ModelPickerPopover() {
   // render forced a layout of the whole page each time the chat redrew (150 ms
   // when a chat opened, production build, 30 Oct).
   const triggerHeight = open ? (triggerRef.current?.offsetHeight ?? 32) : 32;
+
+  // The search box keeps its letters: a menu jumps to the row starting with
+  // each letter typed, which took the cursor out of the box. Escape still closes.
+  const keepKeys = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Escape') e.stopPropagation();
+  };
+
+  const check = <Check size={16} aria-label="In use" className="shrink-0 text-text-primary" />;
+
+  const cloudRoot = !hasCloud ? (
+    <div className="space-y-3 px-2 py-2">
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-text-primary">No cloud models yet</p>
+        <p className="text-sm text-text-muted">Already pay for ChatGPT? Use that plan here, no key needed. Or add a key from Anthropic, OpenRouter and others.</p>
+      </div>
+      <DropdownMenuItem onSelect={chatgptSignIn} className="justify-center rounded-lg bg-brand py-2 text-sm font-medium text-on-brand focus:bg-brand/90">
+        Continue with ChatGPT
+      </DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => { void router.navigate('/models?tab=cloud'); }} className="justify-center rounded-lg border border-border-default py-2 text-sm">
+        Add an API key
+      </DropdownMenuItem>
+    </div>
+  ) : (
+    cloudProviders.map((p) => {
+      const inUse = !onLocal && cinderpawConfig?.provider === p.id;
+      const line = !p.enabled
+        ? 'Key saved, turned off. Click to turn it on'
+        : inUse && cinderpawConfig?.model
+          ? `${nameFor(p.id, cinderpawConfig.model)}, in use`
+          : p.default_model
+            ? nameFor(p.id, p.default_model)
+            : 'Choose a model';
+      return (
+        <DropdownMenuItem
+          key={p.id}
+          // Stays open: the row leads to its page, or turns the provider on.
+          onSelect={(e) => {
+            e.preventDefault();
+            if (p.enabled) openProvider(p.id);
+            else void enableProvider(p);
+          }}
+          className={cn('flex items-center gap-3 rounded-xl px-2.5 py-2', inUse && 'bg-bg-active')}
+        >
+          <ModelLogo modelId={p.default_model ?? undefined} provider={p.id === CHATGPT_ID ? 'openai' : p.id} className="size-5" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium text-text-primary">{p.name}</span>
+            <span className="block truncate text-xs text-text-muted">{line}</span>
+          </span>
+          <ChevronRight size={16} className="shrink-0 text-text-muted" />
+        </DropdownMenuItem>
+      );
+    })
+  );
+
+  const providerPage = pageProvider && (
+    <>
+      <div className="flex items-center gap-1 px-1 pb-1">
+        <button
+          type="button"
+          onClick={() => setPage(null)}
+          className="inline-flex h-8 items-center gap-0.5 rounded-lg pl-1 pr-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+        >
+          <ChevronLeft size={16} /> Cloud
+        </button>
+        <span className="flex-1 truncate pr-16 text-center text-sm font-semibold text-text-primary">{pageProvider.name}</span>
+      </div>
+      <p className="px-2.5 pb-1 text-xs text-text-muted">
+        {pageProvider.id === CHATGPT_ID ? (
+          <>
+            Using your ChatGPT plan, no extra bill.{' '}
+            <a href={MANAGE_USAGE} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-text-primary">Manage usage</a>
+          </>
+        ) : (
+          'Your API key, paid per use.'
+        )}
+      </p>
+      {(models?.length ?? 0) > SEARCH_FROM && (
+        <label className="mx-1 mb-1 flex h-8 items-center gap-2 rounded-lg border border-border-default px-2 text-sm text-text-muted">
+          <Search size={14} className="shrink-0" />
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={keepKeys}
+            placeholder={`Search ${models?.length ?? ''} models`}
+            aria-label="Search models"
+            className="min-w-0 flex-1 bg-transparent text-text-primary placeholder:text-text-muted focus:outline-hidden"
+          />
+        </label>
+      )}
+      {modelsError ? (
+        <div className="space-y-2 px-2.5 py-2">
+          <p className="text-sm text-error">{modelsError}</p>
+          <button type="button" onClick={() => openProvider(pageProvider.id)} className="text-sm text-text-secondary underline underline-offset-2 hover:text-text-primary">
+            Try again
+          </button>
+        </div>
+      ) : models === null ? (
+        <p className="px-2.5 py-3 text-sm text-text-muted">Getting {pageProvider.name}&apos;s models…</p>
+      ) : shownModels.length === 0 ? (
+        <p className="px-2.5 py-3 text-sm text-text-muted">{needle ? 'No model by that name.' : 'This provider lists no chat models for this key.'}</p>
+      ) : (
+        shownModels.map((m) => {
+          const on = isActive(pageProvider.id, m.id);
+          return (
+            <DropdownMenuItem
+              key={m.id}
+              onClick={() => void selectCloudAgent(pageProvider.id, m.id)}
+              title={m.id}
+              className={cn('flex min-h-11 items-center gap-3 rounded-xl px-2.5 py-2', on && 'bg-bg-active')}
+            >
+              <span className="min-w-0 flex-1 truncate text-sm text-text-primary">{modelName(m)}</span>
+              {on && check}
+            </DropdownMenuItem>
+          );
+        })
+      )}
+      {unshown > 0 && (
+        <p className="px-2.5 py-2 text-xs text-text-muted">
+          {needle ? `${unshown} more match. Type more of the name.` : `${unshown} more. Type a name to find one.`}
+        </p>
+      )}
+    </>
+  );
+
+  const localSide = hasLocal ? (
+    <>
+      <p className="px-2.5 pb-1 text-xs text-text-muted">Private: nothing leaves this computer.</p>
+      {localModels.map((m) => {
+        const on = onLocal && cinderpawConfig?.model === m.name;
+        return (
+          <DropdownMenuItem
+            key={m.path}
+            onClick={() => void selectLocalAgent(m)}
+            className={cn('flex items-center gap-3 rounded-xl px-2.5 py-2', on && 'bg-bg-active')}
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm text-text-primary">{m.name}</span>
+              <span className="block text-xs text-text-muted">{formatBytes(m.size_bytes)}</span>
+            </span>
+            {on && check}
+          </DropdownMenuItem>
+        );
+      })}
+      <DropdownMenuItem onSelect={() => { void router.navigate('/models'); }} className="px-2.5 text-sm text-text-secondary">
+        Get more models
+      </DropdownMenuItem>
+    </>
+  ) : (
+    <div className="space-y-3 px-2 py-2">
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-text-primary">Nothing downloaded yet</p>
+        <p className="text-sm text-text-muted">A model on this computer answers with no internet and keeps everything private.</p>
+      </div>
+      <DropdownMenuItem onSelect={() => { void router.navigate('/models'); }} className="justify-center rounded-lg border border-border-default py-2 text-sm">
+        Download a model
+      </DropdownMenuItem>
+    </div>
+  );
 
   return (
     // Controlled: the island's last row closes it, and so does enabling a provider.
@@ -423,7 +461,7 @@ export function ModelPickerPopover() {
           // text-secondary, not muted: this is the name of the model that will answer,
           // and muted on the light typing bar read as a placeholder (20 Sep).
           className="flex min-w-0 items-center gap-1.5 h-full pl-2.5 pr-2 text-xs text-text-secondary hover:text-text-primary transition-colors outline-hidden"
-          title={shown ? `${label} · via ${route}` : undefined}
+          title={shown ? `${label} · ${route}` : undefined}
         >
           {face}
           <ChevronDown size={12} className="shrink-0 opacity-50" />
@@ -464,53 +502,39 @@ export function ModelPickerPopover() {
         align="start"
         sideOffset={-triggerHeight}
         collisionPadding={12}
-        // 22rem again since 29 Oct: at 22 the roles' lines once ended in "…"
-        // ("Balanced for most t…", 28 Oct) because the model's name sat beside
-        // them; it sits on the role's own line now, so every line has the width.
         className="model-island relative w-[22rem] overflow-visible rounded-3xl p-0"
       >
-        {/* The Model Switcher (spec 8): roles first, the head peeking over the
-            top edge. Not clipped: the scroll lives on the inner box. */}
         <img src={logoUrl} alt="" className="pointer-events-none absolute -top-9 right-6 h-12 w-12" />
         <div className="model-island-body max-h-[min(55vh,30rem)] overflow-y-auto thin-scrollbar p-2">
-        {/* Named for screen readers only: on screen the button it grows out of
-            already says what this is, and the title and subtitle cost the list
-            ~50 px of height (his "prea mare", 29 Oct). */}
-        <p className="sr-only">Model Switcher</p>
-        <RoleRows roles={roles} active={active} firstLocal={firstLocal} candidates={candidates} onPick={pick} />
-        <DropdownMenuSeparator />
-        {!hasLocal && !hasCloud ? (
-          <>
-            <DropdownMenuItem
-              onSelect={() => { void signInWithOpenRouter().then((ok) => { if (ok) void refreshCloud(); }); }}
-            >
-              <Cloud size={14} className="mr-2 shrink-0 text-brand" />
-              Sign in with OpenRouter
+          <p className="sr-only">Model Switcher</p>
+          {/* Cloud or this computer: two places a model answers from, one at a time. */}
+          <div role="tablist" aria-label="Where the model runs" className="mb-2 grid grid-cols-2 gap-0.5 rounded-xl bg-bg-primary p-0.5">
+            {(['cloud', 'local'] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                role="tab"
+                aria-selected={side === s}
+                onClick={() => { setSide(s); setPage(null); }}
+                className={cn(
+                  'h-8 rounded-[10px] text-sm font-medium transition-colors',
+                  side === s ? 'bg-bg-active text-text-primary' : 'text-text-muted hover:text-text-primary',
+                )}
+              >
+                {s === 'cloud' ? 'Cloud' : 'On this computer'}
+              </button>
+            ))}
+          </div>
+          {side === 'local' ? localSide : providerPage ?? cloudRoot}
+          <DropdownMenuSeparator />
+          <div className="flex items-center justify-between">
+            <DropdownMenuItem onSelect={() => { void router.navigate('/models?tab=cloud'); }} className="text-sm text-text-secondary">
+              Add a provider
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => { void router.navigate('/models'); }}>
-              <HardDrive size={14} className="mr-2 shrink-0" />
-              Download a model to this computer
+            <DropdownMenuItem onSelect={() => { void router.navigate('/models?tab=roles'); }} className="text-sm text-text-secondary">
+              Roles and settings
             </DropdownMenuItem>
-          </>
-        ) : (
-          <DropdownMenuItem
-            onSelect={(e) => { e.preventDefault(); setShowAll((v) => !v); }}
-            aria-expanded={showAll}
-            className="flex items-center gap-2 text-sm text-text-secondary"
-          >
-            <ChevronDown size={14} className={cn('shrink-0 transition-transform', showAll && 'rotate-180')} />
-            All models
-          </DropdownMenuItem>
-        )}
-        {showAll && allModels}
-        <DropdownMenuItem
-          onSelect={() => { void router.navigate('/models?tab=roles'); }}
-          className="flex items-center gap-2 text-sm text-text-secondary"
-        >
-          <Settings2 size={14} className="shrink-0" />
-          <span className="flex-1">Manage models</span>
-          <ChevronRight size={14} className="shrink-0 opacity-60" />
-        </DropdownMenuItem>
+          </div>
         </div>
         {/* Out of the Tab order like the rows (a menu moves by arrows); Escape
             closes it from the keyboard. */}

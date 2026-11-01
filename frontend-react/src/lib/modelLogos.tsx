@@ -32,7 +32,7 @@ const ROUTE_NAMES: Record<string, string> = {
   openrouter: 'OpenRouter', ollama: 'Ollama', lmstudio: 'LM Studio', groq: 'Groq',
   together: 'Together AI', fireworks: 'Fireworks', deepinfra: 'DeepInfra', anthropic: 'Anthropic',
   openai: 'OpenAI', google: 'Google', mistral: 'Mistral', azure: 'Azure', bedrock: 'Bedrock',
-  local: 'this computer',
+  local: 'this computer', 'cinderpaw-local': 'This computer', chatgpt: 'ChatGPT plan',
 };
 
 /** The maker segment of a model id ("meta/muse-spark" gives "meta"), else the provider. */

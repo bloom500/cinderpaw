@@ -6,7 +6,8 @@ import { SelectMenu } from '@/components/ui/select-menu';
 import { BTN_PRIMARY, CARD, MakerTile, Pill, SectionHeader, Status, type Maker } from '@/components/models/ui';
 import { useSettings, type ByokProviderUpdate } from '@/stores/settings';
 import { useCatalog } from '@/stores/catalog';
-import type { ByokProvider } from '@/lib/tauri';
+import { tauri, type ByokProvider } from '@/lib/tauri';
+import { CHATGPT_ID, MANAGE_USAGE, planFirst, signInWithChatGPT } from '@/lib/chatgptSignIn';
 import chutesMark from '@/assets/brands/chutes.png';
 import gmiMark from '@/assets/brands/gmi.png';
 import { BASE, FAST } from '@/lib/motion';
@@ -190,55 +191,67 @@ function ProviderCard({ def, state, open, onToggle }: { def: ProviderDef; state?
   const configured = !!state?.has_api_key;
   const blurb = PROVIDER_BLURB[def.id];
 
+  // The card stays where it is and its settings open on a row of their own
+  // right under it (1 Nov, Darius: "repara animatiile"). Before, the open card
+  // took a whole row: one click moved six cards, the clicked one jumped to the
+  // next row, and the `layout` scale squashed its logo to 74x18 on the way.
+  // In the dense grid the cards after it fill the rest of its row again, so
+  // only the rows below move, and only down.
   return (
-    <motion.article
-      layout
-      transition={{ layout: BASE }}
-      className={cn(CARD, 'overflow-hidden transition-shadow hover:shadow-md', open && 'md:col-span-2 lg:col-span-full shadow-md ring-1 ring-brand/15')}
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className="block w-full p-5 text-left"
+    <>
+      <article
+        className={cn(CARD, 'mb-4 overflow-hidden transition-shadow hover:shadow-md', open && 'shadow-md ring-1 ring-brand/30')}
       >
-        <span className="flex items-center gap-4">
-          <ProviderMark def={def} />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-lg font-semibold text-text-primary">{def.name}</span>
-            {configured
-              ? (isActive ? <Status tone="success">Connected</Status> : <Status tone="neutral">Turned off</Status>)
-              : <span className="text-xs text-text-muted">Not configured</span>}
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          aria-controls={`byok-${def.id}`}
+          className="block w-full p-5 text-left"
+        >
+          <span className="flex items-center gap-4">
+            <ProviderMark def={def} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-lg font-semibold text-text-primary">{def.name}</span>
+              {configured
+                ? (isActive ? <Status tone="success">Connected</Status> : <Status tone="neutral">Turned off</Status>)
+                : <span className="text-xs text-text-muted">Not configured</span>}
+            </span>
+            <span className="flex shrink-0 items-center gap-2">
+              {configured && <Pill tone="success" dot>API key added</Pill>}
+              <motion.span animate={{ rotate: open ? 180 : 0 }} transition={FAST} className="inline-flex text-text-muted">
+                <ChevronDown size={16} />
+              </motion.span>
+            </span>
           </span>
-          <span className="flex shrink-0 items-center gap-2">
-            {configured && <Pill tone="success" dot>API key added</Pill>}
-            <motion.span animate={{ rotate: open ? 180 : 0 }} transition={FAST} className="inline-flex text-text-muted">
-              <ChevronDown size={16} />
-            </motion.span>
-          </span>
-        </span>
-        {blurb && <span className="mt-3 block text-sm text-text-secondary">{blurb}</span>}
-      </button>
+          {blurb && <span className="mt-3 block text-sm text-text-secondary">{blurb}</span>}
+        </button>
 
-      {configured && !open && (
-        <div className="-mt-1 px-5 pb-5">
-          <p className="text-micro font-medium uppercase tracking-wider text-text-muted">Default model</p>
-          <p className="mt-1 truncate rounded-xl border border-border-subtle bg-bg-elevated/60 px-3 py-2 text-sm text-text-primary">
-            {state?.default_model || 'The provider\u2019s default'}
-          </p>
-        </div>
-      )}
+        {configured && (
+          <div className="-mt-1 px-5 pb-5">
+            <p className="text-micro font-medium uppercase tracking-wider text-text-muted">Default model</p>
+            <p className="mt-1 truncate rounded-xl border border-border-subtle bg-bg-elevated/60 px-3 py-2 text-sm text-text-primary">
+              {state?.default_model || 'The provider\u2019s default'}
+            </p>
+          </div>
+        )}
+      </article>
 
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
+            id={`byok-${def.id}`}
+            role="region"
+            aria-label={`${def.name} settings`}
+            // Rows are spaced by margins, not the grid gap: a gap cannot be animated,
+            // so a new row jumped 16 px. This margin grows with the height instead.
+            initial={{ height: 0, opacity: 0, marginBottom: 0 }}
+            animate={{ height: 'auto', opacity: 1, marginBottom: 16 }}
+            exit={{ height: 0, opacity: 0, marginBottom: 0 }}
             transition={BASE}
-            className="overflow-hidden"
+            className="col-span-full overflow-hidden"
           >
-            <div className="grid gap-5 border-t border-border-subtle bg-bg-elevated/40 p-5 md:grid-cols-2">
+            <div className={cn(CARD, 'grid gap-5 bg-bg-elevated/40 p-5 md:grid-cols-2')}>
               <div className="space-y-4">
                 <div className="flex items-center justify-between rounded-xl border border-border-subtle bg-bg-surface px-3 py-2.5">
                   <div>
@@ -350,7 +363,108 @@ function ProviderCard({ def, state, open, onToggle }: { def: ProviderDef; state?
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.article>
+    </>
+  );
+}
+
+/**
+ * OpenAI Subscription: a ChatGPT plan instead of an API key (1 Nov, Darius).
+ * Plenty of people pay for ChatGPT and have never opened the API platform; one
+ * sign-in in the browser and Cinderpaw's answers count against that plan. The
+ * host keeps the token; this card only signs in, picks the model, signs out.
+ */
+function ChatgptCard({ state, onUseKey }: { state?: ByokProvider; onUseKey?: () => void }) {
+  const fetchByok = useSettings((s) => s.fetchByok);
+  const saveByokProvider = useSettings((s) => s.saveByokProvider);
+  const [account, setAccount] = useState<{ email: string | null; name: string | null } | null>(null);
+  const [models, setModels] = useState<{ id: string; name: string | null }[]>([]);
+  const [busy, setBusy] = useState<'in' | 'out' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const connected = !!state;
+
+  useEffect(() => {
+    if (!connected) return;
+    void tauri.raw.chatgptAccount().then(setAccount).catch(() => {});
+    void tauri.raw.chatgptModels().then(setModels).catch((e) => setError(String(e)));
+  }, [connected]);
+
+  const signIn = async () => {
+    setBusy('in');
+    setError(null);
+    try {
+      await signInWithChatGPT();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const signOut = async () => {
+    setBusy('out');
+    setError(null);
+    try {
+      await tauri.raw.chatgptSignOut();
+    } catch (e) {
+      // Signed out here; OpenAI could not confirm, and the reason says where to finish.
+      setError(String(e));
+    } finally {
+      await fetchByok();
+      setAccount(null);
+      setBusy(null);
+    }
+  };
+
+  const who = account?.email ?? account?.name;
+  return (
+    <article className={cn(CARD, 'mb-4 p-5', connected && 'shadow-md')}>
+      <div className="flex items-center gap-4">
+        <MakerTile maker={PROVIDER_MARK.openai ?? null} fallback="OpenAI" className="rounded-full" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-lg font-semibold text-text-primary">OpenAI Subscription</p>
+          {connected
+            ? <Status tone="success">{who ? `Signed in as ${who}` : 'Connected'}</Status>
+            : <span className="text-xs text-text-muted">Not connected</span>}
+        </div>
+        {connected && <Pill tone="success" dot>Using your ChatGPT plan</Pill>}
+      </div>
+      <p className="mt-3 text-sm text-text-secondary">
+        {connected
+          ? 'Answers count against your ChatGPT plan, not a separate bill.'
+          : 'Use your ChatGPT plan (Go, Plus or Pro). No API key, no separate bill.'}
+      </p>
+      {connected ? (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {models.length > 0 && (
+            <SelectMenu
+              value={state?.default_model ?? models[0]!.id}
+              onChange={(m) => void saveByokProvider({ providerId: CHATGPT_ID, enabled: true, apiKey: '', baseUrl: null, defaultModel: m })}
+              ariaLabel="Model"
+              className="min-w-48"
+              options={models.map((m) => ({ value: m.id, label: m.name ?? m.id }))}
+            />
+          )}
+          <a href={MANAGE_USAGE} target="_blank" rel="noreferrer" className={SECONDARY_BUTTON}>Manage usage</a>
+          <button type="button" onClick={() => void signOut()} disabled={busy !== null} className={cn(SECONDARY_BUTTON, 'hover:text-error')}>
+            {busy === 'out' ? 'Signing out…' : 'Sign out'}
+          </button>
+        </div>
+      ) : (
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button type="button" onClick={() => void signIn()} disabled={busy !== null} className={BTN_PRIMARY}>
+            {busy === 'in' ? 'Finish in your browser…' : 'Continue with ChatGPT'}
+          </button>
+          {busy === 'in' ? (
+            <span className="text-xs text-text-muted">A ChatGPT page opened in your browser. Allow Cinderpaw there.</span>
+          ) : onUseKey && (
+            <button type="button" onClick={onUseKey} className="text-sm text-text-secondary underline-offset-2 hover:text-text-primary hover:underline">
+              Use an API key instead
+            </button>
+          )}
+        </div>
+      )}
+      {error && <p className="mt-3 text-xs text-error">{error}</p>}
+    </article>
   );
 }
 
@@ -388,6 +502,7 @@ export function ByokTab() {
   const loadProvider = useCatalog((s) => s.loadProvider);
   const [q, setQ] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
+  const [keyAsked, setKeyAsked] = useState(false);
   const addRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -403,8 +518,16 @@ export function ByokTab() {
   };
   // A provider with a key is "yours" and gets a big card at the top; the rest
   // wait below as the ways to add another.
-  const connected = defs.filter((d) => stateOf(d.id)?.has_api_key);
-  const available = defs.filter((d) => !stateOf(d.id)?.has_api_key && matches(d));
+  // Its row exists only while signed in, and it is not in the key catalog.
+  const chatgpt = stateOf(CHATGPT_ID);
+  const offerChatgpt = !chatgpt && (!q.trim() || 'openai subscription chatgpt plan'.includes(q.trim().toLowerCase()));
+  // The plan card takes OpenAI's place (1 Nov, Darius): most people who pay
+  // OpenAI pay for ChatGPT, not the API. The key card comes when asked for,
+  // and stays once a key is saved.
+  const connected = planFirst(defs.filter((d) => stateOf(d.id)?.has_api_key));
+  const available = defs.filter(
+    (d) => !stateOf(d.id)?.has_api_key && matches(d) && !(d.id === 'openai' && offerChatgpt && !keyAsked),
+  );
   const card = (def: ProviderDef) => (
     <ProviderCard
       key={def.id}
@@ -424,8 +547,11 @@ export function ByokTab() {
           </button>
         </SectionHeader>
 
-        {connected.length > 0 ? (
-          <div className="grid grid-flow-row-dense items-start gap-4 md:grid-cols-2">{connected.map(card)}</div>
+        {connected.length > 0 || chatgpt ? (
+          <div className="grid grid-flow-row-dense -mb-4 items-start gap-x-4 md:grid-cols-2">
+            {chatgpt && <ChatgptCard state={chatgpt} />}
+            {connected.map(card)}
+          </div>
         ) : (
           <div className={cn(CARD, 'px-5 py-6 text-sm text-text-secondary')}>
             No provider connected yet. Pick one below and paste its key; it takes a minute.
@@ -449,10 +575,13 @@ export function ByokTab() {
             />
           </label>
         </div>
-        {available.length === 0 ? (
+        {available.length === 0 && !offerChatgpt ? (
           <p className="py-4 text-center text-sm text-text-muted">{q.trim() ? 'No providers match.' : 'Every provider already has a key.'}</p>
         ) : (
-          <div className="grid grid-flow-row-dense items-start gap-4 md:grid-cols-2 lg:grid-cols-3">{available.map(card)}</div>
+          <div className="grid grid-flow-row-dense -mb-4 items-start gap-x-4 md:grid-cols-2 lg:grid-cols-3">
+            {offerChatgpt && <ChatgptCard onUseKey={() => { setKeyAsked(true); setOpenId('openai'); }} />}
+            {available.map(card)}
+          </div>
         )}
       </section>
     </div>

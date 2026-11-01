@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { useModel } from '@/stores/model';
+import { useCinderpawStore } from '@/stores/cinderpaw';
 import userEvent from '@testing-library/user-event';
 import { ModelPickerPopover } from '@/components/chat/ModelPickerPopover';
 import { CinderpawModelSelector } from '@/components/agents/CinderpawModelSelector';
@@ -84,43 +85,53 @@ describe('the chat model picker', () => {
   });
 });
 
-describe('the Model Switcher (spec 8)', () => {
-  it('offers roles: Local is the model on disk, Fast asks to be chosen, and picking a role switches to it', async () => {
-    useModel.setState({ roles: {}, cloudModel: null, loaded: null });
-    const load = vi.spyOn(useModel.getState(), 'load').mockResolvedValue(undefined);
+describe('the Model Switcher, provider then model (1 Nov, his pick B)', () => {
+  // Before, each provider showed only its default model; any other had to be
+  // typed as an id in Models > Roles. Now a provider's page lists its models.
+  it('opens on the providers; a provider page lists its models by name, and one tap switches to it', async () => {
+    vi.spyOn(tauri.raw, 'getByokSettings').mockResolvedValue([
+      { id: 'anthropic', name: 'Anthropic', provider: 'anthropic', enabled: true, has_api_key: true, base_url: null, default_model: 'claude-opus-5-5' },
+    ] as never);
+    const list = vi.spyOn(tauri.raw, 'providerModels').mockResolvedValue([
+      { id: 'claude-opus-5-5', name: 'Opus 5.5' },
+      { id: 'claude-haiku-5-5', name: 'Haiku 5.5' },
+    ]);
+    const setModel = vi.fn().mockResolvedValue(undefined);
+    useCinderpawStore.setState({ setModel, modelConfig: null });
     render(<ModelPickerPopover />);
     await userEvent.click(screen.getByRole('button'));
 
-    expect(await screen.findByText('Model Switcher')).toBeInTheDocument();
-    const local = (await screen.findByText('Local')).closest('[role="menuitem"]')!;
-    await waitFor(() => expect(local).toHaveTextContent('Qwen3.8-4B-Q6_K.gguf'));
-    const fast = screen.getByText('Fast').closest('[role="menuitem"]')!;
-    expect(fast).toHaveTextContent('Choose a model');
-
-    await userEvent.click(local);
-    expect(load).toHaveBeenCalledWith('C:/models/Qwen3.8-4B-Q6_K.gguf');
-    load.mockRestore();
+    expect(screen.getByRole('tab', { name: 'Cloud' })).toHaveAttribute('aria-selected', 'true');
+    await userEvent.click(await screen.findByRole('menuitem', { name: /Anthropic/ }));
+    expect(list).toHaveBeenCalledWith('anthropic');
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Haiku 5.5' }));
+    expect(setModel).toHaveBeenCalledWith({ source: 'byok', providerId: 'anthropic', model: 'claude-haiku-5-5' });
   });
 
-  // 29 Oct, Darius: "if I want to select the model I use, it takes me to the
-  // Models tab". An empty role chooses in place, from the models already here.
-  it('an empty role chooses its model in the switcher, without leaving the chat', async () => {
-    useModel.setState({ roles: {}, cloudModel: null, loaded: null });
-    const load = vi.spyOn(useModel.getState(), 'load').mockResolvedValue(undefined);
-    const at = window.location.pathname;
+  it('lists the ChatGPT plan first, Anthropic next, the OpenAI key last', async () => {
+    vi.spyOn(tauri.raw, 'getByokSettings').mockResolvedValue([
+      { id: 'openai', name: 'OpenAI', provider: 'openai', enabled: true, has_api_key: true, base_url: null, default_model: 'gpt-4o' },
+      { id: 'anthropic', name: 'Anthropic', provider: 'anthropic', enabled: true, has_api_key: true, base_url: null, default_model: 'claude-haiku-5-5' },
+      { id: 'chatgpt', name: 'OpenAI Subscription', provider: 'openai', enabled: true, has_api_key: true, base_url: null, default_model: 'gpt-6.1-sol' },
+    ] as never);
+    vi.spyOn(tauri.raw, 'providerModels').mockResolvedValue([]);
+    useCinderpawStore.setState({ modelConfig: null });
     render(<ModelPickerPopover />);
     await userEvent.click(screen.getByRole('button'));
+    await screen.findByRole('menuitem', { name: /Anthropic/ });
+    // The provider's name on each row (the logo beside it carries a title of its own).
+    const names = screen.getAllByRole('menuitem').map((r) => r.querySelector('.font-medium')?.textContent).filter(Boolean);
+    expect(names).toEqual(['OpenAI Subscription', 'Anthropic', 'OpenAI']);
+  });
 
-    const fast = (await screen.findByText('Fast')).closest('[role="menuitem"]')!;
-    await userEvent.click(within(fast as HTMLElement).getByRole('button', { name: 'Choose a model' }));
-    expect(window.location.pathname).toBe(at);
-    const option = await screen.findByRole('menuitem', { name: /Qwen3\.8-4B-Q6_K\.gguf.*On this computer/ });
-    await userEvent.click(option);
-
-    expect(useModel.getState().roles.fast).toMatchObject({ kind: 'local', path: 'C:/models/Qwen3.8-4B-Q6_K.gguf' });
+  it('a model on this computer is on its own side, one tap away', async () => {
+    const load = vi.spyOn(useModel.getState(), 'load').mockResolvedValue(undefined);
+    render(<ModelPickerPopover />);
+    await userEvent.click(screen.getByRole('button'));
+    await userEvent.click(screen.getByRole('tab', { name: 'On this computer' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: /Qwen3\.8-4B-Q6_K\.gguf/ }));
     expect(load).toHaveBeenCalledWith('C:/models/Qwen3.8-4B-Q6_K.gguf');
     load.mockRestore();
-    useModel.setState({ roles: {} });
   });
 
   // 26 Oct, Darius's pick from the mockups (C, Dynamic Island): the menu grows

@@ -565,6 +565,18 @@ pub(crate) async fn cinderpaw_set_model(
             let url = base_url.unwrap_or_else(|| "http://localhost:11434".to_string());
             ("ollama".to_string(), url, String::new())
         }
+        // A ChatGPT plan: no key, a sign-in; the engine goes through this
+        // host's API, which holds the token (chatgpt_gateway).
+        "byok" if provider_id.as_deref() == Some(cinderpaw_core::chatgpt_signin::PROVIDER_ID) => {
+            if cinderpaw_core::chatgpt_signin::account().is_none() {
+                return Err("Sign in with ChatGPT first, in Models > Cloud.".into());
+            }
+            (
+                cinderpaw_core::chatgpt_signin::PROVIDER_ID.to_string(),
+                cinderpaw_core::chatgpt_signin::engine_base_url(state.runtime.effective_api_port()),
+                state.local_api_token.to_string(),
+            )
+        }
         "byok" => {
             let pid = provider_id.as_deref().ok_or("byok source requires provider_id")?;
             let byok = byok::load(&state.settings);
@@ -614,7 +626,9 @@ pub(crate) async fn cinderpaw_set_model(
     // so its transcript-compaction budget matches the KV cache the engine
     // actually allocated (Hardware can raise this well past the old 8192). Cloud
     // models omit it — the sidecar uses its generous cloud budget.
-    let is_local = is_local_api_url(&resolved_url, state.settings.api_port);
+    // The ChatGPT route is on loopback too, but it answers from the cloud.
+    let is_local = is_local_api_url(&resolved_url, state.settings.api_port)
+        && provider != cinderpaw_core::chatgpt_signin::PROVIDER_ID;
     let context_window = if is_local {
         state.manager.current().map(|m| m.ctx_len)
     } else {

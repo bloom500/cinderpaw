@@ -16,8 +16,14 @@ export function localApiBase(): Promise<string> {
   return pending.then((p) => `http://localhost:${p}`);
 }
 
+/**
+ * A ChatGPT plan answers through the local API (`/chatgpt`, which holds its
+ * token), from the cloud: on loopback, but not a model on this computer.
+ */
+export const isChatgptRoute = (url: string | null | undefined): boolean => /^https?:\/\/[^/]+\/chatgpt\/?$/.test(url ?? '');
+
 /** Whether a base URL is the bundled engine, on either port it may be on. */
 export function isLocalEngineUrl(url: string | null | undefined): boolean {
   const m = /^https?:\/\/(localhost|127\.0\.0\.1):(\d+)/.exec(url ?? '');
-  return !!m && (Number(m[2]) === ASKED || Number(m[2]) === actual);
+  return !!m && (Number(m[2]) === ASKED || Number(m[2]) === actual) && !isChatgptRoute(url);
 }
