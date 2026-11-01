@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { tauri, type Conversation } from '@/lib/tauri';
 import { useChat } from '../chat';
-import { useConversations } from '../conversations';
+import { hideWhileDeleting, useConversations } from '../conversations';
 import { useNotifications } from '../notifications';
 import { useArtifacts } from '../artifacts';
 
@@ -30,6 +30,24 @@ beforeEach(() => {
   useConversations.getState().newChat();
   useConversations.setState({ streamingIds: {}, unreadIds: {} });
   useNotifications.setState({ toasts: [] });
+});
+
+// 1 Nov: delete 2-3 chats in a row and they came back for a moment. The first
+// one's real delete re-read the list from disk, where the others still were.
+describe('a chat waiting out its Undo stays off the list', () => {
+  it('is not brought back by a list read, and returns once undone', async () => {
+    const row = (id: string) => ({ id, title: id, created_at: '', updated_at: id }) as never;
+    vi.mocked(tauri.conversations.list).mockResolvedValue([row('a'), row('b'), row('c')]);
+    hideWhileDeleting('b', true);
+    hideWhileDeleting('c', true);
+    await useConversations.getState().refresh();
+    expect(useConversations.getState().list.map((c) => c.id)).toEqual(['a']);
+
+    hideWhileDeleting('b', false); // Undo
+    await useConversations.getState().refresh();
+    expect(useConversations.getState().list.map((c) => c.id)).toEqual(['b', 'a']);
+    hideWhileDeleting('c', false);
+  });
 });
 
 describe('the latest conversation choice wins', () => {

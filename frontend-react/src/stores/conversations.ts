@@ -102,6 +102,18 @@ function toPersisted(m: ChatMessage): PersistedMessage {
 // latest choice. New chat and deleting that choice invalidate pending reads.
 let openRequest: { id: string } | null = null;
 
+/**
+ * Chats deleted with Undo: off the list at once, off the disk when the toast
+ * ends. Every list read in between (the first chat's real delete, a reply being
+ * saved) brought the others back from disk for a moment: delete three in a row
+ * and they reappeared one by one, "like a big ping" (1 Nov).
+ */
+const deleting = new Set<string>();
+export function hideWhileDeleting(id: string, hidden: boolean): void {
+  if (hidden) deleting.add(id);
+  else deleting.delete(id);
+}
+
 export const useConversations = create<ConversationsStore>((set, get) => ({
   list: [],
   loaded: false,
@@ -125,7 +137,7 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
     try {
       const list = await tauri.conversations.list();
       list.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-      set({ list, loaded: true });
+      set({ list: list.filter((c) => !deleting.has(c.id)), loaded: true });
     } catch (err) {
       // Don't let a failed list read leave the UI in an inconsistent state.
       // `loaded` still flips: the read is over, and a screen that waits
