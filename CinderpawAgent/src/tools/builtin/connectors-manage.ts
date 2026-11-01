@@ -766,7 +766,12 @@ export function createConnectorsManageTool(
       // and blocking here would leave them unable to connect at all. So it
       // saves, and says — in the result the model reads, not only in a log line
       // it never sees — that the bot it just brought online answers no one.
-      const deaf = row.enabled && (row.allowlist?.length ?? 0) === 0;
+      // WhatsApp is never deaf to its owner: their chat with themselves is
+      // always answered (connectors.ts, ownerToSelf), and it never reaches
+      // connectors_pair, which then waited ten minutes on a message it could not
+      // hear while the person was already chatting there (Darius, 1 Nov).
+      const ownerChat = id === "whatsapp" && row.enabled && isLinked();
+      const deaf = row.enabled && (row.allowlist?.length ?? 0) === 0 && !ownerChat;
       const hint =
         row.enabled && missing.length > 0
           ? ` Still missing secrets: ${missing.join(", ")} — the connector stays offline until provided.`
@@ -778,6 +783,9 @@ export function createConnectorsManageTool(
             ? " A QR code is on its way. In the Cinderpaw app and on the Cinderpaw page it shows up right in this chat, under your reply; in the terminal chat: /connectors qr. " +
               "Tell the user: on your phone open WhatsApp, then Settings, Linked devices, Link a device, and point the camera at the code. " +
               "A code to type instead of a QR comes when you call configure again with link_number (the number to link, country code first)."
+            : ownerChat
+              ? " WhatsApp is linked. Tell the user: on that phone, open the chat with yourself (Message yourself) and write there; " +
+                "Cinderpaw answers in that chat. Do NOT call connectors_pair for this: it only lets ANOTHER number in, and it cannot hear that chat."
             : deaf
               ? ` WARNING: ${id} is online but its allowlist is EMPTY, which means it ` +
                 `answers NOBODY — not "everyone". ` +

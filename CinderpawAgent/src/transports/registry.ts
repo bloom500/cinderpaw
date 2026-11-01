@@ -48,6 +48,10 @@ export interface ConnectorContext {
    *  before the gate decides. Pairing hears strangers through it, and the
    *  first message after pairing proves the person really gets through. */
   onSender?: (id: string, name: string) => void;
+  /** Called when the transport's health changes on its own, after start
+   *  (WhatsApp linking while it runs). The published health is otherwise a
+   *  snapshot from start, and the agent kept saying "not linked" (1 Nov). */
+  onHealth?: () => void;
 }
 
 export interface LiveConnector {

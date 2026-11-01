@@ -89,6 +89,9 @@ every connector, tell them to send the bot a direct message now and call
 `connectors_pair`: it asks "Is that you?" and adds
 them. Say it works ONLY when the result has `heard: true`, which means their
 next message really got through. Before that, "you're all set" is a guess.
+WhatsApp is the exception for its owner: once the phone is linked, they write
+in their chat with themselves (Message yourself) and are answered there, no
+pairing. `connectors_pair` on WhatsApp is only for letting ANOTHER number in.
 
 The user can also do it manually — in the terminal chat: `/connectors` lists
 them, `/connectors add <id> KEY=value` adds one

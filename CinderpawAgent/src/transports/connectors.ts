@@ -47,6 +47,7 @@ import {
 import { ChannelAskRouter } from "../core/ask-user-channel.ts";
 import { readAttachments, type InboundAttachment } from "./attachments.ts";
 import { ROOM_KEYED_TRANSPORTS } from "../memory/semantic.ts";
+import { markOwnerChat, setAppOwners } from "../memory/elsewhere.ts";
 import { formatForChat, chatStyleBrief, DISCORD_LIMIT } from "./chat-format.ts";
 import {
   runUnattended,
@@ -1317,9 +1318,12 @@ export class WhatsAppConnector {
 
   /** The number to link, when the person gave one: they get a code to type, not a QR. */
   readonly #linkTo: string;
+  /** Linked or unlinked while running: the manager republishes health. */
+  readonly #onHealth: () => void;
 
-  constructor(opts: { allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; mode?: ConnectorMode; desk?: LeadDesk; ask?: ChannelAskRouter; profileId?: string; onSender?: (id: string, name: string) => void; linkTo?: string }) {
+  constructor(opts: { allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; mode?: ConnectorMode; desk?: LeadDesk; ask?: ChannelAskRouter; profileId?: string; onSender?: (id: string, name: string) => void; onHealth?: () => void; linkTo?: string }) {
     this.#linkTo = opts.linkTo ?? "";
+    this.#onHealth = opts.onHealth ?? (() => {});
     const allow = opts.allowlist.map(digits).filter(Boolean);
     this.#allow = new Set(allow);
     this.#channels = new Set(opts.channels.map((s) => s.trim()).filter(Boolean));
@@ -1498,6 +1502,9 @@ export class WhatsAppConnector {
     // his phone, most likely because the codes after the first expire on
     // WhatsApp's side long before that (not proven: no phone here to test).
     // The last phone that linked (26 Sep) did it on these defaults.
+    // ponytail: the library's default name, so the phone lists this PC as
+    // "Google Chrome (macOS)". Naming it "Cinderpaw" made every typed code end in
+    // "Couldn't connect" on his phone (1 Nov); only the default is proven.
     const sock = makeWASocket({ auth: state, ...(latest?.version ? { version: latest.version } : {}) });
     this.#sock = sock;
     sock.ev.on("creds.update", saveCreds);
@@ -1559,7 +1566,13 @@ export class WhatsAppConnector {
         this.#open = true;
         this.#closes = 0;
         this.#log("whatsapp connector online (linked)");
+        // "Message yourself" is the owner talking: their desktop chats and this
+        // one see each other (memory/elsewhere.ts). Both spellings, see #onMessage.
+        const me = this.#sock?.user;
+        if (me) markOwnerChat(`whatsapp:${me.id.split(/[:@]/)[0]}@s.whatsapp.net`);
+        if (me?.lid) markOwnerChat(`whatsapp:${me.lid.split(/[:@]/)[0]}@lid`);
         void unlink(join(cinderpawHome(), "whatsapp-qr.json")).catch(() => {});
+        this.#onHealth();
       }
       if (connection === "close") {
         this.#open = false;
@@ -1573,6 +1586,8 @@ export class WhatsAppConnector {
           this.#sock = null;
           this.#forgetting = WhatsAppConnector.forget();
           this.#log("whatsapp: the phone unlinked this computer. Turn WhatsApp on again to link it with a new code.");
+          // After forget() deletes the keys, so health reads "not linked".
+          void this.#forgetting.then(() => this.#onHealth());
         } else if (++this.#closes >= 5) {
           // Retrying forever hammered WhatsApp's servers and filled the log
           // while every surface still waited for a QR (seen live 25 Sep, 405).
@@ -1996,6 +2011,7 @@ registerTransport("whatsapp", (): LiveConnector => {
         ask: ctx.askRouter,
         ...(ctx.personaProfileId ? { profileId: ctx.personaProfileId } : {}),
         ...(ctx.onSender ? { onSender: ctx.onSender } : {}),
+        ...(ctx.onHealth ? { onHealth: ctx.onHealth } : {}),
         linkTo: ctx.secrets.WHATSAPP_LINK_NUMBER ?? "",
       });
       await inner.start();
@@ -2206,6 +2222,7 @@ export class ConnectorManager {
       const first = (row.allowlist ?? []).map((s) => s.trim()).find(Boolean);
       if (first) this.#owners.set(row.id, first);
     }
+    setAppOwners(this.#owners);
 
     // Gone from the config, or switched off: stop it and forget it. Off by
     // choice is not a failure, so the health entry is removed rather than
@@ -2257,6 +2274,11 @@ export class ConnectorManager {
         ...(profileId ? { personaProfileId: profileId } : {}),
         ...(this.#leadDesk ? { leadDesk: this.#leadDesk } : {}),
         onSender: (senderId, name) => this.#heard(id, { id: senderId, name }),
+        onHealth: () => {
+          if (this.#live.get(id) !== instance) return; // replaced or stopped meanwhile
+          this.#health.set(id, instance.health());
+          void this.#publishHealth();
+        },
       };
       try {
         await instance.start(ctx);
@@ -2467,6 +2489,7 @@ export class ConnectorManager {
     if (!wa?.pair) return false;
     await wa.pair();
     this.#health.set("whatsapp", wa.health());
+    await this.#publishHealth();
     return true;
   }
 

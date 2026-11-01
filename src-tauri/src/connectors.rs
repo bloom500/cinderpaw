@@ -46,9 +46,22 @@ fn discord_token_from_mcp() -> Option<String> {
     if token.is_empty() { None } else { Some(token.to_string()) }
 }
 
-/// True once WhatsApp has been linked (Baileys persisted its session).
+/// True once a phone is linked. The same rule as the engine's `isLinked`:
+/// Baileys writes creds.json as soon as linking STARTS, so the file alone
+/// proves nothing. Reading it as "linked" told the chat card the phone was
+/// linked the moment a code was asked for, and the code was never shown
+/// (Darius, 1 Nov).
 fn whatsapp_linked() -> bool {
-    paths::cinderpaw_dir().join("whatsapp-auth").join("creds.json").exists()
+    std::fs::read_to_string(paths::cinderpaw_dir().join("whatsapp-auth").join("creds.json"))
+        .map(|raw| creds_say_linked(&raw))
+        .unwrap_or(false)
+}
+
+/// A phone-number code sets `registered`; a QR scan writes `me` + `account`.
+fn creds_say_linked(raw: &str) -> bool {
+    let Ok(c) = serde_json::from_str::<serde_json::Value>(raw) else { return false };
+    c["registered"] == true
+        || (c["me"]["id"].as_str().is_some_and(|id| !id.is_empty()) && !c["account"].is_null())
 }
 
 // ---------------------------------------------------------------------------
@@ -876,5 +889,24 @@ mod catalog_projection {
             .find(|f| f.key == "MATRIX_HOMESERVER")
             .expect("the homeserver field reaches the desktop");
         assert!(!url.secret);
+    }
+}
+
+#[cfg(test)]
+mod whatsapp_link_state {
+    use super::creds_say_linked;
+
+    #[test]
+    fn a_link_that_only_started_is_not_linked() {
+        // What creds.json holds right after a code was asked for (1 Nov).
+        assert!(!creds_say_linked(r#"{"registered":false,"me":null}"#));
+        assert!(!creds_say_linked(r#"{"registered":false,"me":{"id":""}}"#));
+        assert!(!creds_say_linked("not json"));
+    }
+
+    #[test]
+    fn a_typed_code_or_a_scanned_qr_is_linked() {
+        assert!(creds_say_linked(r#"{"registered":true}"#));
+        assert!(creds_say_linked(r#"{"registered":false,"me":{"id":"40700000000:1@s.whatsapp.net"},"account":{"details":"x"}}"#));
     }
 }

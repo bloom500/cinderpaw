@@ -380,6 +380,18 @@ test("unlink takes the phone off and turns WhatsApp off; a pause says it is stil
   expect(discord.ok).toBe(false);
 });
 
+test("a linked WhatsApp sends its owner to their own chat, not to connectors_pair", async () => {
+  // 1 Nov, Darius: told "answers NOBODY", the agent ran connectors_pair, which
+  // cannot hear the owner's chat with themselves and waited ten minutes while
+  // he was already talking to Cinderpaw there.
+  writeFileSync(file, JSON.stringify({ connectors: [{ id: "whatsapp", enabled: true }] }), "utf8");
+  const tool = createConnectorsManageTool({ reload: async () => {} }, { isLinked: () => true, hasWhatsApp: () => true });
+  const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true }, ctx);
+  expect(res.content).toContain("Message yourself");
+  expect(res.content).not.toContain("answers NOBODY");
+  expect(res.content).toContain("Do NOT call connectors_pair");
+});
+
 // 31 Oct + 1 Nov, Darius: in the app the number comes from a card with a phone
 // field, and it comes back holding the saved number so a wrong digit can be fixed.
 test("turning WhatsApp on in the app asks for the number on a phone card", async () => {

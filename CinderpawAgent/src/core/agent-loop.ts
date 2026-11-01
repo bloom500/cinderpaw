@@ -48,6 +48,7 @@ export interface Recaller {
 import type { MemoryExtractor } from "../memory/extractor.ts";
 import { WorkingMemory, contextLanes } from "../memory/working.ts";
 import { situation } from "../memory/day.ts";
+import { connectorLine, elsewhereNote, hearsElsewhere } from "../memory/elsewhere.ts";
 import { permissionMode } from "./permission-mode.ts";
 import { projectAddendum } from "../projects.ts";
 import { countTokens } from "./tokenizer.ts";
@@ -1222,7 +1223,19 @@ export class AgentLoop {
     // that is only used when named is a feature nobody finds. No roster
     // (connectors, nothing installed) clears the menu.
     memory.setSkillMenu(skillsContext ?? []);
-    memory.setSituation(situation(Date.now(), process.platform, permissionMode()));
+    // One Cinderpaw across chats: the owner's own chats also hear which chat apps
+    // are connected and what was said in their other chats (memory/elsewhere.ts).
+    let here = situation(Date.now(), process.platform, permissionMode());
+    if (hearsElsewhere(sessionId) && !this.#profileFor(sessionId) && !isRestrictedSession(sessionId)) {
+      try {
+        const apps = connectorLine();
+        const other = elsewhereNote(sessionId, (ts, except) => this.#episodic.since(ts, except));
+        here = [here + (apps ? `\n${apps}` : ""), other].filter(Boolean).join("\n\n");
+      } catch {
+        // A memory-store failure must never cost the user their turn.
+      }
+    }
+    memory.setSituation(here);
 
     // P2-#3: traceId — a unique identifier for this handle() invocation.
     // Threaded into every OutboundEvent the agent emits during the turn
