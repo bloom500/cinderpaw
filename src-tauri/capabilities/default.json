@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Cinderpaw default permissions",
-  "windows": [ "main", "call-pill", "downloads-card" ],
+  "windows": [ "main", "call-pill", "downloads-card", "agent-overlay", "agent-pill" ],
   "permissions": [
     "core:default",
     "notification:default",

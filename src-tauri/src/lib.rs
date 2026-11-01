@@ -1,5 +1,6 @@
 mod agents;
 mod adblock;
+mod agent_overlay;
 mod browser;
 mod call_pill;
 mod downloads_card;
@@ -673,6 +674,8 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             take_launch_files,
             jev_decide,
             call_pill::call_pill_open,
+            agent_overlay::agent_overlay_stop,
+            agent_overlay::agent_overlay_state,
             call_pill::call_pill_close,
             call_pill::main_in_front,
             downloads_card::downloads_card_open,
@@ -871,7 +874,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
         .on_page_load(|window, _| {
             // The call pill is a transparent strip over the desktop: an acrylic
             // backdrop on it is a milky rectangle around the pill (21 Sep).
-            if window.label() == call_pill::LABEL {
+            if window.label() == call_pill::LABEL || agent_overlay::is_overlay(window.label()) {
                 return;
             }
             #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -934,7 +937,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             #[cfg(desktop)]
             tray::on_window_event(window, event);
             // The call pill never gets the backdrop (see on_page_load).
-            if window.label() == call_pill::LABEL {
+            if window.label() == call_pill::LABEL || agent_overlay::is_overlay(window.label()) {
                 return;
             }
             #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -1034,8 +1037,14 @@ Everything is there and nothing is at risk. Cinderpaw will                      
                 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
                 let started = app.handle().plugin(
                     tauri_plugin_global_shortcut::Builder::new()
-                        .with_handler(|app, _shortcut, event| {
+                        .with_handler(|app, shortcut, event| {
                             if event.state() != ShortcutState::Pressed {
+                                return;
+                            }
+                            // Esc is only registered while the agent drives the
+                            // computer (agent_overlay.rs): it stops the agent.
+                            if shortcut.key == Code::Escape {
+                                tauri::async_runtime::spawn(agent_overlay::stop(app.clone()));
                                 return;
                             }
                             // Window and page separately: `get_webview_window`
@@ -1116,7 +1125,12 @@ Everything is there and nothing is at risk. Cinderpaw will                      
                                 }
                                 return cinderpaw_core::video::handle_from_agent(op, &params).await;
                             }
-                            crate::desktop_control::handle_request(&action, &params).await
+                            // The overlay first (it points at what is about to be
+                            // pressed), then the step, then the press shows.
+                            crate::agent_overlay::before(&browser_app, &action, &params).await;
+                            let result = crate::desktop_control::handle_request(&action, &params).await;
+                            crate::agent_overlay::after(&browser_app, &action, result.is_ok());
+                            result
                         })
                     });
                 Some(dc)

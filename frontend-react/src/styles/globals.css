@@ -2077,3 +2077,74 @@ span.ember-caret {
   .model-island,
   .model-island .model-island-body { animation-duration: 1ms !important; animation-delay: 0s !important; }
 }
+
+/* ── The computer-use overlay (components/overlay, src-tauri agent_overlay.rs) ──
+   Darius's pick from three mockups, 1 Nov: an ember edge round the screen
+   Cinderpaw has taken, a glow on its own cursor, which glides to what it
+   is about to press (the same slow pace the host waits before pressing), a
+   ripple on the press, and a pill at the top. No ring on the target: drawn
+   round a text box it read as an error frame (Darius, 1 Nov). Both windows
+   are transparent, like the call pill's. Cubby's orange is the accent
+   because this is Cinderpaw itself on the screen. */
+.agent-edge {
+  box-shadow:
+    inset 0 0 0 2px rgb(240 90 36 / 0.9),
+    inset 0 0 90px 18px rgb(240 90 36 / 0.36),
+    inset 0 0 240px 40px rgb(240 90 36 / 0.14);
+  animation: agent-edge-in var(--motion-slow) var(--motion-ease), agent-edge-breathe 2.6s ease-in-out var(--motion-slow) infinite;
+}
+@keyframes agent-edge-in { from { opacity: 0; } }
+@keyframes agent-edge-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.65; } }
+/* The halo trails the cursor by a beat, like a comet's tail, and breathes
+   while the agent thinks; the arrow leans into the glide and dips on a press. */
+.agent-cursor, .agent-cursor-halo { transition: transform var(--motion-slow) var(--motion-ease); }
+.agent-cursor { margin: -2px 0 0 -3px; animation: agent-cursor-in var(--motion-base) var(--motion-ease); }
+.agent-cursor svg { filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.4)) drop-shadow(0 0 4px rgb(240 90 36 / 0.3)); }
+.agent-cursor-lean, .agent-cursor-press { display: block; transform-origin: 3px 3px; }
+.agent-cursor-lean { animation: agent-cursor-lean var(--motion-slow) var(--motion-ease); }
+.agent-cursor-press { animation: agent-cursor-press var(--motion-base) var(--motion-ease); }
+@keyframes agent-cursor-in { from { opacity: 0; scale: 0.6; } }
+@keyframes agent-cursor-lean { 30% { rotate: -9deg; } }
+@keyframes agent-cursor-press { 35% { scale: 0.8; } }
+.agent-cursor-halo { transition-delay: 70ms; }
+.agent-cursor-halo > div {
+  width: 64px; height: 64px; margin: -32px 0 0 -32px; border-radius: 50%;
+  background: radial-gradient(circle, rgb(240 90 36 / 0.3) 0%, rgb(240 90 36 / 0.1) 40%, transparent 70%);
+  animation: agent-halo-breathe 2s ease-in-out infinite;
+}
+@keyframes agent-halo-breathe { 0%, 100% { scale: 1; opacity: 1; } 50% { scale: 1.1; opacity: 0.75; } }
+.agent-cursor-halo > .agent-halo-flash { animation: agent-halo-breathe 2s ease-in-out infinite, agent-halo-flash var(--motion-slow) var(--motion-ease); }
+@keyframes agent-halo-flash { 0% { scale: 1.6; opacity: 1; filter: brightness(1.5); } }
+.agent-ripple {
+  width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%;
+  box-shadow: inset 0 0 0 2px rgb(240 90 36 / 0.85), 0 0 12px rgb(240 90 36 / 0.4);
+  animation: agent-ripple var(--motion-slow) var(--motion-ease) forwards;
+}
+.agent-ripple + .agent-ripple { animation-delay: 90ms; opacity: 0; }
+@keyframes agent-ripple { from { transform: scale(0.4); opacity: 1; } to { transform: scale(2); opacity: 0; } }
+
+.agent-pill {
+  display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 16px);
+  padding: 6px 6px 6px 12px; border-radius: 999px; white-space: nowrap;
+  background: rgb(39 29 23 / 0.95); box-shadow: inset 0 0 0 1px #3a2c23, 0 10px 30px rgb(0 0 0 / 0.35); color: #f5ebdd;
+  font-size: var(--text-sm);
+  animation: agent-pill-in var(--motion-slow) var(--motion-ease);
+}
+@keyframes agent-pill-in { from { opacity: 0; transform: translateY(-16px) scale(0.96); } to { opacity: 1; transform: none; } }
+.agent-pill-dot { width: 7px; height: 7px; border-radius: 50%; background: #f05a24; box-shadow: 0 0 10px #f05a24; animation: agent-edge-breathe 1.4s ease-in-out infinite; }
+.agent-pill-logo { width: 22px; height: 22px; flex-shrink: 0; }
+.agent-pill-who b { font-weight: 600; }
+.agent-pill-step { color: #bba995; overflow: hidden; text-overflow: ellipsis; animation: agent-step-in var(--motion-base) var(--motion-ease); }
+.agent-pill-step::before { content: '·'; margin-right: 10px; }
+@keyframes agent-step-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.agent-pill-stop {
+  height: 30px; padding: 0 14px; border-radius: 999px; flex-shrink: 0; cursor: pointer;
+  box-shadow: inset 0 0 0 1px #3a2c23; background: #2f241d; color: #f5ebdd; font: inherit; font-size: var(--text-xs);
+}
+.agent-pill-stop:hover { background: #3a2c23; }
+.agent-pill-kbd { margin-left: 6px; font: inherit; font-size: var(--text-xs); color: #a8968a; }
+@media (prefers-reduced-motion: reduce) {
+  .agent-edge, .agent-pill-dot, .agent-pill, .agent-pill-step, .agent-ripple,
+  .agent-cursor, .agent-cursor-lean, .agent-cursor-press, .agent-cursor-halo > div { animation: none; }
+  .agent-cursor, .agent-cursor-halo { transition: none; }
+}

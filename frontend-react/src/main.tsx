@@ -36,7 +36,10 @@ import './styles/globals.css';
 const pill = window.location.hash === '#call-pill';
 // The browser's downloads card is the same kind of window (downloads_card.rs).
 const downloadsCard = window.location.hash === '#downloads-card';
-if (pill || downloadsCard) {
+// The computer-use overlay: the full-screen layer and its pill (agent_overlay.rs).
+const agentOverlay = window.location.hash === '#agent-overlay';
+const agentPill = window.location.hash === '#agent-pill';
+if (pill || downloadsCard || agentOverlay || agentPill) {
   document.documentElement.classList.add('call-pill');
   // The startup surface is an opaque sheet held until the app mounts; over a
   // transparent window it is the rectangle around the pill (21 Sep).
@@ -72,4 +75,6 @@ installFrameMeter();
 // same kind of small window, so it loads the same way.
 if (pill) void import('./components/call/CallPill').then(({ CallPill }) => mount(<CallPill />));
 else if (downloadsCard) void import('./components/browser/DownloadsPopup').then(({ DownloadsPopup }) => mount(<DownloadsPopup />));
+else if (agentOverlay) void import('./components/overlay/AgentOverlay').then(({ AgentOverlay }) => mount(<AgentOverlay />));
+else if (agentPill) void import('./components/overlay/AgentPill').then(({ AgentPill }) => mount(<AgentPill />));
 else void import('./App').then(({ default: App }) => mount(<App />));

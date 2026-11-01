@@ -836,6 +836,16 @@ fn spawn_detached(app: &str) -> Result<LaunchResult, String> {
     }
 }
 
+/// Where an element is (physical screen pixels), its name and its app's name,
+/// for the overlay. Same gate as acting on it: an element the agent may not
+/// touch is never pointed at either.
+pub async fn element_box(element_id: String) -> Result<(BoundingRect, String, String), String> {
+    gate_handle(&element_id)?;
+    let (pid, _) = decode_handle(&element_id)?;
+    let (rect, name) = run_blocking(move || imp::element_box(&element_id)).await?;
+    Ok((rect, name, process_name(pid).unwrap_or_default()))
+}
+
 /// Gate a handle-bearing command: enable flag + decode + per-app policy.
 fn gate_handle(handle: &str) -> Result<(), String> {
     let (pid, _) = decode_handle(handle)?;
