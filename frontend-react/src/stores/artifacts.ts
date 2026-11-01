@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { tauri } from '@/lib/tauri';
 import { useNotifications } from '@/stores/notifications';
+import { useBrowser } from '@/stores/browser';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
 import type { PdfEdit } from '@/lib/pdfEdits';
@@ -649,6 +650,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
       useNotifications.getState().push('success', `${e.title?.trim() || 'Your new artifact'} is ready`, 'Saved in Artifacts', {
         label: 'Open',
         run: () => {
+          useBrowser.getState().setPanel(false); // asked for: in front of the browser, as in ArtifactCard
           set({ panelOpen: true, panelTab: 'artifacts' });
           void get().openArtifact(e.id);
           // The panel lives beside the chat. Imported late: the router imports

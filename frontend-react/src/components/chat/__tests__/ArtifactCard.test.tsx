@@ -13,6 +13,7 @@ import userEvent from '@testing-library/user-event';
 import { ArtifactCard, artifactLine } from '../ArtifactCard';
 import { MessageToolWidgets } from '../MessageToolWidgets';
 import { useArtifacts, resetArtifactRequests } from '@/stores/artifacts';
+import { useBrowser } from '@/stores/browser';
 import { startActivity, finishActivity } from '@/hooks/useLiveToolActivity';
 import { APP_IFRAME_SANDBOX } from '@/lib/artifactSandbox';
 import { tauri } from '@/lib/tauri';
@@ -126,6 +127,16 @@ describe('ArtifactCard', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Open Launch week' }));
     await waitFor(() => expect(useArtifacts.getState().panelOpen).toBe(true));
     expect(useArtifacts.getState().openArtifact).toHaveBeenCalledWith('a1');
+  });
+
+  // 1 Nov, Darius: with the browser open the arrow did nothing until he closed it.
+  it('the arrow brings the artifact in front of an open browser', async () => {
+    useBrowser.setState({ panelOpen: true });
+    engineReturns(PLAN_MD);
+    render(<ArtifactCard f={PLAN} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Open Launch week' }));
+    await waitFor(() => expect(useArtifacts.getState().panelOpen).toBe(true));
+    expect(useBrowser.getState().panelOpen).toBe(false);
   });
 
   // 29 Oct, recording C4: opened first, the panel showed the list and a

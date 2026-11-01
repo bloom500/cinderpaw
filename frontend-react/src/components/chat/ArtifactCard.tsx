@@ -4,6 +4,7 @@ import { BoardView } from '@/components/board/BoardView';
 import { parseBoard } from '@/lib/board';
 import type { ArtifactFact } from '@/hooks/useLiveToolActivity';
 import { googlePlan, peekArtifact, shownKind, useArtifacts, type ArtifactRow } from '@/stores/artifacts';
+import { useBrowser } from '@/stores/browser';
 import { ArtifactCover } from '@/components/artifacts/ArtifactCover';
 import { LiveFrame } from '@/components/artifacts/LiveFrame';
 import { TablePreview } from '@/components/artifacts/TablePreview';
@@ -74,6 +75,11 @@ const TINTS = ['bg-brand/10 text-brand', 'bg-error/10 text-error', 'bg-info/10 t
 async function openInPanel(id: string, section?: string) {
   const opening = section ? useArtifacts.getState().openArtifact(id, section) : useArtifacts.getState().openArtifact(id);
   await Promise.race([opening, new Promise((done) => setTimeout(done, 400))]);
+  // The person asked for this one, so it comes in front of the browser, which
+  // keeps its tabs (the same rule as the Artifacts page and the sidebar). Left
+  // open, the browser won the side and the click did nothing until it was
+  // closed (Darius, 1 Nov).
+  useBrowser.getState().setPanel(false);
   useArtifacts.setState({ panelOpen: true, panelTab: 'artifacts' });
 }
 
