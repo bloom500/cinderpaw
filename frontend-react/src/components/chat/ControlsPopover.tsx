@@ -5,6 +5,7 @@ import { useModel, type Effort, type InferParamsUI } from '@/stores/model';
 import { cn } from '@/lib/utils';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { activeContextWindow } from '@/lib/contextWindow';
+import { isChatgptRoute } from '@/lib/localApi';
 
 function ParamRow({
   label,
@@ -184,10 +185,11 @@ const ANTHROPIC_TAKES_EFFORT =
   /^claude-(?:opus-4-[5-9]|sonnet-4-[6-9]|(?:opus|sonnet|haiku|fable|mythos)-[5-9](?:-\d+)?)(?:-\d{8})?$/;
 
 /** Whether the engine passes Effort on to this model (anthropicEffort /
- *  openAIReasoning): newer Claude models, and anything through OpenRouter. */
+ *  openAIReasoning): newer Claude models, and anything through OpenRouter or a
+ *  ChatGPT plan (its gateway hands it to OpenAI as reasoning effort). */
 function effortReaches(cfg: { provider: string; model: string; base_url: string } | null): boolean {
   if (!cfg) return false;
-  if (/openrouter\.ai/i.test(cfg.base_url)) return true;
+  if (/openrouter\.ai/i.test(cfg.base_url) || isChatgptRoute(cfg.base_url)) return true;
   return (cfg.provider === 'anthropic' || /anthropic\.com/i.test(cfg.base_url)) && ANTHROPIC_TAKES_EFFORT.test(cfg.model);
 }
 

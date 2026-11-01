@@ -66,6 +66,15 @@ describe('ControlsPopover — context window', () => {
     expect(screen.queryByText('Temperature')).not.toBeInTheDocument();
   });
 
+  // 1 Nov: the plan answers through the local API, so it looked local and got Temperature.
+  it('a ChatGPT plan model gets Effort, not Temperature', async () => {
+    setup(null, { provider: 'chatgpt', model: 'gpt-6.1-sol', base_url: 'http://localhost:11435/chatgpt' });
+    render(<ControlsPopover />);
+    await userEvent.click(screen.getByRole('button', { name: 'Reply settings' }));
+    expect(screen.getByRole('radio', { name: 'High' })).toBeInTheDocument();
+    expect(screen.queryByText('Temperature')).not.toBeInTheDocument();
+  });
+
   it('a resident local GGUF must not expose its context slider while a cloud model is active', async () => {
     // The exact trap: MiniMax selected (active) but Qwythos still resident as
     // the offline fallback. The old gate keyed on `loaded` and showed a 17k

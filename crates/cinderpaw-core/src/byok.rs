@@ -1085,26 +1085,86 @@ pub async fn list_models(provider_id: &str, api_key: &str, base_url: Option<&str
     if provider == Provider::Anthropic {
         url.push_str("?limit=100");
     }
-    let mut req = reqwest::Client::builder()
+    let client = reqwest::Client::builder()
         .user_agent("cinderpaw/0.1")
         .timeout(std::time::Duration::from_secs(15))
         .build()
-        .map_err(|e| e.to_string())?
-        .get(&url)
-        .header(provider.api_key_header(), format!("{}{}", provider.api_key_prefix(), api_key));
-    for (name, value) in provider.extra_headers() {
-        req = req.header(name, value);
+        .map_err(|e| e.to_string())?;
+    let auth = format!("{}{}", provider.api_key_prefix(), api_key);
+    let request = |workspace: Option<&str>| {
+        let mut req = client.get(&url).header(provider.api_key_header(), &auth);
+        for (name, value) in provider.extra_headers() {
+            req = req.header(name, value);
+        }
+        if let Some(workspace) = workspace {
+            req = req.header("anthropic-workspace-id", workspace);
+        }
+        req.send()
+    };
+    const OFFLINE: &str = "The provider is not reachable right now. Check that you are online.";
+    let mut response = request(None).await.map_err(|_| OFFLINE.to_string())?;
+    // A personal Anthropic key that works in several workspaces must name one
+    // on every request, and a request that does not gets a 400. Chats look the
+    // workspace up (the engine's findAnthropicWorkspace); this list did not, so
+    // the picker said "HTTP 400" while Anthropic chats worked (1 Nov, Darius).
+    if provider == Provider::Anthropic && response.status() == 400 {
+        let body = response.text().await.unwrap_or_default();
+        if !body.contains("anthropic-workspace-id") {
+            return Err(not_listed(400, &body));
+        }
+        let workspace = anthropic_workspace(&client, &base, api_key).await.ok_or(
+            "Your Anthropic key works in more than one workspace, and Cinderpaw could not find which one to use. \
+             Make a new key inside one workspace at platform.claude.com/settings/keys and paste that one instead.",
+        )?;
+        response = request(Some(&workspace)).await.map_err(|_| OFFLINE.to_string())?;
     }
-    let response = req.send().await.map_err(|_| "The provider is not reachable right now. Check that you are online.".to_string())?;
     let status = response.status();
     if !status.is_success() {
-        return Err(match status.as_u16() {
-            401 | 403 => "The provider refused the saved key. Check it in Models > Cloud.".into(),
-            code => format!("The provider could not list its models (HTTP {code})."),
-        });
+        return Err(not_listed(status.as_u16(), &response.text().await.unwrap_or_default()));
     }
     let body: serde_json::Value = response.json().await.map_err(|_| "The provider sent a list Cinderpaw could not read.".to_string())?;
     Ok(parse_model_list(&body))
+}
+
+/// Why a provider would not list its models, with its own reason when it gives
+/// one: "HTTP 400" alone left nobody a next step.
+fn not_listed(code: u16, body: &str) -> String {
+    if matches!(code, 401 | 403) {
+        return "The provider refused the saved key. Check it in Models > Cloud.".into();
+    }
+    // Anthropic and OpenAI-style APIs both put it in `error.message`.
+    let why = serde_json::from_str::<serde_json::Value>(body).ok().and_then(|v| v["error"]["message"].as_str().map(str::to_string));
+    match why {
+        Some(why) => format!("The provider could not list its models (HTTP {code}): {why}"),
+        None => format!("The provider could not list its models (HTTP {code})."),
+    }
+}
+
+/// The workspace for an Anthropic key that works in several: the Default
+/// Workspace, else the first open one. Same rule as the engine's
+/// `findAnthropicWorkspace` (CinderpawAgent/src/egress/inference-providers.ts);
+/// change both together.
+async fn anthropic_workspace(client: &reqwest::Client, base: &str, api_key: &str) -> Option<String> {
+    let mut open = Vec::new();
+    let mut after = String::new();
+    // Every page before choosing: the Default Workspace may sit on any of them,
+    // and a page that fails leaves a half list that could name the wrong one.
+    loop {
+        let mut url = url_join(base, "organizations/workspaces?include_default=true&limit=1000");
+        if !after.is_empty() {
+            url.push_str("&after_id=");
+            url.push_str(&urlencoding::encode(&after));
+        }
+        let response = client.get(&url).header("x-api-key", api_key).header("anthropic-version", "2023-06-01").send().await.ok()?;
+        let page: serde_json::Value = response.error_for_status().ok()?.json().await.ok()?;
+        open.extend(page["data"].as_array().into_iter().flatten().filter(|w| w["archived_at"].is_null()).cloned());
+        if page["has_more"] != true {
+            break;
+        }
+        after = page["last_id"].as_str().filter(|id| *id != after)?.to_string();
+    }
+    let pick = open.iter().find(|w| w["name"] == "Default").or_else(|| open.first())?;
+    pick["id"].as_str().map(str::to_string)
 }
 
 /// `{"data":[{"id", "display_name"|"name"}]}`, chat models only.
@@ -1406,6 +1466,41 @@ mod tests {
             ("anthropic/claude-opus-5.5".to_string(), Some("Anthropic: Claude Opus 5.5".to_string())),
             ("gemini-3.1-pro".to_string(), None),
         ]);
+    }
+
+    /// The 1 Nov regression: a key that works in several Anthropic workspaces
+    /// got "HTTP 400" in the model picker. The list now finds the workspace,
+    /// as chats do, and picks the Default one.
+    #[tokio::test]
+    async fn a_multi_workspace_anthropic_key_still_lists_its_models() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://127.0.0.1:{}/v1", listener.local_addr().unwrap().port());
+        tokio::spawn(async move {
+            loop {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut buf = vec![0u8; 8192];
+                let n = sock.read(&mut buf).await.unwrap_or(0);
+                let head = String::from_utf8_lossy(&buf[..n]).to_lowercase();
+                let (status, body) = if head.starts_with("get /v1/organizations/workspaces") {
+                    ("200 OK", r#"{"data":[{"id":"wrkspc_team","name":"Team"},{"id":"wrkspc_default","name":"Default"}],"has_more":false}"#)
+                } else if head.contains("anthropic-workspace-id: wrkspc_default") {
+                    ("200 OK", r#"{"data":[{"id":"claude-haiku-5-5","display_name":"Haiku 5.5"}]}"#)
+                } else {
+                    ("400 Bad Request", r#"{"error":{"type":"invalid_request_error","message":"anthropic-workspace-id header is required"}}"#)
+                };
+                let reply = format!("HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+                let _ = sock.write_all(reply.as_bytes()).await;
+            }
+        });
+        let models = list_models("anthropic", "sk-ant-test", Some(&base)).await.unwrap();
+        assert_eq!(models, vec![("claude-haiku-5-5".to_string(), Some("Haiku 5.5".to_string()))]);
+    }
+
+    #[test]
+    fn a_refused_list_says_the_providers_reason() {
+        assert_eq!(not_listed(400, r#"{"error":{"message":"limit is too big"}}"#), "The provider could not list its models (HTTP 400): limit is too big");
+        assert_eq!(not_listed(502, "<html>"), "The provider could not list its models (HTTP 502).");
     }
 
     #[test]

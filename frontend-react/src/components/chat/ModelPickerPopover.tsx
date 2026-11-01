@@ -335,7 +335,7 @@ export function ModelPickerPopover() {
           }}
           className={cn('flex items-center gap-3 rounded-xl px-2.5 py-2', inUse && 'bg-bg-active')}
         >
-          <ModelLogo modelId={p.default_model ?? undefined} provider={p.id === CHATGPT_ID ? 'openai' : p.id} className="size-5" />
+          <ModelLogo modelId={p.default_model ?? undefined} provider={p.id} className="size-5" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium text-text-primary">{p.name}</span>
             <span className="block truncate text-xs text-text-muted">{line}</span>
