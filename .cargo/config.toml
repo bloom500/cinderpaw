@@ -1,0 +1,8 @@
+[env]
+# llama.cpp's vendored web client (cpp-httplib, for its own model downloader)
+# looks for OpenSSL, and llama-cpp-sys-2 forwards every CMAKE_* variable to
+# CMake. On the macOS runner it half-found Homebrew's OpenSSL and the build
+# died on 'openssl/err.h' (1 Nov); found whole, the shipped app would have
+# needed Homebrew's libssl on a stranger's Mac. Cinderpaw only opens model
+# files already on disk, so the downloader's HTTPS is never used.
+CMAKE_DISABLE_FIND_PACKAGE_OpenSSL = "ON"
