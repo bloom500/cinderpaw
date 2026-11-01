@@ -1690,7 +1690,7 @@ pub async fn handle_from_agent(app: AppHandle, op: &str, params: &Value) -> Resu
             return Err("browser: no such tab. Call action \"tabs\" for the list.".into());
         }
         if let Ok(mut g) = AGENT_TAB.lock() { *g = Some(id); }
-        if !person_on_own_page() { handle(app.clone(), "switch_tab", params).await?; }
+        if !person_on_own_page() { handle(app.clone(), "switch_tab", &json!({ "id": id, "by_agent": true })).await?; }
         return Ok(with_memory(tabs_json()));
     }
     if op == "close_tab" {
@@ -2001,7 +2001,13 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
                 let mut t = tabs().lock();
                 if !t.list.iter().any(|x| x.id == id) { return Err("browser: no such tab".into()); }
                 t.active = Some(id);
-                if let Some(tab) = t.list.iter_mut().find(|x| x.id == id) { tab.last_active = std::time::Instant::now(); }
+                // The person went to one of the agent's tabs: they wanted it, so
+                // it is theirs now and the end of the task leaves it open (1 Nov).
+                let by_person = params.get("by_agent") != Some(&json!(true));
+                if let Some(tab) = t.list.iter_mut().find(|x| x.id == id) {
+                    tab.last_active = std::time::Instant::now();
+                    if by_person { tab.agent = false; }
+                }
             }
             place_all(&app)?;
             emit_state(&app);

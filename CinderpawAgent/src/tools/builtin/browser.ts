@@ -184,7 +184,8 @@ export function createBrowserTool(): Tool {
       "that tab the one you work in, and `close_tab` with `id` closes one you are done with " +
       "(closing a tab the user opened asks them first). Each tab is a whole web page in memory: `tabs` shows how " +
       "much memory is free, and when it runs low, close the tabs you are done with. When your reply ends, your finished tabs close by " +
-      "themselves, except the one in front and any where you filled in a form for the user to send. Every other action works in the tab you " +
+      "themselves (the user is told, with Reopen), except the one in front, any the user went to (those are " +
+      "theirs now), and any where you filled in a form for the user to send. Every other action works in the tab you " +
       "opened or switched to last. When they ask about the page THEY have " +
       "in front (\"this page\", \"what am I looking at\", \"summarize this\"), pass " +
       "tab: \"user\". `open` a url " +
