@@ -32,7 +32,8 @@ const DEFAULT_CONFIG: WorkingMemoryConfig = {
 };
 
 /** Tokens reserved for the summary note maybeCompress prepends, so the kept
- *  recent transcript + the summary still fit under the target budget.
+ *  recent transcript + the summary still fit under the target budget. The
+ *  floor: a large budget reserves a tenth of itself (see maybeCompress).
  *  Must cover the summarizer's `maxTokens` (see AgentLoop.#summarize) — when it
  *  was 512 against a 1024-token summary, compaction handed back a prompt bigger
  *  than the budget it was called with and the next turn compacted again. */
@@ -858,8 +859,15 @@ export class WorkingMemory {
     // 0, so an oversized message survived verbatim into a prompt that was
     // already overflowing. Never spend more than a quarter of the budget
     // holding room for a summary that hasn't been written yet.
+    //
+    // The reserve is also the cap on every summary carried so far, and a flat
+    // 1200 held about one: the next compaction cut the middle out of the last
+    // (head+tail), "Established facts" included, so a long cloud task forgot
+    // from one compaction to the next (1 Nov). It grows to a tenth of a large
+    // budget (8K of the 80K cloud one, room for several); small budgets keep
+    // what they had.
     const summaryReserve = Math.min(
-      SUMMARY_RESERVE_TOKENS,
+      Math.max(SUMMARY_RESERVE_TOKENS, Math.floor(targetTokens * 0.1)),
       Math.floor(targetTokens * 0.25),
     );
     const fixedOverhead =
