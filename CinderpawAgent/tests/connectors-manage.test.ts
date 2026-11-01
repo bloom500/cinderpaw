@@ -379,3 +379,40 @@ test("unlink takes the phone off and turns WhatsApp off; a pause says it is stil
   const discord = await paused.execute({ action: "unlink", id: "discord" }, ctx);
   expect(discord.ok).toBe(false);
 });
+
+// 31 Oct + 1 Nov, Darius: in the app the number comes from a card with a phone
+// field, and it comes back holding the saved number so a wrong digit can be fixed.
+test("turning WhatsApp on in the app asks for the number on a phone card", async () => {
+  const { markCardSurface } = await import("../src/core/card-surface.ts");
+  markCardSurface("tel", "text");
+  const cases = [
+    { before: undefined, typed: "+40712345678", saved: "+40712345678", pairs: 1 },
+    // The wrong number saved last time is on the card, and the fix replaces it.
+    { before: "+40712345679", typed: "+40712345678", saved: "+40712345678", pairs: 1 },
+    // A QR instead: the old number must not keep asking for a code.
+    { before: "+40712345679", typed: "Use a QR code", saved: undefined, pairs: 1 },
+    { before: undefined, typed: "Not now", saved: undefined, pairs: 0 },
+  ];
+  for (const c of cases) {
+    const rows = c.before ? [{ id: "whatsapp", enabled: true, secrets: { WHATSAPP_LINK_NUMBER: c.before } }] : [];
+    writeFileSync(file, JSON.stringify({ connectors: rows }), "utf8");
+    let paired = 0;
+    let asked: { input?: string; value?: string } | undefined;
+    const tool = createConnectorsManageTool(
+      { reload: async () => {}, pairWhatsApp: async () => (++paired, true) },
+      { isLinked: () => false, hasWhatsApp: () => true },
+    );
+    const askUser = {
+      ask: async (qs: { input?: string; value?: string; question: string }[]) => ((asked = qs[0]), [{ question: qs[0]!.question, selected: [c.typed] }]),
+      cancel() {},
+    };
+    const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true }, { sessionId: "tel", askUser } as never);
+    expect(asked?.input).toBe("phone");
+    expect(asked?.value).toBe(c.before);
+    expect(paired).toBe(c.pairs);
+    const row = JSON.parse(readFileSync(file, "utf8")).connectors.find((r: { id: string }) => r.id === "whatsapp");
+    expect(row?.secrets?.WHATSAPP_LINK_NUMBER).toBe(c.saved);
+    if (c.saved) expect(res.content).toContain("Link with phone number instead");
+  }
+  markCardSurface("tel", undefined);
+});

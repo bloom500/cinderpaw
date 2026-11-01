@@ -89,12 +89,15 @@ export const CATALOG: Record<string, CatalogEntry> = {
   whatsapp: {
     secrets: [],
     note:
-      "No secrets. Ask for the number of the WhatsApp account to link (theirs, or a second number), country code " +
-      "first, and configure with enabled:true and link_number: they get a code to type on the phone, no QR. Without " +
-      "link_number it falls back to a QR to scan.",
+      "No secrets. In the Cinderpaw app and page, configure with enabled:true shows the person a card with a phone " +
+      "field: do not ask for the number in a sentence there. Elsewhere, ask for the number of the WhatsApp account to " +
+      "link (theirs, or a second number), country code first, and configure with enabled:true and link_number. Either " +
+      "way they get a code to type on the phone, no QR; they can pick a QR on the card instead. If the person says the " +
+      "number was wrong, or no code reached the phone, call configure with enabled:true again: in the app the card " +
+      "comes back holding that number to fix; elsewhere pass the right number as link_number.",
     steps: [
       "WhatsApp needs no token. You link it with a phone number.",
-      "Tell me the WhatsApp number to link, with the country code first. In Romania that is +40, then the number without its first 0.",
+      "I ask for the WhatsApp number to link, with the country code first. In Romania that is +40, then the number without its first 0.",
       "The first time, I ask to download what WhatsApp needs. Then a code of 8 letters and numbers shows up right here, under our chat.",
       "On that phone, open WhatsApp. Tap Settings, then Linked devices, then Link a device. Tap Link with phone number instead, and type the code.",
     ],
@@ -417,6 +420,7 @@ const WHATSAPP_DOWNLOAD =
 
 const DOWNLOAD = "Download";
 const NOT_NOW = "Not now";
+const USE_QR = "Use a QR code";
 
 export async function readRows(): Promise<ConnectorRow[]> {
   try {
@@ -533,8 +537,9 @@ export function createConnectorsManageTool(
         type: "string",
         description:
           "WhatsApp only (configure): the number of the WhatsApp account to link to this computer, country code " +
-          "first (e.g. +40 712 345 678). Ask for it before turning WhatsApp on: the person then types a code on " +
-          "that phone instead of scanning a QR.",
+          "first (e.g. +40 712 345 678). In the Cinderpaw app and page leave it out: turning WhatsApp on shows the " +
+          "person a phone card. Elsewhere ask for it first: the person then types a code on that phone instead of " +
+          "scanning a QR.",
         required: false,
       },
     },
@@ -646,6 +651,62 @@ export function createConnectorsManageTool(
           };
         }
         row.secrets = { ...row.secrets, WHATSAPP_LINK_NUMBER: args.link_number.trim() };
+      }
+      // 31 Oct, Darius: the number goes on a card with a phone field, in the
+      // chat, not in a sentence the person has to answer by typing. It comes
+      // back every time the phone is not linked yet, holding the number saved
+      // last time: one wrong digit sent the code to nobody, and with the card
+      // shown only while no number was saved, every retry reused it (1 Nov).
+      const typedOnCall = typeof args.link_number === "string" && args.link_number.trim() !== "";
+      if (
+        id === "whatsapp" && args.enabled === true && !isLinked() && !typedOnCall &&
+        ctx?.askUser && sessionHasCards(ctx.sessionId)
+      ) {
+        const saved = row.secrets?.WHATSAPP_LINK_NUMBER?.trim();
+        let typed = "";
+        try {
+          const [a] = await ctx.askUser.ask(
+            [
+              {
+                question: saved
+                  ? "Is this the WhatsApp number to link? Fix it if a digit is wrong."
+                  : "Which WhatsApp number should I link?",
+                header: "WhatsApp",
+                input: "phone",
+                ...(saved ? { value: saved } : {}),
+                options: [
+                  { label: USE_QR, description: "Scan a code with the phone's camera instead." },
+                  { label: NOT_NOW, description: "Nothing changes." },
+                ],
+                multiSelect: false,
+              },
+            ],
+            ctx.sessionId,
+          );
+          // The desktop card sends the typed number as the pick; the web page as customText.
+          typed = (a?.customText || a?.selected?.[0] || "").trim();
+        } catch {
+          typed = "";
+        }
+        if (!typed || typed === NOT_NOW) {
+          return { ok: true, content: "The person chose not to link WhatsApp now. Nothing was changed. Say that is fine." };
+        }
+        if (typed === USE_QR) {
+          // A number left behind would keep asking for a code instead of the QR.
+          const { WHATSAPP_LINK_NUMBER: _dropped, ...rest } = row.secrets ?? {};
+          row.secrets = rest;
+        } else {
+          if (!linkNumber(typed)) {
+            return {
+              ok: false,
+              content:
+                "The number typed on the card has no country code. Say so in one sentence, then call configure " +
+                "again with enabled:true and no link_number: the card comes back.",
+              error: "bad_args",
+            };
+          }
+          row.secrets = { ...row.secrets, WHATSAPP_LINK_NUMBER: typed };
+        }
       }
       if (typeof args.enabled === "boolean") row.enabled = args.enabled;
       if (args.secrets && typeof args.secrets === "object" && !Array.isArray(args.secrets)) {

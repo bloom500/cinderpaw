@@ -1676,6 +1676,10 @@ export interface AskUserQuestion {
    * extension form (a service's link + key) is sent to the desktop app only.
    */
   secret?: { connector: string; field: string } | { extensionUrl: string; extensionName?: string };
+  /** "phone": the card opens a country + phone-number field; the number (+40712345678) comes back as the answer. */
+  input?: "phone";
+  /** What that field starts with: the number saved last time, to keep or fix. */
+  value?: string;
 }
 
 export interface AskUserAnswer {
