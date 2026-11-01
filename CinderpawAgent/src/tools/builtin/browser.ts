@@ -24,18 +24,36 @@ const ACTIONS = ["open", "snapshot", "screenshot", "click", "type", "scroll", "b
 
 interface TabRow { id: number; title?: string; url?: string; agent?: boolean }
 
+type Memory = { freeMb?: number; totalMb?: number };
+
+/**
+ * How much memory is left, as the agent reads it with its tabs. There is no cap
+ * on tabs (Darius, 1 Nov); the agent judges, and below 15% free it is told
+ * plainly to close the ones it is done with.
+ */
+export function memoryNote(m: Memory | undefined, always: boolean): string {
+  if (!m?.freeMb || !m.totalMb) return "";
+  const gb = (mb: number) => (mb / 1024).toFixed(1);
+  if (m.freeMb / m.totalMb < 0.15) {
+    return `Memory is low: ${gb(m.freeMb)} GB free of ${gb(m.totalMb)} GB. Each tab is a whole web page: close the tabs you are done with (close_tab) before opening more.`;
+  }
+  return always ? `Memory: ${gb(m.freeMb)} GB free of ${gb(m.totalMb)} GB.` : "";
+}
+
 /** The tab strip as the model reads it: one line a tab, with whose it is. */
-export function renderTabs(s: { active?: number | null; working?: number | null; tabs?: TabRow[] }): string {
+export function renderTabs(s: { active?: number | null; working?: number | null; tabs?: TabRow[]; memory?: Memory }): string {
   const rows = s.tabs ?? [];
   const working = s.working;
-  if (rows.length === 0) return "No tabs are open.";
+  const memory = memoryNote(s.memory, true);
+  if (rows.length === 0) return ["No tabs are open.", memory].filter(Boolean).join("\n");
   return [
     "Tabs (switch_tab or close_tab by id):",
     ...rows.map((t) => {
       const marks = [t.agent ? "yours" : "the user's", s.active === t.id ? "in front" : "", working === t.id ? "you work here" : ""].filter(Boolean);
       return `[${t.id}] ${t.title?.trim() || "(untitled)"} (${t.url || "new tab"}): ${marks.join(", ")}`;
     }),
-  ].join("\n");
+    memory,
+  ].filter(Boolean).join("\n");
 }
 type Action = (typeof ACTIONS)[number];
 
@@ -128,6 +146,18 @@ const CHECKOUT_PATH = /checkout|payment|pay\b|plata|comanda|kasse|paiement|pago|
 const BOOK_WORD = /(?<!\p{L})(schedul|book(?!\p{L})|reserv|rezerv|programea|(confirm|complete|finish)( the| your)? (booking|reservation|appointment|meeting)|buchen|réserv|agendar)/iu;
 const BOOKING_HOST = /(^|\.)(calendly\.com|cal\.com|savvycal\.com|tidycal\.com|zcal\.co|youcanbook\.me|acuityscheduling\.com|doodle\.com)$/i;
 
+// Applying for a job is the person's word to an employer, with their CV and
+// their name: Darius gave Cinderpaw ten job links to apply to (1 Nov). Asked
+// on any site when the control says it sends an application; on a job page
+// (a hiring site, or a /jobs, /careers, /apply address) also its plain "Apply",
+// "Submit" or "Send", an unread control, and a submitted form.
+// ponytail: stems and a list of hiring sites; a job board missing from the
+// list still asks on "Submit application", not on a bare "Submit".
+const APPLY_WORD = /((submit|send|trimite)\p{L}*( (your|my|the|job))* application|candidatur|candideaz|bewerbung|postuler|easy apply)/iu;
+const APPLY_ON_JOB_PAGE = /(?<!\p{L})(apply|aplic|submit|send|trimite|finish|finaliz|bewerb|postul)/iu;
+const JOB_HOST = /(^|\.)(greenhouse\.io|lever\.co|myworkdayjobs\.com|workday\.com|smartrecruiters\.com|ashbyhq\.com|workable\.com|recruitee\.com|teamtailor\.com|breezy\.hr|jobvite\.com|icims\.com|personio\.(de|com)|indeed\.com|glassdoor\.com|wellfound\.com|ejobs\.ro|bestjobs\.eu|hipo\.ro|jobs\.[^.]+\.[a-z]+|careers\.[^.]+\.[a-z]+)$/i;
+const JOB_PATH = /\/(jobs?|careers?|apply|application|cariere|joburi|locuri-de-munca)(\/|$|\?)/i;
+
 function hostOf(url?: string): string | null {
   try { return url ? new URL(url).hostname : null; } catch { return null; }
 }
@@ -149,10 +179,12 @@ export function createBrowserTool(): Tool {
       "web_search and fetch_url are faster and do not take over the screen. `open` always " +
       "opens a NEW tab of your own and never replaces a page the user has open; when they " +
       "are on a page of their own (a video, say), yours opens behind it, so tell them where " +
-      "it is. Your earlier tabs stay open, so several links are several tabs: open each one, " +
+      "it is. Your earlier tabs stay open, with no limit, so several links are several tabs: open each one, " +
       "then `tabs` lists every tab (id, page, yours or the user's), `switch_tab` with `id` makes " +
       "that tab the one you work in, and `close_tab` with `id` closes one you are done with " +
-      "(closing a tab the user opened asks them first). Every other action works in the tab you " +
+      "(closing a tab the user opened asks them first). Each tab is a whole web page in memory: `tabs` shows how " +
+      "much memory is free, and when it runs low, close the tabs you are done with. When your reply ends, your finished tabs close by " +
+      "themselves, except the one in front and any where you filled in a form for the user to send. Every other action works in the tab you " +
       "opened or switched to last. When they ask about the page THEY have " +
       "in front (\"this page\", \"what am I looking at\", \"summarize this\"), pass " +
       "tab: \"user\". `open` a url " +
@@ -177,7 +209,9 @@ export function createBrowserTool(): Tool {
       "(a link counts as 23) unless they say they have Premium, Threads 500, LinkedIn 3000. " +
       "Count before you open the page. The user presses Post. Pressing it yourself, or any publish control on a " +
       "social site, asks them first, and is refused when nobody is there. Shopping: fill the cart and checkout, " +
-      "then pressing the button that pays (Place order, Pay, Buy now) on any site asks them first too.",
+      "then pressing the button that pays (Place order, Pay, Buy now) on any site asks them first too. Job " +
+      "applications: fill the form, then the button that sends it asks them first too; never make up an answer " +
+      "about the person (salary, visa, years of experience) that you were not given: ask them.",
     permissions: [],
     // The requests are the page's, made by the webview in the host, not by this
     // process; there is nothing for the egress proxy to see or to allow.
@@ -363,6 +397,36 @@ export function createBrowserTool(): Tool {
           }
         }
       }
+      // Not `else`: a yes to booking an interview slot is not a yes to the application.
+      if ((action === "click" || action === "type") && host) {
+        const control = page!.elements.find((e) => e.ref === params.ref);
+        let path = "";
+        try { path = new URL(page?.url ?? "").pathname; } catch { /* no address */ }
+        const jobPage = JOB_HOST.test(host) || JOB_PATH.test(path);
+        const applying = action === "click"
+          ? (control ? APPLY_WORD.test(control.name) || (jobPage && APPLY_ON_JOB_PAGE.test(control.name)) : jobPage)
+          : params.submit === true && jobPage;
+        if (applying) {
+          const what = action === "type" ? "submit the form" : `press "${control?.name ?? "a control it has not read"}"`;
+          if (!canAskAHuman(Boolean(ctx.askUser))) {
+            return fail(`browser: refused. This would ${what} on ${host}, which may send a job application in the user's name, and nobody is here to approve it. Leave it for the user.`, "application_needs_approval");
+          }
+          const [answer] = await ctx.askUser!.ask([{
+            question: `Cinderpaw wants to ${what} on ${host}. This may send a job application in your name. Allow it?`,
+            header: "Application",
+            multiSelect: false,
+            // Their name and CV to an employer: never auto-answered.
+            forceEscalate: true,
+            options: [
+              { label: "Yes, send it", description: "Allow this one action." },
+              { label: "No, don't send", description: "Nothing is sent." },
+            ],
+          }], ctx.sessionId);
+          if (!(answer?.selected?.[0]?.toLowerCase().startsWith("yes") ?? false)) {
+            return fail(`browser: the user declined sending the application on ${host}. Do not try again; tell them it is filled in and ready for them to send.`, "application_declined");
+          }
+        }
+      }
 
       let data: unknown;
       try {
@@ -424,7 +488,10 @@ export function createBrowserTool(): Tool {
       if (action === "open") {
         return {
           ok: true,
-          content: `Opened ${result.url ?? String(params.url)} in a new tab of yours${(result as { background?: boolean }).background ? ", behind the page the user is on (tell them it is there)" : ""}${result.loading ? " (still loading)" : ""}. Take a snapshot to read it.`,
+          content: [
+            `Opened ${result.url ?? String(params.url)} in a new tab of yours${(result as { background?: boolean }).background ? ", behind the page the user is on (tell them it is there)" : ""}${result.loading ? " (still loading)" : ""}. Take a snapshot to read it.`,
+            memoryNote((result as { memory?: Memory }).memory, false),
+          ].filter(Boolean).join(" "),
           data: { url: result.url },
         };
       }

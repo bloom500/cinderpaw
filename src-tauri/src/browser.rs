@@ -58,6 +58,15 @@ struct Tab {
     /// tab the person is using: he wants to watch a video "fara sa traiesc cu
     /// frica ca agentul ma intrerupe deschizand alt site peste YouTube" (20 Oct).
     agent: bool,
+    /// The agent typed into this tab: a form it filled for the person to send
+    /// (an application, a cart, a booking). It stays open when the task ends.
+    held: bool,
+}
+
+/// The agent's tabs a finished task leaves behind: every one except the tab in
+/// front of the person and those holding a form it filled in for them.
+fn finished_agent_tabs(t: &Tabs) -> Vec<u32> {
+    t.list.iter().filter(|x| x.agent && !x.held && t.active != Some(x.id)).map(|x| x.id).collect()
 }
 
 #[derive(Default)]
@@ -1065,7 +1074,7 @@ fn new_tab_with(app: &AppHandle, url: Url, front: bool) -> Result<Webview, Strin
         t.next_id += 1;
         let id = t.next_id;
         let label = format!("browser-tab-{id}");
-        t.list.push(Tab { id, label: label.clone(), title: String::new(), history: Vec::new(), cursor: 0, expecting: None, loading: true, placed: None, dormant: false, last_active: std::time::Instant::now(), agent: false });
+        t.list.push(Tab { id, label: label.clone(), title: String::new(), history: Vec::new(), cursor: 0, expecting: None, loading: true, placed: None, dormant: false, last_active: std::time::Instant::now(), agent: false, held: false });
         if front { t.active = Some(id); }
         (id, label)
     };
@@ -1682,7 +1691,7 @@ pub async fn handle_from_agent(app: AppHandle, op: &str, params: &Value) -> Resu
         }
         if let Ok(mut g) = AGENT_TAB.lock() { *g = Some(id); }
         if !person_on_own_page() { handle(app.clone(), "switch_tab", params).await?; }
-        return Ok(tabs_json());
+        return Ok(with_memory(tabs_json()));
     }
     if op == "close_tab" {
         let out = handle(app.clone(), "close_tab", params).await?;
@@ -1690,7 +1699,10 @@ pub async fn handle_from_agent(app: AppHandle, op: &str, params: &Value) -> Resu
             let newest = tabs().lock().list.iter().filter(|x| x.agent).map(|x| x.id).max();
             if let Ok(mut g) = AGENT_TAB.lock() { *g = newest; }
         }
-        return Ok(out);
+        return Ok(with_memory(out));
+    }
+    if op == "tabs" {
+        return Ok(with_memory(tabs_json()));
     }
     // The agent works in tabs of its own (20 Oct): `open` makes a new one, and
     // every other action works in its current one, or on the person's page when
@@ -1708,6 +1720,12 @@ pub async fn handle_from_agent(app: AppHandle, op: &str, params: &Value) -> Resu
         let _ = app.emit("browser://agent", json!({ "op": op, "url": params.get("url"), "ref": params.get("ref"), "busy": true }));
         let out = if opening { agent_open(&app, params).await } else { handle(app.clone(), op, params).await };
         if acts { *AGENT_LAST_MS.lock() = now_ms(); }
+        // A form filled in its own tab waits for the person: keep that tab.
+        if op == "type" && out.as_ref().is_ok_and(|v| v.get("ok") == Some(&json!(true))) {
+            if let Some(id) = target {
+                if let Some(tab) = tabs().lock().list.iter_mut().find(|x| x.id == id) { tab.held = true; }
+            }
+        }
         let _ = app.emit("browser://agent", json!({ "op": op, "busy": false, "ok": out.is_ok() }));
         out
     }).await
@@ -1728,10 +1746,19 @@ fn person_on_own_page() -> bool {
         .is_some_and(|tab| !tab.agent && tab.history.get(tab.cursor).is_some_and(|u| u != HOME))
 }
 
-/// How many tabs of its own the agent keeps before the oldest one closes.
-/// ponytail: a fixed number; ten job links fit, a runaway loop does not pile up
-/// webviews. Make it a setting if someone needs more at once.
-const MAX_AGENT_TABS: usize = 12;
+/// Free and total memory, sent with the agent's tab results. There is no cap on
+/// its tabs (Darius, 1 Nov: a cap of 6 silently closed job links 1-4 of 10);
+/// it sees how much room is left and closes the tabs it is done with itself.
+fn memory_json() -> Value {
+    let mut sys = sysinfo::System::new();
+    sys.refresh_memory();
+    json!({ "freeMb": sys.available_memory() / 1024 / 1024, "totalMb": sys.total_memory() / 1024 / 1024 })
+}
+
+fn with_memory(mut v: Value) -> Value {
+    if let Some(o) = v.as_object_mut() { o.insert("memory".into(), memory_json()); }
+    v
+}
 
 /// The agent opens a page: always in a new tab of its own, which becomes the one
 /// it works in. In front, unless the person is on a page of their own. Its
@@ -1749,25 +1776,18 @@ async fn agent_open(app: &AppHandle, params: &Value) -> Result<Value, String> {
     let wv = new_tab_with(app, url, !behind)?;
     let id = tabs().lock().list.iter_mut().find(|x| x.label == wv.label()).map(|tab| { tab.agent = true; tab.id });
     if let Ok(mut g) = AGENT_TAB.lock() { *g = id; }
-    loop {
-        let oldest = {
-            let t = tabs().lock();
-            let mine: Vec<u32> = t.list.iter().filter(|x| x.agent).map(|x| x.id).collect();
-            if mine.len() <= MAX_AGENT_TABS { None } else { mine.into_iter().filter(|&x| t.active != Some(x) && Some(x) != id).min() }
-        };
-        let Some(old) = oldest else { break };
-        if handle(app.clone(), "close_tab", &json!({ "id": old })).await.is_err() { break; }
-    }
     emit_state(app);
     settle(Duration::from_secs(20)).await;
     let now = wv.url().map_err(|e| e.to_string())?;
-    Ok(json!({ "ok": true, "url": now.as_str(), "loading": LOADING.load(Ordering::SeqCst), "background": behind }))
+    Ok(with_memory(json!({ "ok": true, "url": now.as_str(), "loading": LOADING.load(Ordering::SeqCst), "background": behind })))
 }
 
 /// One entry point for the agent (`browser.<op>` over desktop control) and the
 /// panel (`browser_ui`). The two must never drift, so they share it.
 pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, String> {
-    restore_once(&app);
+    // Asked at the end of every task: on a browser nobody opened this session
+    // it must not restore last session's tabs just to find none of the agent's.
+    if op != "close_agent_tabs" { restore_once(&app); }
     match op {
         "open" | "navigate" => {
             let url = parse_address(param_str(params, "url")?)?;
@@ -1936,6 +1956,20 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
             Ok(json!({ "ok": true }))
         }
         "tabs" | "state" => Ok(tabs_json()),
+        // A task ended (the page asks): its finished tabs go, like Claude and
+        // Codex closing their tab group (Darius, 1 Nov). Each tab is a whole
+        // page in memory, and ten job links had left ten open.
+        "close_agent_tabs" => {
+            let done = finished_agent_tabs(&tabs().lock());
+            for id in done {
+                let _ = Box::pin(handle(app.clone(), "close_tab", &json!({ "id": id }))).await;
+            }
+            if live_agent_tab().is_none() {
+                let newest = tabs().lock().list.iter().filter(|x| x.agent).map(|x| x.id).max();
+                if let Ok(mut g) = AGENT_TAB.lock() { *g = newest; }
+            }
+            Ok(tabs_json())
+        }
         "extensions" => Ok(extensions_json()),
         // The built-in blocker (Brave's engine): its state, and the on/off switch.
         "adblock" => Ok(crate::adblock::status_json()),
@@ -2103,7 +2137,7 @@ mod tests {
     fn only_the_tab_in_front_of_the_person_is_on_screen() {
         let tab = |id: u32, url: &str| Tab {
             id, label: format!("browser-tab-{id}"), title: String::new(), history: vec![url.into()], cursor: 0,
-            expecting: None, loading: false, placed: None, dormant: false, last_active: std::time::Instant::now(), agent: false,
+            expecting: None, loading: false, placed: None, dormant: false, last_active: std::time::Instant::now(), agent: false, held: false,
         };
         let t = Tabs { list: vec![tab(1, "https://x.com/compose/post"), tab(2, "https://example.com/"), tab(3, HOME)], active: Some(1), next_id: 3 };
         let open = Bounds { x: 0.0, y: 0.0, w: 800.0, h: 600.0, visible: true };
@@ -2117,6 +2151,23 @@ mod tests {
         // On the start page the panel draws its own page; the webview is parked.
         let home = Tabs { active: Some(3), ..t };
         assert!(!on_screen(&home, &open, "browser-tab-3"));
+    }
+
+    /// Ten job links left ten tabs open (1 Nov). A finished task closes the
+    /// agent's tabs, never the person's, the one in front, or a filled-in form.
+    #[test]
+    fn a_finished_task_closes_only_the_agents_idle_tabs() {
+        let tab = |id: u32, agent: bool, held: bool| Tab {
+            id, label: format!("browser-tab-{id}"), title: String::new(), history: vec!["https://jobs.example/".into()], cursor: 0,
+            expecting: None, loading: false, placed: None, dormant: false, last_active: std::time::Instant::now(), agent, held,
+        };
+        let t = Tabs {
+            list: vec![tab(1, false, false), tab(2, true, false), tab(3, true, true), tab(4, true, false), tab(5, true, false)],
+            active: Some(4),
+            next_id: 5,
+        };
+        // 1 is the person's, 3 holds a form waiting to be sent, 4 is in front.
+        assert_eq!(finished_agent_tabs(&t), vec![2, 5]);
     }
 
     #[test]

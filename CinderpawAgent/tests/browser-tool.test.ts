@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { createBrowserTool, renderSnapshot } from "../src/tools/builtin/browser.ts";
+import { createBrowserTool, memoryNote, renderSnapshot, renderTabs } from "../src/tools/builtin/browser.ts";
 
 function setup(answer: (action: string, params: Record<string, unknown>) => unknown) {
   const calls: Array<{ action: string; params: Record<string, unknown> }> = [];
@@ -373,6 +373,24 @@ describe("paying on any site waits for the person", () => {
     }
   });
 
+  // 1 Nov: Darius gave Cinderpaw ten job links to apply to.
+  test("sending a job application is asked about; a coupon's Apply is not", async () => {
+    for (const [name, url] of [["Submit application", "https://acme.example/about"], ["Trimite candidatura", "https://firma.ro/x"],
+      ["Easy Apply", "https://www.linkedin.example/feed"], ["Apply", "https://boards.greenhouse.io/acme/jobs/1"],
+      ["Submit", "https://acme.example/careers/42"], ["Aplică", "https://www.ejobs.ro/user/locuri-de-munca/1"]]) {
+      const t = store(shop(name!, url!));
+      await t.tool.execute({ action: "snapshot" }, t.ctx);
+      expect({ name, res: await t.tool.execute({ action: "click", ref: "2" }, t.ctx) }).toMatchObject({ name, res: { error: "application_needs_approval" } });
+    }
+    const coupon = store(shop("Apply", "https://florarie.example/cos"));
+    await coupon.tool.execute({ action: "snapshot" }, coupon.ctx);
+    expect((await coupon.tool.execute({ action: "click", ref: "2" }, coupon.ctx)).ok).toBe(true);
+    const yes = store(shop("Submit application", "https://jobs.lever.co/acme/1"), "Yes, send it");
+    await yes.tool.execute({ action: "snapshot" }, yes.ctx);
+    expect((await yes.tool.execute({ action: "click", ref: "2" }, yes.ctx)).ok).toBe(true);
+    expect(yes.asked[0]).toContain("Application:Cinderpaw wants to press \"Submit application\" on jobs.lever.co");
+  });
+
   test("on a checkout page an unread control, or a submitted form, is asked about too", async () => {
     const t = store(shop("Continue", "https://florarie.ro/checkout/payment"));
     await t.tool.execute({ action: "open", url: "https://florarie.ro/checkout/payment" }, t.ctx);
@@ -437,5 +455,16 @@ describe("browser tabs", () => {
     const yes = withTabs("Yes, close it");
     expect((await yes.tool.execute({ action: "close_tab", id: 1 }, yes.ctx)).ok).toBe(true);
     expect(yes.calls).toEqual(["browser.tabs", "browser.close_tab 1"]);
+  });
+});
+
+describe("browser memory", () => {
+  // 1 Nov: no cap on tabs; the agent sees memory and closes tabs itself.
+  test("the agent is told plainly when memory runs low, and quietly when it does not", () => {
+    expect(memoryNote({ freeMb: 1024, totalMb: 16384 }, false)).toContain("Memory is low: 1.0 GB free of 16.0 GB");
+    expect(memoryNote({ freeMb: 8192, totalMb: 16384 }, false)).toBe("");
+    expect(memoryNote({ freeMb: 8192, totalMb: 16384 }, true)).toBe("Memory: 8.0 GB free of 16.0 GB.");
+    expect(renderTabs({ tabs: [{ id: 2, title: "Job", url: "https://jobs.example", agent: true }], memory: { freeMb: 900, totalMb: 8192 } }))
+      .toContain("close the tabs you are done with");
   });
 });
