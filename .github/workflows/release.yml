@@ -285,10 +285,16 @@ jobs:
         if: matrix.target != ''
         run: rustup target add ${{ matrix.target }}
 
+      # prefix-key: a fresh cache, so llama.cpp is configured once with
+      # .cargo/config.toml's CMAKE_DISABLE_FIND_PACKAGE_OpenSSL. A restored
+      # CMakeCache.txt is never reconfigured (cmake crate), and one that found
+      # Homebrew's OpenSSL would ship a Mac app needing Homebrew's libssl.
+      # Bump it again whenever a CMAKE_* setting there changes.
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          prefix-key: v1-rust
 
       # Cinderpaw Agent is vendored in this monorepo at CinderpawAgent/ — the single
       # source of truth. The actual compile + copy into src-tauri/binaries/

@@ -219,8 +219,15 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # prefix-key starts a fresh cache: the cmake crate configures llama.cpp
+      # only when no CMakeCache.txt exists, so a restored one kept a Homebrew
+      # OpenSSL path that no longer exists ('openssl/err.h' not found, 1 Nov) and
+      # never saw CMAKE_DISABLE_FIND_PACKAGE_OpenSSL (.cargo/config.toml).
+      # Bump it again whenever a CMAKE_* setting there changes.
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
 
       - name: Install sidecar dependencies
         working-directory: CinderpawAgent
