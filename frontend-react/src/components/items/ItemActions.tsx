@@ -318,15 +318,20 @@ export function ConversationActions({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <RenameDialog
-        open={renaming}
-        onOpenChange={setRenaming}
-        title="Rename chat"
-        label="Chat name"
-        initial={conv.title}
-        onSave={(title) => useConversations.getState().rename(conv.id, title)}
-      />
-
+      {/* Built only while open: every sidebar row carried a whole dialog, and
+          the list redraws after every reply (191 ms of a 40 s profile, 1 Nov).
+          Opened fresh, it also starts from the chat's current title, not the
+          one it had when the row first drew. */}
+      {renaming && (
+        <RenameDialog
+          open
+          onOpenChange={setRenaming}
+          title="Rename chat"
+          label="Chat name"
+          initial={conv.title}
+          onSave={(title) => useConversations.getState().rename(conv.id, title)}
+        />
+      )}
     </>
   );
 }
