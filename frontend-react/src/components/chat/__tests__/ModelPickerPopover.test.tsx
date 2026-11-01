@@ -85,10 +85,10 @@ describe('the chat model picker', () => {
   });
 });
 
-describe('the Model Switcher, provider then model (1 Nov, his pick B)', () => {
-  // Before, each provider showed only its default model; any other had to be
-  // typed as an id in Models > Roles. Now a provider's page lists its models.
-  it('opens on the providers; a provider page lists its models by name, and one tap switches to it', async () => {
+describe('the Model Switcher, in the 21st.dev shape (2 Nov, his pick)', () => {
+  // Every cloud model sits under its provider's name in All, one tap away; the
+  // 1 Nov version made a person open a provider's page first.
+  it('opens on All: every model under its provider, and one tap switches to it', async () => {
     vi.spyOn(tauri.raw, 'getByokSettings').mockResolvedValue([
       { id: 'anthropic', name: 'Anthropic', provider: 'anthropic', enabled: true, has_api_key: true, base_url: null, default_model: 'claude-opus-5-5' },
     ] as never);
@@ -101,10 +101,9 @@ describe('the Model Switcher, provider then model (1 Nov, his pick B)', () => {
     render(<ModelPickerPopover />);
     await userEvent.click(screen.getByRole('button'));
 
-    expect(screen.getByRole('tab', { name: 'Cloud' })).toHaveAttribute('aria-selected', 'true');
-    await userEvent.click(await screen.findByRole('menuitem', { name: /Anthropic/ }));
+    expect(screen.getByRole('tab', { name: /^All/ })).toHaveAttribute('aria-selected', 'true');
     expect(list).toHaveBeenCalledWith('anthropic');
-    await userEvent.click(await screen.findByRole('menuitem', { name: 'Haiku 5.5' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: /Haiku 5\.5/ }));
     expect(setModel).toHaveBeenCalledWith({ source: 'byok', providerId: 'anthropic', model: 'claude-haiku-5-5' });
   });
 
@@ -118,17 +117,50 @@ describe('the Model Switcher, provider then model (1 Nov, his pick B)', () => {
     useCinderpawStore.setState({ modelConfig: null });
     render(<ModelPickerPopover />);
     await userEvent.click(screen.getByRole('button'));
-    await screen.findByRole('menuitem', { name: /Anthropic/ });
-    // The provider's name on each row (the logo beside it carries a title of its own).
-    const names = screen.getAllByRole('menuitem').map((r) => r.querySelector('.font-medium')?.textContent).filter(Boolean);
+    await screen.findByRole('group', { name: 'OpenAI' });
+    // The name heading each provider's models, in the order they are drawn.
+    const names = [...document.querySelectorAll('[data-provider-header] .font-medium')].map((h) => h.textContent);
     expect(names).toEqual(['OpenAI Subscription', 'Anthropic', 'OpenAI']);
   });
 
-  it('a model on this computer is on its own side, one tap away', async () => {
+  // Their menu's Effort beside each model, kept per model (his pick, 2 Nov):
+  // Opus stays on High while Haiku answers on its own Auto, and back again.
+  it('a model keeps its own Effort, and the one it is left with', async () => {
+    vi.spyOn(tauri.raw, 'getByokSettings').mockResolvedValue([
+      { id: 'anthropic', name: 'Anthropic', provider: 'anthropic', enabled: true, has_api_key: true, base_url: null, default_model: 'claude-opus-5-5' },
+    ] as never);
+    vi.spyOn(tauri.raw, 'providerModels').mockResolvedValue([
+      { id: 'claude-opus-5-5', name: 'Opus 5.5' },
+      { id: 'claude-haiku-5-5', name: 'Haiku 5.5' },
+    ]);
+    const setModel = vi.fn(async (s: { providerId?: string; model: string }) => {
+      useCinderpawStore.setState({ modelConfig: { provider: s.providerId ?? '', model: s.model, base_url: '' } as never });
+    });
+    useCinderpawStore.setState({ setModel: setModel as never, modelConfig: { provider: 'anthropic', model: 'claude-opus-5-5', base_url: '' } as never });
+    useModel.setState({ effort: 'high', effortByModel: {} });
+    render(<ModelPickerPopover />);
+
+    await userEvent.click(screen.getByRole('button'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: /Haiku 5\.5/ }));
+    await waitFor(() => expect(useModel.getState().effort).toBe('auto'));
+    expect(useModel.getState().effortByModel['anthropic/claude-opus-5-5']).toBe('high');
+
+    // Effort chosen beside a model picks that model with it.
+    await userEvent.click(screen.getByRole('button', { name: /Haiku/ }));
+    const opus = await screen.findByRole('menuitem', { name: /Opus 5\.5/ });
+    opus.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Low' }));
+    await waitFor(() => expect(useModel.getState().effort).toBe('low'));
+    expect(setModel).toHaveBeenLastCalledWith({ source: 'byok', providerId: 'anthropic', model: 'claude-opus-5-5' });
+    expect(useModel.getState().effortByModel['anthropic/claude-opus-5-5']).toBe('low');
+  });
+
+  it('a model on this computer is on its own tab, one tap away', async () => {
     const load = vi.spyOn(useModel.getState(), 'load').mockResolvedValue(undefined);
     render(<ModelPickerPopover />);
     await userEvent.click(screen.getByRole('button'));
-    await userEvent.click(screen.getByRole('tab', { name: 'On this computer' }));
+    await userEvent.click(screen.getByRole('tab', { name: /This computer/ }));
     await userEvent.click(await screen.findByRole('menuitem', { name: /Qwen3\.8-4B-Q6_K\.gguf/ }));
     expect(load).toHaveBeenCalledWith('C:/models/Qwen3.8-4B-Q6_K.gguf');
     load.mockRestore();

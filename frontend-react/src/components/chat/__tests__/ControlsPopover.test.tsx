@@ -12,6 +12,7 @@ const mockUseModel = vi.mocked(useModel);
 const mockUseCinderpaw = vi.mocked(useCinderpawStore);
 const mockSetModelContext = vi.fn().mockResolvedValue(undefined);
 const mockSetEffort = vi.fn();
+const mockRememberEffort = vi.fn();
 const HAIKU = { provider: 'anthropic', model: 'claude-haiku-5-5', base_url: 'https://api.anthropic.com' };
 
 const MINIMAX = { provider: 'minimax', model: 'MiniMax-M3', base_url: 'https://api.minimax.io/v1' };
@@ -37,6 +38,7 @@ function setup(
       setInferParams: vi.fn(),
       effort: 'auto',
       setEffort: mockSetEffort,
+      rememberEffort: mockRememberEffort,
     }),
   );
   mockUseCinderpaw.mockImplementation((sel: any) => sel({ modelConfig: agentTarget }));
@@ -63,6 +65,8 @@ describe('ControlsPopover — context window', () => {
     expect(screen.getByRole('radio', { name: 'Auto' })).toHaveAttribute('aria-checked', 'true');
     await userEvent.click(screen.getByRole('radio', { name: 'High' }));
     expect(mockSetEffort).toHaveBeenCalledWith('high');
+    // Kept as this model's own, so the model menu shows it and brings it back.
+    expect(mockRememberEffort).toHaveBeenCalledWith('anthropic/claude-haiku-5-5', 'high');
     expect(screen.queryByText('Temperature')).not.toBeInTheDocument();
   });
 
