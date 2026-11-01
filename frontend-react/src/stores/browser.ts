@@ -296,12 +296,15 @@ void listen<{ name: string; started?: boolean; dest?: string; artifact?: boolean
   }
 }).catch(() => {});
 // The agent at work: shown while its action runs and for a moment after, so a
-// click by Cinderpaw never looks like the page acting on its own.
+// click by Cinderpaw never looks like the page acting on its own. The moment is
+// 6 s, not 2.5: the bar is a row under the page now, so each time it goes the
+// page is resized, and the model thinking between two clicks used to make it
+// come and go on every step (1 Nov).
 let agentTimer: ReturnType<typeof setTimeout> | null = null;
 void listen<{ op: string; url?: string; ref?: string; busy: boolean }>('browser://agent', (e) => {
   if (agentTimer) clearTimeout(agentTimer);
   useBrowser.setState({ agent: e.payload });
-  if (!e.payload.busy) agentTimer = setTimeout(() => useBrowser.setState({ agent: null }), 2500);
+  if (!e.payload.busy) agentTimer = setTimeout(() => useBrowser.setState({ agent: null }), 6000);
 }).catch(() => {});
 void listen<{ url: string }>('browser://open', (e) => {
   useBrowser.setState({ panelOpen: true, url: e.payload.url, error: null });

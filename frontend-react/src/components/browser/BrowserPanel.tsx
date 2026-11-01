@@ -715,34 +715,7 @@ export function BrowserPanel({ chat, onCompose, compact = false }: {
         </div>
       )}
       {settingsOpen && <BrowserSettings engine={engine} onEngine={setEngine} />}
-      {/* Floating over the toolbar, never in the flow: as a row of its own it
-          pushed the whole page down and back up on every agent action, which
-          read as the browser resizing (17 Sep). The page is a native view and
-          always paints above this, so it sits over the chrome, not the page. */}
-      <div className="relative h-0">
-        {agent && (
-          // The canvas's agent bar (spec 7.4): the head, what it is doing, Stop.
-          // Stop ends the run that is driving the page, like the composer's
-          // Stop; a paused agent is already waiting, so it has none.
-          <div
-            role="status"
-            className="absolute left-1/2 top-0 z-10 flex max-w-[calc(100%-24px)] -translate-x-1/2 -translate-y-full items-center gap-2.5 rounded-xl border border-border-default bg-bg-active py-1.5 pl-2 pr-1.5 text-xs text-text-primary shadow-md"
-          >
-            <img src={logoUrl} alt="" className={cn('h-5 w-5 shrink-0', agent.busy && 'animate-pulse')} />
-            <span className="min-w-0 truncate">{agentLine(agent)}</span>
-            {agent.op !== 'paused' && (
-              <button
-                type="button"
-                onClick={() => { void requestCinderpawStop(); useBrowser.setState({ agent: null }); }}
-                className="h-7 shrink-0 rounded-lg border border-border-default bg-bg-elevated px-3 text-xs text-text-primary hover:bg-text-primary/5"
-              >
-                Stop
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-      {error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-(--warning)">{error}</p>}
+      {error &&<p className="border-y border-border-subtle px-3 py-2 text-2xs text-(--warning)">{error}</p>}
       {notice && !error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-text-muted">{notice}</p>}
       {finding && (
         <form
@@ -889,6 +862,33 @@ export function BrowserPanel({ chat, onCompose, compact = false }: {
         </div>
       )}
       </div>
+      {agent && (
+        // The canvas's agent bar (spec 7.4): the head, what it is doing, Stop.
+        // Stop ends the run that is driving the page, like the composer's
+        // Stop; a paused agent is already waiting, so it has none.
+        //
+        // At the bottom, in the flow. It floated over the toolbar and covered
+        // the address bar while the agent worked (1 Nov, Darius). A row under
+        // the toolbar pushed the whole page down and up on every action
+        // (17 Sep); down here only the page's bottom edge moves, and what the
+        // person is reading stays where it is.
+        <div
+          role="status"
+          className="flex shrink-0 items-center gap-2.5 border-t border-border-default bg-bg-active py-1.5 pl-3 pr-1.5 text-xs text-text-primary"
+        >
+          <img src={logoUrl} alt="" className={cn('h-5 w-5 shrink-0', agent.busy && 'animate-pulse')} />
+          <span className="min-w-0 flex-1 truncate">{agentLine(agent)}</span>
+          {agent.op !== 'paused' && (
+            <button
+              type="button"
+              onClick={() => { void requestCinderpawStop(); useBrowser.setState({ agent: null }); }}
+              className="h-7 shrink-0 rounded-lg border border-border-default bg-bg-elevated px-3 text-xs text-text-primary hover:bg-text-primary/5"
+            >
+              Stop
+            </button>
+          )}
+        </div>
+      )}
       <FullscreenCurtain />
     </motion.aside>
   );
