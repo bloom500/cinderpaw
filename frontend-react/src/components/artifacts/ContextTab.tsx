@@ -356,6 +356,9 @@ export function ContextTab({ onCompose, onAttach }: {
   const model = useModel((s) => (s.cloudModel ? modelDisplayName(s.cloudModel.modelId) : s.loaded?.name ?? null))
     ?? (cinderpawConfig?.model ? modelDisplayName(cinderpawConfig.model) : null);
   const cloudId = useModel((s) => s.cloudModel?.modelId);
+  // Without it a model id with no maker in it ("gpt-6.1-sol" on a ChatGPT plan)
+  // wore the Hugging Face mark, the one for a local file (1 Nov).
+  const cloudProvider = useModel((s) => s.cloudModel?.providerId);
   const accessMode = useSettings((s) => s.settings?.permission_mode) ?? 'workspace_write';
   const [apps, setApps] = useState<ConnectorView[]>([]);
   useEffect(() => {
@@ -391,7 +394,7 @@ export function ContextTab({ onCompose, onAttach }: {
 
         <section aria-label="This chat" className={cn('flex flex-col px-3.5 py-2.5', SQUIRCLE)}>
           <Line label="Model">
-            {cloudId && <ModelLogo modelId={cloudId} className="size-4 shrink-0" />}
+            {cloudId && <ModelLogo modelId={cloudId} provider={cloudProvider} className="size-4 shrink-0" />}
             <span className="truncate">{model ?? 'None chosen'}</span>
           </Line>
           <Line label="Access">
