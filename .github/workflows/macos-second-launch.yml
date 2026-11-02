@@ -83,7 +83,7 @@ jobs:
           if grep "second launch" out/result.txt | grep -v "Cinderpaw"; then
             echo "::error::a second launch left another app in front"; exit 1
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: second-launch-${{ matrix.os }}
