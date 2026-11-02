@@ -6,7 +6,7 @@
       "name": "feral-agent",
       "dependencies": {
         "@pdf-lib/fontkit": "1.1.1",
-        "docx": "9.14.0",
+        "docx": "9.15.0",
         "exceljs": "4.4.0",
         "fflate": "0.8.3",
         "pdf-lib": "1.17.1",
@@ -23,17 +23,17 @@
         "cron-parser": "^5.5.0",
         "discord.js": "^14.26.4",
         "gpt-tokenizer": "^3.4.0",
-        "nostr-tools": "2.25.2",
+        "nostr-tools": "2.25.4",
         "qrcode-terminal": "^0.12.0",
         "typescript": "^7.0.0",
         "unpdf": "^1.8.0",
         "vitest": "^5.0.5",
       },
       "optionalDependencies": {
-        "@bloommedia/cinderpaw-agent-darwin-arm64": "2026.10.19",
-        "@bloommedia/cinderpaw-agent-darwin-x64": "2026.10.19",
-        "@bloommedia/cinderpaw-agent-linux-x64": "2026.10.19",
-        "@bloommedia/cinderpaw-agent-win32-x64": "2026.10.19",
+        "@bloommedia/cinderpaw-agent-darwin-arm64": "2026.10.28",
+        "@bloommedia/cinderpaw-agent-darwin-x64": "2026.10.28",
+        "@bloommedia/cinderpaw-agent-linux-x64": "2026.10.28",
+        "@bloommedia/cinderpaw-agent-win32-x64": "2026.10.28",
       },
     },
   },
@@ -41,13 +41,13 @@
     "undici": ">=8.12.2",
   },
   "packages": {
-    "@bloommedia/cinderpaw-agent-darwin-arm64": ["@bloommedia/cinderpaw-agent-darwin-arm64@2026.10.19", "", { "os": "darwin", "cpu": "arm64" }, "sha512-vYzAPa5uhtWw9/keBVQZl8AeO8LEq+8P7Ym1uATHyx/p0z9rshlTj8INqQ870BpF1r0r+FVDWkR3sdeEzMjhAA=="],
+    "@bloommedia/cinderpaw-agent-darwin-arm64": ["@bloommedia/cinderpaw-agent-darwin-arm64@2026.10.28", "", { "os": "darwin", "cpu": "arm64" }, "sha512-syzLuoClYBKat+US+pROgSt+/7s+ZHPnlJePhrVAJ2vmt/iEaKjo6wp41286DhyzBAWHiz8VuL4+lyQm/0R6xQ=="],
 
-    "@bloommedia/cinderpaw-agent-darwin-x64": ["@bloommedia/cinderpaw-agent-darwin-x64@2026.10.19", "", { "os": "darwin", "cpu": "x64" }, "sha512-eT+JVq/K6KeCdMVciBy/K+KUZHtfdE+5tnPnPFQK0RKZIDdwtnWfuVYZS+gFzFyV2GF47d+/h2dHyqtVhC5cIQ=="],
+    "@bloommedia/cinderpaw-agent-darwin-x64": ["@bloommedia/cinderpaw-agent-darwin-x64@2026.10.28", "", { "os": "darwin", "cpu": "x64" }, "sha512-6/w3XyEXnSXfczkA53uGRbjAxCDO1ND2qxqDfJxFRtMvt9lPbm8jr33L14R0J5OlV9cnTP9ZbFyCRSQ/eGhE2g=="],
 
-    "@bloommedia/cinderpaw-agent-linux-x64": ["@bloommedia/cinderpaw-agent-linux-x64@2026.10.19", "", { "os": "linux", "cpu": "x64" }, "sha512-hsLAwxzcLAnaDpk25nQEQ8YMufIfc4+B8jsD0hbZUO9KI5kJi3UzUKr+eLKxGQMo8ihrgknOYcf6oHXIP6uEGA=="],
+    "@bloommedia/cinderpaw-agent-linux-x64": ["@bloommedia/cinderpaw-agent-linux-x64@2026.10.28", "", { "os": "linux", "cpu": "x64" }, "sha512-S0XJiEC62hGOn35twclVtfhEqH9KaEaIp4vgm8LmecH28n48R5oaj2cGWXmXy+0np0D33YYxK7FMrDA/5GO1DA=="],
 
-    "@bloommedia/cinderpaw-agent-win32-x64": ["@bloommedia/cinderpaw-agent-win32-x64@2026.10.19", "", { "os": "win32", "cpu": "x64" }, "sha512-VFV0HMNuhndGVU+DvEHQDCeukihye6RxuljCVnN6ma4+qeMB9adIK7BTJg+c3O7zowLZCuO/2NIcOAdNvbOPOQ=="],
+    "@bloommedia/cinderpaw-agent-win32-x64": ["@bloommedia/cinderpaw-agent-win32-x64@2026.10.28", "", { "os": "win32", "cpu": "x64" }, "sha512-yHHz9e1dswJzF3o3sRf/PW9Nzz/HV3vwkKEnt8hjIgtqt8SIjdhlJB3ccGCllt2oV4zendLAxtmH5san7ADqkQ=="],
 
     "@borewit/text-codec": ["@borewit/text-codec@0.2.2", "", {}, "sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ=="],
 
@@ -387,7 +387,7 @@
 
     "discord.js": ["discord.js@14.27.0", "", { "dependencies": { "@discordjs/builders": "^1.14.1", "@discordjs/collection": "1.5.3", "@discordjs/formatters": "^0.6.2", "@discordjs/rest": "^2.6.2", "@discordjs/util": "^1.2.0", "@discordjs/ws": "^1.2.3", "@sapphire/snowflake": "3.5.5", "discord-api-types": "^0.38.49", "fast-deep-equal": "3.1.3", "lodash.snakecase": "4.1.1", "magic-bytes.js": "^1.13.0", "tslib": "^2.6.3", "undici": "^6.27.0" } }, "sha512-qHbFlFG2N7y3LjPySYsL6A1+BnX6bkTVgo842EX0CqVPk/KTMwZkojPHEXKsQUpWZNyz5BISNHK1cPpQw0+m4A=="],
 
-    "docx": ["docx@9.14.0", "", { "dependencies": { "@types/node": "^26.6.2", "hash.js": "^1.1.7", "jszip": "^3.10.1", "nanoid": "^6.0.1" } }, "sha512-3QGcC5CUBvyYZsFPpuKy9Mv1j4BOoKjH9angjjDzrqx2GnnXH6ogt/CUVQ3gexN46yKDsl8gcOFNl0jjvlDxhg=="],
+    "docx": ["docx@9.15.0", "", { "dependencies": { "@types/node": "^26.6.2", "fflate": "^0.8.3", "nanoid": "^6.0.1" } }, "sha512-+7gjG6c7aHdi7Yr4idGCsLe6oCXomrCT9cq4SwdNKDH1IQKNIP5t4LIRtCrIYd87k3EO7YTl3VobYCy8Gd+6qg=="],
 
     "dunder-proto": ["dunder-proto@1.0.1", "", { "dependencies": { "call-bind-apply-helpers": "^1.0.1", "es-errors": "^1.3.0", "gopd": "^1.2.0" } }, "sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A=="],
 
@@ -454,8 +454,6 @@
     "has-symbols": ["has-symbols@1.1.0", "", {}, "sha512-1cDNdwJ2Jaohmb3sg4OmKaMBwuC48sYni5HUw2DvsC8LjGTLK9h+eb1X6RyuOHe4hT0ULCW68iomhjUoKUqlPQ=="],
 
     "has-tostringtag": ["has-tostringtag@1.0.2", "", { "dependencies": { "has-symbols": "^1.0.3" } }, "sha512-NqADB8VjPFLM2V0VvHUewwwsw0ZWBaIdgo+ieHtK3hasLz4qeCRjYcqfB6AQrBggRKppKF8L52/VqdVsO47Dlw=="],
-
-    "hash.js": ["hash.js@1.1.7", "", { "dependencies": { "inherits": "^2.0.3", "minimalistic-assert": "^1.0.1" } }, "sha512-taOaskGt4z4SOANNseOviYDvjEJinIkRgmp7LbKP2YTTmVxWBl87s/uzK9r+44BclBSp2X7K1hqeNfz9JbBeXA=="],
 
     "hashery": ["hashery@1.5.1", "", { "dependencies": { "hookified": "^1.15.0" } }, "sha512-iZyKG96/JwPz1N55vj2Ie2vXbhu440zfUfJvSwEqEbeLluk7NnapfGqa7LH0mOsnDxTF85Mx8/dyR6HfqcbmbQ=="],
 
@@ -573,8 +571,6 @@
 
     "mime-types": ["mime-types@2.1.35", "", { "dependencies": { "mime-db": "1.52.0" } }, "sha512-ZDY+bPm5zTTF+YpCrAU9nK0UgICYPT0QtT1NZWFv4s++TNkcgVaT0g6+4R2uI4MjQjzysHB1zxuWL50hzaeXiw=="],
 
-    "minimalistic-assert": ["minimalistic-assert@1.0.1", "", {}, "sha512-UtJcAD4yEaGtjPezWuO9wC4nwUnVH/8/Im3yEHQP4b67cXlD/Qr9hdITCU1xDbSEXg2XKNaP8jsReV7vQd00/A=="],
-
     "minimatch": ["minimatch@5.1.9", "", { "dependencies": { "brace-expansion": "^2.0.1" } }, "sha512-7o1wEA2RyMP7Iu7GNba9vc0RWWGACJOCZBJX2GJWip0ikV+wcOsgVuY9uE8CPiyQhkGFSlhuSkZPavN7u1c2Fw=="],
 
     "mkdirp": ["mkdirp@3.0.1", "", { "bin": { "mkdirp": "dist/cjs/src/bin.js" } }, "sha512-+NsyUUAZDmo6YVHzL/stxSu3t9YS1iljliy3BSDrXJ/dkn1KYdmtZODGGjLcc9XLgVVpH4KshHB8XmZgMhaBXg=="],
@@ -587,9 +583,7 @@
 
     "normalize-path": ["normalize-path@3.0.0", "", {}, "sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA=="],
 
-    "nostr-tools": ["nostr-tools@2.25.2", "", { "dependencies": { "@noble/ciphers": "2.1.1", "@noble/curves": "2.0.1", "@noble/hashes": "2.0.1", "@scure/base": "2.0.0", "@scure/bip32": "2.0.1", "@scure/bip39": "2.0.1", "nostr-wasm": "0.1.0" }, "peerDependencies": { "typescript": ">=5.0.0" }, "optionalPeers": ["typescript"] }, "sha512-7JAx+brEPmqGz1yzaK9MOxvis/Nl1B38j9hVsBSRDMRmxk5XSc0+5LlPEYbzeiUyk41RURBDcfuMzmaT754HAg=="],
-
-    "nostr-wasm": ["nostr-wasm@0.1.0", "", {}, "sha512-78BTryCLcLYv96ONU8Ws3Q1JzjlAt+43pWQhIl86xZmWeegYCNLPml7yQ+gG3vR6V5h4XGj+TxO+SS5dsThQIA=="],
+    "nostr-tools": ["nostr-tools@2.25.4", "", { "dependencies": { "@noble/ciphers": "2.1.1", "@noble/curves": "2.0.1", "@noble/hashes": "2.0.1", "@scure/base": "2.0.0", "@scure/bip32": "2.0.1", "@scure/bip39": "2.0.1" }, "peerDependencies": { "nostr-wasm": "0.1.0", "typescript": ">=5.0.0" }, "optionalPeers": ["nostr-wasm", "typescript"] }, "sha512-hL2IS2cX24IfcromireLRm32ZCTivE7VxRZRTjzakOp8EGXzFbBvnqtZtCymm0IRCHkB9D1Za5gV8vmSdehYgg=="],
 
     "object-inspect": ["object-inspect@1.13.4", "", {}, "sha512-W67iLl4J2EXEGTbfeHCffrjDfitvLANg0UlX3wFUUSTx92KXRFegMHUVgSqE+wvhAbi4WqjGg9czysTV2Epbew=="],
 
