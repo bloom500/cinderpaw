@@ -1,3 +1,5 @@
+
+
 <p align="center">
   <img src="frontend-react/public/README%20banner.jpeg" alt="Cinderpaw. A little wild. A lot to learn." width="100%" />
 </p>
@@ -147,7 +149,7 @@ The Linux/macOS script has two other modes (add them after `| bash -s --`):
 
 ### Just the CLI (npm)
 
-Want the terminal agent without the desktop app? One command, any OS:
+Want the terminal agent without the desktop app? One command, any OS (Node.js 18+):
 
 ```bash
 npm install -g cinderpaw-agent
