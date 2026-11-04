@@ -36,6 +36,7 @@ import { CHATGPT_ID, signInWithChatGPT } from '@/lib/chatgptSignIn';
 import { CinderpawMascot, usePrefersReducedMotion } from '@/components/chat/mascot/CinderpawMascot';
 import { ModelLogo } from '@/lib/modelLogos';
 import { ImportCard } from './ImportCard';
+import logoUrl from '@/assets/logo.svg';
 import { WhatIsSent } from '@/components/usage/WhatIsSent';
 import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 import { ListenButton } from '@/components/voice/ListenButton';
@@ -102,9 +103,11 @@ export function OnboardingWizard() {
       {/* This overlay covers the shell's drag strip; the window needs its own. */}
       <div data-tauri-drag-region aria-hidden className="fixed top-0 inset-x-0 h-8" />
       <div className="mx-auto flex min-h-full max-w-6xl flex-col px-4 py-6 sm:px-10 sm:py-8">
-        <header className="flex items-center gap-2" aria-hidden>
-          <CinderpawMascot state="idle" width={32} />
-          <span className="font-display text-xl text-text-primary">Cinderpaw</span>
+        {/* The same mark and name as the sidebar's, so the app reads as one from
+            its first screen: a 32 px full-body Cubby here was a second logo (4 Nov). */}
+        <header className="flex items-center gap-2.5" aria-hidden>
+          <img src={logoUrl} alt="" draggable={false} className="size-8 shrink-0" />
+          <span className="font-display text-2xl tracking-[-0.01em] text-text-primary">Cinderpaw</span>
         </header>
 
         {/* One column: the film, the choices and the first tasks each need the
