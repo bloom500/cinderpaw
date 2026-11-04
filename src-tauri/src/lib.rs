@@ -710,6 +710,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             cinderpaw_send_message,
             cinderpaw_agent_status,
             cinderpaw_stop_generation,
+            cinderpaw_steer,
             cinderpaw_submit_feedback,
             cinderpaw_run_fractal_benchmark,
             cinderpaw_dream_now,

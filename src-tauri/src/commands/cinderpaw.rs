@@ -159,6 +159,28 @@ pub(crate) async fn cinderpaw_stop_generation(
     Ok(())
 }
 
+/// Add to the turn running for `session_id` (steering): the engine gives it to
+/// the model at its next step and answers `steer_ack`; when no turn is running
+/// the ack says so and the window sends it as an ordinary message instead.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cinderpaw_steer(
+    state: State<'_, AppState>,
+    session_id: String,
+    content: String,
+) -> Result<(), String> {
+    let msg = serde_json::json!({ "type": "steer", "sessionId": session_id, "content": content }).to_string();
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Record the user's thumbs 👍/👎 on an assistant message. Fire-and-forget:
 /// forwards a `feedback` line to the sidecar, which writes one audit row —
 /// the wired source of the §2.10 `acceptance` personal-fitness signal that

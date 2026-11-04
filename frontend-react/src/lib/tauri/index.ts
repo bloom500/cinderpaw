@@ -769,6 +769,10 @@ export type CinderpawAgentEvent =
       detail?: string;
     }
   | { type: 'model_error'; message: string }
+  // Steering: what the person typed mid-turn reached the model (`id` = the reply).
+  | { type: 'steer_applied'; sessionId: string; id: string; texts: string[] }
+  // false = nothing was running any more: send `text` as an ordinary message.
+  | { type: 'steer_ack'; sessionId: string; accepted: boolean; text: string }
   | { type: 'pong' }
   | { type: 'error';       id?: string; message: string }
   | { type: 'ask_user';    id: string; sessionId: string; questions: import('@/stores/askUser').AskUserQuestion[] }
@@ -1023,6 +1027,8 @@ const raw = {
     automatic?: boolean,
   ) => invoke<void>('cinderpaw_set_model', { source, model, providerId, baseUrl, automatic: automatic ?? null }),
   cinderpawGetModelConfig:      () => invoke<CinderpawModelConfigView | null>('cinderpaw_get_model_config'),
+  // A message typed while the turn runs: it joins that turn at its next step.
+  cinderpawSteer:               (sessionId: string, content: string) => invoke<void>('cinderpaw_steer', { sessionId, content }),
   mcpCatalog:               () => invoke<McpCatalogEntry[]>('mcp_catalog'),
   mcpList:                  () => invoke<McpServerView[]>('mcp_list'),
   mcpInstall:               (id: string, values: Record<string, string>) =>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { tauri } from '@/lib/tauri';
 import { ArrowUp, Square, Mic, Phone, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -178,7 +179,18 @@ function ChatInput({ isEmpty, sendFn }, ref) {
   useEffect(() => {
     const save = () => writeDraft(convId, [queuedRef.current, textRef.current].filter(Boolean).join('\n'));
     window.addEventListener('pagehide', save);
-    return () => window.removeEventListener('pagehide', save);
+    // A message typed mid-turn that arrived after the turn ended: it waits and
+    // sends when the reply is done, like before steering existed. Kept in this
+    // effect so the composer gains no hook (a live app hot-reloads it).
+    const refused = (e: Event) => {
+      const { text: back } = (e as CustomEvent<{ sessionId: string; text: string }>).detail;
+      setQueued((q) => (q ? `${q}\n${back}` : back));
+    };
+    window.addEventListener('cinderpaw:steer-refused', refused);
+    return () => {
+      window.removeEventListener('pagehide', save);
+      window.removeEventListener('cinderpaw:steer-refused', refused);
+    };
   }, [convId]);
   const [dragOver, setDragOver] = useState(false);
   const status = useChat((s) => s.streamStatus);
@@ -549,8 +561,11 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     }
     if (isStreaming && text.trim() && attachedFiles.length === 0 && links.length === 0) {
       const next = text;
-      setQueued((q) => (q ? `${q}\n${next}` : next));
       setText('');
+      // It joins the turn that is running (steering, 4 Nov). If the engine
+      // cannot take it, it waits and sends when this reply is done, as before.
+      if (askingHere) { setQueued((q) => (q ? `${q}\n${next}` : next)); return; }
+      void tauri.raw.cinderpawSteer(sessionId, next).catch(() => setQueued((q) => (q ? `${q}\n${next}` : next)));
       return;
     }
     if ((!text.trim() && attachedFiles.length === 0 && links.length === 0) || isStreaming || disabled) return;
@@ -743,7 +758,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                     active={!!isEmpty && !engaged && !disabled}
                     fallback={askingHere
                       ? 'Answer the questions above to go on.'
-                      : isStreaming ? 'Write your next message. It sends when this reply is done.' : t('chat.placeholder.agent')}
+                      : isStreaming ? 'Add something while it works…' : t('chat.placeholder.agent')}
                   />
                 </div>
               )}

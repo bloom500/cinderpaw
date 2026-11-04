@@ -13,6 +13,8 @@
  *   - budget exhaustion triggers compression or a clean stop, per config
  */
 
+import { spillIfLarge } from "./spill.ts";
+import { classifyError } from "../telemetry/error-category.ts";
 import { createHash } from "node:crypto";
 import { stripThinking } from "./strip-thinking.ts";
 import type { InferenceRouter } from "../egress/inference-router.ts";
@@ -440,6 +442,12 @@ export class AgentLoop {
    * exits cleanly between turns.
    */
   readonly #activeSessions = new Set<string>();
+  /**
+   * Messages the person sent while their turn was running (steering, as in
+   * DeepSeek Harness, 4 Nov). They reach the model at its next step instead of
+   * waiting for the reply to end, so "no, make it shorter" lands mid-task.
+   */
+  readonly #steering = new Map<string, string[]>();
   /** Wall-clock ms when each active session started — useful for diagnostics. */
   readonly #sessionStartedAt = new Map<string, number>();
   /**
@@ -1189,6 +1197,31 @@ export class AgentLoop {
    * Stop every active generation. Used on shutdown so no `handle()` is
    * left mid-await when the process exits.
    */
+  /**
+   * Add to a running turn. False when nothing is running for this session:
+   * the caller sends it as an ordinary message instead.
+   */
+  steer(sessionId: string, text: string): boolean {
+    const t = text.trim();
+    if (!t || !this.#activeSessions.has(sessionId)) return false;
+    this.#steering.set(sessionId, [...(this.#steering.get(sessionId) ?? []), t]);
+    return true;
+  }
+
+  /** Take what the person added mid-turn, framed for the model, and say so. */
+  #takeSteering(sessionId: string, memory: WorkingMemory, ctx: SessionRunContext, messageId: string): boolean {
+    const texts = this.#steering.get(sessionId);
+    if (!texts?.length) return false;
+    this.#steering.delete(sessionId);
+    memory.addUser(
+      "(The person added this while you were working. Take it into account from now on; " +
+        "do not start over unless it asks you to.)\n" + texts.join("\n"),
+    );
+    for (const t of texts) this.#episodic.record(sessionId, "user", t);
+    ctx.emit({ type: "steer_applied", sessionId, id: messageId, texts });
+    return true;
+  }
+
   stopAll(): void {
     for (const sessionId of [...this.#activeSessions]) {
       this.stop(sessionId);
@@ -1753,6 +1786,8 @@ export class AgentLoop {
       // A stop latched by stop() between iterations must not be followed by one
       // more model call — check before spending the turn, not only after it.
       if (ctx.stopped) break;
+      // What the person added since the last step goes into this one.
+      if (i > 0) this.#takeSteering(sessionId, memory, ctx, messageId);
       // Same discipline for the clock: don't start another round we can't
       // afford. `i > 0` guarantees at least one attempt even if the budget was
       // already spent by a slow prompt build.
@@ -2103,6 +2138,14 @@ export class AgentLoop {
             };
           }
         }
+        // Something was added while it answered: the answer so far stays, and
+        // one more step takes the addition into account, in the same reply.
+        if (!ctx.stopped && this.#steering.get(sessionId)?.length) {
+          memory.addAssistant(stripThinking(completion));
+          answerParts.push(answer, "\n\n");
+          ctx.emit({ type: "chunk", id: messageId, content: "\n\n", traceId });
+          continue;
+        }
         return { text: finalText, toolCallCount, outcome: "completed" };
       }
 
@@ -2153,7 +2196,7 @@ export class AgentLoop {
           ctx.emit({ type: "tool_done", id: messageId, tool: call.name, result, traceId, sessionId });
           if (result.error === "cancelled") ctx.stopped = true;
           const rendered = result.ok ? result.content : `ERROR: ${result.content}`;
-          memory.addToolResult(call.name, rendered, result.images);
+          memory.addToolResult(call.name, spillIfLarge(call.name, rendered), result.images);
           const episodicContent = `${call.name}: ${rendered}`.slice(0, 400);
           const toolLeafId = this.#episodic.record(sessionId, "tool", episodicContent);
           if (toolLeafId !== null) {
@@ -2210,7 +2253,7 @@ export class AgentLoop {
         // A tool that looked at a picture hands the pixels along with its text
         // (ToolResult.images). Attached to the tool turn so a vision-capable
         // model sees the image itself; text-only models ignore them.
-        memory.addToolResult(call.name, rendered, result.images);
+        memory.addToolResult(call.name, spillIfLarge(call.name, rendered), result.images);
 
         // Record any decision ask_user made on the user's behalf (autonomous
         // mode or a timeout auto-resolve), for the end-of-turn summary.
@@ -2669,14 +2712,25 @@ export class AgentLoop {
       return this.#router.complete(req);
     };
 
+    // Precedence: explicit UI Controls override > RSI champion > cloud/local default.
+    const maxTokens = overrides?.maxTokens ?? this.#championParams.maxTokens ?? defaultMaxTokens;
+    const temperature = overrides?.temperature ?? this.#championParams.temperature;
     try {
-      const res = await dispatch(
-        // Precedence: explicit UI Controls override > RSI champion > cloud/local default.
-        overrides?.maxTokens ?? this.#championParams.maxTokens ?? defaultMaxTokens,
-        overrides?.temperature ?? this.#championParams.temperature,
-      );
+      const res = await dispatch(maxTokens, temperature);
       return projectCompletion(res);
     } catch (err) {
+      // The provider said the prompt does not fit: the estimate above was low,
+      // or the model's window is smaller than we thought. The turn used to end
+      // there. Fold the older half of the transcript and send once more, the
+      // way DeepSeek Harness recovers (4 Nov comparison). Once only: a second
+      // overflow is real, and its error is the one the person should see.
+      if (classifyError(String(err)) === "context_overflow" && !isRestrictedSession(sessionId)) {
+        const folded = await compact(Math.floor(memory.estimatedTokens() / 2)).catch(() => false);
+        if (folded) {
+          log(`context overflow on ${sessionId}: compacted and retried once`);
+          return projectCompletion(await dispatch(maxTokens, temperature));
+        }
+      }
       // `compress_and_continue` used to compact the transcript here and retry.
       // It could never work: both budgets are CUMULATIVE counters of tokens
       // already spent, and compaction only shrinks the NEXT prompt. The retry

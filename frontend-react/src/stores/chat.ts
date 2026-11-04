@@ -69,6 +69,8 @@ export interface ChatMessage {
   bare?: boolean;
   /** Automatic: the model the brain picked for this reply, said under it. */
   answeredBy?: string;
+  /** What the person added while this reply was being written (steering). */
+  steered?: string[];
   thinking?: string;
   thinkingStartAt?: number;
   thinkingDurationMs?: number;

@@ -160,7 +160,8 @@ mod command_count_test {
     // 212 -> 214 = + agent_overlay_stop, agent_overlay_state (the computer-use overlay, 1 Nov 2026).
     // 214 -> 216 = + open_local_file (Open / Show in folder for files the agent wrote) and
     // keep_awake::keep_awake (the PC stays awake while the agent works), 1 Nov 2026.
-    const EXPECTED_COMMAND_COUNT: usize = 216;
+    // 216 -> 217 = + cinderpaw_steer (a message typed mid-turn joins the running turn), 4 Nov 2026.
+    const EXPECTED_COMMAND_COUNT: usize = 217;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

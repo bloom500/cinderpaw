@@ -1305,7 +1305,7 @@ export interface InboundMessage {
   // the user has already been heard and answered; `message` would make the
   // agent reply to a question that is already answered, which is why this is a
   // type of its own rather than a flag on that one.
-  type: "message" | "record_turn" | "ping" | "shutdown" | "set_model" | "stop"
+  type: "message" | "record_turn" | "ping" | "shutdown" | "set_model" | "stop" | "steer"
     | "ask_user_response" | "ask_user_cancel"
     // The person's answer to a heads_up card (tools/builtin/heads-up.ts).
     | "heads_up_answer"
@@ -1761,6 +1761,10 @@ export type OutboundEvent =
     }
   | { type: "proactive"; content: string; followUp?: { id: string; sessionId: string; mission: string }; traceId?: string }
   | { type: "model_set"; provider: string; model: string; automatic?: boolean; choices?: number }
+  /** Steering: what the person added mid-turn reached the model (`id` = the reply). */
+  | { type: "steer_applied"; sessionId: string; id: string; texts: string[] }
+  /** Answer to a `steer` message: false = no turn was running, send it normally. */
+  | { type: "steer_ack"; sessionId: string; accepted: boolean; text: string }
   | { type: "model_error"; message: string; traceId?: string }
   /**
    * Which model this turn is being answered by, and why that one.

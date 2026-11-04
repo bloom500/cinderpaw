@@ -328,6 +328,13 @@ export const MessageItem = memo(function MessageItem({
       )}
       {/* Always shown, not on hover: a bare reply filmed without this line
           could pass for one Cinderpaw wrote. */}
+      {message.steered?.length ? (
+        <div className="flex flex-col gap-0.5 text-xs text-text-muted">
+          {message.steered.map((t, i) => (
+            <span key={i} className="truncate">You added: <span className="text-text-secondary">{t}</span></span>
+          ))}
+        </div>
+      ) : null}
       {message.answeredBy && !streaming && (
         <div className="flex items-center gap-1.5 text-xs text-text-muted">
           <span aria-hidden className="size-1.5 rounded-full bg-success" />

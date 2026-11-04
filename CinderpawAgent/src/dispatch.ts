@@ -1823,6 +1823,14 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         break;
       }
 
+      // The person typed while their turn was running: it joins that turn at
+      // its next step. Not running any more: the host sends it as a message.
+      case "steer": {
+        const accepted = !!msg.sessionId && typeof msg.content === "string" && agent.steer(msg.sessionId, msg.content);
+        transport.send({ type: "steer_ack", sessionId: msg.sessionId ?? "", accepted, text: typeof msg.content === "string" ? msg.content : "" });
+        break;
+      }
+
       case "stop": {
         // User pressed the Stop button. Abort the in-flight generation for
         // that session (or everything when no sessionId is given). The loop

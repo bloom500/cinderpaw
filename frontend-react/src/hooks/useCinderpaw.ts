@@ -785,6 +785,17 @@ export function useCinderpawGlobal() {
           if (useCinderpawStore.getState().automatic && parsed.sessionId === useChat.getState().sessionId) {
             useChat.getState().updateLastAssistantMessage({ answeredBy: modelDisplayName(parsed.model) });
           }
+        } else if (parsed.type === 'steer_applied') {
+          // Said inside the reply it changed, where the person is looking.
+          if (parsed.sessionId === useChat.getState().sessionId) {
+            const last = useChat.getState().messages.findLast((m) => m.role === 'assistant');
+            useChat.getState().updateLastAssistantMessage({ steered: [...(last?.steered ?? []), ...parsed.texts] });
+          }
+        } else if (parsed.type === 'steer_ack') {
+          // The turn ended before it arrived: the composer sends it as a message.
+          if (!parsed.accepted && parsed.text) {
+            window.dispatchEvent(new CustomEvent('cinderpaw:steer-refused', { detail: { sessionId: parsed.sessionId, text: parsed.text } }));
+          }
         } else if (parsed.type === 'model_error') {
           setModelError(parsed.message);
         } else if (parsed.type === 'artifact') {
