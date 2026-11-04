@@ -24,7 +24,7 @@ const ZOOM_MAX = 6;
 /** Pixels a press may wander and still count as a click, not a drag. */
 const DRAG_SLOP = 4;
 
-export function ZoomableImage({ src, alt, thumbClassName, className, gallery, index = 0 }: {
+export function ZoomableImage({ src, alt, thumbClassName, className, gallery, index = 0, onOpenChange }: {
   src: string;
   alt: string;
   thumbClassName?: string;
@@ -34,10 +34,13 @@ export function ZoomableImage({ src, alt, thumbClassName, className, gallery, in
   gallery?: string[];
   /** This picture's place in `gallery`. */
   index?: number;
+  /** Told when the viewer opens and closes (the hover preview stays shut meanwhile). */
+  onOpenChange?: (open: boolean) => void;
 }) {
   const pics = gallery?.length ? gallery : [src];
   const [cur, setCur] = useState(index);
   const [open, setOpen] = useState(false);
+  useEffect(() => { onOpenChange?.(open); }, [open, onOpenChange]);
   const [shown, setShown] = useState(false);
   const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
@@ -221,7 +224,9 @@ export function ZoomableImage({ src, alt, thumbClassName, className, gallery, in
               onTransitionEnd={onTransitionEnd}
               style={{ transformOrigin: '0 0' }}
               className={cn(
-                'max-h-[90vh] max-w-[92vw] rounded-xl object-contain',
+                // Several pictures: one frame size for all, so stepping does not
+                // resize the frame and move everything (his screenshots, 4 Nov).
+                pics.length > 1 ? 'h-[82vh] w-[88vw] object-contain' : 'max-h-[90vh] max-w-[92vw] rounded-xl object-contain',
                 'transition-transform duration-(--motion-slow) ease-out',
                 shown && 'shadow-2xl',
               )}

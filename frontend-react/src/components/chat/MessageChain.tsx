@@ -25,6 +25,9 @@ const QUIET = 'text-text-muted/70';
 
 /** A step's pictures (screenshots, images it read), each opening full size. */
 function Thumbs({ images, small }: { images: string[]; small?: boolean }) {
+  // While a picture is open full size, no hover preview opens over the line (4 Nov).
+  const [viewing, setViewing] = useState(false);
+  const [hovered, setHovered] = useState<number | null>(null);
   return (
     <div className="flex shrink-0 items-center gap-1.5" data-testid="step-thumbs">
       {images.map((src, i) => {
@@ -34,6 +37,7 @@ function Thumbs({ images, small }: { images: string[]; small?: boolean }) {
             alt={`What the agent saw, picture ${i + 1}`}
             gallery={images}
             index={i}
+            onOpenChange={setViewing}
             thumbClassName={small ? 'h-7 w-auto max-w-14 rounded-md object-cover' : 'h-16 w-auto max-w-32 rounded-md object-cover'}
           />
         );
@@ -42,7 +46,13 @@ function Thumbs({ images, small }: { images: string[]; small?: boolean }) {
         // it. Hovering shows it bigger, like Claude's previews (his ask, 30 Oct);
         // a click still opens it whole.
         return (
-          <HoverCard key={`${i}-${src.length}`} openDelay={150} closeDelay={60}>
+          <HoverCard
+            key={`${i}-${src.length}`}
+            openDelay={150}
+            closeDelay={60}
+            open={hovered === i && !viewing}
+            onOpenChange={(o) => setHovered((h) => (o ? i : h === i ? null : h))}
+          >
             <HoverCardTrigger asChild><span className="inline-flex">{thumb}</span></HoverCardTrigger>
             <HoverCardContent side="top" className="w-auto p-1.5 rounded-xl">
               <img src={src} alt="" className="block max-h-56 w-auto max-w-80 rounded-lg object-contain" data-testid="thumb-preview" />
