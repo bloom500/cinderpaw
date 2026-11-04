@@ -93,6 +93,9 @@ export const CODE_PATTERNS: readonly RegExp[] = [
   /```/, // markdown code fence
   /\b(script|code|python|javascript|typescript|sql|bug|api|html|css)\b/i,
   /\b(cod(ul)?|programeaz|scrie[- ]mi un (script|program)|func[tț]i[ae])/i,
+  // A 3D scene is code, whatever the verb: "genera un castel in Voxel bench"
+  // read as small talk and went to the fastest model (4 Nov, his test).
+  /\b(voxel\w*|3d|three\.?js|webgl|shader\w*)\b/i,
 ];
 
 /**

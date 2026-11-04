@@ -62,6 +62,9 @@ describe("Automatic", () => {
     expect(of("Compara 3 laptopuri sub 4000 lei")).toBe("reasoning");
     expect(of("Scrie-mi o poveste despre o vulpe")).toBe("creative");
     expect(of("salut")).toBe("simple");
+    // His Voxel Bench test went to Gemini Flash as "simple" (4 Nov evening).
+    expect(of("Imi poti genera un castel in Voxel bench?")).toBe("coding");
+    expect(of("Fa-mi o scena 3D cu three.js")).toBe("coding");
   });
 
   test("a fast model and a top model of one family are told apart", () => {
