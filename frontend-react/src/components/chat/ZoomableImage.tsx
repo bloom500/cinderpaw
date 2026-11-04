@@ -181,7 +181,10 @@ export function ZoomableImage({ src, alt, thumbClassName, className, gallery, in
         <div
           role="button"
           aria-label="Close image preview"
-          onClick={close}
+          // Events from a portal still bubble through React's tree: a click in here
+          // reached the activity line behind it, which closed the viewer (4 Nov).
+          onClick={(e) => { e.stopPropagation(); close(); }}
+          onPointerDown={(e) => e.stopPropagation()}
           onWheel={onWheel}
           className={cn(
             'fixed inset-0 z-50 flex items-center justify-center overflow-hidden',
@@ -220,23 +223,25 @@ export function ZoomableImage({ src, alt, thumbClassName, className, gallery, in
               )}
             />
           </div>
+          {/* Arrows beside the count, in one pill at the bottom (his ask, 4 Nov). */}
           {pics.length > 1 && shown && (
-            <>
-              {([[-1, 'left-4', 'Previous picture', '‹'], [1, 'right-4', 'Next picture', '›']] as const).map(([d, pos, label, glyph]) => (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/60 p-1 text-white"
+            >
+              {([[-1, 'Previous picture', '‹'], [1, 'Next picture', '›']] as const).map(([d, label, glyph]) => (
                 <button
                   key={d}
                   type="button"
                   aria-label={label}
                   onClick={(e) => { e.stopPropagation(); step(d); }}
-                  className={cn('absolute top-1/2 -translate-y-1/2 grid size-11 place-items-center rounded-full bg-black/50 text-2xl text-white hover:bg-black/70', pos)}
+                  className={cn('grid size-9 place-items-center rounded-full text-2xl leading-none hover:bg-white/15', d === 1 && 'order-last')}
                 >
                   {glyph}
                 </button>
               ))}
-              <span className="absolute bottom-5 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-sm text-white">
-                {cur + 1} / {pics.length}
-              </span>
-            </>
+              <span className="px-2 text-sm tabular-nums">{cur + 1} / {pics.length}</span>
+            </div>
           )}
         </div>,
         document.body,
