@@ -96,6 +96,37 @@ describe("steering", () => {
     }
   });
 
+  // Stop pressed while an addition waited: it went with that turn on screen, but
+  // the engine kept it and slipped it into the next turn's second step.
+  it("a turn that ends before reading it leaves nothing for the next turn", async () => {
+    const original = globalThis.fetch;
+    try {
+      let agentRef: AgentLoop | null = null;
+      const { agent, registry, db, bodies } = build(
+        ["First answer.", "<tool_call>\n" + JSON.stringify({ name: "look", args: {} }) + "\n</tool_call>", "Done."],
+        (n) => {
+          if (n === 1) {
+            agentRef!.steer("s1", "in Romanian please");
+            agentRef!.stop("s1");
+          }
+        },
+      );
+      agentRef = agent;
+      registry.register({
+        manifest: { name: "look", description: "Looks.", permissions: [], networkAccess: false } as ToolManifest,
+        parameters: {},
+        async execute(): Promise<ToolResult> { return { ok: true, content: "seen" }; },
+      });
+      await agent.handle("s1", "hello", "m1", () => {});
+      await agent.handle("s1", "next", "m2", () => {});
+      expect(bodies.length).toBe(3);
+      expect(bodies.slice(1).some((b) => b.includes("in Romanian please"))).toBe(false);
+      db.close();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("with nothing running it is refused, so the host sends it as a message", () => {
     const { agent, db } = build([]);
     expect(agent.steer("idle", "hi")).toBe(false);

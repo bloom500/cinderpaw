@@ -1001,6 +1001,11 @@ export class AgentLoop {
       } catch { /* never costs the turn */ }
       release();
       this.#activeSessions.delete(sessionId);
+      // An addition this turn never read goes with it (Stop, mostly), as it does
+      // on screen; left here, the next turn's second step took it in.
+      // ponytail: one that lands after the last check of a turn ending on its own
+      // is dropped too; hand it back as a refused steer if anyone ever hits it.
+      this.#steering.delete(sessionId);
       this.#sessionStartedAt.delete(sessionId);
       if (this.#sessionToolSignals.get(sessionId) === abortController) {
         this.#sessionToolSignals.delete(sessionId);
