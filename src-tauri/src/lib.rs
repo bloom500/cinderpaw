@@ -364,8 +364,11 @@ pub fn run() {
             // all — and a GUI process has no visible stdout to fall back to, so
             // the reason for anything going wrong landed nowhere on two of the
             // three platforms we ship.
-            if let Some(home) = dirs::home_dir() {
-                let dir = home.join(cinderpaw_core::brand::APP_HOME_DIR_NAME).join("logs");
+            // CINDERPAW_HOME first, as everything else does: "Open log" looks there.
+            let root = cinderpaw_core::paths::home_override()
+                .or_else(|| dirs::home_dir().map(|h| h.join(cinderpaw_core::brand::APP_HOME_DIR_NAME)));
+            if let Some(root) = root {
+                let dir = root.join("logs");
                 if std::fs::create_dir_all(&dir).is_ok() {
                     if let Ok(f) = std::fs::OpenOptions::new()
                         .create(true)
