@@ -43,6 +43,7 @@ import { extractMainArg } from '@/components/chat/mascot/extractMainArg';
 import { startActivity, finishActivity, type ToolActivity } from '@/hooks/useLiveToolActivity';
 import { emojiForTool } from '@/components/chat/mascot/emojiForTool';
 import type { MascotState } from '@/components/chat/mascot/frames';
+import { bareModelOn } from '@/lib/bareModel';
 
 interface StreamCallbacks {
   onToken:      (chunk: string) => void;
@@ -141,6 +142,8 @@ export function useCinderpawStream(chatSessionId: string) {
       }
 
       let messageId: string;
+      // Dev builds only (lib/bareModel.ts): the model alone, for the harness film.
+      const bare = bareModelOn();
       try {
         // The Controls-panel temperature reaches the agent too. max_tokens does
         // not: no slider sets it, so the stored 4096 was a hidden cap on every
@@ -162,13 +165,14 @@ export function useCinderpawStream(chatSessionId: string) {
           // whichever is happening right now. Typed is 'text': it also tells the
           // sidecar this window can show request_secret's password field.
           surface: surface ?? 'text',
+          bare: bare || null,
         });
       } catch (err) {
         callbacks.onError(String(err));
         return;
       }
       // A 👍 on this reply teaches only if it names the turn the engine knows.
-      useChat.getState().patchMessage(callbacks.chatMessageId, { agentMessageId: messageId });
+      useChat.getState().patchMessage(callbacks.chatMessageId, { agentMessageId: messageId, ...(bare ? { bare: true } : {}) });
 
       registerCinderpawStream(messageId, {
         onChunk: (c) => callbacks.onToken(c),

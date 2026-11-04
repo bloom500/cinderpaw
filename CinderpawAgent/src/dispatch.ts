@@ -56,6 +56,7 @@ import { docxPreviewHtml, isDocx } from "./artifacts/docx.ts";
 import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { describeScope } from "./memory/fractal/bench/runner.ts";
 import { routerInfer } from "./memory/fractal/summarize.ts";
+import { runBareTurn } from "./core/bare-turn.ts";
 import { parseResponse } from "./core/agent-loop.ts";
 import { BrainStack } from "./brain/brain-stack.ts";
 import { rebuildDerivedBrain } from "./brain/brain-config.ts";
@@ -241,7 +242,7 @@ export function memoryNotesReply(
 
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
-    db, audit, router, localFallbackTarget, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents, artifacts, artifactExporter,
+    db, audit, router, localFallbackTarget, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents, artifacts, artifactExporter, artifactPreview,
     runHooks,
     brainDerived, brainBreaker,
     memoryGraph, semantic, notesStore, reflector,
@@ -1908,6 +1909,22 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           msg.inferParams && typeof msg.inferParams === "object"
             ? msg.inferParams
             : undefined;
+        // Dev-only "Bare model" switch (core/bare-turn.ts): the chosen model with
+        // none of Cinderpaw around it, for filming the harness against no harness.
+        // Straight to the transport, so no part of the harness (mood, Dreams,
+        // memory) learns from a turn it took no part in.
+        if (msg.bare === true) {
+          // The model's page, saved and linked by Cinderpaw AFTER it answered,
+          // so the person can see it; the model never learns this happened.
+          const afterword = async (answer: string) => {
+            const page = /```html\s*\n([\s\S]*?)```/i.exec(answer)?.[1];
+            if (!page) return undefined;
+            const a = artifacts.create({ kind: "app", title: "Bare model page", content: page, workspaceId: activeWorkspaceId(db.raw), sessionId });
+            return `Open the page it wrote: ${await artifactPreview.url(a)} (saved by Cinderpaw for viewing; the model did not see this line)`;
+          };
+          await runBareTurn(router, { sessionId, messageId: id, text: content, emit: (e) => transport.send(e), images, inferParams, afterword });
+          break;
+        }
         // The boot MCP reconcile is fire-and-forget, so the very first message
         // could be planned against a registry that had no MCP tools in it yet —
         // the agent answered "I have no tool for that" for a server the user

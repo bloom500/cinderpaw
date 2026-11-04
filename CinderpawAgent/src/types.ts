@@ -1553,6 +1553,8 @@ export interface InboundMessage {
    * fixed params. Values are validated and clamped by the agent loop.
    */
   inferParams?: { temperature?: number; max_tokens?: number; effort?: string };
+  /** Dev-only: answer with the model alone, no Cinderpaw (core/bare-turn.ts). */
+  bare?: boolean;
   /**
    * Roster of currently-installed LOCAL skills, rebuilt by Rust on every send.
    * The agent loop renders this as a short "Available skills" menu inside the

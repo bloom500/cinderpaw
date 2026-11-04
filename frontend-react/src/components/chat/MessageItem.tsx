@@ -326,6 +326,11 @@ export const MessageItem = memo(function MessageItem({
         ? (onAnswer || answered !== undefined) && <NextStepCard ask={followUps.ask} next={followUps.next} onAnswer={onAnswer} answered={answered} />
         : onFollowUp && <FollowUps next={followUps.next} onPick={onFollowUp} />
       )}
+      {/* Always shown, not on hover: a bare reply filmed without this line
+          could pass for one Cinderpaw wrote. */}
+      {message.bare && (
+        <div className="text-xs text-text-muted">Bare model · no tools, no memory, no Cinderpaw prompt</div>
+      )}
       {/* Only on a finished reply: a copy button beside text that is still
           arriving would copy half of it. */}
       {!streaming && (

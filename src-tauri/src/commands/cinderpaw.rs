@@ -49,6 +49,7 @@ pub(crate) async fn cinderpaw_send_message(
     images: Option<Vec<String>>,
     infer_params: Option<CinderpawInferParams>,
     surface: Option<String>,
+    bare: Option<bool>,
 ) -> Result<String, String> {
     let id = uuid::Uuid::new_v4().to_string();
 
@@ -104,6 +105,12 @@ pub(crate) async fn cinderpaw_send_message(
             "max_tokens": p.max_tokens,
             "effort": p.effort,
         });
+    }
+    // Dev-only "Bare model": the sidecar answers with the model alone, no
+    // Cinderpaw prompt, tools or memory (CinderpawAgent/src/core/bare-turn.ts).
+    // Only a debug build's composer sends it.
+    if bare == Some(true) {
+        payload["bare"] = serde_json::json!(true);
     }
     let msg = payload.to_string();
 

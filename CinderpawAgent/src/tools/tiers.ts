@@ -99,6 +99,8 @@ export const EXTENDED_TOOLS = new Set<string>([
   "artifact_delete",
   "artifact_send",
   "artifact_download",
+  // Named by artifact_create for every page it makes: a drawer round trip.
+  "artifact_preview",
   // Read once per design, named by artifact_create: a drawer round trip.
   "design_guide",
   // Added 2026-08-26 and immediately drawered, by its own evidence: the boot

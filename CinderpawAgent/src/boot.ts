@@ -85,6 +85,7 @@ import { createToolForgeTool, registerPersistedCustomTools } from "./tools/built
 import { createTodoWriteTool, TodoStore } from "./tools/builtin/todo-write.ts";
 import { ArtifactStore, type ArtifactChangeEvent } from "./artifacts/store.ts";
 import { ArtifactExporter } from "./artifacts/export.ts";
+import { ArtifactPreviewServer } from "./artifacts/preview.ts";
 import {
   artifactStoreGuard,
   createArtifactCreateTool,
@@ -92,6 +93,7 @@ import {
   createArtifactSendTool,
   createArtifactDownloadTool,
   createArtifactEditTool,
+  createArtifactPreviewTool,
   createArtifactExportTool,
   createArtifactListTool,
   createArtifactReadTool,
@@ -986,6 +988,10 @@ export async function boot(transportOverride?: Transport) {
   registry.register(createArtifactDeleteTool(artifactDeps));
   // Same egress posture as fetch_url, which this is the byte-for-byte sibling of.
   registry.register(createArtifactDownloadTool({ ...artifactDeps, allowedDomains: fetchDomains.length > 0 ? fetchDomains : ["*"] }));
+  // Pages the agent built, at a loopback link it can open and look at. One
+  // server: the bare-model turn (dispatch) links its pages through it too.
+  const artifactPreview = new ArtifactPreviewServer(artifactStore);
+  registry.register(createArtifactPreviewTool({ ...artifactDeps, preview: artifactPreview }));
   registry.register(createCodeQualityTool("run_tests", config.workspaceRoots));
   registry.register(createCodeQualityTool("format_code", config.workspaceRoots));
   registry.register(createCodeQualityTool("lint_code", config.workspaceRoots));
@@ -2898,6 +2904,7 @@ export async function boot(transportOverride?: Transport) {
     // stops being one.
     artifacts: artifactStore,
     artifactExporter,
+    artifactPreview,
     // Not connector-only, despite where they are built: an autonomous turn over
     // the sidecar transport is the same kind of unattended work and needs the
     // same guards. Passed through so `dispatch` stops being the one live path
