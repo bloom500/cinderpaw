@@ -42,6 +42,7 @@ import {
 } from '@/lib/cinderpawLiveSession';
 import { extractMainArg } from '@/components/chat/mascot/extractMainArg';
 import { startActivity, finishActivity, type ToolActivity } from '@/hooks/useLiveToolActivity';
+import type { Steer } from '@/lib/timeline';
 import { emojiForTool } from '@/components/chat/mascot/emojiForTool';
 import type { MascotState } from '@/components/chat/mascot/frames';
 import { bareModelOn } from '@/lib/bareModel';
@@ -54,6 +55,7 @@ interface StreamCallbacks {
   onTruncated?: (reason: string) => void;
   onToolStart?: (callId: string, tool: string, args: Record<string, unknown>) => void;
   onToolDone?:  (callId: string, tool: string, result: unknown) => void;
+  onSteer?:     (texts: string[]) => void;
   onUsage?:     (promptTokens: number, completionTokens: number, lanes?: { label: string; tokens: number }[]) => void;
   onMemoryUsed?: (items: MemoryUsedItem[]) => void;
   /**
@@ -182,6 +184,7 @@ export function useCinderpawStream(chatSessionId: string) {
         onStopped: () => callbacks.onStopped(),
         onToolStart: callbacks.onToolStart ? (cid, t, a) => callbacks.onToolStart!(cid, t, a) : undefined,
         onToolDone: callbacks.onToolDone ? (cid, t, r) => callbacks.onToolDone!(cid, t, r) : undefined,
+        onSteer: callbacks.onSteer,
         onUsage: callbacks.onUsage ? (p, c) => callbacks.onUsage!(p, c) : undefined,
         onMemoryUsed: callbacks.onMemoryUsed,
         // Ask_user events carry the sidecar's requestId, not a stream
@@ -289,6 +292,8 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         // Built here, next to the mascot's bubbles, because this is the one
         // place that knows which reply a tool event belongs to.
         tools: [] as ToolActivity[],
+        // What the person added mid-turn, placed where the model read it.
+        steers: [] as Steer[],
         // Set when the person stops the turn or it fails; saved with the reply.
         ended: undefined as TurnEnd | undefined,
         // The memories this turn was given, kept here so a reply that finishes
@@ -461,6 +466,15 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
             useChat.getState().setAgentPhase('calling', tool);
             syncToolStrip();
           }
+        },
+        // The addition becomes the person's own bubble inside the reply, where the
+        // model read it, and the reply goes on under it (his design, 4 Nov).
+        // ponytail: live only, like answeredBy; a reopened chat shows the reply whole.
+        onSteer: (texts) => {
+          flushTokens();
+          const at = joinSegments(state.committed, state.answer).length;
+          state.steers.push(...texts.map((text) => ({ text, at, afterTools: state.tools.length })));
+          if (isActive()) useChat.getState().updateLastAssistantMessage({ steered: [...state.steers], steerPending: [] });
         },
         onToolDone: (_callId, tool, result) => {
           flushTokens();
@@ -784,13 +798,6 @@ export function useCinderpawGlobal() {
           // ponytail: shown live on the chat in front, not saved with the chat.
           if (useCinderpawStore.getState().automatic && parsed.sessionId === useChat.getState().sessionId) {
             useChat.getState().updateLastAssistantMessage({ answeredBy: modelDisplayName(parsed.model) });
-          }
-        } else if (parsed.type === 'steer_applied') {
-          // Said inside the reply it changed, where the person is looking.
-          if (parsed.sessionId === useChat.getState().sessionId) {
-            const last = useChat.getState().messages.findLast((m) => m.role === 'assistant');
-            // The engine hands over everything waiting at once, so nothing stays pending.
-            useChat.getState().updateLastAssistantMessage({ steered: [...(last?.steered ?? []), ...parsed.texts], steerPending: [] });
           }
         } else if (parsed.type === 'steer_ack') {
           // Taken: on screen now, though the model reads it only after its current

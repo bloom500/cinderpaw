@@ -59,16 +59,27 @@ describe('a message added while it works', () => {
   const message = (extra: object) =>
     ({ id: 'st', role: 'assistant', content: '', createdAt: 0, ...extra }) as unknown as ChatMessage;
 
-  it('shows at once, saying when the model reads it', () => {
+  it('shows at once as their own bubble, faded while it waits', () => {
     render(<MemoryRouter><MessageItem message={message({ steerPending: ['make it shorter'] })} streaming /></MemoryRouter>);
-    expect(screen.getByText(/it reads this when its current step is done/)).toHaveTextContent('make it shorter');
+    const bubble = screen.getByText('make it shorter').parentElement!;
+    expect(bubble).toHaveClass('opacity-50');
+    expect(bubble).toHaveAttribute('title', 'It reads this when its current step is done');
   });
 
-  it('once read, it is a plain "You added", and a turn that never read it drops it', () => {
-    const { rerender } = render(<MemoryRouter><MessageItem message={message({ steered: ['make it shorter'], steerPending: [] })} streaming /></MemoryRouter>);
-    expect(screen.getByText('make it shorter')).toBeInTheDocument();
-    expect(screen.queryByText(/current step/)).toBeNull();
-    rerender(<MemoryRouter><MessageItem message={message({ steerPending: ['too late'] })} /></MemoryRouter>);
+  it('once read, it sits in the reply where the model read it, and the reply goes on under it', () => {
+    const msg = message({ content: 'A long story.\n\nShort version.', steered: [{ text: 'make it shorter', at: 13, afterTools: 0 }] });
+    // Done streaming: while it streams, the last text is drawn word by word.
+    render(<MemoryRouter><MessageItem message={msg} /></MemoryRouter>);
+    const before = screen.getByText('A long story.');
+    const added = screen.getByText('make it shorter');
+    const after = screen.getByText('Short version.');
+    expect(added.parentElement).not.toHaveClass('opacity-50');
+    expect(before.compareDocumentPosition(added) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(added.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('a turn that never read it drops the waiting bubble', () => {
+    render(<MemoryRouter><MessageItem message={message({ content: 'Stopped.', steerPending: ['too late'] })} /></MemoryRouter>);
     expect(screen.queryByText('too late')).toBeNull();
   });
 });

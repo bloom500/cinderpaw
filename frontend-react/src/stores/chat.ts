@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { tauri } from '@/lib/tauri';
 import type { ToolActivity } from '@/hooks/useLiveToolActivity';
+import type { Steer } from '@/lib/timeline';
 
 export type StreamStatus = 'idle' | 'streaming' | 'done' | 'error' | 'stopped';
 export type AgentPhase = 'thinking' | 'calling' | 'processing'
@@ -70,9 +71,9 @@ export interface ChatMessage {
   /** Automatic: the model the brain picked for this reply, said under it. */
   answeredBy?: string;
   /** What the person added while this reply was being written (steering). */
-  steered?: string[];
+  steered?: Steer[];
   /** Added and taken by the engine, but the model reads it only after the step
-   *  it is on: shown at once so the message does not seem lost (4 Nov). */
+   *  it is on: shown at once, faded, so the message does not seem lost (4 Nov). */
   steerPending?: string[];
   thinking?: string;
   thinkingStartAt?: number;

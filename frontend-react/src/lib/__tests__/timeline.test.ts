@@ -4,7 +4,7 @@ import { startActivity } from '@/hooks/useLiveToolActivity';
 
 const tool = (name: string, at?: number) => ({ ...startActivity(name, {}), ...(at === undefined ? {} : { at }) });
 const shape = (p: ReturnType<typeof timeline>) =>
-  p?.map((x) => (x.kind === 'text' ? x.text : x.tools.map((t) => t.tool).join('+')));
+  p?.map((x) => (x.kind === 'text' ? x.text : x.kind === 'steer' ? `you: ${x.text}` : x.tools.map((t) => t.tool).join('+')));
 
 // The 26 Sep space-bunny reply, as the stream builds it: segments joined with
 // a blank line, each tool's `at` the text length when it was called.
@@ -25,6 +25,18 @@ describe('timeline', () => {
   it('keeps the old layout for a reply saved without positions', () => {
     expect(timeline('Salut', [tool('web_search')])).toBeNull();
     expect(timeline('Salut', [])).toBeNull();
+  });
+
+  // Steering (4 Nov): what the person added goes where the model read it.
+  it('puts an addition where it was read, even at the same spot as a tool', () => {
+    // Read after the search's result, then the model fetched a page straight away.
+    const p = timeline('Caut.\n\nGata, scurt.', [tool('web_search', 5), tool('fetch_url', 5)], [{ text: 'mai scurt', at: 5, afterTools: 1 }]);
+    expect(shape(p)).toEqual(['Caut.', 'web_search', 'you: mai scurt', 'fetch_url', 'Gata, scurt.']);
+  });
+
+  it('an addition with no tools still splits the reply', () => {
+    const p = timeline('Prima.\n\nA doua.', [], [{ text: 'in romana', at: 6, afterTools: 0 }]);
+    expect(shape(p)).toEqual(['Prima.', 'you: in romana', 'A doua.']);
   });
 
   it('survives a final text shorter than the offsets it was cut at', () => {

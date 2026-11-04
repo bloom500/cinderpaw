@@ -208,7 +208,7 @@ export const MessageItem = memo(function MessageItem({
   }
 
   const showThinking = message.thinking != null;
-  const pieces = timeline(message.content, message.toolActivity ?? []);
+  const pieces = timeline(message.content, message.toolActivity ?? [], message.steered);
   const isTruncated = message.truncated === true;
   const askUser = message.askUser;
   const submitAskUser = useAskUser((s) => s.submit);
@@ -272,6 +272,7 @@ export const MessageItem = memo(function MessageItem({
         // ran, what it said next. Each group is the same collapsible chain,
         // open while its tool runs and folded once it is done.
         pieces.map((p, i) => {
+          if (p.kind === 'steer') return <SteerBubble key={`s${i}`} text={p.text} />;
           if (p.kind === 'text') {
             return (
               <div key={`t${i}`} className="text-base leading-relaxed">
@@ -328,20 +329,10 @@ export const MessageItem = memo(function MessageItem({
       )}
       {/* Always shown, not on hover: a bare reply filmed without this line
           could pass for one Cinderpaw wrote. */}
-      {message.steered?.length || (streaming && message.steerPending?.length) ? (
-        <div className="flex flex-col gap-0.5 text-xs text-text-muted">
-          {message.steered?.map((t, i) => (
-            <span key={i} className="truncate">You added: <span className="text-text-secondary">{t}</span></span>
-          ))}
-          {/* ponytail: only while it works. A turn stopped before its next step
-              never reads it, and the line goes with the turn. */}
-          {streaming && message.steerPending?.map((t, i) => (
-            <span key={`p${i}`} className="truncate">
-              You added: <span className="text-text-secondary">{t}</span> · it reads this when its current step is done
-            </span>
-          ))}
-        </div>
-      ) : null}
+      {/* Faded until the model reads it, as a message about to go in (his
+          design, 4 Nov). Only while it works: a turn stopped before its next
+          step never reads it, and the bubble goes with the turn. */}
+      {streaming && message.steerPending?.map((t, i) => <SteerBubble key={`p${i}`} text={t} waiting />)}
       {message.answeredBy && !streaming && (
         <div className="flex items-center gap-1.5 text-xs text-text-muted">
           <span aria-hidden className="size-1.5 rounded-full bg-success" />
@@ -485,6 +476,16 @@ const QUIET = 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 
 // second is what toLocaleString() prints with no options.
 const TIME = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 const FULL = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' });
+
+/** A message the person added while the reply was written: their own bubble,
+ *  faded while it waits for the model's current step to end. */
+function SteerBubble({ text, waiting }: { text: string; waiting?: boolean }) {
+  return (
+    <div className={cn('flex justify-end transition-opacity', waiting && 'opacity-50')} title={waiting ? 'It reads this when its current step is done' : undefined}>
+      <div className="max-w-[78%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-(--bubble-user) px-4 py-3 text-text-primary">{text}</div>
+    </div>
+  );
+}
 
 function MessageMeta({ message, className }: { message: ChatMessage; className?: string }) {
   const at = message.completedAt ?? message.createdAt;

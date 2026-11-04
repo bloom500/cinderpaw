@@ -36,6 +36,8 @@ export interface CinderpawStreamHandlers {
   onStopped?: () => void;
   onToolStart?: (callId: string, tool: string, args: Record<string, unknown>) => void;
   onToolDone?: (callId: string, tool: string, result: unknown) => void;
+  /** What the person added mid-turn reached the model (steering). */
+  onSteer?: (texts: string[]) => void;
   onUsage?: (promptTokens: number, completionTokens: number, lanes?: { label: string; tokens: number }[]) => void;
   /** The memories the agent was given for this turn (`memory_used`). */
   onMemoryUsed?: (items: MemoryUsedItem[]) => void;
@@ -172,6 +174,10 @@ _${parsed.diagnostic}_`
           for (const [, h] of inflight) h.onError(parsed.message);
           inflight.clear();
         }
+        break;
+      case 'steer_applied':
+        // Here, with the reply's own handlers: they know where its text stands.
+        if (parsed.id) inflight.get(parsed.id)?.onSteer?.(parsed.texts);
         break;
       case 'tool_start':
         if (parsed.id) inflight.get(parsed.id)?.onToolStart?.(parsed.callId, parsed.tool, parsed.args ?? {});
