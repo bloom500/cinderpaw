@@ -993,12 +993,18 @@ export function createArtifactPreviewTool(
         return { ok: false, error: "not_previewable", content: `artifact_preview: ${String((err as Error).message ?? err)}` };
       }
       if (args.show_person === true) openInBrowser(url);
+      // Two links: the page alone for the agent, where a snapshot reaches the
+      // page's own buttons (inside our frame it saw only ours), and the framed
+      // page for the person.
+      const own = `${url}/app`;
       return {
         ok: true,
         content:
-          `Preview of "${a.title}": ${url}${args.show_person === true ? " (opened in the person's browser)" : ""}. ` +
-          "It always shows the current version, so reload after an edit. The link stops working when Cinderpaw restarts.",
-        data: { id, url, title: a.title },
+          `Open ${own} with the browser tool: it is the page alone, so a snapshot shows its own buttons and you can click them to test it; ` +
+          `errors show in a red strip at the top. ` +
+          `The link for the person, with Cinderpaw's frame around it: ${url}${args.show_person === true ? " (opened in their browser)" : ""}. ` +
+          "Both always show the current version, so reload after an edit. They stop working when Cinderpaw restarts.",
+        data: { id, url, own, title: a.title },
       };
     },
   };

@@ -80,6 +80,10 @@ export function OnboardingWizard() {
   const skip = useOnboarding((s) => s.skip);
   const finish = useOnboarding((s) => s.finish);
   const brainReady = useBrainReady();
+  // Each step starts at its top. The scroll stayed where the last step left it,
+  // so "Almost ready" opened with its heading cut off (4 Nov tour).
+  const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => { scroller.current?.scrollTo?.({ top: 0 }); }, [step]);
 
   if (!active) return null;
   const isFirst = step === 0;
@@ -88,6 +92,7 @@ export function OnboardingWizard() {
 
   return (
     <div
+      ref={scroller}
       className="fixed inset-0 z-50 overflow-y-auto bg-bg-primary"
       role="dialog"
       aria-modal="true"
@@ -837,6 +842,14 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
   const [showKey, setShowKey] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // The steps open under the fold on a laptop-height window: picking a provider
+  // looked like nothing happened, with "paste it below" and no field in sight
+  // (4 Nov tour). Bring the field up and put the cursor in it.
+  const keyInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    keyInput.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    keyInput.current?.focus({ preventScroll: true });
+  }, [def.id]);
 
   // Trimmed at both call sites. Copying a key out of a browser or a password
   // manager routinely picks up trailing whitespace, and a key stored with a
@@ -896,6 +909,7 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
 
       <div className="relative">
         <input
+          ref={keyInput}
           type={showKey ? 'text' : 'password'}
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}

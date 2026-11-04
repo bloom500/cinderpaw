@@ -351,14 +351,19 @@ export function ContextTab({ onCompose, onAttach }: {
   // The agent answers with its own pinned model (useCinderpawStore); reading
   // only the chat-mode store said "None chosen" in the middle of a reply from
   // that model (UX lab, item 19).
+  // The agent's model comes FIRST, the one the composer names too: reading the
+  // chat-mode store first said "GPT-6.1 Sol" beside a composer saying "Claude
+  // Haiku 5.5" while Haiku was answering (4 Nov tour).
   const cinderpawConfig = useCinderpawStore((s) => s.modelConfig);
   const loaded = useModel((s) => s.loaded);
-  const model = useModel((s) => (s.cloudModel ? modelDisplayName(s.cloudModel.modelId) : s.loaded?.name ?? null))
-    ?? (cinderpawConfig?.model ? modelDisplayName(cinderpawConfig.model) : null);
-  const cloudId = useModel((s) => s.cloudModel?.modelId);
+  const chatModeId = useModel((s) => s.cloudModel?.modelId);
+  const chatModeProvider = useModel((s) => s.cloudModel?.providerId);
+  const model = (cinderpawConfig?.model ? modelDisplayName(cinderpawConfig.model) : null)
+    ?? (chatModeId ? modelDisplayName(chatModeId) : loaded?.name ?? null);
+  const cloudId = cinderpawConfig?.model ?? chatModeId;
   // Without it a model id with no maker in it ("gpt-6.1-sol" on a ChatGPT plan)
   // wore the Hugging Face mark, the one for a local file (1 Nov).
-  const cloudProvider = useModel((s) => s.cloudModel?.providerId);
+  const cloudProvider = cinderpawConfig?.model ? cinderpawConfig.provider : chatModeProvider;
   const accessMode = useSettings((s) => s.settings?.permission_mode) ?? 'workspace_write';
   const [apps, setApps] = useState<ConnectorView[]>([]);
   useEffect(() => {

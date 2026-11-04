@@ -29,6 +29,14 @@ describe("browser tool", () => {
     expect(t.calls).toEqual([{ action: "browser.open", params: { url: "example.ro" } }]);
   });
 
+  test("a file: link is refused with the artifact way, before the host is asked", async () => {
+    const t = setup(() => ({ ok: true }));
+    const res = await t.tool.execute({ action: "open", url: "file:///C:/Users/a/ceas/index.html" }, t.ctx);
+    expect(res.ok).toBe(false);
+    expect(res.content).toContain("artifact_preview");
+    expect(t.calls).toEqual([]);
+  });
+
   test("screenshot brings the page's picture back as an image, not as text", async () => {
     const picture = "data:image/jpeg;base64,/9j/AAAA";
     const t = setup(() => ({ ok: true, url: "https://example.ro/", data_url: picture }));

@@ -720,6 +720,12 @@ pub(crate) fn cinderpaw_get_model_config(state: State<'_, AppState>) -> Option<C
     // Nothing picked this session: the model the engine booted on. Returning
     // None here made the picker say "Automatic" after every restart (24 Oct).
     let model = state.runtime.active_agent_model.lock().clone()?;
+    // "cinderpaw-local" is the engine's placeholder for "no model on disk"; named
+    // as a model, the composer read as if one were chosen. None lets it say
+    // "Add a model" instead.
+    if model == "cinderpaw-local" {
+        return None;
+    }
     let (provider, base_url) = state.runtime.active_agent_route.lock().clone()?;
     Some(CinderpawModelConfigView {
         display_name: format!("{} · {}", provider, model),

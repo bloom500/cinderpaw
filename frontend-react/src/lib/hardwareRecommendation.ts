@@ -29,16 +29,18 @@ export function recommendModel(info: SystemInfo | null): ModelRecommendation | n
   // Budget: on GPU we can fill most of the VRAM; on CPU leave the OS and the
   // app roughly half of the RAM.
   const budgetMb = hasGpu ? info.vram_total_mb * 0.8 : info.ram_total_mb * 0.5;
+  // Plain words (4 Nov tour): "8 GB VRAM (Vulkan), a 4B model at Q4_K_M" was
+  // read by strangers on the very first screen.
   const where = hasGpu
-    ? `${Math.round(info.vram_total_mb / 1024)} GB VRAM (Vulkan)`
-    : `${Math.round(info.ram_total_mb / 1024)} GB RAM (CPU only)`;
+    ? `graphics card (${Math.round(info.vram_total_mb / 1024)} GB)`
+    : `computer (${Math.round(info.ram_total_mb / 1024)} GB of memory, no graphics card)`;
 
   if (budgetMb >= 18_000) {
     return {
       sizeClass: '13–14B',
       quant: 'Q4_K_M',
       approxFileSize: '~8–9 GB',
-      rationale: `With ${where}, a 27B model at Q4_K_M fits, and that is the size Cinderpaw's tools need to work well.`,
+      rationale: `Your ${where} can run a model big enough to use Cinderpaw's tools well.`,
     };
   }
   if (budgetMb >= 9_000) {
@@ -46,7 +48,7 @@ export function recommendModel(info: SystemInfo | null): ModelRecommendation | n
       sizeClass: '7–8B',
       quant: 'Q4_K_M',
       approxFileSize: '~4.5–5.5 GB',
-      rationale: `With ${where}, a 9B model at Q4_K_M runs fast, but Cinderpaw's tools fumble on a model this small. A cloud key (free tiers exist) is the better first day; come back to local when you have ~24 GB of VRAM.`,
+      rationale: `Your ${where} can run a small model. It is fast, but small models make mistakes with Cinderpaw's tools. For your first day, signing in online works better.`,
     };
   }
   if (budgetMb >= 4_500) {
@@ -54,13 +56,13 @@ export function recommendModel(info: SystemInfo | null): ModelRecommendation | n
       sizeClass: '3–4B',
       quant: 'Q4_K_M',
       approxFileSize: '~2–2.5 GB',
-      rationale: `With ${where}, a 4B model at Q4_K_M is what fits, and Cinderpaw's tools fumble on a model this small. A cloud key (free tiers exist) is the better first day.`,
+      rationale: `Your ${where} can run only a small model, and small models make mistakes with Cinderpaw's tools. For your first day, signing in online works better.`,
     };
   }
   return {
     sizeClass: '1–2B',
     quant: 'Q4_K_M',
     approxFileSize: '~1 GB',
-    rationale: `With ${where}, only a 2B model fits, and Cinderpaw's tools do not work on one. Use a cloud key (free tiers exist); it costs no local compute.`,
+    rationale: `Your ${where} is too small for a model that can use Cinderpaw's tools. Sign in online instead; it costs this computer nothing.`,
   };
 }

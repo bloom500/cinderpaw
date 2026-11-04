@@ -247,6 +247,17 @@ export function createBrowserTool(): Tool {
       const params: Record<string, unknown> = {};
       if (action === "open") {
         if (typeof args.url !== "string" || !args.url.trim()) return fail("browser: open needs a `url`.", "bad_args");
+        // Said here, with the way that works: told only "file: links are not
+        // opened", Haiku started local web servers from the shell, failed three
+        // times, tripped the shell breaker and left one running (4 Nov tour).
+        if (/^\s*file:/i.test(args.url)) {
+          return fail(
+            "browser: file: links do not open in the browser. To look at a page you wrote, put it in an artifact " +
+              "(artifact_create, kind app, with the whole HTML) and open the link artifact_preview gives you. " +
+              "Do not start a web server for it.",
+            "bad_args",
+          );
+        }
         params.url = args.url;
       }
       if (action === "click" || action === "type") {

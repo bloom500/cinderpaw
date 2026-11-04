@@ -56,6 +56,13 @@ describe("artifact preview", () => {
     expect(html).toContain("cinderpaw-preview-error");
   });
 
+  test("the error relay is valid script, and draws its own strip when the page is opened alone", async () => {
+    const html = await (await fetch(`${await server.url(app())}/app`)).text();
+    const relay = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? "";
+    expect(() => new Function(relay)).not.toThrow();
+    expect(relay).toContain("parent===window");
+  });
+
   test("it always shows the current version, so a fix shows on reload", async () => {
     const a = app();
     const url = await server.url(a);

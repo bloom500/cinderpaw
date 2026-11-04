@@ -40,9 +40,16 @@ const PREVIEWABLE = new Set<Artifact["kind"]>(["app", "html"]);
  * Put at the very top of the app, before its own scripts, so an error thrown
  * while the page loads is caught too. It reports to the framing page, which
  * prints it in a red strip: a screenshot then shows the error in words.
+ *
+ * Opened on its own (the agent's link, `/app`, where a snapshot can reach the
+ * page's buttons: inside our frame it saw only Reload and Full screen, 4 Nov
+ * tour), there is no framing page, so it draws the red strip itself.
  */
 const ERROR_RELAY = `<script>(function(){
-var send=function(m){try{parent.postMessage({"cinderpaw-preview-error":String(m).slice(0,500)},"*")}catch(e){}};
+var box,show=function(m){if(!document.body){addEventListener("DOMContentLoaded",function(){show(m)});return}
+if(!box){box=document.createElement("div");box.setAttribute("role","alert");box.style.cssText="position:fixed;left:0;right:0;top:0;z-index:2147483647;background:#b42318;color:#fff;font:13px/1.4 system-ui,sans-serif;padding:8px 12px;white-space:pre-wrap";document.body.appendChild(box)}
+box.textContent+=(box.textContent?"\\n":"")+m};
+var send=function(m){m=String(m).slice(0,500);if(parent===window){show(m);return}try{parent.postMessage({"cinderpaw-preview-error":m},"*")}catch(e){}};
 addEventListener("error",function(e){send((e.message||"Error")+(e.lineno?" (line "+e.lineno+")":""))});
 addEventListener("unhandledrejection",function(e){send("Unhandled promise: "+(e.reason&&e.reason.message||e.reason))});
 var ce=console.error;console.error=function(){send([].slice.call(arguments).join(" "));return ce.apply(console,arguments)};
