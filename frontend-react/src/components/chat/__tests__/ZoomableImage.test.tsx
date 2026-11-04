@@ -35,6 +35,23 @@ describe('the image viewer', () => {
     expect(screen.getByRole('button', { name: 'Close image preview' }).className).toContain('bg-black/0');
   });
 
+  // His ask, 4 Nov: step through a reply's pictures without closing and reopening.
+  it('arrows step through its siblings while open', async () => {
+    const pics = ['data:image/png;base64,QQ==', 'data:image/png;base64,Qg==', 'data:image/png;base64,Qw=='];
+    render(<ZoomableImage src={pics[1]} alt="castle" gallery={pics} index={1} />);
+    fireEvent.click(screen.getByRole('button', { name: /full size/ }));
+    await act(async () => { await new Promise((r) => requestAnimationFrame(() => r(null))); });
+    const big = () => screen.getByTestId('image-lens').querySelector('img')!;
+    expect(big().getAttribute('src')).toBe(pics[1]);
+    expect(screen.getByText('2 / 3')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Next picture' }));
+    expect(big().getAttribute('src')).toBe(pics[2]);
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(big().getAttribute('src')).toBe(pics[0]);
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    expect(big().getAttribute('src')).toBe(pics[2]);
+  });
+
   // His report, 31 Oct: after the click that zoomed in, the picture followed the
   // mouse with no button held.
   it('a zoomed picture moves only while the button is held', async () => {

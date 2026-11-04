@@ -24,13 +24,19 @@ const ZOOM_MAX = 6;
 /** Pixels a press may wander and still count as a click, not a drag. */
 const DRAG_SLOP = 4;
 
-export function ZoomableImage({ src, alt, thumbClassName, className }: {
+export function ZoomableImage({ src, alt, thumbClassName, className, gallery, index = 0 }: {
   src: string;
   alt: string;
   thumbClassName?: string;
   /** The thumbnail's button, e.g. `w-full` for a tile that fills its cell. */
   className?: string;
+  /** Its siblings: once open, arrows step through them without closing (his ask, 4 Nov). */
+  gallery?: string[];
+  /** This picture's place in `gallery`. */
+  index?: number;
 }) {
+  const pics = gallery?.length ? gallery : [src];
+  const [cur, setCur] = useState(index);
   const [open, setOpen] = useState(false);
   const [shown, setShown] = useState(false);
   const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
@@ -81,10 +87,19 @@ export function ZoomableImage({ src, alt, thumbClassName, className }: {
     if (!open) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key === 'Escape') close();
+      if (e.key === 'ArrowRight') step(1);
+      if (e.key === 'ArrowLeft') step(-1);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
+
+  /** Next or previous sibling, back at whole size. ponytail: closing flies to the thumbnail it opened from. */
+  const step = (d: number) => {
+    if (pics.length < 2) return;
+    setView({ zoom: 1, x: 0, y: 0 });
+    setCur((c) => (c + d + pics.length) % pics.length);
+  };
 
   // Unmount only once the picture has landed back on the thumbnail.
   const onTransitionEnd = (e: React.TransitionEvent) => {
@@ -143,7 +158,7 @@ export function ZoomableImage({ src, alt, thumbClassName, className }: {
           mouse-only. Escape already closed the lightbox; nothing could open it. */}
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => { setCur(index); setOpen(true); }}
         aria-label={`View ${alt || 'image'} full size`}
         className={cn('block cursor-zoom-in rounded-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand', className)}
       >
@@ -193,7 +208,7 @@ export function ZoomableImage({ src, alt, thumbClassName, className }: {
           >
             <img
               ref={big}
-              src={src}
+              src={pics[cur] ?? src}
               alt={alt}
               draggable={false}
               onTransitionEnd={onTransitionEnd}
@@ -205,6 +220,24 @@ export function ZoomableImage({ src, alt, thumbClassName, className }: {
               )}
             />
           </div>
+          {pics.length > 1 && shown && (
+            <>
+              {([[-1, 'left-4', 'Previous picture', '‹'], [1, 'right-4', 'Next picture', '›']] as const).map(([d, pos, label, glyph]) => (
+                <button
+                  key={d}
+                  type="button"
+                  aria-label={label}
+                  onClick={(e) => { e.stopPropagation(); step(d); }}
+                  className={cn('absolute top-1/2 -translate-y-1/2 grid size-11 place-items-center rounded-full bg-black/50 text-2xl text-white hover:bg-black/70', pos)}
+                >
+                  {glyph}
+                </button>
+              ))}
+              <span className="absolute bottom-5 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-sm text-white">
+                {cur + 1} / {pics.length}
+              </span>
+            </>
+          )}
         </div>,
         document.body,
       )}

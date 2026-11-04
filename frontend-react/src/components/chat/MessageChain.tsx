@@ -32,6 +32,8 @@ function Thumbs({ images, small }: { images: string[]; small?: boolean }) {
           <ZoomableImage
             src={src}
             alt={`What the agent saw, picture ${i + 1}`}
+            gallery={images}
+            index={i}
             thumbClassName={small ? 'h-7 w-auto max-w-14 rounded-md object-cover' : 'h-16 w-auto max-w-32 rounded-md object-cover'}
           />
         );
