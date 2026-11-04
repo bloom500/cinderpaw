@@ -228,7 +228,9 @@ export function ZoomableImage({ src, alt, thumbClassName, className, gallery, in
                 // resize the frame and move everything (his screenshots, 4 Nov).
                 pics.length > 1 ? 'h-[82vh] w-[88vw] object-contain' : 'max-h-[90vh] max-w-[92vw] rounded-xl object-contain',
                 'transition-transform duration-(--motion-slow) ease-out',
-                shown && 'shadow-2xl',
+                // In the fixed frame the box is bigger than the picture: a box
+                // shadow drew a dark panel around it, a drop shadow hugs the picture.
+                shown && (pics.length > 1 ? 'drop-shadow-2xl' : 'shadow-2xl'),
               )}
             />
           </div>
