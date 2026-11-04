@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Sparkles, Star } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Star } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -83,6 +83,24 @@ function readFavs(): Fav[] {
  * (model-profiles.ts) are the better source once the host passes them up.
  */
 const jobOf = (modelId: string) => (/haiku|mini|flash|nano|lite|small|fast|:free|\b[1-9]b\b/i.test(modelId) ? 'Fast' : 'Smart');
+
+/**
+ * Automatic's mark: an A, the way a camera says Auto. Sparkles read as AI
+ * filler, and Cubby stays rare in the app (4 Nov, his call).
+ */
+function AutoMark({ size }: { size: 'sm' | 'md' }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        'grid shrink-0 place-items-center bg-brand font-semibold leading-none text-on-brand',
+        size === 'sm' ? 'size-[18px] rounded-[5px] text-[11px]' : 'size-6 rounded-[7px] text-[13px]',
+      )}
+    >
+      A
+    </span>
+  );
+}
 
 const modelName = (m: ProviderModel) => (m.name ? m.name.replace(/^[^:]{1,40}:\s+/, '') : modelDisplayName(m.id));
 
@@ -356,7 +374,7 @@ export function ModelPickerPopover() {
   const face = (
     <>
       {auto && !cinderpawSwitching && !isLoading ? (
-        <span className="grid size-[18px] shrink-0 place-items-center rounded-md bg-brand text-on-brand"><Sparkles size={11} /></span>
+        <AutoMark size="sm" />
       ) : shown && <ModelLogo modelId={shown.modelId} provider={shown.provider} />}
       {/* When the composer row is tight (a button name sliding out, a side
           panel open), where it runs gives way first and the model's own name
@@ -633,7 +651,7 @@ export function ModelPickerPopover() {
         onCheckedChange={(on) => void setAutomatic(on).catch((err) => useNotifications.getState().push('error', 'Could not switch model', String(err)))}
         className="flex cursor-default select-none items-center gap-3 rounded-xl px-2.5 py-2.5 outline-hidden focus:bg-accent"
       >
-        <span className="grid size-6 shrink-0 place-items-center rounded-lg bg-brand text-on-brand"><Sparkles size={14} /></span>
+        <AutoMark size="md" />
         <span className="min-w-0 flex-1">
           <span className="block text-sm text-text-primary">Let Cinderpaw choose</span>
           <span className="block text-xs text-text-muted">The right model for each message</span>
@@ -654,9 +672,11 @@ export function ModelPickerPopover() {
             // rows nobody can press (8 models made the menu taller than the
             // window, 4 Nov). Turning the switch off brings the rows back.
             <div className="flex items-center gap-3 px-2.5 pb-2 pt-0.5">
-              <span className="flex shrink-0 -space-x-1.5">
+              {/* Solid discs: on the translucent surface the logos showed
+                  through each other (4 Nov). */}
+              <span className="flex shrink-0 -space-x-1">
                 {simpleRows.slice(0, 5).map((r) => (
-                  <span key={r.key} className="grid size-6 place-items-center rounded-full bg-bg-elevated ring-2 ring-bg-primary">{r.logo}</span>
+                  <span key={r.key} className="grid size-6 place-items-center overflow-hidden rounded-full border border-border-default bg-bg-primary [&>*]:size-3.5">{r.logo}</span>
                 ))}
               </span>
               <span className="min-w-0 flex-1 truncate text-xs text-text-muted">
