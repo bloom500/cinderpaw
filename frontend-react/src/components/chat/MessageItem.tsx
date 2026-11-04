@@ -328,10 +328,17 @@ export const MessageItem = memo(function MessageItem({
       )}
       {/* Always shown, not on hover: a bare reply filmed without this line
           could pass for one Cinderpaw wrote. */}
-      {message.steered?.length ? (
+      {message.steered?.length || (streaming && message.steerPending?.length) ? (
         <div className="flex flex-col gap-0.5 text-xs text-text-muted">
-          {message.steered.map((t, i) => (
+          {message.steered?.map((t, i) => (
             <span key={i} className="truncate">You added: <span className="text-text-secondary">{t}</span></span>
+          ))}
+          {/* ponytail: only while it works. A turn stopped before its next step
+              never reads it, and the line goes with the turn. */}
+          {streaming && message.steerPending?.map((t, i) => (
+            <span key={`p${i}`} className="truncate">
+              You added: <span className="text-text-secondary">{t}</span> · it reads this when its current step is done
+            </span>
           ))}
         </div>
       ) : null}

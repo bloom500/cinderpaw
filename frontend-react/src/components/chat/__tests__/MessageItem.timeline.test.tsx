@@ -53,6 +53,26 @@ describe('the artifacts a reply draws as cards', () => {
   });
 });
 
+// His test, 4 Nov: a message typed mid-turn left the composer and showed nowhere
+// for a minute, until the model's step ended.
+describe('a message added while it works', () => {
+  const message = (extra: object) =>
+    ({ id: 'st', role: 'assistant', content: '', createdAt: 0, ...extra }) as unknown as ChatMessage;
+
+  it('shows at once, saying when the model reads it', () => {
+    render(<MemoryRouter><MessageItem message={message({ steerPending: ['make it shorter'] })} streaming /></MemoryRouter>);
+    expect(screen.getByText(/it reads this when its current step is done/)).toHaveTextContent('make it shorter');
+  });
+
+  it('once read, it is a plain "You added", and a turn that never read it drops it', () => {
+    const { rerender } = render(<MemoryRouter><MessageItem message={message({ steered: ['make it shorter'], steerPending: [] })} streaming /></MemoryRouter>);
+    expect(screen.getByText('make it shorter')).toBeInTheDocument();
+    expect(screen.queryByText(/current step/)).toBeNull();
+    rerender(<MemoryRouter><MessageItem message={message({ steerPending: ['too late'] })} /></MemoryRouter>);
+    expect(screen.queryByText('too late')).toBeNull();
+  });
+});
+
 describe('a reply the person stopped', () => {
   it('says so and offers to try again, even with no text yet', async () => {
     const onRetry = vi.fn();

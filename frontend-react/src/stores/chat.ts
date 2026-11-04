@@ -71,6 +71,9 @@ export interface ChatMessage {
   answeredBy?: string;
   /** What the person added while this reply was being written (steering). */
   steered?: string[];
+  /** Added and taken by the engine, but the model reads it only after the step
+   *  it is on: shown at once so the message does not seem lost (4 Nov). */
+  steerPending?: string[];
   thinking?: string;
   thinkingStartAt?: number;
   thinkingDurationMs?: number;

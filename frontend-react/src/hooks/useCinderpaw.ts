@@ -789,9 +789,17 @@ export function useCinderpawGlobal() {
           // Said inside the reply it changed, where the person is looking.
           if (parsed.sessionId === useChat.getState().sessionId) {
             const last = useChat.getState().messages.findLast((m) => m.role === 'assistant');
-            useChat.getState().updateLastAssistantMessage({ steered: [...(last?.steered ?? []), ...parsed.texts] });
+            // The engine hands over everything waiting at once, so nothing stays pending.
+            useChat.getState().updateLastAssistantMessage({ steered: [...(last?.steered ?? []), ...parsed.texts], steerPending: [] });
           }
         } else if (parsed.type === 'steer_ack') {
+          // Taken: on screen now, though the model reads it only after its current
+          // step. A step can think for a minute, and the text had left the
+          // composer with nothing in its place (his test, 4 Nov).
+          if (parsed.accepted && parsed.text.trim() && parsed.sessionId === useChat.getState().sessionId) {
+            const last = useChat.getState().messages.findLast((m) => m.role === 'assistant');
+            useChat.getState().updateLastAssistantMessage({ steerPending: [...(last?.steerPending ?? []), parsed.text.trim()] });
+          }
           // The turn ended before it arrived: the composer sends it as a message.
           if (!parsed.accepted && parsed.text) {
             window.dispatchEvent(new CustomEvent('cinderpaw:steer-refused', { detail: { sessionId: parsed.sessionId, text: parsed.text } }));
