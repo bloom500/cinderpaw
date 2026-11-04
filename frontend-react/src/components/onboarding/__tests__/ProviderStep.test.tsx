@@ -14,7 +14,6 @@ import { cubbyVoiceUrl } from '@/voice/cubbyVoice';
 vi.mock('@/stores/systemInfo', () => ({ useSystemInfo: vi.fn() }));
 vi.mock('@/stores/download', () => ({ useDownload: vi.fn() }));
 vi.mock('@/stores/settings', () => ({ useSettings: vi.fn() }));
-vi.mock('@/stores/onboarding', () => ({ useOnboarding: vi.fn() }));
 vi.mock('@/stores/catalog', () => ({ useCatalog: vi.fn() }));
 vi.mock('@/voice/cubbyVoice', () => ({ cubbyVoiceUrl: vi.fn(() => null) }));
 
@@ -37,7 +36,8 @@ beforeEach(() => {
   // After a save the wizard reads the refreshed provider list off the store
   // to learn which model Rust filled in.
   (useSettings as any).getState = () => ({ byok: [{ id: 'openai', name: 'OpenAI', default_model: 'gpt-4o' }] });
-  vi.mocked(useOnboarding).mockImplementation((sel: any) => sel({ finish: vi.fn() }));
+  // The real store: the open way lives there, and a click must stick.
+  useOnboarding.setState({ brainWay: null, brainVerified: false });
   // Phase 1 — CloudBranch now reads from the catalog store instead of
   // calling tauri.raw.providerCatalog() inline. Pretend the gateway was
   // reachable with one canned entry; the test then exercises both the

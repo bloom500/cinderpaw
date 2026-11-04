@@ -22,7 +22,7 @@ beforeEach(() => {
   useModel.setState({ cloudModel: null, loaded: null });
   useDownload.setState({ active: null, done: false });
   useSettings.setState({ byok: [] });
-  useOnboarding.setState({ active: true, step: 2, brainVerified: false, firstTask: null, userName: '', agentName: 'Cinderpaw' });
+  useOnboarding.setState({ active: true, step: 2, brainVerified: false, brainWay: null, firstTask: null, userName: '', agentName: 'Cinderpaw' });
 });
 
 const renderWizard = () => render(<MemoryRouter><OnboardingWizard /></MemoryRouter>);
@@ -79,6 +79,19 @@ describe('the brain card', () => {
     expect(screen.getByText(/Pick one way above so I can answer you/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'skip for now' }));
     expect(useOnboarding.getState().step).toBe(2);
+  });
+
+  // 4 Nov tour: after "I have a key" the footer still said "Pick one way above".
+  it('after a pick, the footer names the next step', () => {
+    useOnboarding.setState({ step: 1 });
+    renderWizard();
+    fireEvent.click(screen.getByRole('button', { name: /^I have a key/ }));
+    expect(screen.queryByText(/Pick one way above/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Paste your key above and press Connect/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^This computer/ }));
+    expect(screen.getByText(/Press Download above/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^This computer/ }));
+    expect(screen.getByText(/Pick one way above/)).toBeInTheDocument();
   });
 
   it('lets you on once a model will answer', () => {

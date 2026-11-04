@@ -107,6 +107,9 @@ export interface OnboardingState {
    * the model or key stores the card's Continue reads, so it is said here.
    */
   brainVerified: boolean;
+  /** The other way open on the brain card ("I have a key" or "This computer"),
+   *  so the footer under it says the next step instead of "pick one" again. */
+  brainWay: 'key' | 'local' | null;
   /** Total number of steps in the wizard (used by progress bar + next/prev).
    *  Derived from STEP_IDS.length — see audit M-R1 fix. */
   totalSteps: number;
@@ -154,6 +157,7 @@ export const DEFAULTS = {
   shareUsage: false,
   firstTask: null,
   brainVerified: false,
+  brainWay: null,
   active: false,
   step: FIRST_STEP,
   totalSteps: TOTAL_STEPS,

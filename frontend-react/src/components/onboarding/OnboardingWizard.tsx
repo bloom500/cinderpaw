@@ -82,6 +82,7 @@ export function OnboardingWizard() {
   const skip = useOnboarding((s) => s.skip);
   const finish = useOnboarding((s) => s.finish);
   const brainReady = useBrainReady();
+  const brainWay = useOnboarding((s) => s.brainWay);
   // Each step starts at its top. The scroll stayed where the last step left it,
   // so "Almost ready" opened with its heading cut off (4 Nov tour).
   const scroller = useRef<HTMLDivElement>(null);
@@ -172,7 +173,11 @@ export function OnboardingWizard() {
                   leave a way on: skipping is the person's call, said out loud. */}
               {onBrain && !brainReady && (
                 <span className="text-sm text-text-muted">
-                  Pick one way above so I can answer you, or{' '}
+                  {/* After a pick it names the next step: "Pick one way" again
+                      read as if the click had not counted (4 Nov tour). */}
+                  {brainWay === 'key' ? 'Paste your key above and press Connect, or'
+                    : brainWay === 'local' ? 'Press Download above, or'
+                    : 'Pick one way above so I can answer you, or'}{' '}
                   <button type="button" onClick={next} className="underline underline-offset-4 hover:text-text-primary">skip for now</button>.
                 </span>
               )}
@@ -494,7 +499,9 @@ export function ProviderStep() {
   // Cinderpaw's tools fumble on anything under ~27B and most machines cannot
   // run 27B, so "this computer" is only called a good start where it fits.
   const localFits = recommendModel(sysInfo)?.sizeClass === '13–14B';
-  const [other, setOther] = useState<'key' | 'local' | null>(null);
+  // In the store, not here: the footer under the card reads it too.
+  const other = useOnboarding((s) => s.brainWay);
+  const setOther = (f: (o: typeof other) => typeof other) => useOnboarding.setState({ brainWay: f(other) });
 
   return (
     <div>
