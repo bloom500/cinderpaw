@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Star } from 'lucide-react';
 import {
@@ -84,21 +84,43 @@ function readFavs(): Fav[] {
  */
 const jobOf = (modelId: string) => (/haiku|mini|flash|nano|lite|small|fast|:free|\b[1-9]b\b/i.test(modelId) ? 'Fast' : 'Smart');
 
+// Cubby's head and horns, the same paths as assets/logo.svg.
+const LOGO_HEAD = 'M128.0 60.2C119.3 60.2 110.5 60.6 101.9 61.9C93.3 63.1 84.5 64.6 76.4 67.7C68.4 70.8 60.2 74.9 53.7 80.3C47.1 85.8 41.3 92.9 36.9 100.3C32.5 107.6 29.5 116.2 27.3 124.5C25.2 132.9 24.3 141.8 24.0 150.5C23.7 159.1 24.0 168.1 25.8 176.5C27.5 185.0 30.1 193.8 34.5 201.1C38.9 208.3 45.3 215.2 52.2 220.1C59.2 225.0 67.8 228.0 76.1 230.5C84.4 233.0 93.2 234.1 101.9 235.0C110.5 235.9 119.3 236.0 128.0 236.0C136.7 236.0 145.5 235.9 154.2 235.0C162.8 234.1 171.6 233.0 179.9 230.5C188.2 228.0 196.9 225.0 203.8 220.0C210.7 215.1 217.1 208.3 221.5 201.1C225.9 193.8 228.5 184.9 230.2 176.5C232.0 168.1 232.3 159.1 232.0 150.4C231.7 141.8 230.8 132.9 228.7 124.5C226.5 116.1 223.5 107.6 219.1 100.3C214.7 92.9 208.9 85.8 202.3 80.3C195.7 74.9 187.6 70.8 179.6 67.7C171.5 64.6 162.7 63.1 154.1 61.9C145.5 60.6 136.7 60.2 128.0 60.2Z';
+const LOGO_HORNS = [
+  'M44.9 27.0C42.9 26.8 39.9 29.8 37.9 31.8C36.0 33.9 34.8 36.8 33.2 39.2C31.6 41.7 30.0 44.2 28.3 46.5C26.6 48.9 24.8 51.2 22.9 53.5C21.1 55.7 18.8 57.7 17.1 60.0C15.4 62.3 13.6 64.8 12.7 67.5C11.7 70.2 11.3 73.4 11.5 76.2C11.8 79.0 12.8 82.0 14.3 84.4C15.8 86.8 18.1 89.0 20.5 90.5C22.9 92.0 26.1 93.6 28.7 93.5C31.3 93.4 33.8 91.8 35.9 90.1C38.1 88.4 39.5 85.4 41.5 83.3C43.5 81.1 45.6 79.1 47.8 77.2C50.0 75.3 53.0 73.8 54.8 71.8C56.6 69.8 58.9 67.5 58.5 65.3C58.2 63.1 54.1 61.3 52.6 58.8C51.1 56.4 50.0 53.6 49.4 50.8C48.9 48.0 49.4 44.9 49.5 42.0C49.6 39.1 50.7 35.8 49.9 33.3C49.1 30.8 46.9 27.2 44.9 27.0Z',
+  'M207.5 29.1C206.0 30.6 206.1 34.8 206.0 37.6C205.9 40.5 207.0 43.5 206.9 46.4C206.8 49.3 206.6 52.4 205.5 55.0C204.4 57.6 201.7 59.7 200.4 62.1C199.1 64.5 196.9 67.2 197.7 69.2C198.4 71.3 202.5 72.6 204.8 74.4C207.1 76.2 209.3 78.1 211.4 80.1C213.5 82.2 215.5 84.3 217.5 86.5C219.4 88.7 220.6 92.3 223.0 93.3C225.3 94.3 228.9 93.4 231.6 92.5C234.2 91.6 237.0 89.9 239.0 87.9C241.0 85.9 242.6 83.1 243.5 80.5C244.4 77.8 244.7 74.6 244.3 71.8C244.0 69.0 242.9 66.1 241.5 63.6C240.1 61.0 237.9 59.0 236.0 56.7C234.1 54.5 232.1 52.4 230.3 50.1C228.4 47.8 226.8 45.3 225.2 42.9C223.5 40.5 222.1 37.9 220.5 35.5C218.8 33.1 217.3 29.7 215.1 28.6C212.9 27.5 209.0 27.6 207.5 29.1Z',
+];
+
 /**
- * Automatic's mark: an A, the way a camera says Auto. Sparkles read as AI
- * filler, and Cubby stays rare in the app (4 Nov, his call).
+ * Automatic's mark: Cinderpaw's own logo as lines, no colours (4 Nov, his call;
+ * it replaces an A). Head, horns and eyes only: with the muzzle too it was a
+ * blur at 18 px. Drawn in the text colour, so it reads on both themes.
  */
 function AutoMark({ size }: { size: 'sm' | 'md' }) {
+  // The horns stop where the head covers them. One id per mark: a menu and the
+  // button can both be on screen.
+  const id = `automark-${useId().replace(/[^\w-]/g, '')}`;
   return (
-    <span
+    <svg
       aria-hidden
-      className={cn(
-        'grid shrink-0 place-items-center bg-brand font-semibold leading-none text-on-brand',
-        size === 'sm' ? 'size-[18px] rounded-[5px] text-[11px]' : 'size-6 rounded-[7px] text-[13px]',
-      )}
+      viewBox="0 0 256 256"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={20}
+      strokeLinejoin="round"
+      className={cn('shrink-0', size === 'sm' ? 'size-[18px]' : 'size-6')}
     >
-      A
-    </span>
+      <mask id={id} maskUnits="userSpaceOnUse" x="-40" y="-40" width="340" height="340">
+        <rect x="-40" y="-40" width="340" height="340" fill="#fff" />
+        <path d={LOGO_HEAD} fill="#000" stroke="none" />
+      </mask>
+      <g mask={`url(#${id})`}>{LOGO_HORNS.map((d) => <path key={d} d={d} />)}</g>
+      <path d={LOGO_HEAD} />
+      <g fill="currentColor" stroke="none">
+        <ellipse cx="87" cy="168.2" rx="15" ry="24" />
+        <ellipse cx="169" cy="168.2" rx="15" ry="24" />
+      </g>
+    </svg>
   );
 }
 
