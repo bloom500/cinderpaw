@@ -239,6 +239,9 @@ describe('step words', () => {
     // A step done twice is said once, with how many times (Claude's "captured page 5 times").
     expect(doneSentence([ok('web_search'), ok('read_webpage'), ok('web_search')])).toBe('Searched the web 2 times, read a page');
     expect(doneSentence([ok('web_search'), { ...ok('read_file'), status: 'failed' }])).toBe('Searched the web, read files (one did not work)');
+    // The read-before-write check is a safety step, not a failure.
+    const checked = { ...ok('write_file'), status: 'failed' as const, error: 'C:\\Users\\a\\x.html exists but has not been read in this session. Call read_f' };
+    expect(doneSentence([checked, ok('read_file')])).toBe('Wrote files, read files');
     expect(doneSentence(['web_search', 'read_file', 'shell_exec', 'recall'].map(ok))).toBe('Searched the web, read files, ran a command, and 1 more');
     expect(stepTitle(startActivity('ask_user', {}))).toBe('Waiting for your answer');
     expect(elapsedLabel(72_000)).toBe('1m 12s');

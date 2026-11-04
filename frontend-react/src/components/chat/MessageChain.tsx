@@ -189,7 +189,13 @@ export function doneSentence(steps: ToolActivity[]): string {
     .map((s) => (times(s) > 1 ? `${s} ${times(s)} times` : s))
     .map((s, i) => (i === 0 ? s : s.charAt(0).toLowerCase() + s.slice(1)));
   const more = said.length - shown.length;
-  const failed = steps.filter((a) => a.status === 'failed').length;
+  // "Read it before you change it" is a safety check the agent answers on the
+  // next step, not something that broke: counted as a failure, a careful write
+  // read "(one did not work)" (4 Nov tour).
+  // ponytail: matched on the engine's words (read-ledger.ts); a path longer than
+  // ~70 characters pushes them past the 120-character error cut and it counts again.
+  const guard = /exists but has not been read|changed on disk after you read it/;
+  const failed = steps.filter((a) => a.status === 'failed' && !guard.test(a.error ?? '')).length;
   return shown.join(', ') + (more > 0 ? `, and ${more} more` : '')
     + (failed > 0 ? ` (${failed === 1 ? 'one' : failed} did not work)` : '');
 }

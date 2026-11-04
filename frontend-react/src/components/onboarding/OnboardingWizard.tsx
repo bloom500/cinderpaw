@@ -32,6 +32,7 @@ import { useNotifications } from '@/stores/notifications';
 import { recommendModel } from '@/lib/hardwareRecommendation';
 import { tauri, type DiskEncryptionStatus, type SetupCandidate, type SetupVerifyOutcome } from '@/lib/tauri';
 import { signInWithOpenRouter } from '@/lib/openrouterSignIn';
+import { CHATGPT_ID, signInWithChatGPT } from '@/lib/chatgptSignIn';
 import { CinderpawMascot, usePrefersReducedMotion } from '@/components/chat/mascot/CinderpawMascot';
 import { ModelLogo } from '@/lib/modelLogos';
 import { ImportCard } from './ImportCard';
@@ -428,7 +429,7 @@ const CURATED_PROVIDERS: {
   {
     id: 'openai', name: 'OpenAI', console: 'https://platform.openai.com/api-keys',
     keyPlaceholder: 'sk-...',
-    note: 'New accounts get ~$5 free credit (no card, 3-month expiry); after that, add a prepaid balance under Billing. A ChatGPT Plus/Pro subscription does not cover API keys.',
+    note: 'New accounts get ~$5 free credit (no card, 3-month expiry); after that, add a prepaid balance under Billing. A ChatGPT plan does not pay for API keys: for your plan, use Continue with ChatGPT above.',
     steps: [
       'Sign in at platform.openai.com',
       'Settings → API keys → "Create new secret key"',
@@ -491,8 +492,6 @@ export function ProviderStep() {
   // run 27B, so "this computer" is only called a good start where it fits.
   const localFits = recommendModel(sysInfo)?.sizeClass === '13–14B';
   const [other, setOther] = useState<'key' | 'local' | null>(null);
-  const signedIn = useModel((s) => s.cloudModel?.providerId === 'openrouter');
-  const [busy, setBusy] = useState(false);
 
   return (
     <div>
@@ -508,26 +507,31 @@ export function ProviderStep() {
 
       <div className="mt-6"><DetectedSection /></div>
 
-      {/* One button that works on any computer: OpenRouter's sign-in opens the
-          browser, and the free model it pins answers without a card or a key
-          to copy. The host says how it went in a toast either way. */}
-      <button
-        type="button"
-        disabled={busy || signedIn}
-        onClick={() => { setBusy(true); void signInWithOpenRouter().finally(() => setBusy(false)); }}
-        className="mt-6 flex w-full items-center gap-4 rounded-2xl border-2 border-brand bg-brand/10 p-5 text-left transition-colors hover:bg-brand/15 disabled:cursor-default"
-      >
-        <ModelLogo provider="openrouter" className="size-10 shrink-0" />
-        <span className="min-w-0 flex-1">
-          <span className="block text-lg font-medium text-text-primary">
-            {signedIn ? 'Signed in with OpenRouter' : busy ? 'Finish in your browser…' : 'Sign in with OpenRouter'}
-          </span>
-          <span className="block text-sm text-text-muted">
-            {signedIn ? 'I am ready to answer. Press Continue.' : 'Free, with a daily limit. Works on any computer. Sign in with Google or email.'}
-          </span>
-        </span>
-        {signedIn ? <Check size={20} className="shrink-0 text-brand" /> : busy ? <Loader2 size={20} className="shrink-0 animate-spin text-brand" /> : <ArrowRight size={20} className="shrink-0 text-brand" />}
-      </button>
+      {/* Two sign-ins, no key to copy: the ChatGPT plan many people already
+          pay for (4 Nov, Darius: more will come with GPT than with OpenRouter),
+          and OpenRouter's free models for everyone else. Each opens the browser;
+          the host says how it went in a toast. */}
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <SignInCard
+          provider={CHATGPT_ID}
+          title="Continue with ChatGPT"
+          done="Signed in with ChatGPT"
+          body="Use the ChatGPT plan you already pay for. No key, no extra bill."
+          dim={!!other}
+          signIn={() => signInWithChatGPT().then(() => true, (err) => {
+            useNotifications.getState().push('error', 'ChatGPT sign-in did not finish', String(err));
+            return false;
+          })}
+        />
+        <SignInCard
+          provider="openrouter"
+          title="Sign in with OpenRouter"
+          done="Signed in with OpenRouter"
+          body="Free, with a daily limit. Works on any computer. Sign in with Google or email."
+          dim={!!other}
+          signIn={signInWithOpenRouter}
+        />
+      </div>
 
       <p className="mt-5 text-sm font-medium text-text-secondary">Or</p>
       <div className="mt-2 grid gap-3 sm:grid-cols-2">
@@ -552,6 +556,35 @@ export function ProviderStep() {
         {other === 'local' && <LocalBranch />}
       </div>
     </div>
+  );
+}
+
+/**
+ * One sign-in that needs no key: highlighted while it is the suggestion, plain
+ * once another way is open (two orange cards read as two picks, 4 Nov tour).
+ */
+function SignInCard({ provider, title, done, body, dim, signIn }: {
+  provider: string; title: string; done: string; body: string; dim: boolean; signIn: () => Promise<boolean>;
+}) {
+  const signedIn = useModel((s) => s.cloudModel?.providerId === provider);
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      type="button"
+      disabled={busy || signedIn}
+      onClick={() => { setBusy(true); void signIn().finally(() => setBusy(false)); }}
+      className={cn(
+        'flex w-full items-center gap-4 rounded-2xl border-2 p-5 text-left transition-colors disabled:cursor-default',
+        dim && !signedIn ? 'border-border-default hover:bg-bg-hover' : 'border-brand bg-brand/10 hover:bg-brand/15',
+      )}
+    >
+      <ModelLogo provider={provider} className="size-10 shrink-0" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-lg font-medium text-text-primary">{signedIn ? done : busy ? 'Finish in your browser…' : title}</span>
+        <span className="block text-sm text-text-muted">{signedIn ? 'I am ready to answer. Press Continue.' : body}</span>
+      </span>
+      {signedIn ? <Check size={20} className="shrink-0 text-brand" /> : busy ? <Loader2 size={20} className="shrink-0 animate-spin text-brand" /> : <ArrowRight size={20} className="shrink-0 text-brand" />}
+    </button>
   );
 }
 
@@ -856,22 +889,37 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
   // newline in it goes onto the wire inside the Authorization header — which
   // the provider answers with a 401. The user then re-pastes the same correct
   // key, gets the same error, and nothing suggests whitespace is the problem.
-  const handleTest = async () => {
+  // One button, Connect: it tries the key, and saves it only when the provider
+  // answered. Test, Save and Continue side by side were three choices for one
+  // step (4 Nov tour). A key the test refuses can still be kept, said out loud.
+  const [refused, setRefused] = useState(false);
+  const handleConnect = async () => {
     const key = apiKey.trim();
     if (!key) { setMsg({ ok: false, text: 'Paste the key first' }); return; }
-    setBusy(true); setMsg(null);
+    setBusy(true); setMsg(null); setRefused(false);
     try {
       const r = await testByokProvider({ providerId: def.id, apiKey: key, baseUrl: null });
-      setMsg(r.ok ? { ok: true, text: '✓ Connected' } : { ok: false, text: r.error ?? 'Connection failed' });
+      if (!r?.ok) {
+        // The provider's own answer is JSON for developers ("Auth failed (HTTP
+        // 401): { \"error\": ..."); the person needs what to do next.
+        const err = r?.error ?? '';
+        const refusedKey = /(401|403)|invalid|incorrect|unauthori[sz]ed/i.test(err);
+        setMsg({ ok: false, text: refusedKey ? `${def.name} did not accept this key. Copy the whole key again from the console.` : err || 'The key did not work.' });
+        setRefused(true);
+        return;
+      }
     } catch (e) {
       setMsg({ ok: false, text: String(e) });
+      setRefused(true);
+      return;
     } finally { setBusy(false); }
+    await handleSave();
   };
 
   const handleSave = async () => {
     const key = apiKey.trim();
     if (!key) { setMsg({ ok: false, text: 'Paste the key first' }); return; }
-    setBusy(true); setMsg(null);
+    setBusy(true); setMsg(null); setRefused(false);
     try {
       await saveByokProvider({ providerId: def.id, enabled: true, apiKey: key, baseUrl: null, defaultModel: null });
       // The provider just configured is the one that answers, in both modes,
@@ -931,21 +979,19 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={() => void handleTest()}
+          onClick={() => void handleConnect()}
           disabled={busy || !apiKey}
-          className={SECONDARY_BUTTON}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
         >
-          Test
-        </button>
-        <button
-          type="button"
-          onClick={() => void handleSave()}
-          disabled={busy || !apiKey}
-          className="px-3 py-1.5 rounded-md bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
-        >
-          Save
+          {busy && <Loader2 size={14} className="animate-spin" />}
+          {busy ? 'Connecting…' : 'Connect'}
         </button>
         {msg && <span className={cn('text-xs', msg.ok ? 'text-success' : 'text-error')}>{msg.text}</span>}
+        {refused && !busy && (
+          <button type="button" onClick={() => void handleSave()} className="text-xs text-text-muted underline underline-offset-2 hover:text-text-primary">
+            Save it anyway
+          </button>
+        )}
       </div>
     </div>
   );

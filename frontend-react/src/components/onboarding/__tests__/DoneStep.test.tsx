@@ -75,7 +75,7 @@ describe('the brain card', () => {
   it('holds Continue until something will answer, and says how to go on anyway', () => {
     useOnboarding.setState({ step: 1 });
     renderWizard();
-    expect(screen.getByRole('button', { name: /Continue/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^Continue$/ })).toBeDisabled();
     expect(screen.getByText(/Pick one way above so I can answer you/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'skip for now' }));
     expect(useOnboarding.getState().step).toBe(2);
@@ -85,7 +85,7 @@ describe('the brain card', () => {
     useOnboarding.setState({ step: 1 });
     useModel.setState({ cloudModel: OPENAI });
     renderWizard();
-    expect(screen.getByRole('button', { name: /Continue/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /^Continue$/ })).toBeEnabled();
     expect(screen.queryByText(/Pick one way above/)).not.toBeInTheDocument();
   });
 
@@ -93,7 +93,7 @@ describe('the brain card', () => {
     useOnboarding.setState({ step: 1 });
     useDownload.setState({ active: { repoId: 'r', filename: 'f', progress: 0.2 } as never });
     renderWizard();
-    expect(screen.getByRole('button', { name: /Continue/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /^Continue$/ })).toBeEnabled();
   });
 });
 
