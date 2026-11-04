@@ -328,6 +328,12 @@ export const MessageItem = memo(function MessageItem({
       )}
       {/* Always shown, not on hover: a bare reply filmed without this line
           could pass for one Cinderpaw wrote. */}
+      {message.answeredBy && !streaming && (
+        <div className="flex items-center gap-1.5 text-xs text-text-muted">
+          <span aria-hidden className="size-1.5 rounded-full bg-success" />
+          Automatic · answered by {message.answeredBy}
+        </div>
+      )}
       {message.bare && (
         <div className="text-xs text-text-muted">Bare model · no tools, no memory, no Cinderpaw prompt</div>
       )}

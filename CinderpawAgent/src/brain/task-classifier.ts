@@ -91,6 +91,8 @@ export const CODE_PATTERNS: readonly RegExp[] = [
   /\bregex\b/i,
   /\bfunction\b/i,
   /```/, // markdown code fence
+  /\b(script|code|python|javascript|typescript|sql|bug|api|html|css)\b/i,
+  /\b(cod(ul)?|programeaz|scrie[- ]mi un (script|program)|func[tț]i[ae])/i,
 ];
 
 /**
@@ -104,6 +106,8 @@ export const REASONING_PATTERNS: readonly RegExp[] = [
   /\banalyze\b/i,
   /\banalyse\b/i,
   /\bwhy\b/i, // won't match "showy"
+  /\b(compare|explain|plan|solve|calculate|research)\b/i,
+  /\b(de ce|compar[aă]|explic[aă]|rezolv[aă]|calculeaz[aă]|pas cu pas|analizeaz[aă]|demonstreaz[aă]|planific[aă])/i,
 ];
 
 /**
@@ -116,6 +120,7 @@ export const CREATIVE_PATTERNS: readonly RegExp[] = [
   /\bpoems?\b/i,
   /\blyrics?\b/i,
   /\bimagine\b/i,
+  /\b(poveste|poezie|versuri|imagineaz[aă]|scrie[- ]mi o poveste)/i,
 ];
 
 function hasAnyMatch(text: string, patterns: readonly RegExp[]): boolean {

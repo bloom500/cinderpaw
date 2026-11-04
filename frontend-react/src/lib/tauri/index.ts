@@ -1019,7 +1019,9 @@ const raw = {
     model: string,
     providerId?: string | null,
     baseUrl?: string | null,
-  ) => invoke<void>('cinderpaw_set_model', { source, model, providerId, baseUrl }),
+    // Automatic: the brain may answer from any of the person's models.
+    automatic?: boolean,
+  ) => invoke<void>('cinderpaw_set_model', { source, model, providerId, baseUrl, automatic: automatic ?? null }),
   cinderpawGetModelConfig:      () => invoke<CinderpawModelConfigView | null>('cinderpaw_get_model_config'),
   mcpCatalog:               () => invoke<McpCatalogEntry[]>('mcp_catalog'),
   mcpList:                  () => invoke<McpServerView[]>('mcp_list'),

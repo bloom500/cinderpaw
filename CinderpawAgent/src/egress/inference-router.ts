@@ -340,12 +340,19 @@ export class InferenceRouter {
     primary: ModelTarget,
     fallback?: ModelTarget,
     trustedUrls?: string[],
-  ): void {
-    const newTrusted = this.#buildTrusted(
-      primary,
-      fallback,
-      trustedUrls ?? this.#configuredTrusted,
-    );
+    /**
+     * Automatic: the person's other models, which the Brain may route a turn
+     * to. Trusted like the primary when no allowlist is configured; under an
+     * allowlist only the members survive. Returns the ones that may be used.
+     */
+    extra: ModelTarget[] = [],
+  ): ModelTarget[] {
+    const allow = trustedUrls ?? this.#configuredTrusted;
+    const newTrusted = this.#buildTrusted(primary, fallback, allow);
+    const usable = allow && allow.length > 0
+      ? extra.filter((t) => newTrusted.has(normalizeBaseUrl(t.baseUrl)))
+      : extra;
+    for (const t of usable) newTrusted.add(normalizeBaseUrl(t.baseUrl));
 
     for (const target of [primary, fallback]) {
       if (target && !newTrusted.has(normalizeBaseUrl(target.baseUrl))) {
@@ -358,6 +365,7 @@ export class InferenceRouter {
     this.#primary = primary;
     this.#fallback = fallback;
     this.#trusted = newTrusted;
+    return usable;
   }
 
   /** Active local-model context window in tokens, or 0 when unknown. Set by the

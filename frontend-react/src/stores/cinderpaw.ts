@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { CinderpawModelConfigView, CinderpawModelSelection } from '@/lib/tauri';
 import { tauri } from '@/lib/tauri';
-import { isChatgptRoute } from '@/lib/localApi';
+import { isChatgptRoute, isLocalEngineUrl } from '@/lib/localApi';
 
 interface CinderpawStore {
   /** Active model in the sidecar. Null until cinderpaw_get_model_config resolves. */
@@ -39,14 +39,42 @@ interface CinderpawStore {
    * the key never touches React. Throws on error so callers can surface it.
    */
   setModel(selection: CinderpawModelSelection): Promise<void>;
+
+  /**
+   * Automatic ("Let Cinderpaw choose" in the model menu): the brain answers each
+   * message from any of the person's models. On by default, the iOS way; a
+   * model picked by hand turns it off. Kept in this window's storage.
+   */
+  automatic: boolean;
+  /** `apply: false` only records it, for a hand pick that switches the model itself next. */
+  setAutomatic(on: boolean, apply?: boolean): Promise<void>;
 }
+
+const AUTO_KEY = 'cinderpaw.automaticModel';
+function readAutomatic(): boolean {
+  try { return localStorage.getItem(AUTO_KEY) !== 'off'; } catch { return true; }
+}
+
+/** The selection that points the engine back at the model it is on now. */
+export function selectionOf(cfg: CinderpawModelConfigView): CinderpawModelSelection {
+  if (cfg.provider === 'ollama') return { source: 'ollama', model: cfg.model, baseUrl: cfg.base_url };
+  if (cfg.provider === 'cinderpaw-local' || isLocalEngineUrl(cfg.base_url)) {
+    // The ChatGPT plan answers through this host's API too, but it is a provider.
+    if (!isChatgptRoute(cfg.base_url)) return { source: 'openai_compatible', model: cfg.model, baseUrl: cfg.base_url, providerId: 'cinderpaw-local' };
+  }
+  return { source: 'byok', providerId: cfg.provider, model: cfg.model };
+}
+
+// Sent once per engine start: the engine boots on one model and learns the
+// rest from set_model. Reset when it goes offline, so a restart sends it again.
+let automaticSent = false;
 
 /** The model in use answers from the internet (a key), not from this machine. */
 export const onCloudModel = (s: Pick<CinderpawStore, 'modelConfig'>): boolean =>
   !!s.modelConfig?.base_url &&
   (!/^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(s.modelConfig.base_url) || isChatgptRoute(s.modelConfig.base_url));
 
-export const useCinderpawStore = create<CinderpawStore>((set) => ({
+export const useCinderpawStore = create<CinderpawStore>((set, get) => ({
   modelConfig: null,
   isReady: false,
   modelError: null,
@@ -54,6 +82,15 @@ export const useCinderpawStore = create<CinderpawStore>((set) => ({
   offline: false,
   restarting: false,
   offlineReason: null,
+  automatic: readAutomatic(),
+
+  async setAutomatic(on, apply = true) {
+    try { localStorage.setItem(AUTO_KEY, on ? 'on' : 'off'); } catch { /* the default comes back next launch */ }
+    set({ automatic: on });
+    if (!apply) return;
+    const cfg = get().modelConfig ?? (await tauri.raw.cinderpawGetModelConfig().catch(() => null));
+    if (cfg?.model) await get().setModel(selectionOf(cfg));
+  },
 
   setModelConfig(cfg) {
     set({ modelConfig: cfg, modelError: null });
@@ -62,9 +99,18 @@ export const useCinderpawStore = create<CinderpawStore>((set) => ({
   setReady(v) {
     // Coming (back) online clears the offline banner.
     set(v ? { isReady: true, offline: false, restarting: false, offlineReason: null } : { isReady: false });
+    // The engine boots on one model; Automatic's list reaches it only through
+    // set_model, so it goes out once per start (the person never has to re-pick).
+    if (v && get().automatic && !automaticSent) {
+      automaticSent = true;
+      void tauri.raw.cinderpawGetModelConfig()
+        .then((cfg) => (cfg?.model ? get().setModel(selectionOf(cfg)) : undefined))
+        .catch(() => { automaticSent = false; });
+    }
   },
 
   setOffline(offline, restarting, reason = null) {
+    if (offline) automaticSent = false;
     set({ offline, restarting, offlineReason: reason, ...(offline ? { isReady: false } : {}) });
   },
 
@@ -84,18 +130,21 @@ export const useCinderpawStore = create<CinderpawStore>((set) => ({
   async setModel(selection) {
     set({ modelError: null, switching: true });
     try {
+      const auto = get().automatic;
       if (selection.source === 'ollama') {
-        await tauri.raw.cinderpawSetModel('ollama', selection.model, null, selection.baseUrl);
+        await tauri.raw.cinderpawSetModel('ollama', selection.model, null, selection.baseUrl, auto);
       } else if (selection.source === 'byok') {
-        await tauri.raw.cinderpawSetModel('byok', selection.model, selection.providerId, null);
+        await tauri.raw.cinderpawSetModel('byok', selection.model, selection.providerId, null, auto);
       } else {
         await tauri.raw.cinderpawSetModel(
           'openai_compatible',
           selection.model,
           selection.providerId,
           selection.baseUrl,
+          auto,
         );
       }
+      automaticSent = auto;
       // Store is updated optimistically by Rust; model_set event from sidecar confirms.
       const cfg = await tauri.raw.cinderpawGetModelConfig();
       if (cfg) set({ modelConfig: cfg });

@@ -1780,23 +1780,39 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             ? undefined
             : (cloudFallback ??
                (msg.localFallbackAvailable === false ? undefined : localFallbackTarget));
-          router.reconfigure(primary, fallback);
+          // Automatic (the model menu's "Let Cinderpaw choose"): the host sends
+          // every other model the person has, and the brain picks one per turn.
+          // The local engine joins when it has a model resident. Empty = the
+          // person picked one model, and only it (and its fallback) answers.
+          const toTarget = (c: { provider?: unknown; model?: unknown; baseUrl?: unknown; apiKey?: unknown }): ModelTarget | null =>
+            typeof c?.provider === "string" && typeof c.model === "string" && typeof c.baseUrl === "string"
+              ? { provider: c.provider, model: c.model, baseUrl: c.baseUrl, apiKey: typeof c.apiKey === "string" ? c.apiKey : undefined }
+              : null;
+          const automatic = Array.isArray(msg.candidates);
+          const candidates: ModelTarget[] = automatic
+            ? msg.candidates!.map(toTarget).filter((t): t is ModelTarget => t !== null)
+            : [];
+          if (automatic && msg.localFallbackAvailable !== false && localFallbackTarget && !isLoopbackUrl(baseUrl)) {
+            candidates.push(localFallbackTarget);
+          }
+          const extra = router.reconfigure(primary, fallback, undefined, candidates);
           // The router now trusts only the new targets. A brain still holding
           // the old ones would route the next turn to an endpoint the router
           // refuses — which is how a model switch used to end every turn with
           // "refusing to contact untrusted inference endpoint", naming the
           // provider the user had just left. Refusing was right; routing there
           // at all was the fault.
-          const nextBrain = rebuildDerivedBrain(brainDerived, primary, fallback);
+          const nextBrain = rebuildDerivedBrain(brainDerived, primary, fallback, extra);
           if (nextBrain) agent.setBrain(new BrainStack(nextBrain, brainBreaker, log));
           // Local models forward their active context window so the agent loop
           // compacts to the real KV-cache size (Hardware can raise it well past
           // the old 8192); cloud models send none and use the cloud budget.
           router.setContextWindow(msg.contextWindow);
-          transport.send({ type: "model_set", provider, model });
+          transport.send({ type: "model_set", provider, model, automatic, choices: extra.length + 1 });
           log(
             `model hot-swapped → ${provider}/${model} @ ${baseUrl}` +
-              (fallback ? ` (fallback → ${fallback.baseUrl})` : ""),
+              (fallback ? ` (fallback → ${fallback.baseUrl})` : "") +
+              (automatic ? ` (automatic over ${extra.length + 1} models)` : ""),
           );
         } catch (err) {
           transport.send({

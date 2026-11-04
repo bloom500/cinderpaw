@@ -67,6 +67,8 @@ export interface ChatMessage {
   agentMessageId?: string;
   /** Dev-only: answered by the model alone, no Cinderpaw (lib/bareModel.ts). */
   bare?: boolean;
+  /** Automatic: the model the brain picked for this reply, said under it. */
+  answeredBy?: string;
   thinking?: string;
   thinkingStartAt?: number;
   thinkingDurationMs?: number;

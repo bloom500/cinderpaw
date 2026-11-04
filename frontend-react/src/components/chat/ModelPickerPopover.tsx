@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { Check, ChevronDown, Search, Star } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Sparkles, Star } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -77,6 +77,13 @@ function readFavs(): Fav[] {
   }
 }
 
+/**
+ * The job a model is good for, in words a stranger knows (4 Nov study: people do
+ * not know Haiku from Sonnet). ponytail: a name match; the brain's own profiles
+ * (model-profiles.ts) are the better source once the host passes them up.
+ */
+const jobOf = (modelId: string) => (/haiku|mini|flash|nano|lite|small|fast|:free|\b[1-9]b\b/i.test(modelId) ? 'Fast' : 'Smart');
+
 const modelName = (m: ProviderModel) => (m.name ? m.name.replace(/^[^:]{1,40}:\s+/, '') : modelDisplayName(m.id));
 
 /** A model's name as its provider writes it ("GPT 6.1 Sol"), once its list is in; else one made from the id. */
@@ -115,6 +122,11 @@ export function ModelPickerPopover() {
   const cinderpawSetModel = useCinderpawStore((s) => s.setModel);
   const cinderpawSetError = useCinderpawStore((s) => s.setModelError);
   const cinderpawStarting = useCinderpawStore((s) => !s.isReady && !s.offline);
+  const automatic = useCinderpawStore((s) => s.automatic);
+  const setAutomatic = useCinderpawStore((s) => s.setAutomatic);
+  // The menu opens on the short list (one switch, a few rows); every model is
+  // one step further, under All models (4 Nov, his pick: mockup C).
+  const [view, setView] = useState<'simple' | 'all'>('simple');
 
   const [localModels, setLocalModels]     = useState<ModelInfo[]>([]);
   const [cloudProviders, setCloudProviders] = useState<ByokProvider[]>([]);
@@ -179,6 +191,7 @@ export function ModelPickerPopover() {
   useEffect(() => {
     if (!open) return;
     setQuery('');
+    setView('simple');
     // It opens where the model answering now is: this computer, Favorites when
     // it is starred, else All; with none chosen and no cloud key, on what
     // there is to pick.
@@ -223,6 +236,8 @@ export function ModelPickerPopover() {
   // populated — the ModelPill renders a progress bar off those.
   const selectLocalAgent = async (m: ModelInfo) => {
     cinderpawSetError(null);
+    // A model picked by hand is "always use this one": Automatic goes off.
+    if (useCinderpawStore.getState().automatic) await setAutomatic(false, false);
     try {
       await load(m.path);
       await cinderpawSetModel({
@@ -244,6 +259,7 @@ export function ModelPickerPopover() {
   // user clicked a model and nothing visibly happened — surface the error.
   const selectCloudAgent = async (providerId: string, modelId: string) => {
     cinderpawSetError(null);
+    if (useCinderpawStore.getState().automatic) await setAutomatic(false, false);
     try {
       await cinderpawSetModel({ source: 'byok', providerId, model: modelId });
       return true;
@@ -316,14 +332,18 @@ export function ModelPickerPopover() {
   if (!cinderpawSwitching && !isLoading && cinderpawConfig?.model) {
     shown = { modelId: cinderpawConfig.model, provider: cinderpawConfig.provider };
   }
+  // Automatic names itself: the model that answered is said under each reply.
+  const auto = automatic && (hasLocal || hasCloud) && !cinderpawStarting;
   const label = cinderpawSwitching
     ? 'Switching…'
     : isLoading
       ? `Loading ${progress?.percentage.toFixed(0) ?? 0}%`
-      : shown
-        ? nameFor(onLocal ? undefined : shown.provider, shown.modelId)
-        : loaded?.name ?? unpinnedLabel;
-  const route = shown ? (onLocal ? 'This computer' : providerName(shown.provider)) : '';
+      : auto
+        ? 'Automatic'
+        : shown
+          ? nameFor(onLocal ? undefined : shown.provider, shown.modelId)
+          : loaded?.name ?? unpinnedLabel;
+  const route = shown && !auto ? (onLocal ? 'This computer' : providerName(shown.provider)) : '';
 
   const isActive = (providerId: string, modelId: string) =>
     !onLocal && cinderpawConfig?.provider === providerId && cinderpawConfig?.model === modelId;
@@ -335,7 +355,9 @@ export function ModelPickerPopover() {
   // plan is being spent, as OpenAI asks of apps that use it.
   const face = (
     <>
-      {shown && <ModelLogo modelId={shown.modelId} provider={shown.provider} />}
+      {auto && !cinderpawSwitching && !isLoading ? (
+        <span className="grid size-[18px] shrink-0 place-items-center rounded-md bg-brand text-on-brand"><Sparkles size={11} /></span>
+      ) : shown && <ModelLogo modelId={shown.modelId} provider={shown.provider} />}
       {/* When the composer row is tight (a button name sliding out, a side
           panel open), where it runs gives way first and the model's own name
           only after it: flex shrinks both at once, so the route's factor is
@@ -575,6 +597,93 @@ export function ModelPickerPopover() {
     here: localModels.length,
   };
 
+  /**
+   * The short list: one row per provider the person can answer from (its own
+   * model) and each model on this computer, named by the job first. With
+   * Automatic on they are what it picks from, dimmed; off, a click picks one.
+   */
+  const simpleRows = [
+    ...cloudProviders
+      .filter((p) => p.enabled && p.default_model)
+      .map((p) => ({
+        key: `${p.id}:${p.default_model}`,
+        job: jobOf(p.default_model!),
+        name: nameFor(p.id, p.default_model!),
+        who: p.id === CHATGPT_ID ? 'your ChatGPT plan' : `your ${p.name} key`,
+        logo: <ModelLogo modelId={p.default_model!} provider={p.id} className="size-5" />,
+        on: !automatic && isActive(p.id, p.default_model!),
+        pick: () => void pickCloud(p.id, p.default_model!),
+      })),
+    ...localModels.map((m) => ({
+      key: m.path,
+      job: 'Private',
+      name: modelDisplayName(m.name),
+      who: 'on this computer, nothing leaves it',
+      logo: <ModelLogo modelId={m.name} className="size-5" />,
+      on: !automatic && onLocal && cinderpawConfig?.model === m.name,
+      pick: () => void selectLocalAgent(m),
+    })),
+  ];
+  const simpleView = (
+    <div className="flex flex-col">
+      <DropdownMenuPrimitive.CheckboxItem
+        checked={automatic}
+        // Stays open: the rows below change with the switch.
+        onSelect={(e) => e.preventDefault()}
+        onCheckedChange={(on) => void setAutomatic(on).catch((err) => useNotifications.getState().push('error', 'Could not switch model', String(err)))}
+        className="flex cursor-default select-none items-center gap-3 rounded-xl px-2.5 py-2.5 outline-hidden focus:bg-accent"
+      >
+        <span className="grid size-6 shrink-0 place-items-center rounded-lg bg-brand text-on-brand"><Sparkles size={14} /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm text-text-primary">Let Cinderpaw choose</span>
+          <span className="block text-xs text-text-muted">The right model for each message</span>
+        </span>
+        {/* An iOS switch: the thumb travels, nothing else moves. */}
+        <span aria-hidden className={cn('relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors duration-200 ease-out', automatic ? 'bg-brand' : 'bg-border-default')}>
+          <span className={cn('absolute top-[3px] size-4 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out', automatic ? 'translate-x-[19px]' : 'translate-x-[3px]')} />
+        </span>
+      </DropdownMenuPrimitive.CheckboxItem>
+      <DropdownMenuSeparator />
+      {simpleRows.length === 0 ? (
+        hasCloud ? null : cloudEmpty
+      ) : (
+        <>
+          <p className="px-2.5 pb-1 pt-1.5 text-xs text-text-muted">{automatic ? 'It picks from' : 'Always use'}</p>
+          {automatic ? (
+            // On, the list is only what it picks from: one line, not a column of
+            // rows nobody can press (8 models made the menu taller than the
+            // window, 4 Nov). Turning the switch off brings the rows back.
+            <div className="flex items-center gap-3 px-2.5 pb-2 pt-0.5">
+              <span className="flex shrink-0 -space-x-1.5">
+                {simpleRows.slice(0, 5).map((r) => (
+                  <span key={r.key} className="grid size-6 place-items-center rounded-full bg-bg-elevated ring-2 ring-bg-primary">{r.logo}</span>
+                ))}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-xs text-text-muted">
+                {simpleRows.slice(0, 2).map((r) => r.name).join(', ')}
+                {simpleRows.length > 2 ? ` and ${simpleRows.length - 2} more` : ''}
+              </span>
+            </div>
+          ) : (
+            // About five rows high, the rest a scroll away.
+            <div className="max-h-[14rem] overflow-y-auto thin-scrollbar">
+              {simpleRows.map((r) => (
+                <DropdownMenuItem key={r.key} onSelect={r.pick} className={cn(rowClass, r.on && 'bg-bg-active')}>
+                  {r.logo}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-text-primary">{r.job}</span>
+                    <span className="block truncate text-xs text-text-muted">{r.name} · {r.who}</span>
+                  </span>
+                  <span className="flex w-4 shrink-0 justify-center">{r.on && check}</span>
+                </DropdownMenuItem>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+
   return (
     // Controlled: the island's last row closes it, and so does enabling a provider.
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -631,6 +740,17 @@ export function ModelPickerPopover() {
         {/* Search, tabs and the two links stay put; only the list scrolls. */}
         <div className="model-island-body flex max-h-[min(55vh,30rem)] flex-col p-2">
           <p className="sr-only">Model Switcher</p>
+          {view === 'simple' ? (
+            <div className="-mx-2 min-h-0 overflow-y-auto thin-scrollbar px-2">{simpleView}</div>
+          ) : (
+          <>
+          <button
+            type="button"
+            onClick={() => setView('simple')}
+            className="mb-1 flex h-8 items-center gap-1 self-start rounded-lg px-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+          >
+            <ChevronLeft size={14} /> Back
+          </button>
           <label className="mb-1.5 flex h-9 items-center gap-2 px-2.5 text-sm text-text-muted">
             <Search size={14} className="shrink-0" />
             <input
@@ -669,13 +789,21 @@ export function ModelPickerPopover() {
           <div className="-mx-2 min-h-0 overflow-y-auto thin-scrollbar px-2">
             {tab === 'here' ? hereList : tab === 'fav' ? favList : allList}
           </div>
+          </>
+          )}
           <DropdownMenuSeparator />
           <div className="flex items-center justify-between">
-            <DropdownMenuItem onSelect={() => { void router.navigate('/models?tab=cloud'); }} className="text-sm text-text-secondary">
-              Add a provider
-            </DropdownMenuItem>
+            {view === 'simple' ? (
+              <DropdownMenuItem onSelect={(e) => { e.preventDefault(); setView('all'); }} className="gap-1 text-sm text-text-secondary">
+                All models <ChevronRight size={14} />
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem onSelect={() => { void router.navigate('/models?tab=cloud'); }} className="text-sm text-text-secondary">
+                Add a provider
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={() => { void router.navigate('/models?tab=roles'); }} className="text-sm text-text-secondary">
-              Roles and settings
+              Manage models
             </DropdownMenuItem>
           </div>
           {import.meta.env.DEV && <BareModelItem />}

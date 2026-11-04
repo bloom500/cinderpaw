@@ -1592,6 +1592,9 @@ export interface InboundMessage {
    *  Rust API lazily re-load the multi-GB model the unload just released.
    *  Absent = unknown; the sidecar keeps its boot-time behaviour. */
   localFallbackAvailable?: boolean;
+  /** set_model, Automatic: the person's other models (provider, model, baseUrl,
+   *  apiKey each), which the brain may route a turn to. Absent = one model. */
+  candidates?: Array<{ provider?: unknown; model?: unknown; baseUrl?: unknown; apiKey?: unknown }>;
   /** heads_up_answer: the card answered (its `data.headsUp.id`) and how. */
   headsUpId?: string;
   headsUpChoice?: "more" | "knew" | "dismiss";
@@ -1757,7 +1760,7 @@ export type OutboundEvent =
       traceId?: string;
     }
   | { type: "proactive"; content: string; followUp?: { id: string; sessionId: string; mission: string }; traceId?: string }
-  | { type: "model_set"; provider: string; model: string }
+  | { type: "model_set"; provider: string; model: string; automatic?: boolean; choices?: number }
   | { type: "model_error"; message: string; traceId?: string }
   /**
    * Which model this turn is being answered by, and why that one.

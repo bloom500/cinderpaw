@@ -12,6 +12,7 @@ import { useChat, type ChatMessage, type ContextLane, type MemoryUsedItem, type 
 import { useConversations } from '@/stores/conversations';
 import { useAgent } from '@/stores/agent';
 import { useModel } from '@/stores/model';
+import { modelDisplayName } from '@/lib/modelLogos';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { isLocalBaseUrl } from '@/lib/contextWindow';
 import { useNotifications } from '@/stores/notifications';
@@ -777,6 +778,12 @@ export function useCinderpawGlobal() {
             useNotifications
               .getState()
               .push('info', t('chat.routed.fallback'), parsed.detail);
+          }
+          // Automatic: the reply says which model answered it, so the person
+          // always knows where the message went and who is paying.
+          // ponytail: shown live on the chat in front, not saved with the chat.
+          if (useCinderpawStore.getState().automatic && parsed.sessionId === useChat.getState().sessionId) {
+            useChat.getState().updateLastAssistantMessage({ answeredBy: modelDisplayName(parsed.model) });
           }
         } else if (parsed.type === 'model_error') {
           setModelError(parsed.message);

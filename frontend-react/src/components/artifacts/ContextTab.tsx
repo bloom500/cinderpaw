@@ -358,7 +358,9 @@ export function ContextTab({ onCompose, onAttach }: {
   const loaded = useModel((s) => s.loaded);
   const chatModeId = useModel((s) => s.cloudModel?.modelId);
   const chatModeProvider = useModel((s) => s.cloudModel?.providerId);
-  const model = (cinderpawConfig?.model ? modelDisplayName(cinderpawConfig.model) : null)
+  // Automatic answers from several models; the reply itself says which one.
+  const automatic = useCinderpawStore((s) => s.automatic);
+  const model = automatic && cinderpawConfig?.model ? 'Automatic' : (cinderpawConfig?.model ? modelDisplayName(cinderpawConfig.model) : null)
     ?? (chatModeId ? modelDisplayName(chatModeId) : loaded?.name ?? null);
   const cloudId = cinderpawConfig?.model ?? chatModeId;
   // Without it a model id with no maker in it ("gpt-6.1-sol" on a ChatGPT plan)
@@ -399,7 +401,7 @@ export function ContextTab({ onCompose, onAttach }: {
 
         <section aria-label="This chat" className={cn('flex flex-col px-3.5 py-2.5', SQUIRCLE)}>
           <Line label="Model">
-            {cloudId && <ModelLogo modelId={cloudId} provider={cloudProvider} className="size-4 shrink-0" />}
+            {cloudId && !(automatic && cinderpawConfig?.model) && <ModelLogo modelId={cloudId} provider={cloudProvider} className="size-4 shrink-0" />}
             <span className="truncate">{model ?? 'None chosen'}</span>
           </Line>
           <Line label="Access">
