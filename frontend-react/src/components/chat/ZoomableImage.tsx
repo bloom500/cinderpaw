@@ -183,7 +183,9 @@ export function ZoomableImage({ src, alt, thumbClassName, className, gallery, in
           aria-label="Close image preview"
           // Events from a portal still bubble through React's tree: a click in here
           // reached the activity line behind it, which closed the viewer (4 Nov).
-          onClick={(e) => { e.stopPropagation(); close(); }}
+          // Only the dark itself closes: a click that started on a control (an
+          // arrow) is never "outside the picture", whatever it bubbled through.
+          onClick={(e) => { e.stopPropagation(); if (e.target === e.currentTarget) close(); }}
           onPointerDown={(e) => e.stopPropagation()}
           onWheel={onWheel}
           className={cn(
