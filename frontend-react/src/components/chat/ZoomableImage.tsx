@@ -189,7 +189,9 @@ export function ZoomableImage({ src, alt, thumbClassName, className, gallery, in
           onPointerDown={(e) => e.stopPropagation()}
           onWheel={onWheel}
           className={cn(
-            'fixed inset-0 z-50 flex items-center justify-center overflow-hidden',
+            // Above the hover preview (also z-50, portalled after it), which sat on
+            // top of the open picture and flickered away as the cursor left (4 Nov).
+            'fixed inset-0 z-[100] flex items-center justify-center overflow-hidden',
             'transition-[background-color] duration-(--motion-slow) ease-out',
             shown ? 'bg-black/70' : 'bg-black/0',
           )}
