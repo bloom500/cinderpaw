@@ -15,6 +15,9 @@ import { openDatabase } from "../src/db.ts";
 import { ArtifactStore } from "../src/artifacts/store.ts";
 import { ArtifactPreviewServer } from "../src/artifacts/preview.ts";
 
+// The real fetch from the preload: another file may have left a fake one behind.
+const fetch = (globalThis as { realFetch?: typeof globalThis.fetch }).realFetch ?? globalThis.fetch;
+
 const db = openDatabase(":memory:");
 const store = new ArtifactStore(db.raw, mkdtempSync(join(tmpdir(), "cinderpaw-preview-")));
 const server = new ArtifactPreviewServer(store);

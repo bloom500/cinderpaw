@@ -365,7 +365,9 @@ chart, table, code or PDF under a stable id; `artifact_download` saves a PDF or
 Word form from the web; `artifact_list`/`artifact_read` find them; `artifact_edit`
 changes a span or fills a form, as a new version; `artifact_export` writes a file;
 `artifact_delete` hides one; `artifact_send` puts one in your Telegram or Discord
-chat once you approve. You sign PDFs in the Artifacts panel. Before a poster, post,
+chat once you approve. `artifact_preview` opens an app or web page as a real page
+at a link that works only on this computer, so the agent can look at what it built
+(errors show in a red strip) and, if you ask, open it in your own browser. You sign PDFs in the Artifacts panel. Before a poster, post,
 slide or card, `design_guide` gives the agent artboard sizes, type, palettes and a
 checklist, so a design looks finished without a design skill installed.
 
