@@ -679,8 +679,8 @@ export function ModelPickerPopover() {
           <span className="block text-xs text-text-muted">The right model for each message</span>
         </span>
         {/* An iOS switch: the thumb travels, nothing else moves. */}
-        <span aria-hidden className={cn('relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors duration-200 ease-out', automatic ? 'bg-brand' : 'bg-border-default')}>
-          <span className={cn('absolute top-[3px] size-4 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out', automatic ? 'translate-x-[19px]' : 'translate-x-[3px]')} />
+        <span aria-hidden className={cn('relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors duration-(--motion-fast) ease-out', automatic ? 'bg-brand' : 'bg-border-default')}>
+          <span className={cn('absolute top-[3px] size-4 rounded-full bg-white shadow-sm transition-transform duration-(--motion-fast) ease-out', automatic ? 'translate-x-[19px]' : 'translate-x-[3px]')} />
         </span>
       </DropdownMenuPrimitive.CheckboxItem>
       <DropdownMenuSeparator />

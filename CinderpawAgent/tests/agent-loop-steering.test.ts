@@ -128,8 +128,15 @@ describe("steering", () => {
   });
 
   it("with nothing running it is refused, so the host sends it as a message", () => {
-    const { agent, db } = build([]);
-    expect(agent.steer("idle", "hi")).toBe(false);
-    db.close();
+    // build() swaps the global fetch; left swapped, every later file in the
+    // same bun run got "done." back (artifact-preview failed in CI, 5 Nov).
+    const original = globalThis.fetch;
+    try {
+      const { agent, db } = build([]);
+      expect(agent.steer("idle", "hi")).toBe(false);
+      db.close();
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 });
