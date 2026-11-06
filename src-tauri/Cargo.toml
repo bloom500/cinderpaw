@@ -194,8 +194,8 @@ kokoro           = ["cinderpaw-core/kokoro"]
 [target.'cfg(windows)'.dependencies]
 # WebView2 request interception for the ad blocker: the same versions wry
 # already pulls in, so nothing new is downloaded.
-webview2-com = "0.38"
-windows-core = "0.61"
+webview2-com = "0.39"
+windows-core = "0.62"
 windows = { version = "0.58", features = [
   "Win32_Foundation",
   "Win32_System_Com",
@@ -217,16 +217,12 @@ zbus = "5"
 # way libappindicator-sys loads it (same crate, same version) before using it.
 libloading = "0.7"
 
-# A video's fullscreen button on a Mac: wry's `fullscreen` feature sets WebKit's
-# `fullScreenEnabled`, so the video gets WebKit's own fullscreen window, as in
-# Safari. Without it the video filled only the browser panel (21 Oct). Asked for
-# here alone, not through Tauri's `macos-private-api`, which would also make the
-# main window's configured transparency take effect: an untested change of look
-# (see call_pill.rs). Cargo unifies features, so Tauri's own wry gets it.
-# ponytail: a private WebKit key, which the Mac App Store refuses; Cinderpaw ships
-# as a DMG.
-[target.'cfg(target_os = "macos")'.dependencies]
-wry = { version = "0.55", default-features = false, features = ["fullscreen"] }
+# A video's fullscreen button on a Mac (21 Oct: the video filled only the browser
+# panel) needed wry's `fullscreen` feature here. wry 0.57 (Tauri 2.12) removed that
+# feature and turns fullscreen on always, so nothing is asked for here any more.
+# The same release also always enables WebKit transparency, and Tauri 2.12 passes
+# the main window's `transparent: true` to the webview on macOS without
+# `macos-private-api`: the Mac look must be checked on a real Mac (5 Nov).
 
 # Screenshots of a window or the screen (Darius, 27 Oct: the agent must be able
 # to take a picture anywhere). Windows and macOS only: on Linux xcap links

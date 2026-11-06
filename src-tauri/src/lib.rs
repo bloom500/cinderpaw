@@ -344,6 +344,9 @@ pub(crate) fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
         state: Some(tauri::utils::WindowEffectState::Active),
         radius: None,
         color,
+        // New in Tauri 2.12: Liquid Glass reacting to touches, macOS 27+ only.
+        // Off: our glass is a backdrop, not a control.
+        interactive: false,
     }
 }
 
