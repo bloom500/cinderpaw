@@ -8,14 +8,15 @@ use dpi::LogicalSize;
 use ffi::CookieManageExt;
 #[cfg(feature = "x11")]
 use gdkx11::{
-  ffi::{gdk_x11_window_foreign_new_for_display, GdkX11Display},
   X11Display,
+  ffi::{GdkX11Display, gdk_x11_window_foreign_new_for_display},
 };
 #[cfg(feature = "x11")]
 use gtk::glib::{self, translate::FromGlibPtrFull};
 use gtk::{
   gdk::{self},
   gio::Cancellable,
+  glib::{Cast, IsA},
   prelude::*,
 };
 use http::Request;
@@ -35,10 +36,12 @@ use std::{
 #[cfg(any(debug_assertions, feature = "devtools"))]
 use webkit2gtk::WebInspectorExt;
 use webkit2gtk::{
-  AutoplayPolicy, CookieManagerExt, InputMethodContextExt, LoadEvent, NavigationPolicyDecision,
-  NavigationPolicyDecisionExt, NetworkProxyMode, NetworkProxySettings, PolicyDecisionType,
-  PrintOperationExt, SettingsExt, URIRequest, URIRequestExt, UserContentInjectedFrames,
-  UserContentManager, UserContentManagerExt, UserScript, UserScriptInjectionTime,
+  AutoplayPolicy, CookieManagerExt, GeolocationPermissionRequest, InputMethodContextExt, LoadEvent,
+  NavigationPolicyDecision, NavigationPolicyDecisionExt, NetworkProxyMode, NetworkProxySettings,
+  NotificationPermissionRequest, PermissionRequestExt, PointerLockPermissionRequest,
+  PolicyDecisionType, PrintOperationExt, SettingsExt, URIRequest, URIRequestExt,
+  UserContentInjectedFrames, UserContentManager, UserContentManagerExt, UserMediaPermissionRequest,
+  UserMediaPermissionRequestExt, UserScript, UserScriptInjectionTime,
   WebContextExt as Webkit2gtkWeContextExt, WebView, WebViewExt, WebsiteDataManagerExt,
   WebsiteDataManagerExtManual, WebsitePolicies,
 };
@@ -52,8 +55,9 @@ use x11_dl::xlib::*;
 pub use web_context::WebContextImpl;
 
 use crate::{
-  proxy::ProxyConfig, web_context::WebContext, Error, NewWindowFeatures, NewWindowOpener,
-  NewWindowResponse, PageLoadEvent, Rect, Result, WebViewAttributes, RGBA,
+  Error, NewWindowFeatures, NewWindowOpener, NewWindowResponse, PageLoadEvent, PermissionKind,
+  PermissionResponse, RGBA, Rect, Result, WebViewAttributes, proxy::ProxyConfig,
+  web_context::WebContext,
 };
 
 use self::web_context::WebContextExt;
@@ -307,7 +311,10 @@ impl InnerWebView {
     Self::attach_handlers(&webview, web_context, &mut attributes);
 
     // IPC handler
-    Self::attach_ipc_handler(webview.clone(), &mut attributes);
+    let ipc_enabled = attributes.ipc_handler.is_some();
+    if let Some(ipc_handler) = attributes.ipc_handler.take() {
+      Self::attach_ipc_handler(webview.clone(), ipc_handler);
+    }
 
     // Drag drop handler
     if let Some(drag_drop_handler) = attributes.drag_drop_handler.take() {
@@ -341,7 +348,9 @@ impl InnerWebView {
     };
 
     // Initialize message handler
-    w.init("Object.defineProperty(window, 'ipc', { value: Object.freeze({ postMessage: function(x) { window.webkit.messageHandlers['ipc'].postMessage(x) } }), configurable: true })", true)?;
+    if ipc_enabled {
+      w.init("Object.defineProperty(window, 'ipc', { value: Object.freeze({ postMessage: function(x) { window.webkit.messageHandlers['ipc'].postMessage(x) } }), configurable: true })", true)?;
+    }
 
     // Initialize scripts
     for init_script in attributes.initialization_scripts {
@@ -356,7 +365,12 @@ impl InnerWebView {
         if let Some(pending_scripts) = pending_scripts_.take() {
           let cancellable: Option<&Cancellable> = None;
           for script in pending_scripts {
-            webview.run_javascript(&script, cancellable, |_| ());
+            webview.run_javascript(&script, cancellable, |_result| {
+              #[cfg(feature = "tracing")]
+              if let Err(error) = _result {
+                tracing::debug!("Exception during script eval: {error}");
+              }
+            });
           }
         }
       }
@@ -576,6 +590,93 @@ impl InnerWebView {
       });
     }
 
+    // Permission handler
+    if let Some(permission_handler) = attributes.permission_handler.take() {
+      webview.connect_permission_request(move |_webview, request| {
+        if let Some(media_request) = request.downcast_ref::<UserMediaPermissionRequest>() {
+          let is_audio = media_request.is_for_audio_device();
+          let is_video = media_request.is_for_video_device();
+
+          #[cfg(feature = "v2_42")]
+          let is_display = media_request.is_for_display_device();
+          #[cfg(not(feature = "v2_42"))]
+          let is_display = !is_audio && !is_video;
+
+          if is_display {
+            // Screen sharing request
+            let response = permission_handler(PermissionKind::DisplayCapture);
+            return match response {
+              PermissionResponse::Allow => {
+                request.allow();
+                true
+              }
+              PermissionResponse::Deny => {
+                request.deny();
+                true
+              }
+              PermissionResponse::Default => false,
+            };
+          }
+
+          // For combined audio+video requests, check each individually.
+          // Deny wins: if either is denied, deny the whole request.
+          let mut allow = true;
+          let mut handled = false;
+
+          if is_audio {
+            handled = true;
+            match permission_handler(PermissionKind::Microphone) {
+              PermissionResponse::Allow => {}
+              PermissionResponse::Deny => allow = false,
+              PermissionResponse::Default => handled = false,
+            }
+          }
+
+          if is_video && allow {
+            handled = true;
+            match permission_handler(PermissionKind::Camera) {
+              PermissionResponse::Allow => {}
+              PermissionResponse::Deny => allow = false,
+              PermissionResponse::Default => handled = false,
+            }
+          }
+
+          if handled {
+            if allow {
+              request.allow();
+            } else {
+              request.deny();
+            }
+            true
+          } else {
+            false // let WebKitGTK show default prompt
+          }
+        } else {
+          let permission_kind = if request.is::<GeolocationPermissionRequest>() {
+            PermissionKind::Geolocation
+          } else if request.is::<NotificationPermissionRequest>() {
+            PermissionKind::Notifications
+          } else if request.is::<PointerLockPermissionRequest>() {
+            PermissionKind::PointerLock
+          } else {
+            PermissionKind::Other
+          };
+
+          match permission_handler(permission_kind) {
+            PermissionResponse::Allow => {
+              request.allow();
+              true
+            }
+            PermissionResponse::Deny => {
+              request.deny();
+              true
+            }
+            PermissionResponse::Default => false,
+          }
+        }
+      });
+    }
+
     // Download handler
     if attributes.download_started_handler.is_some()
       || attributes.download_completed_handler.is_some()
@@ -627,9 +728,8 @@ impl InnerWebView {
     is_in_fixed_parent
   }
 
-  fn attach_ipc_handler(webview: WebView, attributes: &mut WebViewAttributes) {
+  fn attach_ipc_handler(webview: WebView, ipc_handler: Box<dyn Fn(Request<String>)>) {
     // Message handler
-    let ipc_handler = attributes.ipc_handler.take();
     let manager = webview
       .user_content_manager()
       .expect("WebView does not have UserContentManager");
@@ -640,13 +740,13 @@ impl InnerWebView {
       let _span = tracing::info_span!(parent: None, "wry::ipc::handle").entered();
 
       if let Some(js) = msg.js_value() {
-        if let Some(ipc_handler) = &ipc_handler {
-          ipc_handler(
-            Request::builder()
-              .uri(webview.uri().unwrap().to_string())
-              .body(js.to_string())
-              .unwrap(),
-          );
+        let uri = webview.uri().map(|u| u.to_string()).unwrap_or_default();
+        match Request::builder().uri(uri).body(js.to_string()) {
+          Ok(request) => ipc_handler(request),
+          Err(_error) => {
+            #[cfg(feature = "tracing")]
+            tracing::warn!("WebView received invalid IPC request: {_error}")
+          }
         }
       }
     });
@@ -702,6 +802,11 @@ impl InnerWebView {
       self.webview.run_javascript(js, cancellable, |result| {
         #[cfg(feature = "tracing")]
         drop(span);
+
+        #[cfg(feature = "tracing")]
+        if let Err(error) = &result {
+          tracing::debug!("Exception during script eval: {error}");
+        }
 
         if let Some(callback) = callback {
           let result = result
@@ -804,6 +909,24 @@ impl InnerWebView {
   pub fn reload(&self) -> Result<()> {
     self.webview.reload();
     Ok(())
+  }
+
+  pub fn go_forward(&self) -> Result<()> {
+    self.webview.go_forward();
+    Ok(())
+  }
+
+  pub fn go_back(&self) -> Result<()> {
+    self.webview.go_back();
+    Ok(())
+  }
+
+  pub fn can_go_forward(&self) -> Result<bool> {
+    Ok(self.webview.can_go_forward())
+  }
+
+  pub fn can_go_back(&self) -> Result<bool> {
+    Ok(self.webview.can_go_back())
   }
 
   pub fn clear_all_browsing_data(&self) -> Result<()> {
@@ -1167,10 +1290,9 @@ mod ffi {
   use gtk::{
     gdk,
     gio::{
-      self,
+      self, Cancellable,
       ffi::{GAsyncReadyCallback, GCancellable},
       prelude::*,
-      Cancellable,
     },
     glib::{
       self,
@@ -1205,17 +1327,20 @@ mod ffi {
         res: *mut gdk::gio::ffi::GAsyncResult,
         user_data: glib::ffi::gpointer,
       ) {
-        let mut error = std::ptr::null_mut();
-        let ret =
-          webkit_cookie_manager_get_all_cookies_finish(_source_object as *mut _, res, &mut error);
-        let result = if error.is_null() {
-          Ok(FromGlibPtrContainer::from_glib_full(ret))
-        } else {
-          Err(glib::translate::from_glib_full(error))
-        };
-        let callback: Box<glib::thread_guard::ThreadGuard<P>> = Box::from_raw(user_data as *mut _);
-        let callback: P = callback.into_inner();
-        callback(result);
+        unsafe {
+          let mut error = std::ptr::null_mut();
+          let ret =
+            webkit_cookie_manager_get_all_cookies_finish(_source_object as *mut _, res, &mut error);
+          let result = if error.is_null() {
+            Ok(FromGlibPtrContainer::from_glib_full(ret))
+          } else {
+            Err(glib::translate::from_glib_full(error))
+          };
+          let callback: Box<glib::thread_guard::ThreadGuard<P>> =
+            Box::from_raw(user_data as *mut _);
+          let callback: P = callback.into_inner();
+          callback(result);
+        }
       }
       let callback = cookies_trampoline::<P>;
 
@@ -1232,7 +1357,7 @@ mod ffi {
 
   impl CookieManageExt for CookieManager {}
 
-  extern "C" {
+  unsafe extern "C" {
     pub fn webkit_cookie_manager_get_all_cookies(
       cookie_manager: *mut webkit2gtk_sys::WebKitCookieManager,
       cancellable: *mut GCancellable,

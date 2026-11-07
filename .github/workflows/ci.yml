@@ -172,6 +172,9 @@ jobs:
   rust:
     name: rust / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # A healthy run takes 5-25 min. On 6 Nov the Windows test binary hung with
+    # no output and the job sat until GitHub's 6 h limit; fail fast instead.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
