@@ -6,7 +6,7 @@
  * or assumed, or changes the plan. Unlike `ask_user` it does not wait; the
  * agent keeps working and the person answers when they like:
  *   Learn more         the card opens the longer explanation (`more`)
- *   I already knew this  the agent is told, so it stops flagging the obvious
+ *   Show fewer like this  the agent is told, so it stops flagging the obvious
  *   Dismiss            the card closes
  *
  * The card is drawn from this tool's `data`, like `show_widget`: the app never
@@ -83,7 +83,8 @@ export function createHeadsUpTool(ledger: HeadsUpLedger = headsUpLedger, now: ()
         "around), BEFORE you continue the task. Your reply only comes at the end; the card lets them react while you work, " +
         "so call it even if your reply will repeat it. Most tasks that do real work have one such moment: aim for about one " +
         "card per task. Never for progress updates or for something they told you themselves. title: one short line. detail: " +
-        "one or two plain sentences, what you found or chose and what you are doing about it. more: optional, a few " +
+        "one or two plain sentences, what you found or chose and what you did or will do about it, written so it is still " +
+        "true after the task ends (the card stays on screen): not 'I am checking ...'. more: optional, a few " +
         "sentences of evidence, shown if they tap Learn more.",
       permissions: [],
       networkAccess: false,
@@ -104,7 +105,7 @@ export function createHeadsUpTool(ledger: HeadsUpLedger = headsUpLedger, now: ()
 
       const s = ledger.session(ctx.sessionId);
       const knew = s.knew.length
-        ? ` They already knew: ${s.knew.slice(-3).join("; ")}. Flag only what is really new to them.`
+        ? ` They asked for fewer cards like: ${s.knew.slice(-3).join("; ")}. Flag only what is really new to them.`
         : "";
       if ([...s.titles.values()].some((t) => norm(t) === norm(title))) {
         return { ok: true, content: `Already shown in this chat, so not shown again.${knew}` };

@@ -59,6 +59,7 @@ import { classifyCommand, installedPackages, installsSoftware, recordIntent } fr
 import { readMaxTimeoutMs } from "../../egress/process-sandbox.ts";
 import { deniedPaths } from "../../egress/tool-permissions.ts";
 import { snapshottable } from "../../core/safety-point.ts";
+import { fallbackBrowserProfile, fallbackBrowserRoot, markFallbackBrowser } from "../fallback-browser.ts";
 import {
   canAskAHuman,
   decideIntent,
@@ -227,6 +228,60 @@ export function binaryStem(nameOrPath: string): string {
   return base.replace(/\.(exe|cmd|bat|com)$/i, "");
 }
 
+/**
+ * The browsers a command can start, by family: each family takes its own
+ * profile flag. Any browser, not only Chrome (Darius uses Brave, 7 Nov).
+ * ponytail: Safari has no profile flag; it is not listed, so it runs as asked.
+ */
+const BROWSERS: Record<string, "chromium" | "firefox"> = {
+  chrome: "chromium", "google-chrome": "chromium", "google-chrome-stable": "chromium", chromium: "chromium",
+  "chromium-browser": "chromium", msedge: "chromium", "microsoft-edge": "chromium", brave: "chromium",
+  "brave-browser": "chromium", opera: "chromium", vivaldi: "chromium", thorium: "chromium",
+  firefox: "firefox", librewolf: "firefox", waterfox: "firefox", floorp: "firefox",
+};
+const NAMES = Object.keys(BROWSERS).join("|");
+const BROWSER_EXE = new RegExp(`(?:^|[\\\\/\\s"'=])(${NAMES})\\.exe\\b`, "i");
+const BROWSER_START = new RegExp(`\\b(?:start(?:-process)?|open\\s+-a)\\s+(?:-FilePath\\s+)?["']?(${NAMES}|google chrome|microsoft edge|brave browser)\\b`, "i");
+/** The person's own browser data, by its default folder on each system. */
+const OWN_PROFILE =
+  /[\\/]User Data\b|Mozilla[\\/]Firefox[\\/]Profiles|[\\/]\.mozilla[\\/]|[\\/]\.config[\\/](google-chrome|chromium|microsoft-edge|BraveSoftware|vivaldi|opera)|Application Support[\\/](Google|Microsoft Edge|BraveSoftware|Firefox|Vivaldi|com\.operasoftware)/i;
+
+/** The browser a command starts, however it is spelled, or null. */
+export function launchedBrowser(argv: string[]): { name: string; family: "chromium" | "firefox" } | null {
+  const line = argv.join(" ");
+  const raw = BROWSERS[binaryStem(argv[0] ?? "")] ? binaryStem(argv[0]!) : (BROWSER_EXE.exec(line) ?? BROWSER_START.exec(line))?.[1];
+  if (!raw) return null;
+  const name = raw.toLowerCase().replace(/^google chrome$/, "chrome").replace(/^microsoft edge$/, "msedge").replace(/^brave browser$/, "brave");
+  const family = BROWSERS[name];
+  return family ? { name, family } : null;
+}
+
+export function launchesBrowser(argv: string[]): boolean {
+  return launchedBrowser(argv) !== null;
+}
+
+/**
+ * Why a browser command may not run as written, or null. Started from a
+ * command, a browser opens the person's own profile: their signed-in mail,
+ * their tabs, their extensions (smoke test, 7 Nov). Said to the agent, never
+ * asked of the person: it runs the command again on Cinderpaw's own profile
+ * for that browser and the task goes on (fallback-browser.ts).
+ */
+export function ownBrowserProfileRefusal(argv: string[]): string | null {
+  const browser = launchedBrowser(argv);
+  if (!browser) return null;
+  const line = argv.join(" ");
+  const flagged = browser.family === "chromium" ? /--user-data-dir\b/i.test(line) : /(^|\s)--?profile\b/i.test(line);
+  if (flagged && !OWN_PROFILE.test(line)) return null;
+  const dir = fallbackBrowserProfile(browser.name);
+  const flag = browser.family === "chromium" ? `--user-data-dir="${dir}"` : `-profile "${dir}" -no-remote`;
+  return (
+    "not run: a browser started this way opens the person's own profile (their mail, tabs and extensions). " +
+    `Run it again with ${flag} among the browser's arguments. That is Cinderpaw's own profile for ` +
+    `${browser.name}: a sign-in there is remembered, and it is closed for you when this task ends.`
+  );
+}
+
 const SAFE_BINARY_STEMS = new Set(SAFE_BINARIES.map(binaryStem));
 
 /**
@@ -389,6 +444,10 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
           error: "protected_path",
         };
       }
+
+      const ownProfile = ownBrowserProfileRefusal(argv);
+      if (ownProfile) return { ok: false, content: `shell_exec: ${ownProfile}`, error: "own_browser_profile" };
+      if (launchesBrowser(argv) && argv.join(" ").includes(fallbackBrowserRoot())) markFallbackBrowser(ctx.sessionId);
 
       // Denylist gate FIRST — best-effort catastrophe guard, active in every
       // mode (including YOLO). Scans the whole joined command so a shell

@@ -11,6 +11,7 @@ import type { DisplayAttachment } from '@/lib/attachmentDisplay';
 import { siteName } from '@/lib/sources';
 import { tauri, type ConnectorView, type Project } from '@/lib/tauri';
 import { activeContextWindow, estimateTokens } from '@/lib/contextWindow';
+import { isLocalEngineUrl } from '@/lib/localApi';
 import { ModelLogo, modelDisplayName } from '@/lib/modelLogos';
 import { MODES } from '@/components/chat/PermissionPill';
 import { cn } from '@/lib/utils';
@@ -387,7 +388,11 @@ export function ContextTab({ onCompose, onAttach }: {
   const pct = ctxWindow ? Math.min(1, used / ctxWindow) : null;
   const made = madeHere ? madeHere.split('\n') : [];
   const fileCount = ctx.files.length + ctx.artifactIds.length;
-  const state = status === 'streaming' ? 'Working' : approvals.length > 0 ? 'Needs you' : 'Ready';
+  // Nothing to answer with (the empty local engine, as in stores/settings.ts):
+  // "Ready" beside a "No model is chosen yet" card (smoke test, 7 Nov).
+  const noModel = !loaded && !chatModeId
+    && (!cinderpawConfig || cinderpawConfig.provider === 'cinderpaw-local' || isLocalEngineUrl(cinderpawConfig.base_url));
+  const state = status === 'streaming' ? 'Working' : approvals.length > 0 ? 'Needs you' : noModel ? 'No model yet' : 'Ready';
   const count = (n: number, one: string, many: string) => (n === 0 ? 'None' : `${n} ${n === 1 ? one : many}`);
 
   return (

@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { List } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   useMessageScroller,
@@ -432,7 +433,10 @@ export const ChapterRail = memo(function ChapterRail() {
               : 'border-border-default bg-bg-primary text-text-secondary hover:border-brand hover:text-brand',
           )}
         >
-          {turns.length > 99 ? '99' : turns.length}
+          {/* A list mark, not the count: a lone "3" by the scrollbar said
+              nothing about what it was (smoke test, 7 Nov). The count stays
+              in the label and the tooltip. */}
+          <List size={12} aria-hidden />
         </button>
         <div
           className={cn(

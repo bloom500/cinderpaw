@@ -18,4 +18,11 @@ describe('writtenFiles', () => {
     ];
     expect(writtenFiles(activity)).toEqual([csv]);
   });
+
+  // Smoke test 7 Nov: asked for in its workspace, the file was hidden as scratch.
+  it('shows a scratch file the reply names: the person asked for it', () => {
+    const asked = 'C:\\Users\\d\\.cinderpaw\\workspace\\orase.csv';
+    const activity = [wrote(asked, { scratch: true }), wrote('C:\\Users\\d\\.cinderpaw\\workspace\\notes.md', { scratch: true })];
+    expect(writtenFiles(activity, 'Am facut orase.csv cu 10 orase.')).toEqual([asked]);
+  });
 });

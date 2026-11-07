@@ -63,6 +63,6 @@ describe("heads_up", () => {
     expect(ledger.answer("s1", "not-a-card", "knew")).toBeNull();
     later(3 * 60_000);
     const next = await tool.execute({ title: "Two rows are duplicates", detail: "Rows 4 and 9 are the same." }, ctx());
-    expect(next.content).toContain("They already knew: Prices are in euro");
+    expect(next.content).toContain("They asked for fewer cards like: Prices are in euro");
   });
 });

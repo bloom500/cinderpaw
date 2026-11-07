@@ -286,6 +286,8 @@ Ask in chat for a reminder, recurring task or source watch. `suggest_task` offer
 a card with the computed schedule; nothing is created until the person presses
 Create. A request for later must not be executed now. The Tasks page lists jobs
 and their history, with edit, pause, resume, renew and delete controls.
+`tasks_list` shows the agent what exists right now, from any chat (WhatsApp
+included), so it never guesses whether a card became a task.
 
 Reminders deliver their text without AI inference. Source watches fetch a public
 HTTPS page and verify configured text in its body; a link or a model's claim is

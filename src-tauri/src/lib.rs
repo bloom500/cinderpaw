@@ -56,6 +56,14 @@ struct TauriEvents(
 );
 impl cinderpaw_core::host::HostEvents for TauriEvents {
     fn emit(&self, event: &str, payload: serde_json::Value) {
+        if event == "cinderpaw://agent-output" {
+            if let Some(line) = payload["data"].as_str() {
+                agent_overlay::on_agent_line(&self.0, line);
+            }
+        } else if event == "cinderpaw://agent-exit" {
+            // A crashed agent sends no "done": the overlay goes with it.
+            tauri::async_runtime::spawn(agent_overlay::stop(self.0.clone()));
+        }
         let _ = self.0.emit(event, payload.clone());
         let _ = self.1.send(cinderpaw_core::host::HostEvent {
             event: event.to_string(),
@@ -1119,7 +1127,13 @@ Everything is there and nothing is at risk. Cinderpaw will                      
                         let browser_app = browser_app.clone();
                         Box::pin(async move {
                             if let Some(op) = action.strip_prefix("browser.") {
-                                return crate::browser::handle_from_agent(browser_app, op, &params).await;
+                                let result = crate::browser::handle_from_agent(browser_app, op, &params).await;
+                                // In the log too: "failed to create webview" lived only
+                                // in the tool's answer, nowhere a bug report reads (7 Nov).
+                                if let Err(e) = &result {
+                                    tracing::warn!("browser.{op}: {e}");
+                                }
+                                return result;
                             }
                             // `video.*`: the agent watching a link or a local video. A
                             // local path passes the same wall as the chat's file readers,

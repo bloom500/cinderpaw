@@ -175,11 +175,20 @@ export function OnboardingWizard() {
                 <span className="text-sm text-text-muted">
                   {/* After a pick it names the next step: "Pick one way" again
                       read as if the click had not counted (4 Nov tour). */}
-                  {brainWay === 'key' ? 'Paste your key above and press Connect, or'
+                  {/* The key box appears only after a provider is picked (7 Nov). */}
+                  {brainWay === 'key' ? 'Pick your provider above, then paste your key, or'
                     : brainWay === 'local' ? 'Press Download above, or'
                     : 'Pick one way above so I can answer you, or'}{' '}
                   <button type="button" onClick={next} className="underline underline-offset-4 hover:text-text-primary">skip for now</button>.
                 </span>
+              )}
+              {/* Beside the button that sends it, so it is read before the press:
+                  at the end of the board it sat under this bar, ticked and unseen
+                  (smoke test, 7 Nov: box at 834 px, bar from 797 px, window 865). */}
+              {isLast && (
+                <div className="min-w-0 flex-1 basis-72">
+                  <InstallCountNotice />
+                </div>
               )}
             </nav>
           </div>
@@ -321,7 +330,9 @@ function TeamFilm() {
           aria-pressed={sound}
           className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-sm text-white transition-colors hover:bg-black/75"
         >
-          {sound ? <Volume2 size={16} /> : <VolumeX size={16} />} {sound ? 'Sound off' : 'Sound on'}
+          {/* Icon and words both say what a press does: a muted speaker beside
+              "Sound on" read as a state and an action at once (smoke test, 7 Nov). */}
+          {sound ? <VolumeX size={16} /> : <Volume2 size={16} />} {sound ? 'Sound off' : 'Sound on'}
         </button>
       )}
       <button
@@ -510,7 +521,9 @@ export function ProviderStep() {
           voice="onboarding.provider"
           title="Pick my brain"
           lead="The brain is the AI model that thinks and writes for me."
-          body="The easiest way is free and works on any computer. You can change it anytime in Models."
+          // The first card is ChatGPT, which needs a paid plan: "the easiest
+          // way is free" above it was not true (smoke test, 7 Nov).
+          body="Pay for ChatGPT? Use that. If not, OpenRouter is free and works on any computer. You can change it anytime in Models."
         />
         <span className="hidden shrink-0 sm:block" aria-hidden><CinderpawMascot state="curious" width={150} /></span>
       </div>
@@ -1101,7 +1114,6 @@ function DoneStep() {
       </p>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <DiskEncryptionNotice />
-        <InstallCountNotice />
         <ShareUsageNotice />
         <HeardFromQuestion />
       </div>

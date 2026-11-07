@@ -9,14 +9,18 @@ import { tauri } from '@/lib/tauri';
  *
  * A CSV the agent saved to Documents showed only as a path inside the text, and
  * the person had to go find it (31 Oct). Its own scratch files are left out:
- * they are working notes, not something made for the person.
+ * they are working notes, not something made for the person. Unless the reply
+ * names one: "make orase.csv in your workspace" put it in the scratchpad, and
+ * the person who asked for it got no Open (smoke test, 7 Nov).
  */
-export function writtenFiles(activity: ToolActivity[]): string[] {
+export function writtenFiles(activity: ToolActivity[], reply = ''): string[] {
   const out: string[] = [];
   for (const a of activity) {
     if ((a.tool !== 'write_file' && a.tool !== 'edit_file') || a.status !== 'done' || a.error) continue;
     const f = a.files[0];
-    if (f && !f.scratch && !out.includes(f.path)) out.push(f.path);
+    if (!f || out.includes(f.path)) continue;
+    const name = f.path.split(/[\\/]/).pop() ?? '';
+    if (!f.scratch || (name && reply.includes(name))) out.push(f.path);
   }
   return out;
 }

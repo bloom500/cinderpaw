@@ -88,7 +88,7 @@ const RULES: Rule[] = [
     title: 'No model is chosen yet',
     message: 'Cinderpaw has no model to answer with. Pick one in the model switcher under the message box, or open Models.',
     action: 'models',
-    actionLabel: 'Open Models',
+    actionLabel: 'Choose a model',
   },
   {
     test: /stream stalled|stopped responding|idle.?timeout/i,

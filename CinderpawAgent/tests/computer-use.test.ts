@@ -373,6 +373,21 @@ describe("launch confirmation names the launch", () => {
     expect(asked.toLowerCase()).toContain("start");
     expect(asked.toLowerCase()).not.toContain("click");
   });
+
+  // Smoke test 7 Nov: the test list was typed in a tab beside his unsaved file.
+  it("tells the agent, without asking anyone, that the app holds the person's unsaved work", async () => {
+    const tool = createComputerUseTool();
+    const { ctx } = makeCtx({
+      onRequest: (action) => action === "list_windows"
+        ? [{ pid: 7, app_name: "Notepad.exe", title: "*Aplicari joburi.md - Notepad" }, { pid: 9, app_name: "brave.exe", title: "*not notepad" }]
+        : { ok: true },
+      askUserAnswer: "Allow",
+    });
+    const result = await tool.execute({ action: "launch", app: "notepad.exe" }, ctx);
+    expect(result.content).toContain('"*Aplicari joburi.md - Notepad"');
+    expect(result.content).not.toContain("not notepad");
+    expect(result.content).toContain("Work only in the window or tab you opened");
+  });
 });
 
 describe("the confirmation names the element, not its id", () => {

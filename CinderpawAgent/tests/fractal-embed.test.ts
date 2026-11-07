@@ -134,3 +134,16 @@ describe("embed — error handling", () => {
     await expect(embed(["a", "b"], inv)).rejects.toThrow(/length mismatch/i);
   });
 });
+
+import { EMBED_MAX_BYTES, fitForEmbed } from "../src/memory/fractal/embed.ts";
+
+// Smoke test 7 Nov: one 594 KB memory made the host refuse the whole batch.
+describe("a text too long to embed", () => {
+  it("is cut to the host's limit on a character boundary, short ones untouched", () => {
+    expect(fitForEmbed("salut")).toBe("salut");
+    const long = "ș".repeat(400_000); // 2 bytes each: 800 KB
+    const cut = fitForEmbed(long);
+    expect(new TextEncoder().encode(cut).length).toBeLessThanOrEqual(EMBED_MAX_BYTES);
+    expect(cut).toBe("ș".repeat(cut.length));
+  });
+});

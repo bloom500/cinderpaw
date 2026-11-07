@@ -43,7 +43,7 @@ function Pill({ n, primary, label, onClick }: { n: number; primary?: boolean; la
  * the agent keeps working (the `heads_up` tool). Same width and material as
  * the composer under it; layout from his reference (19 Oct): icon tile, the
  * finding, then numbered answers. Learn more opens the agent's evidence in
- * place; "I already knew this" tells the agent to flag less of the obvious.
+ * place; "Show fewer like this" tells the agent to flag less of the obvious.
  */
 export function HeadsUpCard() {
   const sessionId = useChat((s) => s.sessionId);
@@ -58,14 +58,23 @@ export function HeadsUpCard() {
     answer(sessionId, choice);
   };
 
+  // Numbered as shown, keys too: with no Learn more the row began at 2 (smoke
+  // test, 7 Nov). "Show fewer like this" fits a finding and a limit alike; "I
+  // already knew this" read oddly under "search is limited".
+  const pills: { choice: HeadsUpChoice; label: string; primary?: boolean }[] = [
+    ...(card?.more && !open ? [{ choice: 'more' as const, label: 'Learn more', primary: true }] : []),
+    { choice: 'knew', label: 'Show fewer like this' },
+    { choice: 'dismiss', label: 'Dismiss' },
+  ];
+
   useEffect(() => {
     if (!card) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return;
-      const choice = ({ '1': card.more && !open ? 'more' : null, '2': 'knew', '3': 'dismiss' } as Record<string, HeadsUpChoice | null>)[e.key];
-      if (choice) {
+      const pill = /^[1-9]$/.test(e.key) ? pills[Number(e.key) - 1] : undefined;
+      if (pill) {
         e.preventDefault();
-        choose(choice);
+        choose(pill.choice);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -95,9 +104,9 @@ export function HeadsUpCard() {
               <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-text-secondary">{card.more}</p>
             )}
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              {card.more && !open && <Pill n={1} primary label="Learn more" onClick={() => choose('more')} />}
-              <Pill n={2} label="I already knew this" onClick={() => choose('knew')} />
-              <Pill n={3} label="Dismiss" onClick={() => choose('dismiss')} />
+              {pills.map((p, i) => (
+                <Pill key={p.choice} n={i + 1} primary={p.primary} label={p.label} onClick={() => choose(p.choice)} />
+              ))}
             </div>
           </div>
         </div>

@@ -21,6 +21,8 @@ import type { InferenceRouter } from "../egress/inference-router.ts";
 import { stripToolsFromSystemPrompt } from "../egress/inference-providers.ts";
 import { isBackgroundSession } from "../egress/inference-router.ts";
 import { log } from "../runtime-meta.ts";
+import { isPlaceholderModel } from "../rsi/l1-config/passive-supervisor.ts";
+import { closeFallbackBrowser } from "../tools/fallback-browser.ts";
 import {
   BudgetExhaustedError,
   InferenceError,
@@ -1006,6 +1008,8 @@ export class AgentLoop {
       // ponytail: one that lands after the last check of a turn ending on its own
       // is dropped too; hand it back as a refused steer if anyone ever hits it.
       this.#steering.delete(sessionId);
+      // A browser this turn opened on Cinderpaw's own profile goes with it.
+      closeFallbackBrowser(sessionId);
       this.#sessionStartedAt.delete(sessionId);
       if (this.#sessionToolSignals.get(sessionId) === abortController) {
         this.#sessionToolSignals.delete(sessionId);
@@ -1890,8 +1894,11 @@ export class AgentLoop {
         const usage = promptTokens || completionTokens
           ? `, ${promptTokens ?? "?"} prompt + ${completionTokens ?? "?"} completion`
           : "";
+        // Which model: a 4-minute "what do I have tomorrow" on Automatic could
+        // not be traced to the model it picked (smoke test, 7 Nov).
+        const model = routeTargets?.primary.model ?? this.#router.currentModel.model;
         log(
-          `turn: wait ${ttft} → first token, ${total.toFixed(1)}s total, ` +
+          `turn: ${model}: wait ${ttft} → first token, ${total.toFixed(1)}s total, ` +
             `${rate} over ${streamedChunks} chunk(s)${usage}, think=${think}`,
         );
       }
@@ -2633,7 +2640,12 @@ export class AgentLoop {
     // wall — so without this the prompt overflows the engine and the run crashes
     // after a handful of turns. Cheap: a no-op until the transcript exceeds the
     // budget, then one summarizer call amortized over many subsequent turns.
-    await compact(this.#transcriptBudget());
+    // Not with no model at all: its budget is a guess (1K), so the FIRST
+    // message of an empty chat showed "Made room in this chat" before failing
+    // on "choose a model" (smoke test, 7 Nov).
+    if (routeTargets || !isPlaceholderModel(this.#router.currentModel.model)) {
+      await compact(this.#transcriptBudget());
+    }
 
     // S5: dispatch helper — uses router.completeWith() when Brain Stack
     // provided route targets, otherwise the existing router.complete()
@@ -2828,6 +2840,10 @@ export class AgentLoop {
       const detail = String(err);
       console.warn(`[brain] route failed, falling back to router defaults: ${detail}`);
       const current = this.#router.currentModel;
+      // No model at all: nobody answers, so no reply may say who did. A new
+      // install read "Automatic · answered by Cinderpaw Local" under the
+      // "choose a model" error (smoke test, 7 Nov).
+      if (isPlaceholderModel(current.model)) return null;
       this.#router.noteTaskFallback?.(sessionId);
       ctx.emit({
         type: "model_routed",

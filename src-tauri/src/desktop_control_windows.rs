@@ -434,6 +434,17 @@ fn windows_for_pid(auto: &IUIAutomation, pid: u32) -> Result<Vec<IUIAutomationEl
     Ok(out)
 }
 
+/// The dialogs a window owns (Save As, Open, Print). UI Automation puts an
+/// owned dialog under its owner, not at the top with the other windows, so
+/// neither `list_windows` nor a title filter saw one, in any language (7 Nov:
+/// Notepad's "Salvare ca" on his Romanian Windows).
+fn dialogs_of(auto: &IUIAutomation, win: &IUIAutomationElement) -> Vec<IUIAutomationElement> {
+    let Some(cond) = role_condition(auto, "Window") else { return Vec::new() };
+    let Ok(found) = (unsafe { win.FindAll(TreeScope_Children, &cond) }) else { return Vec::new() };
+    let n = unsafe { found.Length() }.unwrap_or(0);
+    (0..n).filter_map(|i| unsafe { found.GetElement(i) }.ok()).collect()
+}
+
 /// Choose which top-level window of `pid` to read from.
 ///
 ///   * `title_filter` given → the window whose title contains it (case-
@@ -452,13 +463,20 @@ fn window_root_for(
     let wins = windows_for_pid(auto, pid)?;
     if let Some(t) = title_filter {
         let t = t.to_lowercase();
-        return wins
+        let mut all = wins.clone();
+        all.extend(wins.iter().flat_map(|w| dialogs_of(auto, w)));
+        return all
             .iter()
             .find(|w| name_of(w).to_lowercase().contains(t.as_str()))
             .cloned()
             .ok_or_else(|| {
+                // The titles are in the person's language ("Salvare ca", not
+                // "Save As"), so the model is told what there is to pick from.
+                let titles: Vec<String> = all.iter().map(|w| format!("\"{}\"", name_of(w))).collect();
                 format!(
-                    "desktop control: no window whose title contains \"{t}\" for pid {pid} (check list_windows)"
+                    "desktop control: no window whose title contains \"{t}\" for pid {pid}. Its windows: {}. \
+                     Titles are in the language of this Windows; pass one of these.",
+                    titles.join(", ")
                 )
             });
     }
@@ -544,9 +562,11 @@ pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
         if is_offscreen_of(&win) {
             continue;
         }
-        let title = name_of(&win);
         let app_name = names.get(&pid).cloned().unwrap_or_default();
-        out.push(WindowInfo { pid, title, app_name });
+        for dialog in dialogs_of(&auto, &win).iter().filter(|d| !is_offscreen_of(d)) {
+            out.push(WindowInfo { pid, title: name_of(dialog), app_name: app_name.clone() });
+        }
+        out.push(WindowInfo { pid, title: name_of(&win), app_name });
     }
     Ok(out)
 }
@@ -792,6 +812,13 @@ fn expand_collapse(el: &IUIAutomationElement, expand: bool) -> Result<(), String
 
 /// Max keystroke-spec length, bounding the SendInput batch we will dispatch.
 const MAX_KEYS_LEN: usize = 2000;
+/// Keystrokes per `SendInput` call, and the pause between two calls. Sent in
+/// one burst, "Lapte{Enter}Paine{Enter}..." reached Windows 11 Notepad as
+/// "Lapte\r\r\r\riiii" (his test, 7 Nov): an app reading slower than the burst
+/// loses keys. Microsoft hit the same in winappCli (#657: 434 of 1000 chars) and
+/// measured these two values on Notepad (#667: 1000 of 1000, 5 of 5 runs).
+const KEYS_PER_BURST: usize = 16;
+const BURST_GAP: std::time::Duration = std::time::Duration::from_millis(15);
 
 /// Focus `el` and CONFIRM the OS focus actually landed on the target process
 /// before any synthetic input is dispatched.
@@ -853,8 +880,8 @@ pub fn send_keys(handle: &str, keys: &str) -> Result<(), String> {
     if is_secure(&el) {
         return Err("desktop control: refusing to send keystrokes to a secure/password field".into());
     }
-    let inputs = parse_keys(keys)?;
-    if inputs.is_empty() {
+    let strokes = parse_keys(keys)?;
+    if strokes.is_empty() {
         return Ok(());
     }
     // Focus AND verify the foreground actually moved before dispatching input —
@@ -872,14 +899,33 @@ pub fn send_keys(handle: &str, keys: &str) -> Result<(), String> {
         keys,
         "desktop control: sending keys",
     );
-    // SAFETY: `inputs` is a valid, fully-initialized slice of INPUT for the
-    // lifetime of the call; cbsize is the per-record size as the API requires.
-    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
-    if sent as usize != inputs.len() {
-        return Err(format!(
-            "desktop control: SendInput dispatched only {sent}/{} events (input may be blocked by a higher-integrity window)",
-            inputs.len()
-        ));
+    // Paced, so the keys spend longer in flight: if the person clicks another
+    // window meanwhile, the rest must not land in it (it could be their own
+    // unsaved document), so typing stops and says how far it got.
+    let front = unsafe { GetForegroundWindow() };
+    let mut typed = 0;
+    for (i, burst) in strokes.chunks(KEYS_PER_BURST).enumerate() {
+        if i > 0 {
+            std::thread::sleep(BURST_GAP);
+            if unsafe { GetForegroundWindow() } != front {
+                return Err(format!(
+                    "desktop control: another window came to the front while typing; stopped after \
+                     {typed} of {} keys so the rest did not go there. Check what was typed before retrying.",
+                    strokes.len()
+                ));
+            }
+        }
+        let inputs = burst.concat();
+        // SAFETY: `inputs` is a valid, fully-initialized slice of INPUT for the
+        // lifetime of the call; cbsize is the per-record size as the API requires.
+        let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+        if sent as usize != inputs.len() {
+            return Err(format!(
+                "desktop control: SendInput dispatched only {sent}/{} events after {typed} keys (input may be blocked by a higher-integrity window)",
+                inputs.len()
+            ));
+        }
+        typed += burst.len();
     }
     Ok(())
 }
@@ -1016,7 +1062,8 @@ fn unicode_input(unit: u16, up: bool) -> INPUT {
     }
 }
 
-/// Parse a keystroke spec into a flat `INPUT` sequence.
+/// Parse a keystroke spec into keystrokes, each the `INPUT` events of one
+/// character or one named key/chord, so pacing never splits a chord.
 ///
 ///   * Literal characters are typed as real Unicode keystrokes (so
 ///     Electron/React fields register them). `{{` / `}}` emit literal braces.
@@ -1026,7 +1073,7 @@ fn unicode_input(unit: u16, up: bool) -> INPUT {
 ///
 /// Example: `"hello Bloom{Enter}"` types the text then presses Enter — the full
 /// "type and send" flow for a chat app in one call.
-fn parse_keys(spec: &str) -> Result<Vec<INPUT>, String> {
+fn parse_keys(spec: &str) -> Result<Vec<Vec<INPUT>>, String> {
     if spec.len() > MAX_KEYS_LEN {
         return Err(format!("desktop control: key spec too long (max {MAX_KEYS_LEN} chars)"));
     }
@@ -1071,14 +1118,11 @@ fn parse_keys(spec: &str) -> Result<Vec<INPUT>, String> {
                 .collect::<Result<_, _>>()?;
             let key_vk = resolve_key(keyname)
                 .ok_or_else(|| format!("desktop control: unknown key \"{keyname}\""))?;
-            for m in &mod_vks {
-                out.push(vk_input(*m, false));
-            }
-            out.push(vk_input(key_vk, false));
-            out.push(vk_input(key_vk, true));
-            for m in mod_vks.iter().rev() {
-                out.push(vk_input(*m, true));
-            }
+            let mut stroke: Vec<INPUT> = mod_vks.iter().map(|m| vk_input(*m, false)).collect();
+            stroke.push(vk_input(key_vk, false));
+            stroke.push(vk_input(key_vk, true));
+            stroke.extend(mod_vks.iter().rev().map(|m| vk_input(*m, true)));
+            out.push(stroke);
         } else if c == '}' && chars.peek() == Some(&'}') {
             // `}}` → literal '}'.
             chars.next();
@@ -1091,48 +1135,68 @@ fn parse_keys(spec: &str) -> Result<Vec<INPUT>, String> {
 }
 
 /// Append the keydown+keyup Unicode events for a single char (UTF-16, so chars
-/// outside the BMP emit their surrogate pair).
-fn push_char(c: char, out: &mut Vec<INPUT>) {
+/// outside the BMP emit their surrogate pair), as one keystroke.
+fn push_char(c: char, out: &mut Vec<Vec<INPUT>>) {
     let mut buf = [0u16; 2];
+    let mut stroke = Vec::with_capacity(4);
     for unit in c.encode_utf16(&mut buf) {
-        out.push(unicode_input(*unit, false));
-        out.push(unicode_input(*unit, true));
+        stroke.push(unicode_input(*unit, false));
+        stroke.push(unicode_input(*unit, true));
     }
+    out.push(stroke);
 }
 
 #[cfg(test)]
 mod key_tests {
-    use super::parse_keys;
+    use super::{parse_keys, KEYS_PER_BURST};
+
+    /// All the key events a spec sends, keystrokes flattened.
+    fn events(spec: &str) -> usize {
+        parse_keys(spec).unwrap().concat().len()
+    }
+
+    #[test]
+    fn a_chord_is_one_keystroke_and_long_text_goes_in_bursts() {
+        // Pacing splits between keystrokes only: Ctrl↓ A↓ A↑ Ctrl↑ stays together.
+        assert_eq!(parse_keys("{Ctrl+A}").unwrap().len(), 1);
+        // His list from 7 Nov: 22 letters + 4 Enters = 26 keystrokes, 2 bursts.
+        let list = parse_keys("Lapte{Enter}Paine{Enter}Oua{Enter}Mere{Enter}Rosii").unwrap();
+        assert_eq!(list.len(), 26);
+        assert_eq!(list.chunks(KEYS_PER_BURST).count(), 2);
+        // A character outside the BMP (an emoji) is one keystroke of 4 events.
+        assert_eq!(parse_keys("😀").unwrap().len(), 1);
+        assert_eq!(events("😀"), 4);
+    }
 
     #[test]
     fn literal_text_is_one_downup_pair_per_char() {
         // "ab" → a↓ a↑ b↓ b↑.
-        assert_eq!(parse_keys("ab").unwrap().len(), 4);
+        assert_eq!(events("ab"), 4);
     }
 
     #[test]
     fn named_key_is_a_downup_pair() {
         // "{Enter}" → Enter↓ Enter↑.
-        assert_eq!(parse_keys("{Enter}").unwrap().len(), 2);
+        assert_eq!(events("{Enter}"), 2);
     }
 
     #[test]
     fn type_then_send_combines_text_and_key() {
         // "hi{Enter}" → 2 chars (4) + Enter (2) = 6.
-        assert_eq!(parse_keys("hi{Enter}").unwrap().len(), 6);
+        assert_eq!(events("hi{Enter}"), 6);
     }
 
     #[test]
     fn chord_wraps_key_in_modifier_hold_release() {
         // "{Ctrl+A}" → Ctrl↓ A↓ A↑ Ctrl↑.
-        assert_eq!(parse_keys("{Ctrl+A}").unwrap().len(), 4);
+        assert_eq!(events("{Ctrl+A}"), 4);
     }
 
     #[test]
     fn escaped_braces_are_literal() {
         // "{{" → one literal '{' = 2 events; "}}" likewise.
-        assert_eq!(parse_keys("{{").unwrap().len(), 2);
-        assert_eq!(parse_keys("}}").unwrap().len(), 2);
+        assert_eq!(events("{{"), 2);
+        assert_eq!(events("}}"), 2);
     }
 
     #[test]

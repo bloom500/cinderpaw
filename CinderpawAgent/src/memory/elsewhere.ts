@@ -99,6 +99,8 @@ const NAMES: Record<string, string> = {
   imessage: "iMessage", sms: "SMS", matrix: "Matrix", msteams: "Microsoft Teams", googlechat: "Google Chat",
 };
 const nameOf = (id: string) => NAMES[id] ?? id;
+/** A connector's name as people write it: "WhatsApp", not "Whatsapp". */
+export const connectorName = nameOf;
 const placeOf = (sessionId: string) => (DESKTOP.test(sessionId) ? "another desktop chat" : nameOf(sessionId.split(":")[0]!));
 
 function ago(ms: number): string {

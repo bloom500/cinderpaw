@@ -26,6 +26,8 @@ describe("the situation block", () => {
   test("says the local hour and day, the OS and the mode in the words the person sees", () => {
     const s = situation(LATE, "win32", "read_only");
     expect(s).toContain("Thursday 2026-10-29, 00:30 (Europe/Bucharest)");
+    // Worked out for the model (7 Nov: "tomorrow, Saturday" on a Saturday).
+    expect(s).toContain("Tomorrow is Friday 2026-10-30.");
     expect(s).toContain("runs Windows");
     expect(s).toContain("Look only");
     expect(s).toContain("Can edit files or Full access");

@@ -48,7 +48,10 @@ export function Toasts({ compact = false }: { compact?: boolean }) {
 
   return (
     // Sileo's width, to our 320 px column (its WIDTH constant says the same).
-    <div className="flex flex-col items-end gap-2" role="status" aria-live="polite" style={{ '--sileo-width': '320px' } as React.CSSProperties}>
+    // text-text-primary: the column is portalled to <body>, whose colour is the
+    // browser's black; Sileo's title and description inherit it, so in dark mode
+    // they were black on the dark pill (8 Nov). The theme's own colours instead.
+    <div className="flex flex-col items-end gap-2 text-text-primary" role="status" aria-live="polite" style={{ '--sileo-width': '320px' } as React.CSSProperties}>
       {[...toasts].reverse().map((t) => (
         <div key={t.id} className="pointer-events-auto relative w-full">
           <Sileo
@@ -74,7 +77,7 @@ export function Toasts({ compact = false }: { compact?: boolean }) {
             }
             onDismiss={() => dismiss(t.id)}
             // Sileo capitalises every word; our titles are sentences.
-            styles={{ title: 'normal-case!' }}
+            styles={{ title: 'normal-case!', description: 'text-text-secondary' }}
           />
         </div>
       ))}

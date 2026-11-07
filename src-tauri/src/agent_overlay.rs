@@ -27,9 +27,12 @@ const PILL_H: f64 = 76.0;
 /// How long the cursor takes to reach its target, and the pause before the
 /// press, so a person can follow what is about to happen.
 const AIM: Duration = Duration::from_millis(520);
-/// The overlay stays this long after the last step, like the browser's bar:
-/// the model thinking between two clicks must not make it come and go.
-const LINGER: Duration = Duration::from_secs(6);
+/// The overlay stays until the agent's turn ends (`on_agent_line`), Stop or Esc.
+/// This is only the net for a turn whose end never arrives. It used to be 6 s
+/// after the last step, and a model thinks 5-15 s between two clicks, so the
+/// overlay came and went during one task (his test, 7 Nov); a slow model took
+/// two minutes to its first word on the same day, hence five.
+const LINGER: Duration = Duration::from_secs(5 * 60);
 
 /// Bumped by every step; a hide only happens if no step came after it.
 static GENERATION: AtomicU64 = AtomicU64::new(0);
@@ -154,6 +157,27 @@ fn esc_hotkey(app: &AppHandle, on: bool) {
 }
 #[cfg(not(desktop))]
 fn esc_hotkey(_: &AppHandle, _: bool) {}
+
+/// Every line the agent sends passes here (lib.rs, TauriEvents). The overlay
+/// goes when a turn ends, however it ended. ponytail: any chat's turn ending
+/// closes it, so a phone chat finishing mid-task hides it until the next step
+/// opens it again; tie it to the turn's id if that shows up.
+pub fn on_agent_line(app: &AppHandle, line: &str) {
+    if app.get_webview_window(OVERLAY).is_some() && ends_turn(line) {
+        close(app);
+    }
+}
+
+/// A finished turn (`done`, or `error` with the turn's id, the same test the
+/// chat page uses) or a finished scheduled task.
+fn ends_turn(line: &str) -> bool {
+    let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
+    match v["type"].as_str() {
+        Some("done" | "error") => v["id"].is_string(),
+        Some("cron_fired" | "cron_error") => true,
+        _ => false,
+    }
+}
 
 /// What a freshly loaded overlay page should show: the step and the target
 /// that went out before its script was listening.
@@ -303,6 +327,18 @@ mod tests {
         assert_eq!(pretty_app("notepad.exe"), "Notepad");
         assert_eq!(pretty_app("C:/Program Files/Mozilla Firefox/firefox.exe"), "Firefox");
         assert_eq!(pretty_app(""), "");
+    }
+
+    #[test]
+    fn only_the_end_of_a_turn_closes_it() {
+        assert!(ends_turn(r#"{"type":"done","id":"m1","content":"Gata"}"#));
+        assert!(ends_turn(r#"{"type":"error","id":"m1","message":"x"}"#));
+        assert!(ends_turn(r#"{"type":"cron_fired","jobName":"j","content":"c"}"#));
+        // Thinking, a step, a stray error with no turn: it stays.
+        assert!(!ends_turn(r#"{"type":"delta","id":"m1","text":"done"}"#));
+        assert!(!ends_turn(r#"{"type":"tool_done","id":"m1","tool":"computer_use"}"#));
+        assert!(!ends_turn(r#"{"type":"error","message":"no id"}"#));
+        assert!(!ends_turn("not json"));
     }
 
     #[test]

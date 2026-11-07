@@ -381,8 +381,15 @@ pub async fn spawn(
     // Any previously-downloaded portable git/bun goes on OUR PATH first —
     // children (sidecar, worktree evals, rebuild scripts) inherit it.
     crate::toolchain::activate_portable();
-    let bundled_src = crate::rsi::self_src::find_bundled_src(&extra_bin_dirs).is_some();
-    if crate::env::env_var("CINDERPAW_CODE_RSI_REPO").map(|v| v.trim().is_empty()).unwrap_or(true) {
+    // Code-RSI is a Dreams stage, so it is prepared only when Dreams is on. A
+    // new install with Dreams off spent ~100 s copying the sources before the
+    // agent could answer, and downloaded bun (94 MB) for nothing (smoke test,
+    // 7 Nov). Turning Dreams on restarts this sidecar (set_dreams_enabled), and
+    // this runs again then. The explicit dev knob below still works alone.
+    let dreams_on = crate::settings::load().dreams_enabled
+        || crate::env::env_var("CINDERPAW_DREAMS_ENABLED").is_some_and(|v| v.trim() == "true");
+    let bundled_src = dreams_on && crate::rsi::self_src::find_bundled_src(&extra_bin_dirs).is_some();
+    if dreams_on && crate::env::env_var("CINDERPAW_CODE_RSI_REPO").map(|v| v.trim().is_empty()).unwrap_or(true) {
         match crate::rsi::self_src::provision(&extra_bin_dirs) {
             Ok(root) => {
                 tracing::info!("cinderpaw-agent: self-src provisioned at {:?} (code-RSI enabled)", root);

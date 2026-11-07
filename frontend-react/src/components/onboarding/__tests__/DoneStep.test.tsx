@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { OnboardingWizard } from '../OnboardingWizard';
 import { tauri } from '@/lib/tauri';
@@ -87,7 +87,7 @@ describe('the brain card', () => {
     renderWizard();
     fireEvent.click(screen.getByRole('button', { name: /^I have a key/ }));
     expect(screen.queryByText(/Pick one way above/)).not.toBeInTheDocument();
-    expect(screen.getByText(/Paste your key above and press Connect/)).toBeInTheDocument();
+    expect(screen.getByText(/Pick your provider above, then paste your key/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^This computer/ }));
     expect(screen.getByText(/Press Download above/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^This computer/ }));
@@ -152,5 +152,12 @@ describe('where did you hear about Cinderpaw', () => {
     expect(useOnboarding.getState().heardFrom).toBeNull();
     fireEvent.click(screen.getByRole('checkbox', { name: /Count this install/ }));
     expect(screen.queryByRole('button', { name: 'Reddit' })).not.toBeInTheDocument();
+  });
+
+  // Smoke test 7 Nov: ticked and hidden under the pinned bar at the end of the board.
+  it('the install count sits in the pinned bar, beside the button that sends it', () => {
+    renderWizard();
+    const bar = screen.getByRole('button', { name: /Start exploring/ }).closest('nav')!;
+    expect(within(bar).getByRole('checkbox', { name: /Count this install/ })).toBeInTheDocument();
   });
 });

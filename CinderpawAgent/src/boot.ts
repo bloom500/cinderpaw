@@ -29,6 +29,7 @@ import { SemanticMemory, memoryScope, setChatOwner, speakerScope } from "./memor
 import { RecallEngine } from "./memory/recall.ts";
 import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
 import { ObservationStore, importLegacyNotes } from "./memory/observations.ts";
+import { connectorName } from "./memory/elsewhere.ts";
 import { ingestImports } from "./memory/import-inbox.ts";
 import { buildSnapshot } from "./memory/snapshot.ts";
 import { Reflector, memoryIdleTick } from "./memory/reflector.ts";
@@ -189,6 +190,7 @@ import { createAskUserTool } from "./tools/builtin/ask-user.ts";
 import { createHeadsUpTool } from "./tools/builtin/heads-up.ts";
 import { createSetAppearanceTool } from "./tools/builtin/set-appearance.ts";
 import { createSuggestTaskTool } from "./tools/builtin/suggest-task.ts";
+import { createTasksListTool } from "./tools/builtin/tasks-list.ts";
 import { createTaskLimitTool } from "./tools/builtin/task-limit.ts";
 import { TaskLimit } from "./cron/limit.ts";
 import { refreshModelPrices, withModelPrices } from "./egress/model-prices.ts";
@@ -1753,6 +1755,8 @@ export async function boot(transportOverride?: Transport) {
   }
 
   const cronRepo = new CronJobsRepo(db.raw);
+  // What exists, for any chat to check (a WhatsApp chat could not, 7 Nov).
+  registry.register(createTasksListTool(() => cronRepo.list()));
   const taskPrice = withModelPrices(priceResolverFromJson(cfgPath("CINDERPAW_AUTONOMOUS_PRICING_JSON")));
   const watchEgress = new EgressProxy(audit.logger, { trustedLocalOrigins: [] });
   // What an import left while the agent was not running is filed now, so its
@@ -1908,7 +1912,9 @@ export async function boot(transportOverride?: Transport) {
             jobId: job.id,
             jobName: job.name,
             sessionId: target.sessionId,
-            content: via ? `${content}\n\n_Also sent to your ${via[0]!.toUpperCase()}${via.slice(1)}._` : content,
+            // Plain words: the notification shows text as it is, and the
+            // underscores of "_Also sent to your Whatsapp._" showed (smoke test, 7 Nov).
+            content: via ? `${content}\n\nAlso sent to your ${connectorName(via)}.` : content,
           });
         });
       }

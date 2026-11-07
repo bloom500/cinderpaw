@@ -27,9 +27,14 @@ export function situation(ts: number, platform: string, mode: string): string {
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const clock = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   const weekday = d.toLocaleDateString("en-US", { weekday: "long" });
+  // Tomorrow worked out here, not by the model: on WhatsApp it wrote "tomorrow,
+  // Saturday 8 November" on a Saturday the 7th (smoke test, 7 Nov). Calendar
+  // arithmetic, so a clock change in the night cannot move it.
+  const next = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 12);
   return [
     "## Right now",
     `- Local time: ${weekday} ${localDay(ts)}, ${clock} (${zone}).`,
+    `- Tomorrow is ${next.toLocaleDateString("en-US", { weekday: "long" })} ${localDay(next.getTime())}.`,
     `- This computer runs ${OS[platform] ?? platform}.`,
     `- What you may do: ${MODE[mode] ?? mode}`,
   ].join("\n");

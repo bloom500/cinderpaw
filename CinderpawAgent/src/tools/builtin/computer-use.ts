@@ -199,6 +199,8 @@ export function createComputerUseTool(): Tool {
         "Use `screenshot` to SEE an app: with `pid` it photographs that app's main window, without " +
         "`pid` the whole main screen; the picture comes back to you and is shown to the person. " +
         "Take one when the tree is empty or unclear, or to check the result of what you did. " +
+        "When the person asks for something done IN an app (Notepad, Calculator, Excel), do it in that app: a " +
+        "command that writes the same file is not the task. Use a command only after the app way failed, and say so. " +
         "State-changing actions ask the user to confirm first (unless YOLO mode is on). " +
         "Security-sensitive apps (password managers, OS credential dialogs, Cinderpaw itself) are blocked. " +
         "Requires desktop control to be enabled by the user. " +
@@ -439,9 +441,10 @@ export function createComputerUseTool(): Tool {
         const data = await ctx.desktopControl.request(action, params, ctx.sessionId);
         if (action === "find_elements" || action === "get_tree" || action === "get_focused") rememberElements(data);
         if (action === "screenshot") return screenshotResult(data);
+        const careful = action === "launch" ? await unsavedWorkNote(ctx, String(params.app)) : "";
         return {
           ok: true,
-          content: summarize(action, data),
+          content: summarize(action, data) + careful,
           data,
         };
       } catch (err) {
@@ -450,6 +453,30 @@ export function createComputerUseTool(): Tool {
       }
     },
   };
+}
+
+/**
+ * The person's unsaved work in the app just opened, said to the agent. Notepad
+ * opens a new tab beside whatever is there: the test list was typed next to
+ * Darius's unsaved "*Aplicari joburi.md" (smoke test, 7 Nov). Told, never
+ * asked: the agent keeps to its own tab and the work goes on. An unsaved title
+ * starts with "*" (Notepad, Notepad++, Paint) or carries "●" (VS Code).
+ */
+async function unsavedWorkNote(ctx: Parameters<Tool["execute"]>[1], app: string): Promise<string> {
+  try {
+    const wins = await ctx.desktopControl!.request("list_windows", {}, ctx.sessionId);
+    if (!Array.isArray(wins)) return "";
+    const stem = (app.split(/[\\/]/).pop() ?? app).replace(/\.exe$/i, "").toLowerCase();
+    const theirs = (wins as Array<{ title?: string; app_name?: string }>)
+      .filter((w) => (w.app_name ?? "").toLowerCase().includes(stem) && /^\*|●/.test(w.title ?? ""))
+      .map((w) => `"${w.title}"`);
+    return theirs.length
+      ? `\nCareful: ${app} already has the person's unsaved work open (${theirs.join(", ")}). Work only in the ` +
+        "window or tab you opened; never type into, save over or close theirs."
+      : "";
+  } catch {
+    return "";
+  }
 }
 
 /** Ask the user to approve a state-changing action. Returns true if approved. */

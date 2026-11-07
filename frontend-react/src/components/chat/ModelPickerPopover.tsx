@@ -96,7 +96,7 @@ const LOGO_HORNS = [
  * it replaces an A). Head, horns and eyes only: with the muzzle too it was a
  * blur at 18 px. Drawn in the text colour, so it reads on both themes.
  */
-function AutoMark({ size }: { size: 'sm' | 'md' }) {
+function AutoMark() {
   // The horns stop where the head covers them. One id per mark: a menu and the
   // button can both be on screen.
   const id = `automark-${useId().replace(/[^\w-]/g, '')}`;
@@ -108,7 +108,7 @@ function AutoMark({ size }: { size: 'sm' | 'md' }) {
       stroke="currentColor"
       strokeWidth={20}
       strokeLinejoin="round"
-      className={cn('shrink-0', size === 'sm' ? 'size-[18px]' : 'size-6')}
+      className="size-[18px] shrink-0"
     >
       <mask id={id} maskUnits="userSpaceOnUse" x="-40" y="-40" width="340" height="340">
         <rect x="-40" y="-40" width="340" height="340" fill="#fff" />
@@ -396,7 +396,7 @@ export function ModelPickerPopover() {
   const face = (
     <>
       {auto && !cinderpawSwitching && !isLoading ? (
-        <AutoMark size="sm" />
+        <AutoMark />
       ) : shown && <ModelLogo modelId={shown.modelId} provider={shown.provider} />}
       {/* When the composer row is tight (a button name sliding out, a side
           panel open), where it runs gives way first and the model's own name
@@ -673,7 +673,8 @@ export function ModelPickerPopover() {
         onCheckedChange={(on) => void setAutomatic(on).catch((err) => useNotifications.getState().push('error', 'Could not switch model', String(err)))}
         className="flex cursor-default select-none items-center gap-3 rounded-xl px-2.5 py-2.5 outline-hidden focus:bg-accent"
       >
-        <AutoMark size="md" />
+        {/* No mark here: the island's last row already wears it, and two
+            Cubbys in one open menu broke the one-Cubby rule (smoke test, 7 Nov). */}
         <span className="min-w-0 flex-1">
           <span className="block text-sm text-text-primary">Let Cinderpaw choose</span>
           <span className="block text-xs text-text-muted">The right model for each message</span>

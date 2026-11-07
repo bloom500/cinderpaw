@@ -313,7 +313,7 @@ export const MessageItem = memo(function MessageItem({
         </>
       )}
       <SourcesList hits={cited} />
-      {!streaming && <WrittenFiles paths={writtenFiles(activity)} />}
+      {!streaming && <WrittenFiles paths={writtenFiles(activity, message.content)} />}
       {/* The injected memories, then what a recall lookup found (no Forget:
           its facts arrive as sentences, with no edge to remove). */}
       {!streaming && (
