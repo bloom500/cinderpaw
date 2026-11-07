@@ -114,6 +114,19 @@ describe("install_skill_from_link", () => {
     expect(seen[0]!.question).toContain("Not installed with it: scripts/run.sh. The steps that need these files will not work here.");
   });
 
+  test("the agent is told what a left-out file costs, not only that it was left out", async () => {
+    // 27 Oct: told only "not installed with it: scripts/setup.sh", the agent
+    // called the skill installed, then "not installed" mid-task.
+    const { bridge } = bridgeWith({ ...PREVIEW, left_out: ["scripts/setup.sh"] });
+    const res = await installSkillFromLinkTool.execute(
+      { url: "https://github.com/acme/skills" },
+      { capabilities: bridge, askUser: answering("Install it") } as never,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.content).toContain("scripts/setup.sh");
+    expect(res.content).toContain("tell the person so now");
+  });
+
   test("files that come with the skill are named in the question, shown in full, and told to the agent", async () => {
     const files = [{ path: "reference/forms.md", content: "Fill each field by its name." }];
     const { bridge } = bridgeWith({ ...PREVIEW, files });

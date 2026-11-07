@@ -41,6 +41,10 @@ export interface AskUserQuestion {
   secret?: { connector: string; field: string } | { extensionUrl: string; extensionName?: string };
   /** Text to read before answering (a skill a link would install), in a scrolling box. */
   preview?: string;
+  /** "phone": a country + phone-number field first; the number (+40712345678) is the answer (WhatsApp linking). */
+  input?: 'phone';
+  /** What the field starts with: the number saved last time, to fix or keep. */
+  value?: string;
 }
 
 export interface AskUserAnswer {

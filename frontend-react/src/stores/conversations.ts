@@ -3,9 +3,10 @@ import { tauri, type PersistedMessage, type ConversationSummary } from '@/lib/ta
 import { rehydrateLiveSession } from '@/lib/cinderpawLiveSession';
 import { voiceToPersisted, voiceFromPersisted } from '@/lib/messageMapping';
 import { toolsFromPersisted } from '@/hooks/useLiveToolActivity';
-import { memoryUsedFrom, turnEndFrom, useChat, type ChatMessage } from './chat';
+import { contextLanesFrom, memoryUsedFrom, turnEndFrom, useChat, type ChatMessage } from './chat';
 import { useNotifications } from './notifications';
 import { useFollowUps } from './followUps';
+import { useArtifacts } from './artifacts';
 
 export type { ConversationSummary };
 
@@ -70,6 +71,7 @@ function toChatMessage(p: PersistedMessage, idx: number): ChatMessage {
     toolActivity: toolsFromPersisted(p.tools),
     ended: turnEndFrom(p.ended),
     memoryUsed: memoryUsedFrom(p.memory_used),
+    contextLanes: contextLanesFrom(p.context_lanes),
     // The real time, when the file has it. The fallback is the old fabricated
     // ladder, kept only for conversations saved before the field existed —
     // those genuinely have no timestamp to restore.
@@ -92,12 +94,25 @@ function toPersisted(m: ChatMessage): PersistedMessage {
     created_at: m.createdAt,
     ended: m.ended,
     memory_used: m.memoryUsed?.length ? m.memoryUsed : undefined,
+    context_lanes: m.contextLanes,
   };
 }
 
 // A completed read may update the screen only while it is still the person's
 // latest choice. New chat and deleting that choice invalidate pending reads.
 let openRequest: { id: string } | null = null;
+
+/**
+ * Chats deleted with Undo: off the list at once, off the disk when the toast
+ * ends. Every list read in between (the first chat's real delete, a reply being
+ * saved) brought the others back from disk for a moment: delete three in a row
+ * and they reappeared one by one, "like a big ping" (1 Nov).
+ */
+const deleting = new Set<string>();
+export function hideWhileDeleting(id: string, hidden: boolean): void {
+  if (hidden) deleting.add(id);
+  else deleting.delete(id);
+}
 
 export const useConversations = create<ConversationsStore>((set, get) => ({
   list: [],
@@ -122,7 +137,7 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
     try {
       const list = await tauri.conversations.list();
       list.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-      set({ list, loaded: true });
+      set({ list: list.filter((c) => !deleting.has(c.id)), loaded: true });
     } catch (err) {
       // Don't let a failed list read leave the UI in an inconsistent state.
       // `loaded` still flips: the read is over, and a screen that waits
@@ -242,6 +257,8 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   },
 
   newChat: () => {
+    // Start with the conversation, while preserving any unsaved artifact edit.
+    useArtifacts.setState({ panelOpen: false });
     openRequest = null;
     useChat.getState().newSession();
     set({ currentId: null, loadingConversation: false });

@@ -53,6 +53,37 @@ describe('the artifacts a reply draws as cards', () => {
   });
 });
 
+// His test, 4 Nov: a message typed mid-turn left the composer and showed nowhere
+// for a minute, until the model's step ended.
+describe('a message added while it works', () => {
+  const message = (extra: object) =>
+    ({ id: 'st', role: 'assistant', content: '', createdAt: 0, ...extra }) as unknown as ChatMessage;
+
+  it('shows at once as their own bubble, faded while it waits', () => {
+    render(<MemoryRouter><MessageItem message={message({ steerPending: ['make it shorter'] })} streaming /></MemoryRouter>);
+    const bubble = screen.getByText('make it shorter').parentElement!;
+    expect(bubble).toHaveClass('opacity-50');
+    expect(bubble).toHaveAttribute('title', 'It reads this when its current step is done');
+  });
+
+  it('once read, it sits in the reply where the model read it, and the reply goes on under it', () => {
+    const msg = message({ content: 'A long story.\n\nShort version.', steered: [{ text: 'make it shorter', at: 13, afterTools: 0 }] });
+    // Done streaming: while it streams, the last text is drawn word by word.
+    render(<MemoryRouter><MessageItem message={msg} /></MemoryRouter>);
+    const before = screen.getByText('A long story.');
+    const added = screen.getByText('make it shorter');
+    const after = screen.getByText('Short version.');
+    expect(added.parentElement).not.toHaveClass('opacity-50');
+    expect(before.compareDocumentPosition(added) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(added.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('a turn that never read it drops the waiting bubble', () => {
+    render(<MemoryRouter><MessageItem message={message({ content: 'Stopped.', steerPending: ['too late'] })} /></MemoryRouter>);
+    expect(screen.queryByText('too late')).toBeNull();
+  });
+});
+
 describe('a reply the person stopped', () => {
   it('says so and offers to try again, even with no text yet', async () => {
     const onRetry = vi.fn();

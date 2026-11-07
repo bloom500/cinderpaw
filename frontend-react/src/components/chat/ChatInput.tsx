@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { tauri } from '@/lib/tauri';
 import { ArrowUp, Square, Mic, Phone, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AttachedFileChip, isLongPaste, pastedText, type AttachedFile } from './AttachedFileChip';
 import { LinkChip } from './LinkChip';
+import { VideoLinkCard } from './VideoLinkCard';
+import { isVideoLink } from '@/lib/videoLinks';
 import { splitLinks } from '@/lib/linkLabel';
 import { FileAttachButton } from './FileAttachButton';
 import { VoicePreview } from './VoicePreview';
@@ -13,7 +16,6 @@ import { VoiceProviderCard } from './VoiceProviderCard';
 import { VoiceEngineCard } from './VoiceEngineCard';
 import { CallOverlay } from './CallOverlay';
 import { ComposerPlaceholder } from './ComposerPlaceholder';
-import { motion } from 'framer-motion';
 import { ModelPill } from './ModelPill';
 import { ContextRing } from './ContextRing';
 import { PermissionPill } from './PermissionPill';
@@ -23,6 +25,7 @@ import { useEmberRun } from './ember/useEmberRun';
 import { EmberInvite } from './ember/EmberInvite';
 import { EmberPanel } from './ember/EmberPanel';
 import { useChat, type ChatMessage } from '@/stores/chat';
+import { useAskUser } from '@/stores/askUser';
 import { useUI, type CallEngine } from '@/stores/ui';
 import { useConversations } from '@/stores/conversations';
 import { saveVoiceBlobToDisk, transcribeVoiceBlob, buildUserContent } from '@/hooks/useSendMessage';
@@ -33,7 +36,7 @@ import { useLiveKitCallSession } from '@/hooks/useLiveKitCallSession';
 import { useCallPill, hangUpLandsOn } from '@/lib/callPill';
 import { useJevCallSession } from '@/hooks/useJevCallSession';
 import { JEV_PROVIDER_ID } from './JevKeyRow';
-import { attachmentFromPath, attachmentsFromClipboard } from '@/lib/attachments';
+import { pendingFromClipboard, pendingFromPaths, type PendingAttachment } from '@/lib/attachments';
 import { decodeToPcm16k, computePeaks, chime } from '@/lib/audio';
 import { ensureSttModel } from '@/lib/voiceModel';
 import { stopActiveStream } from '@/lib/streamControl';
@@ -120,6 +123,10 @@ function ChatInput({ isEmpty, sendFn }, ref) {
   // draft, and it is the single most likely one to be interrupted.
   const convId = useConversations((s) => s.currentId) ?? 'new';
   const sessionId = useChat((s) => s.sessionId);
+  // A question card above is waiting for THIS chat's answer. The reply cannot
+  // finish until it is answered, so "it sends when this reply is done" was a
+  // promise the field could not keep (seen 28 Oct with a red Stop beside it).
+  const askingHere = useAskUser((s) => s.pending?.sessionId === sessionId);
   const [queued, setQueued] = useState<string | null>(null);
   const queuedRef = useRef(queued);
   queuedRef.current = queued;
@@ -172,7 +179,18 @@ function ChatInput({ isEmpty, sendFn }, ref) {
   useEffect(() => {
     const save = () => writeDraft(convId, [queuedRef.current, textRef.current].filter(Boolean).join('\n'));
     window.addEventListener('pagehide', save);
-    return () => window.removeEventListener('pagehide', save);
+    // A message typed mid-turn that arrived after the turn ended: it waits and
+    // sends when the reply is done, like before steering existed. Kept in this
+    // effect so the composer gains no hook (a live app hot-reloads it).
+    const refused = (e: Event) => {
+      const { text: back } = (e as CustomEvent<{ sessionId: string; text: string }>).detail;
+      setQueued((q) => (q ? `${q}\n${back}` : back));
+    };
+    window.addEventListener('cinderpaw:steer-refused', refused);
+    return () => {
+      window.removeEventListener('pagehide', save);
+      window.removeEventListener('cinderpaw:steer-refused', refused);
+    };
   }, [convId]);
   const [dragOver, setDragOver] = useState(false);
   const status = useChat((s) => s.streamStatus);
@@ -354,8 +372,8 @@ function ChatInput({ isEmpty, sendFn }, ref) {
       setTimeout(() => taRef.current?.focus(), 0);
     },
     focus: () => taRef.current?.focus(),
-    attach: (dt: DataTransfer) => { void attachmentsFromClipboard(dt).then(addFiles); },
-    attachPaths: (paths: string[]) => { void Promise.all(paths.map(attachmentFromPath)).then(addFiles); },
+    attach: (dt: DataTransfer) => attachLater(pendingFromClipboard(dt)),
+    attachPaths: (paths: string[]) => attachLater(pendingFromPaths(paths)),
   }));
 
   // Auto-resize textarea
@@ -372,6 +390,21 @@ function ChatInput({ isEmpty, sendFn }, ref) {
       return [...prev, ...files.filter((f) => !existing.has(f.path))];
     });
 
+  // Each file shows at once with its name and a spinner, and fills in when it
+  // has been read. Before, nothing appeared until every file was read, so a big
+  // video looked like a frozen app (29 Oct 2026).
+  const attachLater = (jobs: PendingAttachment[]) => {
+    const ids = jobs.map(() => `pending://${crypto.randomUUID()}`);
+    addFiles(jobs.map((j, i) => ({ name: j.name, path: ids[i], content: null, kind: 'binary', loading: true })));
+    jobs.forEach((j, i) => {
+      void j.ready.then((f) => setAttachedFiles((prev) => {
+        if (!prev.some((p) => p.path === ids[i])) return prev;                         // removed while it was read
+        if (prev.some((p) => p.path === f.path)) return prev.filter((p) => p.path !== ids[i]);  // already attached
+        return prev.map((p) => (p.path === ids[i] ? f : p));
+      }));
+    });
+  };
+
   // Drag & drop: Tauri intercepts native file drops (the webview never sees
   // HTML5 drop events for OS files) and emits drag-drop events with paths.
   useEffect(() => {
@@ -381,7 +414,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
         setDragOver(true);
       } else if (event.payload.type === 'drop') {
         setDragOver(false);
-        void Promise.all(event.payload.paths.map(attachmentFromPath)).then(addFiles);
+        attachLater(pendingFromPaths(event.payload.paths));
       } else {
         setDragOver(false);
       }
@@ -412,7 +445,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     if (!hasFiles(e)) return;
     e.preventDefault();
     setDragOver(false);
-    void attachmentsFromClipboard(e.dataTransfer).then(addFiles);
+    attachLater(pendingFromClipboard(e.dataTransfer));
   };
 
   // Ctrl+V / ⌘V: attach pasted screenshots and copied files. Keep text.
@@ -440,7 +473,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     if (!hasFile) return;
     // Don't preventDefault — text+image paste should keep the text in the textarea
     // while also attaching the image. Preventing drops the text.
-    void attachmentsFromClipboard(e.clipboardData).then(addFiles);
+    attachLater(pendingFromClipboard(e.clipboardData));
   };
 
   const isStreaming = status === 'streaming';
@@ -528,11 +561,15 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     }
     if (isStreaming && text.trim() && attachedFiles.length === 0 && links.length === 0) {
       const next = text;
-      setQueued((q) => (q ? `${q}\n${next}` : next));
       setText('');
+      // It joins the turn that is running (steering, 4 Nov). If the engine
+      // cannot take it, it waits and sends when this reply is done, as before.
+      if (askingHere) { setQueued((q) => (q ? `${q}\n${next}` : next)); return; }
+      void tauri.raw.cinderpawSteer(sessionId, next).catch(() => setQueued((q) => (q ? `${q}\n${next}` : next)));
       return;
     }
     if ((!text.trim() && attachedFiles.length === 0 && links.length === 0) || isStreaming || disabled) return;
+    if (attachedFiles.some((f) => f.loading)) return; // the button says so: it waits for the files
     const draftText = text;
     const draftLinks = links;
     // Links first, the way they sat in the composer; the words on the next line.
@@ -592,17 +629,13 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     setAttachedFiles((prev) => prev.filter((f) => f.path !== path));
 
 
-  // Expanded while the composer is in use: focused, holding something, recording,
-  // streaming, or on Home where the field IS the screen. Collapsed to one row in
-  // a running conversation, where the transcript is the subject.
-  const expanded =
-    engaged || isEmpty || isStreaming || dragOver || text.length > 0 ||
-    attachedFiles.length > 0 || links.length > 0 || rec.state !== 'idle';
-
   return (
     <TooltipProvider delayDuration={300}>
-      <div className={cn(
-        'px-4 py-3 mx-auto w-full',
+      {/* data-composer: ChatPage measures it to glide the dock with a side panel. */}
+      {/* @container: the button row reads its own width (a side panel narrows
+          it), not the window's, to decide which names fit. */}
+      <div data-composer="" className={cn(
+        '@container px-4 py-3 mx-auto w-full',
         // In a conversation the composer lines up with the transcript's
         // 700px column (MessageList, max-w-[748px] minus px-6), 16px wider
         // on each side as the canvas draws it, instead of spanning the pane.
@@ -643,13 +676,12 @@ function ChatInput({ isEmpty, sendFn }, ref) {
           <EmberInvite run={ember} />
           {(attachedFiles.length > 0 || links.length > 0) && (
             <div className="flex flex-wrap gap-1 px-3 pt-2">
-              {links.map((href) => (
-                <LinkChip
-                  key={href}
-                  href={href}
-                  onRemove={() => setLinks((prev) => prev.filter((h) => h !== href))}
-                />
-              ))}
+              {links.map((href) => {
+                const remove = () => setLinks((prev) => prev.filter((h) => h !== href));
+                return isVideoLink(href)
+                  ? <VideoLinkCard key={href} href={href} onRemove={remove} />
+                  : <LinkChip key={href} href={href} onRemove={remove} />;
+              })}
               {attachedFiles.map((f) => (
                 <AttachedFileChip
                   key={f.path}
@@ -693,11 +725,11 @@ function ChatInput({ isEmpty, sendFn }, ref) {
               </button>
             </div>
           )}
-          <div className="flex items-end gap-1 px-2 pt-2 pb-1.5">
-            <div className="flex h-11 shrink-0 items-center">
-              <FileAttachButton onFilesSelected={addFiles} />
-            </div>
-            <div className="relative min-w-0 flex-1">
+          {/* Two rows, after the 21st.dev prompt composer (MIT) Darius picked on
+              1 Nov: the words get the whole width, and every button lives on
+              one row under them. */}
+          <div className="px-3 pt-2">
+            <div className="relative min-w-0">
               <Textarea
                 ref={taRef}
                 value={text}
@@ -724,12 +756,28 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                     // forty blurred letters every 3.2 s behind the transcript
                     // and every streamed reply; there the field says what it is.
                     active={!!isEmpty && !engaged && !disabled}
-                    fallback={isStreaming ? 'Write your next message. It sends when this reply is done.' : t('chat.placeholder.agent')}
+                    fallback={askingHere
+                      ? 'Answer the questions above to go on.'
+                      : isStreaming ? 'Add something while it works…' : t('chat.placeholder.agent')}
                   />
                 </div>
               )}
             </div>
-            <div className="flex h-11 shrink-0 items-center gap-1">
+          </div>
+          {/* Stable controls: focusing, sending and finishing a reply must not
+              move the composer, mascot or transcript. The left group gives way
+              (the model name truncates); the right group never does. */}
+          <div className="flex items-center justify-between gap-2 px-2.5 pt-1 pb-2.5">
+            <div className="flex min-w-0 items-center gap-1">
+              <FileAttachButton onPathsSelected={(paths) => attachLater(pendingFromPaths(paths))} />
+              <ModelPill />
+              {/* ponytail: the "Shift+Enter for newline" hint is gone from this
+                  row. Invisible until typing, it still took ~140px, and with every
+                  button on one row it cut the model's name to "Claude S…". */}
+              <PermissionPill />
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <ContextRing />
               {!isStreaming && (
                 <button
                   type="button"
@@ -738,9 +786,13 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                   onPointerUp={clearMicHold}
                   onPointerLeave={clearMicHold}
                   aria-label={rec.state === 'recording' ? 'Stop recording' : 'Record voice message (hold to choose provider)'}
-                  className={cn('p-1.5 rounded-full hover:bg-bg-hover', rec.state === 'recording' ? 'text-error animate-pulse' : 'text-text-muted')}
+                  className={cn(
+                    'group flex h-8 items-center rounded-full border border-border-default bg-bg-hover px-2 transition-colors hover:bg-bg-active',
+                    rec.state === 'recording' ? 'text-error animate-pulse' : 'text-text-secondary hover:text-text-primary',
+                  )}
                 >
-                  {rec.state === 'recording' ? <Square size={16} /> : <Mic size={16} />}
+                  {rec.state === 'recording' ? <Square size={16} className="shrink-0" /> : <Mic size={16} className="shrink-0" />}
+                  <span className="composer-slide-label text-sm">{rec.state === 'recording' ? 'Stop' : 'Record'}</span>
                 </button>
               )}
               {!isStreaming && (
@@ -751,7 +803,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                   disabled={disabled}
                   aria-label={t('call.aria')}
                   title={t('call.title')}
-                  className="h-8 w-8 rounded-full text-text-muted hover:text-brand"
+                  className="h-8 w-8 rounded-full border border-border-default bg-bg-hover text-text-secondary hover:bg-bg-active hover:text-brand"
                 >
                   <Phone size={16} />
                 </Button>
@@ -770,7 +822,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                 <Button
                   size="icon"
                   onClick={() => void trySend()}
-                  disabled={(!text.trim() && attachedFiles.length === 0 && rec.state !== 'preview') || disabled}
+                  disabled={(!text.trim() && attachedFiles.length === 0 && rec.state !== 'preview') || attachedFiles.some((f) => f.loading) || disabled}
                   aria-label="Send"
                   className="h-8 w-8 rounded-full"
                 >
@@ -779,39 +831,6 @@ function ChatInput({ isEmpty, sendFn }, ref) {
               )}
             </div>
           </div>
-          {/* The second row slides out when the composer is in use. It stays
-              mounted when collapsed, only clipped: the model menu opens in a
-              portal, and unmounting its trigger while it is open would strand
-              the menu with nothing to anchor to. */}
-          <motion.div
-            initial={false}
-            animate={expanded ? { height: 'auto', opacity: 1 } : { height: 0, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 260, damping: 30 }}
-            className="overflow-hidden"
-            aria-hidden={!expanded}
-            {...(!expanded ? { inert: true } : {})}
-          >
-            {/* The left group gives way (the model name truncates); the right
-                group never does. */}
-            <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
-              <div className="flex min-w-0 items-center gap-1">
-                <ModelPill />
-                <PermissionPill />
-                <span
-                  className={cn(
-                    'hidden truncate text-2xs text-text-muted transition-opacity duration-150 sm:inline',
-                    text.length > 0 ? 'opacity-100' : 'opacity-0',
-                  )}
-                  aria-hidden={text.length === 0}
-                >
-                  Shift+Enter for newline
-                </span>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <ContextRing />
-              </div>
-            </div>
-          </motion.div>
         </div>
       </div>
       <VoiceProviderCard open={providerCardOpen} onOpenChange={setProviderCardOpen} />

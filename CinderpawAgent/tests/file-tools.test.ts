@@ -6,7 +6,8 @@
  * structured result.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -156,6 +157,25 @@ describe("read_file states the line count instead of leaving it to be guessed", 
       // The note beside it carries the facts a text-only model still gets.
       expect(r.content).toContain("image/png");
       expect(r.content).not.toContain("1\t");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("says a video is binary and how to look at it, instead of returning raw bytes", async () => {
+    // 27 Oct: an attached MP4 came back as 64 KB of bytes with line numbers.
+    const f = join(tmp, "news.mp4");
+    writeFileSync(f, Buffer.concat([Buffer.from([0, 0, 0, 0x20]), Buffer.from("ftypisom"), Buffer.alloc(4000)]));
+    const utf16 = join(tmp, "out.txt");
+    writeFileSync(utf16, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("hi\r\n", "utf16le")]));
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const r = await createReadFileTool([tmp]).execute({ path: f }, ctx);
+      expect(r).toMatchObject({ ok: false, error: "binary_file" });
+      expect(r.content).toContain("ffmpeg");
+      expect(r.content).not.toContain("ftyp");
+      // UTF-16 text has NULs too, but it is text: still read.
+      expect((await createReadFileTool([tmp]).execute({ path: utf16 }, ctx)).ok).toBe(true);
     } finally {
       cleanup();
     }
@@ -331,6 +351,21 @@ describe("file_search", () => {
       const names = data.results.map((r) => r.path.split(/[\\/]/).pop());
       expect(names.sort()).toEqual(["index.ts", "list.ts", "loop.ts", "registry.ts"]);
     } finally { cleanup(); }
+  });
+
+  it("opens only the files it found, never every file on the way", async () => {
+    // 31 Oct: a stat on every entry under the home folder opened OneDrive's
+    // "Personal Vault.lnk", and Windows asked Darius for his security key.
+    writeFileSync(join(tmp, "Personal Vault.lnk"), "shortcut");
+    const tool = createFileSearchTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    const stat = spyOn(fs, "statSync");
+    try {
+      const result = await tool.execute({ pattern: "**/registry.ts", path: tmp }, ctx);
+      expect(result.ok).toBe(true);
+      const opened = stat.mock.calls.map((c) => String(c[0]).split(/[\\/]/).pop());
+      expect(opened).toEqual(["registry.ts"]);
+    } finally { stat.mockRestore(); cleanup(); }
   });
 
   it("stops with 'cancelled' when the call's signal aborts", async () => {

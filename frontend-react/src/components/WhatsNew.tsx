@@ -82,6 +82,20 @@ export function WhatsNew() {
   // First in the notice queue: the Alpha card and the rest wait until it is closed.
   const turn = useAttentionTurn('whatsNew', due !== false);
 
+  // Whoever meets the setup wizard meets this release there. The read below
+  // could not be the only judge: on a slow first launch (2.5 min, smoke test
+  // 7 Nov) it gave up after 3 s unrecorded, and the second launch showed a new
+  // user October's changes.
+  useEffect(() => {
+    const seenHere = (wizard: boolean) => {
+      if (!wizard) return;
+      writeLocal(SEEN_KEY, RELEASE.id);
+      useWhatsNew.setState({ due: false });
+    };
+    seenHere(useOnboarding.getState().active);
+    return useOnboarding.subscribe((s) => seenHere(s.active));
+  }, []);
+
   useEffect(() => {
     if (due !== null) return;
     let alive = true;

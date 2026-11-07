@@ -253,11 +253,16 @@ export interface ConnectorView {
   liveError?: string;      // why not, beside live:false
 }
 export interface WhatsappQr {
-  qr: string;     // raw pairing payload
+  qr: string;     // raw pairing payload; empty when `code` is set
   ascii: string;  // terminal-style QR art (does not scan reliably on screen)
   svg: string | null; // the scannable picture; null from an older engine
+  /** The 8-character code to type on the phone when a number to link was given (no QR then). */
+  code?: string | null;
   ts: number;     // Unix ms when the sidecar wrote this code (rotates ~20s)
 }
+
+/** A WhatsApp link code the way the phone shows it: "ABCD-1234". */
+export const linkCodeShown = (code: string) => (code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code);
 
 // HF types — field names match Rust snake_case serialization exactly
 export interface HfModelSummary {
@@ -596,7 +601,7 @@ export interface CodePatchResolvedPayload {
 export interface VoiceMeta { audio_path: string; duration_ms: number; transcript: string; peaks: number[] }
 /** Mirrors `conversations::ScratchStats` — churn in the agent's own workspace. */
 export interface ScratchStats        { edits: number; added: number; removed: number }
-export interface PersistedMessage    { role: string; content: string; thinking?: string; thinking_ms?: number | null; voice?: VoiceMeta | null; scratch?: ScratchStats | null; tools?: unknown; created_at?: number | null; ended?: unknown; memory_used?: unknown }
+export interface PersistedMessage    { role: string; content: string; thinking?: string; thinking_ms?: number | null; voice?: VoiceMeta | null; scratch?: ScratchStats | null; tools?: unknown; created_at?: number | null; ended?: unknown; memory_used?: unknown; context_lanes?: unknown }
 export interface ConversationSummary {
   id: string; title: string; updated_at: string;
   /** Set when this conversation belongs to an agent (Agents tab); null for chat. */
@@ -764,13 +769,17 @@ export type CinderpawAgentEvent =
       detail?: string;
     }
   | { type: 'model_error'; message: string }
+  // Steering: what the person typed mid-turn reached the model (`id` = the reply).
+  | { type: 'steer_applied'; sessionId: string; id: string; texts: string[] }
+  // false = nothing was running any more: send `text` as an ordinary message.
+  | { type: 'steer_ack'; sessionId: string; accepted: boolean; text: string }
   | { type: 'pong' }
   | { type: 'error';       id?: string; message: string }
   | { type: 'ask_user';    id: string; sessionId: string; questions: import('@/stores/askUser').AskUserQuestion[] }
   | { type: 'ask_user_cancelled'; id: string; sessionId: string; reason: string }
   | { type: 'spawning'; id: string; count: number }
   // Real token usage per completion — drives the live context ring in agent mode.
-  | { type: 'usage'; id: string; sessionId: string; promptTokens: number; completionTokens: number }
+  | { type: 'usage'; id: string; sessionId: string; promptTokens: number; completionTokens: number; lanes?: { label: string; tokens: number }[] }
   // The memories the agent was given for this turn (Memory Peek).
   | { type: 'memory_used'; id: string; sessionId: string; items: import('@/stores/chat').MemoryUsedItem[] }
   // The artifact store. `artifact` is unprompted — it fires whenever anything
@@ -803,7 +812,7 @@ export type CinderpawAgentEvent =
   // X3: scheduled-job results and failures, surfaced as toasts.
   | { type: 'cron_fired'; jobId: string; jobName: string; sessionId: string; content: string }
   // Every scheduled task, answering `cinderpawCronOp`, after the change it made.
-  | { type: 'cron_list_result'; id: string; ok: boolean; error?: string; jobs: ScheduledTask[]; taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number } }
+  | { type: 'cron_list_result'; id: string; ok: boolean; error?: string; jobs: ScheduledTask[]; taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number }; phone?: { via: string | null; tested: boolean } }
   | { type: 'cron_error'; jobId: string; jobName: string; message: string }
   // Agent Cowork (S3.5): one agent-to-agent occurrence, rendered as an
   // activity bubble on the mascot strip. `title` is the human-readable
@@ -955,6 +964,16 @@ const raw = {
   byokHasKey:            (providerId: string) => invoke<boolean>('byok_has_key', { providerId }),
   /** One-button OpenRouter sign-in (OAuth in the system browser). Resolves with the model it set. */
   openrouterSignIn:      () => invoke<string>('openrouter_sign_in'),
+  /** OpenAI Subscription: who is signed in with ChatGPT, or null. */
+  chatgptAccount:        () => invoke<{ email: string | null; name: string | null } | null>('chatgpt_account'),
+  /** Sign in with ChatGPT in the browser; resolves with the model it picked. */
+  chatgptSignIn:         () => invoke<string>('chatgpt_sign_in'),
+  /** The models the signed-in ChatGPT account may use. */
+  chatgptModels:         () => invoke<{ id: string; name: string | null }[]>('chatgpt_models'),
+  /** Every chat model a connected provider offers (ChatGPT plan included), for the model picker. */
+  providerModels:        (providerId: string) => invoke<{ id: string; name: string | null }[]>('provider_models', { providerId }),
+  /** Sign out of ChatGPT here and at OpenAI; rejects when OpenAI could not confirm. */
+  chatgptSignOut:        () => invoke<void>('chatgpt_sign_out'),
   /** Appearance -> Background: solid (true) or glass (false). Applied to the open window at once. */
   setWindowSolid:        (solid: boolean) => invoke<void>('set_window_solid', { solid }),
   /** Files the app was launched with (Send to > Cinderpaw), handed over once. */
@@ -972,6 +991,8 @@ const raw = {
   testByokProvider:      (providerId: string, apiKey: string, baseUrl?: string | null) =>
     invoke<object>('test_byok_provider', { providerId, apiKey, baseUrl }),
   readFileAsText:        (path: string) => invoke<string>('read_file_as_text', { path }),
+  /** Open a file on disk, or show it in its folder (`reveal`). Programs are only ever shown. */
+  openLocalFile:         (path: string, reveal: boolean) => invoke<void>('open_local_file', { path, reveal }),
   listInstalledSkills:      () => invoke<SkillMeta[]>('list_installed_skills'),
   getInstalledSkillContent: (id: string) => invoke<string>('get_installed_skill_content', { id }),
   fetchRemoteSkills:        () => invoke<SkillMeta[]>('fetch_remote_skills'),
@@ -1002,8 +1023,12 @@ const raw = {
     model: string,
     providerId?: string | null,
     baseUrl?: string | null,
-  ) => invoke<void>('cinderpaw_set_model', { source, model, providerId, baseUrl }),
+    // Automatic: the brain may answer from any of the person's models.
+    automatic?: boolean,
+  ) => invoke<void>('cinderpaw_set_model', { source, model, providerId, baseUrl, automatic: automatic ?? null }),
   cinderpawGetModelConfig:      () => invoke<CinderpawModelConfigView | null>('cinderpaw_get_model_config'),
+  // A message typed while the turn runs: it joins that turn at its next step.
+  cinderpawSteer:               (sessionId: string, content: string) => invoke<void>('cinderpaw_steer', { sessionId, content }),
   mcpCatalog:               () => invoke<McpCatalogEntry[]>('mcp_catalog'),
   mcpList:                  () => invoke<McpServerView[]>('mcp_list'),
   mcpInstall:               (id: string, values: Record<string, string>) =>
@@ -1146,7 +1171,7 @@ const raw = {
   cinderpawCoworkHistory: (threadId?: string | null) =>
     invoke<void>('cinderpaw_cowork_history', { threadId: threadId ?? null }),
   /** Scheduled tasks: list, add, remove, toggle. Answered by a `cron_list_result` event. */
-  cinderpawCronOp: (requestId: string, action: 'list' | 'followups' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit', opts: {
+  cinderpawCronOp: (requestId: string, action: 'list' | 'followups' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit' | 'test_notify', opts: {
     jobId?: string; name?: string; task?: string; schedule?: TaskSchedule; kind?: 'agent' | 'reminder' | 'watch'; sessionId?: string; enabled?: boolean; watch?: ScheduledTask['watch']; expiryDays?: number;
     /** 'limit' only: the weekly limit for all scheduled tasks, or null for none. */
     weeklyLimitUsd?: number | null;

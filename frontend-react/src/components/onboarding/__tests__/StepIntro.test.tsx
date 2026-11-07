@@ -28,13 +28,11 @@ describe('StepIntro', () => {
   });
 });
 
-// Steps that render with the light mocks above. Provider (2) and Connect (3)
-// are pinned in their own test files, which already carry the mocks they need.
+// Cards that render with the light mocks above. Provider (1) is pinned in its
+// own test file, which already carries the mocks it needs.
 describe.each([
   [0, 'onboarding.welcome'],
-  [1, 'onboarding.names'],
-  [4, 'onboarding.workspace'],
-  [5, 'onboarding.done'],
+  [2, 'onboarding.done'],
 ] as const)('step %i', (step, line) => {
   it(`asks for ${line}`, () => {
     useOnboarding.setState({ active: true, step, userName: 'Ana', agentName: 'Cinderpaw' });

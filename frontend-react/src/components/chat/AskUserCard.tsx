@@ -38,6 +38,7 @@ import { cn } from '@/lib/utils';
 import { tauri } from '@/lib/tauri';
 import type { AskUserAnswer, AskUserOption, AskUserQuestion } from '@/stores/askUser';
 import { GooeyCard } from './GooeyCard';
+import { PhoneField } from './PhoneField';
 
 interface AskUserCardProps {
   requestId: string;
@@ -275,7 +276,7 @@ function QuestionBlock({
     // an answer the person never chose (17 Sep); the arrows moved focus instead
     // of the caret for the same reason.
     const target = e.target as HTMLElement;
-    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return;
     if (e.key === 'Enter' && question.multiSelect) {
       e.preventDefault();
       handleSubmitMulti();
@@ -360,6 +361,7 @@ function QuestionBlock({
       {/* Pending: render options */}
       {!disabled && !question.secret && (
         <div className="space-y-1.5">
+          {question.input === 'phone' && <PhoneField initial={question.value} onSubmit={onAnswerSingle} />}
           {question.options.map((opt, i) => {
             // For single-select, the visual highlight is driven by the
             // parent (so the user sees their pick even before the card
@@ -418,7 +420,7 @@ function QuestionBlock({
           })}
 
           {/* "Other" — implicit 5th option. Opens a text input. */}
-          {!question.multiSelect && (
+          {!question.multiSelect && !question.input && (
             <OtherInput
               open={otherOpen}
               value={otherText}

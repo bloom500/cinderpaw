@@ -44,14 +44,14 @@ describe('the rebrand palette', () => {
   const light = themeTokens('light');
   const dark = themeTokens('dark');
 
-  test('the grounds are Paper and Charcoal', () => {
-    expect(light['--bg-primary']).toBe('#F6EFE6');
-    expect(dark['--bg-primary']).toBe('#2F2A26');
+  test('the grounds are Ivory and Espresso', () => {
+    expect(light['--bg-primary']).toBe('#F7F1E8');
+    expect(dark['--bg-primary']).toBe('#1B1410');
   });
 
   test('one button colour with white text, in both themes', () => {
     for (const t of [light, dark]) {
-      expect(t['--brand']).toBe('#B15129');
+      expect(t['--brand']).toBe('#D2410F');
       expect(t['--brand-foreground']).toBe('#FFFFFF');
     }
   });
@@ -62,8 +62,8 @@ describe('the rebrand palette', () => {
     // measured it at 4.46:1 over a white wallpaper in Glass mode.
     expect(dark['--brand-text']).toBe('#FF934C');
     // The bubble is the palette's `active` colour, in both themes.
-    expect(light['--bubble-user']).toBe('#F2DDCC');
-    expect(dark['--bubble-user']).toBe('#4A3528');
+    expect(light['--bubble-user']).toBe('#ECE2D3');
+    expect(dark['--bubble-user']).toBe('#2C2119');
   });
 
   test('the shared Button writes in the button colour\'s white, not in the ground', () => {
@@ -112,7 +112,7 @@ describe('the first paint uses the same grounds', () => {
     expect(HTML).toContain(`html { background-color: ${dark}; }`);
     expect(HTML).toContain(`html[data-theme="light"] { background-color: ${light}; }`);
     // No ground from the old palette survives in the first paint.
-    expect(HTML).not.toMatch(/#1C1814|#FAF6F0/i);
+    expect(HTML).not.toMatch(/#1C1814|#FAF6F0|#F6EFE6/i);
   });
 });
 

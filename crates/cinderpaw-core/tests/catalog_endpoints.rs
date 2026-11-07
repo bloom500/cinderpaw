@@ -166,13 +166,16 @@ async fn connectors_catalog_body_contains_expected_ids() {
         );
     }
     // Slack has two token fields; Discord + Telegram have one; WhatsApp has
-    // zero (QR pairing). Verify against the canonical definition so a
+    // one optional, non-secret field: the number that gets a code to type
+    // instead of a QR (31 Oct). Verify against the canonical definition so a
     // future field add (or a typo fix) changes both sides at once.
     let slack = entries.iter().find(|e| e.id == "slack").expect("slack");
     assert_eq!(slack.pairing_fields.len(), 2);
     assert_eq!(slack.pairing_method, PairingMethod::BotToken);
     let wa = entries.iter().find(|e| e.id == "whatsapp").expect("whatsapp");
-    assert_eq!(wa.pairing_fields.len(), 0);
+    assert_eq!(wa.pairing_fields.len(), 1);
+    assert_eq!(wa.pairing_fields[0].key, "WHATSAPP_LINK_NUMBER");
+    assert!(!wa.pairing_fields[0].secret);
     assert_eq!(wa.pairing_method, PairingMethod::Qr);
 }
 
@@ -622,21 +625,22 @@ async fn connectors_decision_d_rich_fields_present() {
                 assert!(entry.free_tier_note.is_none(), "whatsapp has no free_tier_note");
                 assert!(entry.validate_endpoint.is_none(), "whatsapp has no validate_endpoint (QR)");
                 // The WhatsApp library is GPL-3.0 and cannot ship inside a
-                // BUSL binary, so the default executable does not carry it and
-                // the user installs it once themselves. Until they do, turning
-                // WhatsApp on produces no QR at all. The card has to say that
-                // BEFORE they turn it on, the same way googlechat says it needs
-                // a public address before anyone pastes a token — otherwise the
-                // only explanation for the silence is an env var nobody has
-                // heard of.
+                // BUSL binary, so the default executable does not carry it:
+                // it is downloaded once, when the person asks Cinderpaw in the
+                // chat to connect WhatsApp (whatsapp-install.ts). Until then,
+                // turning WhatsApp on produces no QR at all. The card has to say
+                // that BEFORE they turn it on, the same way googlechat says it
+                // needs a public address before anyone pastes a token —
+                // otherwise the only explanation for the silence is an env var
+                // nobody has heard of.
                 let described = entry.description.to_lowercase();
                 assert!(
-                    described.contains("install"),
-                    "whatsapp needs a one-time library install the user does; a card promising only the QR scan is a promise the default build cannot keep"
+                    described.contains("download"),
+                    "whatsapp needs a one-time download; a card promising only the QR scan is a promise the default build cannot keep"
                 );
                 assert!(
-                    described.contains("readme"),
-                    "saying an install is needed without saying WHERE the steps are just moves the dead end later"
+                    described.contains("ask cinderpaw"),
+                    "saying a download is needed without saying HOW to get it just moves the dead end later"
                 );
             }
             "telegram" => {
@@ -1033,10 +1037,10 @@ async fn connectors_decision_d_rich_fields_present() {
     }
 }
 
-/// Verify that connectors with `pairing_method: "qr"` have zero
-/// pairing_fields (the fields are scanned, not typed).
+/// Verify that connectors with `pairing_method: "qr"` ask for no secret: the
+/// phone is the credential. A plain field (WhatsApp's number to link) is fine.
 #[tokio::test]
-async fn connectors_qr_pairing_has_no_fields() {
+async fn connectors_qr_pairing_has_no_secret_fields() {
     let app = catalog_router();
     let resp = app
         .oneshot(
@@ -1053,10 +1057,9 @@ async fn connectors_qr_pairing_has_no_fields() {
     for entry in &entries {
         if entry.pairing_method == PairingMethod::Qr {
             assert!(
-                entry.pairing_fields.is_empty(),
-                "QR connector {} must have empty pairing_fields, got {}",
-                entry.id,
-                entry.pairing_fields.len()
+                entry.pairing_fields.iter().all(|f| !f.secret),
+                "QR connector {} must not ask for a secret",
+                entry.id
             );
         }
     }

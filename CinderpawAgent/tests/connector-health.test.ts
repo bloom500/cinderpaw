@@ -11,6 +11,7 @@ import { afterAll, beforeEach, expect, test } from "bun:test";
 import { existsSync, readFileSync, unlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { ConnectorManager, configPath, connectorHealthPath } from "../src/transports/connectors.ts";
+import { registerTransport, transportFor, type ConnectorContext } from "../src/transports/registry.ts";
 
 const cfg = configPath();
 const health = connectorHealthPath();
@@ -64,6 +65,32 @@ test("a connector that cannot start is published as NOT live, with the reason", 
   // are trying to stop making people read.
   expect(h.connectors.discord!.error!.length).toBeGreaterThan(0);
   expect(h.updatedAt).toBeGreaterThan(0);
+}, 30_000);
+
+test("a connector whose health changes after start is published again", async () => {
+  // WhatsApp links while it runs: the file kept the start-time "not linked",
+  // and the agent told Darius his freshly linked phone was not there (1 Nov).
+  const real = transportFor("irc")!;
+  let ctx: ConnectorContext | null = null;
+  let live = false;
+  registerTransport("irc", () => ({
+    async start(c) { ctx = c; },
+    async stop() {},
+    async send() {},
+    health: () => ({ live }),
+  }));
+  try {
+    writeFileSync(cfg, JSON.stringify({ connectors: [{ id: "irc", enabled: true, secrets: {}, allowlist: [], channels: [] }] }), "utf8");
+    await new ConnectorManager(agent, () => {}).reload();
+    expect(readHealth().connectors.irc!.live).toBe(false);
+
+    live = true;
+    (ctx as ConnectorContext | null)!.onHealth!();
+    await Bun.sleep(50);
+    expect(readHealth().connectors.irc!.live).toBe(true);
+  } finally {
+    registerTransport("irc", real);
+  }
 }, 30_000);
 
 test("a connector switched off is absent, not reported as broken", async () => {

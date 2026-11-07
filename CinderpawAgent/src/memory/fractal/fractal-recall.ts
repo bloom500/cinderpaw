@@ -38,6 +38,7 @@ import type { Leaf, TreeNode } from "./types.ts";
 import type { EpisodicEvent } from "../../types.ts";
 import { readEnv } from "../../config.ts";
 import { isToolRow, type MemoryUsed } from "../recall.ts";
+import { localDay } from "../day.ts";
 
 /** Top-K semantic candidates from the tree before re-rank. */
 const DEFAULT_QUERY_TOPK = 20;
@@ -161,9 +162,9 @@ interface MergedHit {
   viaSummaryPath: string[];
 }
 
-/** Format a date stamp matching the existing engine (`YYYY-MM-DD`). */
+/** Format a date stamp matching the existing engine (`YYYY-MM-DD`, the user's own day). */
 export function dateStamp(ts: number): string {
-  return new Date(ts).toISOString().slice(0, 10);
+  return localDay(ts);
 }
 
 /** Truncate to `SNIPPET_MAX_CHARS`, matching the existing engine. */

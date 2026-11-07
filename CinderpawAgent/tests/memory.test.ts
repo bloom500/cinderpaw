@@ -488,6 +488,28 @@ describe("WorkingMemory.maybeCompress — context-window safety", () => {
     expect(note.indexOf("FACT-1")).toBeLessThan(note.indexOf("FACT-3"));
   });
 
+  // 1 Nov: "the agent forgot from one compaction to the next". Every carried
+  // summary shared a flat 1200-token cap, about one real summary, so the second
+  // compaction cut the middle out of the first. On a cloud budget all survive.
+  test("on a cloud budget, several full-size summaries all survive", async () => {
+    let n = 0;
+    const longSummary = async () => `FACT-${++n} ` + "fact ".repeat(1000);
+    const mem = new WorkingMemory("sys");
+    const fill = () => {
+      for (let i = 0; i < 30; i++) {
+        mem.addUser("q " + "word ".repeat(2000));
+        mem.addAssistant("a " + "word ".repeat(2000));
+      }
+    };
+    for (let pass = 0; pass < 3; pass++) {
+      fill();
+      await mem.maybeCompress(longSummary, 80_000);
+    }
+    const note = mem.turns[0]?.content ?? "";
+    expect(n).toBe(3);
+    for (const fact of ["FACT-1", "FACT-2", "FACT-3"]) expect(note).toContain(fact);
+  });
+
   test("the original request survives compaction as a pinned drawer", async () => {
     const mem = new WorkingMemory("sys");
     mem.addUser("migrate the billing service to Postgres");

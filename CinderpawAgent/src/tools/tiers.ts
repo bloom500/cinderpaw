@@ -99,6 +99,8 @@ export const EXTENDED_TOOLS = new Set<string>([
   "artifact_delete",
   "artifact_send",
   "artifact_download",
+  // Named by artifact_create for every page it makes: a drawer round trip.
+  "artifact_preview",
   // Read once per design, named by artifact_create: a drawer round trip.
   "design_guide",
   // Added 2026-08-26 and immediately drawered, by its own evidence: the boot
@@ -186,7 +188,8 @@ export const CONNECTOR_TOOLS = new Set<string>([
 // suggest_task puts a "Create task" card on the screen of whoever is chatting:
 // on a connector that is a stranger, and the task would run on this machine.
 // task_spending_limit is the owner's money.
-export const OWNER_ONLY_TOOLS = new Set<string>(["notebook", "extension_connect", "suggest_task", "task_spending_limit"]);
+// tasks_list reads the owner's own tasks and reminders.
+export const OWNER_ONLY_TOOLS = new Set<string>(["notebook", "extension_connect", "suggest_task", "task_spending_limit", "tasks_list"]);
 
 /** True when this tool must be withheld from any profiled (non-owner) session. */
 export const isOwnerOnlyTool = (name: string): boolean => OWNER_ONLY_TOOLS.has(name);

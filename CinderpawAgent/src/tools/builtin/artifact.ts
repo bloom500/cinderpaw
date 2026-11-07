@@ -58,6 +58,8 @@ import {
 } from "../../artifacts/pdf.ts";
 import { docxReplace, docxText, isDocx } from "../../artifacts/docx.ts";
 import { ArtifactExporter, EXPORT_FORMATS, artifactFile, isExportAs } from "../../artifacts/export.ts";
+import type { ArtifactPreviewServer } from "../../artifacts/preview.ts";
+import { openInBrowser } from "../../egress/mcp-oauth.ts";
 import { transportFor, type OutboundFile } from "../../transports/registry.ts";
 import {
   ensureWorkspace,
@@ -339,6 +341,11 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       const pdfNote = forPdf
         ? ` This IS the PDF that was asked for, and it is done: shown formatted in the panel, and the Download PDF button on its card saves it as a PDF of ${pages} page${pages === 1 ? "" : "s"} (counted from the file). Do not export or check it again; tell the person it is ready. To change it, edit this artifact.`
         : "";
+      // A page the agent has never seen is a page it cannot call done (3 Nov):
+      // it used to write a voxel scene once and stop, with no way to look at it.
+      const lookNote = a.kind === "app" || a.kind === "html"
+        ? " You have not seen it yet: call artifact_preview with this id, open the link with the browser tool and take a screenshot. Fix what looks wrong, or what the red error strip says, with artifact_edit, then reload and look again."
+        : "";
       const warning = blank.length > 0
         ? ` WARNING: these characters have no glyph in the bundled font and will be BLANK on the page: ${blank.slice(0, 20).join("")}. Tell the user, and offer a markdown or document artifact instead, which has no such limit.`
         : "";
@@ -346,7 +353,7 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
         ok: true,
         // The id is for later edits. Haiku read it out ("artifact id 541d8f5f-…")
         // together with how the tool counted pages (24 Oct): noise to a person.
-        content: `Created ${forPdf ? "the PDF" : a.kind} "${a.title}" — id ${a.id} (v1, ${a.bytes} bytes).${pdfNote}${warning}${checked?.note ?? ""} Its card is already in the chat: do not write the id, or how a tool reported it, in your reply.`,
+        content: `Created ${forPdf ? "the PDF" : a.kind} "${a.title}" — id ${a.id} (v1, ${a.bytes} bytes).${pdfNote}${lookNote}${warning}${checked?.note ?? ""} Its card is already in the chat: do not write the id, or how a tool reported it, in your reply.`,
         data: { id: a.id, kind: a.kind, title: a.title, version: a.version },
       };
     },
@@ -945,6 +952,64 @@ function humanSize(bytes: number): string {
  * sentence saying where the artifact is. Silence is the failure this product
  * has already shipped too often. No bytes leave in that case, so it does not ask.
  */
+/**
+ * Open a page artifact at a link on this computer, for the agent to look at
+ * and, when asked, in the person's own browser. The serving and its sandbox
+ * live in `artifacts/preview.ts`; nothing here leaves the machine.
+ */
+export function createArtifactPreviewTool(
+  deps: Pick<ArtifactToolDeps, "db" | "store"> & { preview: ArtifactPreviewServer },
+): Tool {
+  const manifest: ToolManifest = {
+    name: "artifact_preview",
+    description:
+      "Open an app or html artifact as a real web page, at a link that works only on " +
+      "this computer. Use it to LOOK at what you built: open the link with the browser " +
+      "tool and take a screenshot. Errors in the page show in a red strip at the top. " +
+      "Fix with artifact_edit, reload, look again. Pass show_person: true to also open " +
+      "it in the person's own browser, when they are at this computer.",
+    permissions: [],
+    networkAccess: false,
+  };
+  return {
+    manifest,
+    parameters: {
+      id: { type: "string", description: "The artifact id.", required: true },
+      show_person: {
+        type: "boolean",
+        description: "Also open it in the person's default browser.",
+        required: false,
+      },
+    },
+    async execute(args) {
+      const id = typeof args.id === "string" ? args.id.trim() : "";
+      if (!id) return { ok: false, error: "bad_args", content: "artifact_preview: 'id' is required." };
+      const a = artifactInScope(deps, id);
+      if (!a) return { ok: false, error: "not_found", content: `No artifact with id ${id}.` };
+      let url: string;
+      try {
+        url = await deps.preview.url(a);
+      } catch (err) {
+        return { ok: false, error: "not_previewable", content: `artifact_preview: ${String((err as Error).message ?? err)}` };
+      }
+      if (args.show_person === true) openInBrowser(url);
+      // Two links: the page alone for the agent, where a snapshot reaches the
+      // page's own buttons (inside our frame it saw only ours), and the framed
+      // page for the person.
+      const own = `${url}/app`;
+      return {
+        ok: true,
+        content:
+          `Open ${own} with the browser tool: it is the page alone, so a snapshot shows its own buttons and you can click them to test it; ` +
+          `errors show in a red strip at the top. ` +
+          `The link for the person, with Cinderpaw's frame around it: ${url}${args.show_person === true ? " (opened in their browser)" : ""}. ` +
+          "Both always show the current version, so reload after an edit. They stop working when Cinderpaw restarts.",
+        data: { id, url, own, title: a.title },
+      };
+    },
+  };
+}
+
 export function createArtifactSendTool(deps: { db: Database; store: ArtifactStore; delivery: FileDelivery }): Tool {
   const manifest: ToolManifest = {
     name: "artifact_send",

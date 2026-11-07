@@ -185,7 +185,8 @@ describe('useSettings', () => {
     it('points the agent at it, so the first message does not go to an empty local engine', async () => {
       useCinderpawStore.setState({ modelConfig: LOCAL });
       await save();
-      expect(mockSetAgentModel).toHaveBeenCalledWith('byok', 'inclusionai/ling-3.1-flash', 'openrouter', null);
+      // The last true: Automatic is on by default, and the engine is told so.
+      expect(mockSetAgentModel).toHaveBeenCalledWith('byok', 'inclusionai/ling-3.1-flash', 'openrouter', null, true);
     });
 
     it('leaves a model the person already chose alone', async () => {
@@ -224,7 +225,7 @@ describe('useSettings', () => {
 
       it('moves the agent when it was mirroring the old default, so Primary shows the new one', async () => {
         await change(OLD);
-        expect(mockSetAgentModel).toHaveBeenCalledWith('byok', NEW, 'openrouter', null);
+        expect(mockSetAgentModel).toHaveBeenCalledWith('byok', NEW, 'openrouter', null, true);
       });
 
       it('leaves an agent on a model the person picked by hand', async () => {

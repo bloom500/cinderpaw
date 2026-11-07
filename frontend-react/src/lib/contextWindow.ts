@@ -1,4 +1,5 @@
 import { cachedLimitFor } from '@/lib/modelCatalog';
+import { isChatgptRoute } from '@/lib/localApi';
 
 /**
  * Last-resort context windows, used only when the published catalog
@@ -50,9 +51,13 @@ export function contextWindowFor(model: string | undefined, isLocal: boolean): n
  * BYOK providers (MiniMax, NVIDIA NIM, …) are wired through the
  * `openai_compatible` provider with a cloud base URL, so keying "local" off the
  * provider name classified every one of them as local.
+ *
+ * A ChatGPT plan is on loopback too (`/chatgpt` on the local API holds its
+ * token) but answers from OpenAI: called local, it got the Temperature slider
+ * and never Effort (1 Nov).
  */
 export function isLocalBaseUrl(baseUrl: string | undefined): boolean {
-  if (!baseUrl) return false;
+  if (!baseUrl || isChatgptRoute(baseUrl)) return false;
   try {
     const h = new URL(baseUrl).hostname.toLowerCase();
     return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]';

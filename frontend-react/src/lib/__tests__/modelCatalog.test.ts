@@ -51,6 +51,15 @@ describe('lookupLimit', () => {
     expect(lookupLimit(limits, 'some-model-nobody-published')).toBeNull();
     expect(lookupLimit(limits, '')).toBeNull();
   });
+
+  // Answers are remembered per catalog (1 Nov, speed); a refreshed catalog is a
+  // new object and must answer afresh, not repeat yesterday's "not found".
+  it('answers again from a refreshed catalog', () => {
+    expect(lookupLimit(limits, 'gpt-6.1-sol')).toBeNull();
+    expect(lookupLimit(limits, 'gpt-6.1-sol')).toBeNull();
+    const refreshed = parseCatalog({ data: [...payload.data, { id: 'openai/gpt-6.1-sol', context_length: 400000 }] });
+    expect(lookupLimit(refreshed, 'gpt-6.1-sol')).toBe(400000);
+  });
 });
 
 describe('modelLabel', () => {

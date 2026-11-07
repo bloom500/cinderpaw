@@ -142,6 +142,24 @@ describe('when the call ends', () => {
     expect(open.live?.writing).toBeUndefined();
   });
 
+  // His report, 31 Oct: the writing stopped mid-line and the rest came at once,
+  // when the PDF's pages took the place of the letters still arriving.
+  it('a PDF waits for the letters still arriving, then shows its pages', async () => {
+    vi.useFakeTimers();
+    try {
+      draft('# Menu\n\nCoffee, tea and a long list of cakes still being written.', { title: 'Menu' });
+      useArtifacts.getState().endDraft('turn-1', { artifactId: 'art-1' });
+      await Promise.resolve();
+      const pdf = { ...saved, kind: 'pdf', title: 'Menu.pdf' };
+      useArtifacts.getState().onResult({ id: idOf('get'), ok: true, items: [pdf], content: 'JVBERi0=', encoding: 'base64' });
+      expect(useArtifacts.getState().open?.row.version).toBe(0);
+      vi.advanceTimersByTime(10_000);
+      expect(useArtifacts.getState().open?.row).toMatchObject({ id: 'art-1', kind: 'pdf' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('brings in the whole text at once when none of it could be shown while written', async () => {
     draft('');
     useArtifacts.getState().endDraft('turn-1', { artifactId: 'art-1' });

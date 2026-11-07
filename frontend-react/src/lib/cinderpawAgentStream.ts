@@ -36,7 +36,9 @@ export interface CinderpawStreamHandlers {
   onStopped?: () => void;
   onToolStart?: (callId: string, tool: string, args: Record<string, unknown>) => void;
   onToolDone?: (callId: string, tool: string, result: unknown) => void;
-  onUsage?: (promptTokens: number, completionTokens: number) => void;
+  /** What the person added mid-turn reached the model (steering). */
+  onSteer?: (texts: string[]) => void;
+  onUsage?: (promptTokens: number, completionTokens: number, lanes?: { label: string; tokens: number }[]) => void;
   /** The memories the agent was given for this turn (`memory_used`). */
   onMemoryUsed?: (items: MemoryUsedItem[]) => void;
   onAskUser?: (
@@ -76,6 +78,17 @@ const liveBefore = new Map<string, Promise<boolean>>();
  * (connectors_manage) only once the engine reports it online, and WhatsApp
  * gets minutes, because a phone has to scan the code first.
  */
+/** What `set_appearance` checked and handed back; only known values are applied. */
+export function applyAppearance(result: unknown): void {
+  // `data.appearance` exists only on success: the tool's refusals carry no data.
+  const a = (result as { data?: { appearance?: { theme?: unknown; chatTextSize?: unknown } } } | null);
+  if (!a?.data?.appearance) return;
+  const { theme, chatTextSize } = a.data.appearance;
+  const ui = useUI.getState();
+  if (theme === 'light' || theme === 'dark' || theme === 'system') ui.setTheme(theme);
+  if (chatTextSize === 'small' || chatTextSize === 'default' || chatTextSize === 'large' || chatTextSize === 'larger') ui.setChatTextSize(chatTextSize);
+}
+
 function announceFromChat(tool: string, callId: string, result: unknown): void {
   const r = result as { ok?: boolean; data?: Record<string, unknown> } | undefined;
   const data = r?.data;
@@ -162,6 +175,10 @@ _${parsed.diagnostic}_`
           inflight.clear();
         }
         break;
+      case 'steer_applied':
+        // Here, with the reply's own handlers: they know where its text stands.
+        if (parsed.id) inflight.get(parsed.id)?.onSteer?.(parsed.texts);
+        break;
       case 'tool_start':
         if (parsed.id) inflight.get(parsed.id)?.onToolStart?.(parsed.callId, parsed.tool, parsed.args ?? {});
         // Was this chat app already online before the agent touched it? Then a
@@ -186,6 +203,8 @@ _${parsed.diagnostic}_`
         if (parsed.tool === 'suggest_skill') useUI.getState().setSkillTip(true);
         // "Something you should know": the card rides the tool's data.
         if (parsed.tool === 'heads_up' && parsed.sessionId) useHeadsUp.getState().show(parsed.sessionId, parsed.result);
+        // "Make it dark": the tool checked the words, the app does the change.
+        if (parsed.tool === 'set_appearance') applyAppearance(parsed.result);
         announceFromChat(parsed.tool, parsed.callId, parsed.result);
         useCoworkTranscript.getState().ingestTool({
           sessionId: parsed.sessionId,
@@ -194,7 +213,7 @@ _${parsed.diagnostic}_`
         });
         break;
       case 'usage':
-        if (parsed.id) inflight.get(parsed.id)?.onUsage?.(parsed.promptTokens, parsed.completionTokens);
+        if (parsed.id) inflight.get(parsed.id)?.onUsage?.(parsed.promptTokens, parsed.completionTokens, parsed.lanes);
         break;
       case 'memory_used':
         if (parsed.id && Array.isArray(parsed.items)) inflight.get(parsed.id)?.onMemoryUsed?.(parsed.items);

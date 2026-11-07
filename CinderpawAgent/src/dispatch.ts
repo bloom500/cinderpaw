@@ -56,6 +56,7 @@ import { docxPreviewHtml, isDocx } from "./artifacts/docx.ts";
 import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { describeScope } from "./memory/fractal/bench/runner.ts";
 import { routerInfer } from "./memory/fractal/summarize.ts";
+import { runBareTurn } from "./core/bare-turn.ts";
 import { parseResponse } from "./core/agent-loop.ts";
 import { BrainStack } from "./brain/brain-stack.ts";
 import { rebuildDerivedBrain } from "./brain/brain-config.ts";
@@ -241,7 +242,7 @@ export function memoryNotesReply(
 
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
-    db, audit, router, localFallbackTarget, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents, artifacts, artifactExporter,
+    db, audit, router, localFallbackTarget, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents, artifacts, artifactExporter, artifactPreview,
     runHooks,
     brainDerived, brainBreaker,
     memoryGraph, semantic, notesStore, reflector,
@@ -1779,23 +1780,39 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             ? undefined
             : (cloudFallback ??
                (msg.localFallbackAvailable === false ? undefined : localFallbackTarget));
-          router.reconfigure(primary, fallback);
+          // Automatic (the model menu's "Let Cinderpaw choose"): the host sends
+          // every other model the person has, and the brain picks one per turn.
+          // The local engine joins when it has a model resident. Empty = the
+          // person picked one model, and only it (and its fallback) answers.
+          const toTarget = (c: { provider?: unknown; model?: unknown; baseUrl?: unknown; apiKey?: unknown }): ModelTarget | null =>
+            typeof c?.provider === "string" && typeof c.model === "string" && typeof c.baseUrl === "string"
+              ? { provider: c.provider, model: c.model, baseUrl: c.baseUrl, apiKey: typeof c.apiKey === "string" ? c.apiKey : undefined }
+              : null;
+          const automatic = Array.isArray(msg.candidates);
+          const candidates: ModelTarget[] = automatic
+            ? msg.candidates!.map(toTarget).filter((t): t is ModelTarget => t !== null)
+            : [];
+          if (automatic && msg.localFallbackAvailable !== false && localFallbackTarget && !isLoopbackUrl(baseUrl)) {
+            candidates.push(localFallbackTarget);
+          }
+          const extra = router.reconfigure(primary, fallback, undefined, candidates);
           // The router now trusts only the new targets. A brain still holding
           // the old ones would route the next turn to an endpoint the router
           // refuses — which is how a model switch used to end every turn with
           // "refusing to contact untrusted inference endpoint", naming the
           // provider the user had just left. Refusing was right; routing there
           // at all was the fault.
-          const nextBrain = rebuildDerivedBrain(brainDerived, primary, fallback);
+          const nextBrain = rebuildDerivedBrain(brainDerived, primary, fallback, extra);
           if (nextBrain) agent.setBrain(new BrainStack(nextBrain, brainBreaker, log));
           // Local models forward their active context window so the agent loop
           // compacts to the real KV-cache size (Hardware can raise it well past
           // the old 8192); cloud models send none and use the cloud budget.
           router.setContextWindow(msg.contextWindow);
-          transport.send({ type: "model_set", provider, model });
+          transport.send({ type: "model_set", provider, model, automatic, choices: extra.length + 1 });
           log(
             `model hot-swapped → ${provider}/${model} @ ${baseUrl}` +
-              (fallback ? ` (fallback → ${fallback.baseUrl})` : ""),
+              (fallback ? ` (fallback → ${fallback.baseUrl})` : "") +
+              (automatic ? ` (automatic over ${extra.length + 1} models)` : ""),
           );
         } catch (err) {
           transport.send({
@@ -1803,6 +1820,14 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             message: err instanceof Error ? err.message : String(err),
           });
         }
+        break;
+      }
+
+      // The person typed while their turn was running: it joins that turn at
+      // its next step. Not running any more: the host sends it as a message.
+      case "steer": {
+        const accepted = !!msg.sessionId && typeof msg.content === "string" && agent.steer(msg.sessionId, msg.content);
+        transport.send({ type: "steer_ack", sessionId: msg.sessionId ?? "", accepted, text: typeof msg.content === "string" ? msg.content : "" });
         break;
       }
 
@@ -1908,6 +1933,22 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           msg.inferParams && typeof msg.inferParams === "object"
             ? msg.inferParams
             : undefined;
+        // Dev-only "Bare model" switch (core/bare-turn.ts): the chosen model with
+        // none of Cinderpaw around it, for filming the harness against no harness.
+        // Straight to the transport, so no part of the harness (mood, Dreams,
+        // memory) learns from a turn it took no part in.
+        if (msg.bare === true) {
+          // The model's page, saved and linked by Cinderpaw AFTER it answered,
+          // so the person can see it; the model never learns this happened.
+          const afterword = async (answer: string) => {
+            const page = /```html\s*\n([\s\S]*?)```/i.exec(answer)?.[1];
+            if (!page) return undefined;
+            const a = artifacts.create({ kind: "app", title: "Bare model page", content: page, workspaceId: activeWorkspaceId(db.raw), sessionId });
+            return `Open the page it wrote: ${await artifactPreview.url(a)} (saved by Cinderpaw for viewing; the model did not see this line)`;
+          };
+          await runBareTurn(router, { sessionId, messageId: id, text: content, emit: (e) => transport.send(e), images, inferParams, afterword });
+          break;
+        }
         // The boot MCP reconcile is fire-and-forget, so the very first message
         // could be planned against a registry that had no MCP tools in it yet —
         // the agent answered "I have no tool for that" for a server the user
@@ -2047,7 +2088,12 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           try { limit.set(msg.taskLimit.weeklyUsd); } catch (error) { limitError = error instanceof Error ? error.message : String(error); }
         }
         const jobs = cronRepo.list();
-        transport.send(cronListResult(msg.id ?? "", jobs, limitError, limit.view()));
+        // Where a fired task would reach the person, and on request a real
+        // test, so "will I hear about it?" is answered on the Tasks page.
+        const phone = msg.testNotify
+          ? { via: await connectors.notifyOwner("✅ Cinderpaw can reach you here. Tasks you set up will tell you in this chat."), tested: true }
+          : { via: connectors.ownerChannel(), tested: false };
+        transport.send({ ...cronListResult(msg.id ?? "", jobs, limitError, limit.view()), phone });
         log(`cron_list → ${jobs.length} job(s)`);
         break;
       }

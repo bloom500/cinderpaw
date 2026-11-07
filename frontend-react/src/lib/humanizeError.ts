@@ -45,6 +45,18 @@ const RULES: Rule[] = [
     actionLabel: 'Open Cloud Keys',
   },
   {
+    // Before the 429 rule: OpenAI sends an empty account as HTTP 429
+    // "insufficient_quota ... check your plan and billing details", and it read
+    // "wait a minute and try again", which can never work (OpenClaw fixed the
+    // same, 1 Nov). Only words that name money: Google's per-minute "quota
+    // exceeded" is a real rate limit and stays below.
+    test: /\b402\b|insufficient[_ ](quota|credits?|balance|funds)|credit balance|billing details|payment required|out of credits?/i,
+    title: 'Your account with the provider is out of credit',
+    message: 'The provider says the account behind this key has no credit left. Add credit with them, then try again, or switch to another model.',
+    action: 'settings',
+    actionLabel: 'Open Cloud Keys',
+  },
+  {
     test: /\b429\b|rate.?limit|too many requests/i,
     title: 'Too many requests right now',
     // Free plans also cap the day (OpenRouter free: 50 requests). "Wait a
@@ -76,7 +88,7 @@ const RULES: Rule[] = [
     title: 'No model is chosen yet',
     message: 'Cinderpaw has no model to answer with. Pick one in the model switcher under the message box, or open Models.',
     action: 'models',
-    actionLabel: 'Open Models',
+    actionLabel: 'Choose a model',
   },
   {
     test: /stream stalled|stopped responding|idle.?timeout/i,

@@ -71,14 +71,19 @@ export function claimsWrote(answer: string): boolean {
  * which is where the sidecar's own file tools land; a caller that knows the
  * workspace should pass it.
  */
-export async function unkeptWriteClaims(answer: string, cwd: string = process.cwd()): Promise<string[]> {
+export async function unkeptWriteClaims(answer: string, cwd?: string): Promise<string[]> {
   if (!claimsWrote(answer)) return [];
   const missing: string[] = [];
   for (const claimed of claimedPaths(answer)) {
     // A UNC or URL-ish path is not something to stat, and a drive we cannot see
     // is not evidence of anything.
     if (claimed.startsWith("\\\\") || claimed.startsWith("//")) continue;
-    const full = isAbsolute(claimed) ? claimed : resolve(cwd, claimed);
+    // A bare name says nothing about where it is. "lista-test.txt", saved on
+    // the Desktop, was looked for in the sidecar's own folder and reported
+    // missing while the agent had just read it (smoke test, 7 Nov). Only a
+    // caller that knows the folder may check one.
+    if (cwd === undefined && !/[\\/]/.test(claimed)) continue;
+    const full = isAbsolute(claimed) ? claimed : resolve(cwd ?? process.cwd(), claimed);
     // ponytail: parent-exists is the whole anti-false-positive rule. If the
     // agent worked in a directory this process cannot resolve, every claim would
     // look broken. Pass the real workspace root as `cwd` to narrow it further.

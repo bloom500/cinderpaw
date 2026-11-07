@@ -12,6 +12,8 @@ use tauri::State;
 pub struct CinderpawInferParams {
     pub temperature: Option<f64>,
     pub max_tokens: Option<u32>,
+    /// The Effort control on a cloud model ("auto", "low", "medium", "high").
+    pub effort: Option<String>,
 }
 
 /// Is the sidecar ready right now?
@@ -47,6 +49,7 @@ pub(crate) async fn cinderpaw_send_message(
     images: Option<Vec<String>>,
     infer_params: Option<CinderpawInferParams>,
     surface: Option<String>,
+    bare: Option<bool>,
 ) -> Result<String, String> {
     let id = uuid::Uuid::new_v4().to_string();
 
@@ -100,7 +103,14 @@ pub(crate) async fn cinderpaw_send_message(
         payload["inferParams"] = serde_json::json!({
             "temperature": p.temperature,
             "max_tokens": p.max_tokens,
+            "effort": p.effort,
         });
+    }
+    // Dev-only "Bare model": the sidecar answers with the model alone, no
+    // Cinderpaw prompt, tools or memory (CinderpawAgent/src/core/bare-turn.ts).
+    // Only a debug build's composer sends it.
+    if bare == Some(true) {
+        payload["bare"] = serde_json::json!(true);
     }
     let msg = payload.to_string();
 
@@ -138,6 +148,28 @@ pub(crate) async fn cinderpaw_stop_generation(
         payload["sessionId"] = serde_json::Value::String(sid);
     }
     let msg = payload.to_string();
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Add to the turn running for `session_id` (steering): the engine gives it to
+/// the model at its next step and answers `steer_ack`; when no turn is running
+/// the ack says so and the window sends it as an ordinary message instead.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cinderpaw_steer(
+    state: State<'_, AppState>,
+    session_id: String,
+    content: String,
+) -> Result<(), String> {
+    let msg = serde_json::json!({ "type": "steer", "sessionId": session_id, "content": content }).to_string();
     let tx = {
         let guard = state.cinderpaw_agent_tx.lock();
         guard
@@ -928,6 +960,10 @@ fn cron_op_line(
     let msg = match action {
         "list" => serde_json::json!({ "type": "cron_list", "id": request_id }),
         "followups" => serde_json::json!({ "type": "cron_list", "id": request_id, "followUps": true }),
+        // The Tasks page's "Send a test": a real notice to the owner's phone,
+        // answered with where it went (28 Oct, Darius: notifications must be
+        // ultra simple to get, and proven, not promised).
+        "test_notify" => serde_json::json!({ "type": "cron_list", "id": request_id, "testNotify": true }),
         "limit" => serde_json::json!({ "type": "cron_list", "id": request_id }),
         "add" | "edit" => {
             if action == "edit" && !present(&job_id) { return Err("no task selected".into()); }

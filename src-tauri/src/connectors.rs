@@ -46,9 +46,22 @@ fn discord_token_from_mcp() -> Option<String> {
     if token.is_empty() { None } else { Some(token.to_string()) }
 }
 
-/// True once WhatsApp has been linked (Baileys persisted its session).
+/// True once a phone is linked. The same rule as the engine's `isLinked`:
+/// Baileys writes creds.json as soon as linking STARTS, so the file alone
+/// proves nothing. Reading it as "linked" told the chat card the phone was
+/// linked the moment a code was asked for, and the code was never shown
+/// (Darius, 1 Nov).
 fn whatsapp_linked() -> bool {
-    paths::cinderpaw_dir().join("whatsapp-auth").join("creds.json").exists()
+    std::fs::read_to_string(paths::cinderpaw_dir().join("whatsapp-auth").join("creds.json"))
+        .map(|raw| creds_say_linked(&raw))
+        .unwrap_or(false)
+}
+
+/// A phone-number code sets `registered`; a QR scan writes `me` + `account`.
+fn creds_say_linked(raw: &str) -> bool {
+    let Ok(c) = serde_json::from_str::<serde_json::Value>(raw) else { return false };
+    c["registered"] == true
+        || (c["me"]["id"].as_str().is_some_and(|id| !id.is_empty()) && !c["account"].is_null())
 }
 
 // ---------------------------------------------------------------------------
@@ -426,11 +439,14 @@ pub async fn connectors_set_enabled(
 /// can render it — a GUI user has no terminal window to scan from.
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct WhatsappQr {
-    /// Raw pairing payload (what the QR encodes).
+    /// Raw pairing payload (what the QR encodes). Empty when `code` is set.
     pub qr: String,
     /// Terminal-style half-block ASCII rendering of the QR. Does not scan
     /// reliably on screen (seen 25 Sep): show `svg` when there is one.
     pub ascii: String,
+    /// The 8-character code to type on the phone, when a number to link was
+    /// given (no QR then). WhatsApp, Linked devices, Link with phone number.
+    pub code: Option<String>,
     /// The QR as an SVG picture, square modules on white. None from files an
     /// older engine wrote.
     pub svg: Option<String>,
@@ -445,10 +461,14 @@ pub fn connectors_whatsapp_qr() -> Option<WhatsappQr> {
     #[derive(serde::Deserialize)]
     struct QrFile {
         ts: f64,
+        #[serde(default)]
         qr: String,
+        #[serde(default)]
         ascii: String,
         #[serde(default)]
         svg: Option<String>,
+        #[serde(default)]
+        code: Option<String>,
     }
     let raw = std::fs::read_to_string(paths::cinderpaw_dir().join("whatsapp-qr.json")).ok()?;
     let f: QrFile = serde_json::from_str(&raw).ok()?;
@@ -462,7 +482,7 @@ pub fn connectors_whatsapp_qr() -> Option<WhatsappQr> {
     if now_ms - f.ts > 120_000.0 {
         return None;
     }
-    Some(WhatsappQr { qr: f.qr, ascii: f.ascii, svg: f.svg, ts: f.ts })
+    Some(WhatsappQr { qr: f.qr, ascii: f.ascii, code: f.code, svg: f.svg, ts: f.ts })
 }
 
 #[tauri::command]
@@ -869,5 +889,24 @@ mod catalog_projection {
             .find(|f| f.key == "MATRIX_HOMESERVER")
             .expect("the homeserver field reaches the desktop");
         assert!(!url.secret);
+    }
+}
+
+#[cfg(test)]
+mod whatsapp_link_state {
+    use super::creds_say_linked;
+
+    #[test]
+    fn a_link_that_only_started_is_not_linked() {
+        // What creds.json holds right after a code was asked for (1 Nov).
+        assert!(!creds_say_linked(r#"{"registered":false,"me":null}"#));
+        assert!(!creds_say_linked(r#"{"registered":false,"me":{"id":""}}"#));
+        assert!(!creds_say_linked("not json"));
+    }
+
+    #[test]
+    fn a_typed_code_or_a_scanned_qr_is_linked() {
+        assert!(creds_say_linked(r#"{"registered":true}"#));
+        assert!(creds_say_linked(r#"{"registered":false,"me":{"id":"40700000000:1@s.whatsapp.net"},"account":{"details":"x"}}"#));
     }
 }

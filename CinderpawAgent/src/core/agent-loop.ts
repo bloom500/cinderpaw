@@ -13,12 +13,16 @@
  *   - budget exhaustion triggers compression or a clean stop, per config
  */
 
+import { spillIfLarge } from "./spill.ts";
+import { classifyError } from "../telemetry/error-category.ts";
 import { createHash } from "node:crypto";
 import { stripThinking } from "./strip-thinking.ts";
 import type { InferenceRouter } from "../egress/inference-router.ts";
 import { stripToolsFromSystemPrompt } from "../egress/inference-providers.ts";
 import { isBackgroundSession } from "../egress/inference-router.ts";
 import { log } from "../runtime-meta.ts";
+import { isPlaceholderModel } from "../rsi/l1-config/passive-supervisor.ts";
+import { closeFallbackBrowser } from "../tools/fallback-browser.ts";
 import {
   BudgetExhaustedError,
   InferenceError,
@@ -46,7 +50,10 @@ export interface Recaller {
   noteWrite?(leaf: { id: number; sessionId: string; ts: number }): void;
 }
 import type { MemoryExtractor } from "../memory/extractor.ts";
-import { WorkingMemory } from "../memory/working.ts";
+import { WorkingMemory, contextLanes } from "../memory/working.ts";
+import { situation } from "../memory/day.ts";
+import { connectorLine, elsewhereNote, hearsElsewhere } from "../memory/elsewhere.ts";
+import { permissionMode } from "./permission-mode.ts";
 import { projectAddendum } from "../projects.ts";
 import { countTokens } from "./tokenizer.ts";
 import { claimedPath, unsourcedWarning, withOpenFirst } from "./unsourced.ts";
@@ -381,12 +388,19 @@ export class AgentLoop {
    */
   static readonly ANTHROPIC_REQUIRED_MAX_TOKENS = 128_000;
 
-  // Cloud models have huge contexts (Kimi 128K, Claude 200K, MiniMax 1M);
-  // bound the transcript only to control cost and latency, not to avoid a
-  // crash. Default is conservative for Claude-class 200K models; users on
-  // 1M models (or anyone wanting zero compression) override with
-  // CINDERPAW_CLOUD_TRANSCRIPT_BUDGET=900000 (or higher).
-  static readonly CLOUD_TRANSCRIPT_BUDGET = 200_000;
+  // Cloud models send no context size, so this one number bounds the
+  // transcript for all of them. It was 200K: a transcript that size PLUS the
+  // ~40K of system prompt, tool schemas and memory overflows a 128K or 200K
+  // model before it ever compacts, and every tool step before that resends it
+  // all (27 Oct, a real chat: 54K -> 154K tokens per call over one evening,
+  // never compacted, on Haiku 5.5). 80K keeps the whole prompt under a 128K
+  // window and long tasks still fit; past it the older turns are summarised.
+  // 1M-context users who want less compression raise
+  // CINDERPAW_CLOUD_TRANSCRIPT_BUDGET.
+  static readonly CLOUD_TRANSCRIPT_BUDGET = 80_000;
+  /** What rides on top of the transcript in every call: system prompt, tool
+   *  schemas, memory, skill menu. Measured ~39K on a fresh chat, 27 Oct. */
+  static readonly CLOUD_PROMPT_OVERHEAD = 40_000;
 
   readonly #router: InferenceRouter;
   readonly #registry: ToolRegistry;
@@ -430,6 +444,12 @@ export class AgentLoop {
    * exits cleanly between turns.
    */
   readonly #activeSessions = new Set<string>();
+  /**
+   * Messages the person sent while their turn was running (steering, as in
+   * DeepSeek Harness, 4 Nov). They reach the model at its next step instead of
+   * waiting for the reply to end, so "no, make it shorter" lands mid-task.
+   */
+  readonly #steering = new Map<string, string[]>();
   /** Wall-clock ms when each active session started — useful for diagnostics. */
   readonly #sessionStartedAt = new Map<string, number>();
   /**
@@ -478,7 +498,7 @@ export class AgentLoop {
    */
   readonly #sessionInferParams = new Map<
     string,
-    { temperature?: number; maxTokens?: number }
+    { temperature?: number; maxTokens?: number; reasoningEffort?: "low" | "medium" | "high" }
   >();
   /**
    * RSI champion params — the ratcheted-best genome config, mapped onto
@@ -563,6 +583,8 @@ export class AgentLoop {
    * made it drop its arguments in the first place.
    */
   readonly #sentNativeTools = new Map<string, boolean>();
+  /** The latest prompt's lanes per session, sent with each `usage` event for the Context card. */
+  readonly #lastLanes = new Map<string, { label: string; tokens: number }[]>();
 
   /**
    * Called with the cleaned text of each owner user turn. Set by boot to
@@ -902,7 +924,7 @@ export class AgentLoop {
     emit: EventSink,
     skillsContext?: SkillMeta[],
     images?: string[],
-    inferParams?: { temperature?: number; max_tokens?: number },
+    inferParams?: { temperature?: number; max_tokens?: number; effort?: string },
   ): Promise<string> {
     const result = await this.handleTurn(
       sessionId, userText, messageId, emit, skillsContext, images, inferParams,
@@ -926,7 +948,7 @@ export class AgentLoop {
     emit: EventSink,
     skillsContext?: SkillMeta[],
     images?: string[],
-    inferParams?: { temperature?: number; max_tokens?: number },
+    inferParams?: { temperature?: number; max_tokens?: number; effort?: string },
   ): Promise<TurnResult> {
     // Per-session inference overrides from the host UI's Controls panel.
     // Refreshed on every message so a Controls change applies from the very
@@ -981,6 +1003,13 @@ export class AgentLoop {
       } catch { /* never costs the turn */ }
       release();
       this.#activeSessions.delete(sessionId);
+      // An addition this turn never read goes with it (Stop, mostly), as it does
+      // on screen; left here, the next turn's second step took it in.
+      // ponytail: one that lands after the last check of a turn ending on its own
+      // is dropped too; hand it back as a refused steer if anyone ever hits it.
+      this.#steering.delete(sessionId);
+      // A browser this turn opened on Cinderpaw's own profile goes with it.
+      closeFallbackBrowser(sessionId);
       this.#sessionStartedAt.delete(sessionId);
       if (this.#sessionToolSignals.get(sessionId) === abortController) {
         this.#sessionToolSignals.delete(sessionId);
@@ -1177,6 +1206,31 @@ export class AgentLoop {
    * Stop every active generation. Used on shutdown so no `handle()` is
    * left mid-await when the process exits.
    */
+  /**
+   * Add to a running turn. False when nothing is running for this session:
+   * the caller sends it as an ordinary message instead.
+   */
+  steer(sessionId: string, text: string): boolean {
+    const t = text.trim();
+    if (!t || !this.#activeSessions.has(sessionId)) return false;
+    this.#steering.set(sessionId, [...(this.#steering.get(sessionId) ?? []), t]);
+    return true;
+  }
+
+  /** Take what the person added mid-turn, framed for the model, and say so. */
+  #takeSteering(sessionId: string, memory: WorkingMemory, ctx: SessionRunContext, messageId: string): boolean {
+    const texts = this.#steering.get(sessionId);
+    if (!texts?.length) return false;
+    this.#steering.delete(sessionId);
+    memory.addUser(
+      "(The person added this while you were working. Take it into account from now on; " +
+        "do not start over unless it asks you to.)\n" + texts.join("\n"),
+    );
+    for (const t of texts) this.#episodic.record(sessionId, "user", t);
+    ctx.emit({ type: "steer_applied", sessionId, id: messageId, texts });
+    return true;
+  }
+
   stopAll(): void {
     for (const sessionId of [...this.#activeSessions]) {
       this.stop(sessionId);
@@ -1211,6 +1265,19 @@ export class AgentLoop {
     // that is only used when named is a feature nobody finds. No roster
     // (connectors, nothing installed) clears the menu.
     memory.setSkillMenu(skillsContext ?? []);
+    // One Cinderpaw across chats: the owner's own chats also hear which chat apps
+    // are connected and what was said in their other chats (memory/elsewhere.ts).
+    let here = situation(Date.now(), process.platform, permissionMode());
+    if (hearsElsewhere(sessionId) && !this.#profileFor(sessionId) && !isRestrictedSession(sessionId)) {
+      try {
+        const apps = connectorLine();
+        const other = elsewhereNote(sessionId, (ts, except) => this.#episodic.since(ts, except));
+        here = [here + (apps ? `\n${apps}` : ""), other].filter(Boolean).join("\n\n");
+      } catch {
+        // A memory-store failure must never cost the user their turn.
+      }
+    }
+    memory.setSituation(here);
 
     // P2-#3: traceId — a unique identifier for this handle() invocation.
     // Threaded into every OutboundEvent the agent emits during the turn
@@ -1669,6 +1736,10 @@ export class AgentLoop {
     // than after a third identical attempt.
     const recentToolKeys: string[] = [];
     const toolFailureCounts = new Map<string, number>();
+    // Heads Up is reminded at the moment it is useful, once a turn, the way a
+    // harness reminds Claude: a rule in a long prompt alone left it at 1 call
+    // in 9,647 on Darius's install, and small models read rules least (31 Oct).
+    let headsUpShownOrNudged = false;
     // Every counter above keys on the ARGUMENTS, and some failures have nothing
     // to do with them. The live case: DuckDuckGo Lite paces at one query per
     // five seconds and, once tripped, refuses everything for two minutes —
@@ -1724,6 +1795,8 @@ export class AgentLoop {
       // A stop latched by stop() between iterations must not be followed by one
       // more model call — check before spending the turn, not only after it.
       if (ctx.stopped) break;
+      // What the person added since the last step goes into this one.
+      if (i > 0) this.#takeSteering(sessionId, memory, ctx, messageId);
       // Same discipline for the clock: don't start another round we can't
       // afford. `i > 0` guarantees at least one attempt even if the budget was
       // already spent by a slow prompt build.
@@ -1791,7 +1864,7 @@ export class AgentLoop {
       // Surface REAL token usage so the UI context ring reflects actual context
       // consumption (the latest call's prompt = full context fed to the model,
       // plus this turn's completion) instead of a rough message estimate.
-      ctx.emit({ type: "usage", id: messageId, sessionId, promptTokens, completionTokens, traceId });
+      ctx.emit({ type: "usage", id: messageId, sessionId, promptTokens, completionTokens, traceId, lanes: this.#lastLanes.get(sessionId) });
       {
         const now = Date.now();
         // A non-streaming provider never calls onToken, so the wait IS the whole
@@ -1821,8 +1894,11 @@ export class AgentLoop {
         const usage = promptTokens || completionTokens
           ? `, ${promptTokens ?? "?"} prompt + ${completionTokens ?? "?"} completion`
           : "";
+        // Which model: a 4-minute "what do I have tomorrow" on Automatic could
+        // not be traced to the model it picked (smoke test, 7 Nov).
+        const model = routeTargets?.primary.model ?? this.#router.currentModel?.model;
         log(
-          `turn: wait ${ttft} → first token, ${total.toFixed(1)}s total, ` +
+          `turn: ${model}: wait ${ttft} → first token, ${total.toFixed(1)}s total, ` +
             `${rate} over ${streamedChunks} chunk(s)${usage}, think=${think}`,
         );
       }
@@ -2074,6 +2150,14 @@ export class AgentLoop {
             };
           }
         }
+        // Something was added while it answered: the answer so far stays, and
+        // one more step takes the addition into account, in the same reply.
+        if (!ctx.stopped && this.#steering.get(sessionId)?.length) {
+          memory.addAssistant(stripThinking(completion));
+          answerParts.push(answer, "\n\n");
+          ctx.emit({ type: "chunk", id: messageId, content: "\n\n", traceId });
+          continue;
+        }
         return { text: finalText, toolCallCount, outcome: "completed" };
       }
 
@@ -2124,7 +2208,7 @@ export class AgentLoop {
           ctx.emit({ type: "tool_done", id: messageId, tool: call.name, result, traceId, sessionId });
           if (result.error === "cancelled") ctx.stopped = true;
           const rendered = result.ok ? result.content : `ERROR: ${result.content}`;
-          memory.addToolResult(call.name, rendered, result.images);
+          memory.addToolResult(call.name, spillIfLarge(call.name, rendered), result.images);
           const episodicContent = `${call.name}: ${rendered}`.slice(0, 400);
           const toolLeafId = this.#episodic.record(sessionId, "tool", episodicContent);
           if (toolLeafId !== null) {
@@ -2181,17 +2265,38 @@ export class AgentLoop {
         // A tool that looked at a picture hands the pixels along with its text
         // (ToolResult.images). Attached to the tool turn so a vision-capable
         // model sees the image itself; text-only models ignore them.
-        memory.addToolResult(call.name, rendered, result.images);
+        memory.addToolResult(call.name, spillIfLarge(call.name, rendered), result.images);
 
         // Record any decision ask_user made on the user's behalf (autonomous
         // mode or a timeout auto-resolve), for the end-of-turn summary.
+        let decidedForThem = false;
         if (call.name === "ask_user" && result.ok) {
           const d = result.data as { autoResolved?: boolean; answers?: Array<{ question?: string; selected?: string[] }> } | undefined;
           if (d?.autoResolved && Array.isArray(d.answers)) {
+            decidedForThem = true;
             for (const a of d.answers) {
               autoDecisions.push(`"${a.question ?? "(question)"}" → ${a.selected?.join(", ") || "(none)"}`);
             }
           }
+        }
+
+        // The two moments a person most wants to hear about while work goes
+        // on: a step that failed (so the result will differ from what they
+        // expect) and a choice made for them. Owner chats only: the card is
+        // drawn in the app.
+        if (call.name === "heads_up") headsUpShownOrNudged = true;
+        if (
+          !headsUpShownOrNudged && !profile && !policy.deferredOnly &&
+          (decidedForThem || (!result.ok && call.name !== "show_widget")) &&
+          this.#registry.list().some((t) => t.manifest.name === "heads_up")
+        ) {
+          headsUpShownOrNudged = true;
+          memory.addUser(
+            decidedForThem
+              ? "(system: you just answered a question for the person. Tell them now with heads_up, one line on what was chosen, then continue.)"
+              : `(system: "${call.name}" failed: ${result.content.slice(0, 160)}. If this changes what the person will get ` +
+                "(a file or source you could not reach, a step you skip or do another way), tell them now with heads_up, one line, then continue.)",
+          );
         }
 
         // M1: detect a stuck model. See the declarations above for why this
@@ -2267,6 +2372,19 @@ export class AgentLoop {
         checkpoint(i);
         if (policy.deferredOnly && taskCard) {
           return { text: taskAcknowledgement(taskCard.when, policy.language), toolCallCount, outcome: "completed" };
+        }
+        // The next-step card closes a finished reply, so the reply that came
+        // with it is the answer. Asking the model again got it written twice:
+        // told to stop it went quiet, and the empty reply was nudged with "state
+        // what you did" (31 Oct, Haiku). The write-claim check still applies.
+        if (
+          parsed.toolCalls.length === 1 && call.name === "show_widget" && result.ok &&
+          (result.data as { kind?: string } | undefined)?.kind === "followups"
+        ) {
+          const reply = stripThinking(parsed.text).trim();
+          if (reply && (await unkeptWriteClaims(reply)).length === 0) {
+            return { text: reply, toolCallCount, outcome: "completed" };
+          }
         }
         if (policy.deferredOnly && call.name === "suggest_task" && result.ok) {
           const status = (result.data as { taskSuggestionStatus?: string } | undefined)?.taskSuggestionStatus;
@@ -2522,7 +2640,12 @@ export class AgentLoop {
     // wall — so without this the prompt overflows the engine and the run crashes
     // after a handful of turns. Cheap: a no-op until the transcript exceeds the
     // budget, then one summarizer call amortized over many subsequent turns.
-    await compact(this.#transcriptBudget());
+    // Not with no model at all: its budget is a guess (1K), so the FIRST
+    // message of an empty chat showed "Made room in this chat" before failing
+    // on "choose a model" (smoke test, 7 Nov).
+    if (routeTargets || !isPlaceholderModel(this.#router.currentModel?.model)) {
+      await compact(this.#transcriptBudget());
+    }
 
     // S5: dispatch helper — uses router.completeWith() when Brain Stack
     // provided route targets, otherwise the existing router.complete()
@@ -2562,6 +2685,7 @@ export class AgentLoop {
       });
       breakdown.localTotal += schemaTokens;
     }
+    this.#lastLanes.set(sessionId, contextLanes(breakdown));
 
     const dispatch = (
       maxTokens: number | undefined,
@@ -2587,10 +2711,11 @@ export class AgentLoop {
         nativeTools,
         // A3 regression fix: native tool definitions for OpenAI-compatible providers.
         openAITools,
-        // The RSI champion's effort; the provider sends it only where the API
-        // takes it (inference-providers.ts anthropicEffort / openAIReasoning).
-        ...(this.#championParams.reasoningEffort
-          ? { reasoningEffort: this.#championParams.reasoningEffort }
+        // The Effort the person picked, else the RSI champion's; the provider
+        // sends it only where the API takes it (inference-providers.ts
+        // anthropicEffort / openAIReasoning).
+        ...((overrides?.reasoningEffort ?? this.#championParams.reasoningEffort)
+          ? { reasoningEffort: overrides?.reasoningEffort ?? this.#championParams.reasoningEffort }
           : {}),
         ...grammarFields,
       };
@@ -2604,14 +2729,25 @@ export class AgentLoop {
       return this.#router.complete(req);
     };
 
+    // Precedence: explicit UI Controls override > RSI champion > cloud/local default.
+    const maxTokens = overrides?.maxTokens ?? this.#championParams.maxTokens ?? defaultMaxTokens;
+    const temperature = overrides?.temperature ?? this.#championParams.temperature;
     try {
-      const res = await dispatch(
-        // Precedence: explicit UI Controls override > RSI champion > cloud/local default.
-        overrides?.maxTokens ?? this.#championParams.maxTokens ?? defaultMaxTokens,
-        overrides?.temperature ?? this.#championParams.temperature,
-      );
+      const res = await dispatch(maxTokens, temperature);
       return projectCompletion(res);
     } catch (err) {
+      // The provider said the prompt does not fit: the estimate above was low,
+      // or the model's window is smaller than we thought. The turn used to end
+      // there. Fold the older half of the transcript and send once more, the
+      // way DeepSeek Harness recovers (4 Nov comparison). Once only: a second
+      // overflow is real, and its error is the one the person should see.
+      if (classifyError(String(err)) === "context_overflow" && !isRestrictedSession(sessionId)) {
+        const folded = await compact(Math.floor(memory.estimatedTokens() / 2)).catch(() => false);
+        if (folded) {
+          log(`context overflow on ${sessionId}: compacted and retried once`);
+          return projectCompletion(await dispatch(maxTokens, temperature));
+        }
+      }
       // `compress_and_continue` used to compact the transcript here and retry.
       // It could never work: both budgets are CUMULATIVE counters of tokens
       // already spent, and compaction only shrinks the NEXT prompt. The retry
@@ -2704,6 +2840,10 @@ export class AgentLoop {
       const detail = String(err);
       console.warn(`[brain] route failed, falling back to router defaults: ${detail}`);
       const current = this.#router.currentModel;
+      // No model at all: nobody answers, so no reply may say who did. A new
+      // install read "Automatic · answered by Cinderpaw Local" under the
+      // "choose a model" error (smoke test, 7 Nov).
+      if (isPlaceholderModel(current?.model)) return null;
       this.#router.noteTaskFallback?.(sessionId);
       ctx.emit({
         type: "model_routed",
@@ -3086,7 +3226,10 @@ export function buildSystemPrompt(
     // Russian reply. Pages and tool results never pick the language.
     // 23-24 Oct: English prompts got Romanian replies because a memory said
     // "the user writes in Romanian". The message in front of you wins.
-    "- Respond in the language of the user's latest message, never in the language of a page, a tool result or a memory (even one saying which language they usually write in).",
+    // 31 Oct: "Ce se intampla in videoul asta" under the app's English
+    // "[File attached: …]" note got an English answer. The note is not theirs.
+    "- Respond in the language of the user's latest message, never in the language of a page, a tool result, a skill or a memory (even one saying which language they usually write in), and not in the language of what you are making for them: a post written in English is still talked about in their language. The app's attachment notes ([File attached: …], [Image attached: …], a [File: …] block) are not their words: their language is the one they typed. That holds for every sentence, the short notes between tool calls too, and every word in it: one Bulgarian, Russian or Spanish word inside a Romanian sentence is a mistake the person sees (\"Файлът е записан\", \"El browser\", 4 Nov).",
+    "- You can look at pictures. `read_file` on a .png, .jpg, .gif or .webp gives you the picture itself, and its result says so (a model that cannot see is told that instead). To check a video or a render, take frames or a contact sheet and read those. What you described from a picture you were given is an observation, not a guess: never take it back as one unless the picture shows otherwise.",
   ].filter((s) => s.length > 0).join("\n");
 }
 
@@ -4113,8 +4256,13 @@ export function isComplexTask(text: string): boolean {
 export function sanitizeInferParams(raw: {
   temperature?: unknown;
   max_tokens?: unknown;
-}): { temperature?: number; maxTokens?: number } {
-  const out: { temperature?: number; maxTokens?: number } = {};
+  effort?: unknown;
+}): { temperature?: number; maxTokens?: number; reasoningEffort?: "low" | "medium" | "high" } {
+  const out: { temperature?: number; maxTokens?: number; reasoningEffort?: "low" | "medium" | "high" } = {};
+  // The Effort control on a cloud model. "auto" (or anything else) sends none.
+  if (raw.effort === "low" || raw.effort === "medium" || raw.effort === "high") {
+    out.reasoningEffort = raw.effort;
+  }
   if (typeof raw.temperature === "number" && Number.isFinite(raw.temperature)) {
     out.temperature = Math.min(2, Math.max(0, raw.temperature));
   }

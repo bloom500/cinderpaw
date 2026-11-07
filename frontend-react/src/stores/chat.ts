@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { tauri } from '@/lib/tauri';
 import type { ToolActivity } from '@/hooks/useLiveToolActivity';
+import type { Steer } from '@/lib/timeline';
 
 export type StreamStatus = 'idle' | 'streaming' | 'done' | 'error' | 'stopped';
 export type AgentPhase = 'thinking' | 'calling' | 'processing'
@@ -14,6 +15,17 @@ export function memoryUsedFrom(v: unknown): MemoryUsedItem[] | undefined {
     !!m && typeof m === 'object' && typeof (m as MemoryUsedItem).text === 'string'
     && ['fact', 'past', 'learned'].includes((m as MemoryUsedItem).kind));
   return items.length > 0 ? items : undefined;
+}
+
+/** One part of a prompt and its size in tokens: "Tools", 12000. */
+export interface ContextLane { label: string; tokens: number }
+
+/** Saved lanes, or undefined for anything that is not a list of them. */
+export function contextLanesFrom(v: unknown): ContextLane[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const lanes = v.filter((l): l is ContextLane =>
+    !!l && typeof l === 'object' && typeof (l as ContextLane).label === 'string' && typeof (l as ContextLane).tokens === 'number');
+  return lanes.length > 0 ? lanes : undefined;
 }
 
 /** A saved `ended`, or undefined for anything that is not one (older files, hand edits). */
@@ -49,9 +61,20 @@ export interface ChatMessage {
   images?: string[];
   /** The memories put into this reply's context (Memory Peek). Not persisted. */
   memoryUsed?: MemoryUsedItem[];
+  /** What the prompt behind this reply was made of (the Context card's lanes). Saved. */
+  contextLanes?: ContextLane[];
   /** The engine's id for this reply, which a thumbs vote must name for the
    *  engine to know the turn. Not persisted; neither are the votes. */
   agentMessageId?: string;
+  /** Dev-only: answered by the model alone, no Cinderpaw (lib/bareModel.ts). */
+  bare?: boolean;
+  /** Automatic: the model the brain picked for this reply, said under it. */
+  answeredBy?: string;
+  /** What the person added while this reply was being written (steering). */
+  steered?: Steer[];
+  /** Added and taken by the engine, but the model reads it only after the step
+   *  it is on: shown at once, faded, so the message does not seem lost (4 Nov). */
+  steerPending?: string[];
   thinking?: string;
   thinkingStartAt?: number;
   thinkingDurationMs?: number;

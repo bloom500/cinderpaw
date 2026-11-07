@@ -1,8 +1,10 @@
 mod agents;
 mod adblock;
+mod agent_overlay;
 mod browser;
 mod call_pill;
 mod downloads_card;
+mod keep_awake;
 mod google;
 mod commands;
 mod connectors;
@@ -54,6 +56,14 @@ struct TauriEvents(
 );
 impl cinderpaw_core::host::HostEvents for TauriEvents {
     fn emit(&self, event: &str, payload: serde_json::Value) {
+        if event == "cinderpaw://agent-output" {
+            if let Some(line) = payload["data"].as_str() {
+                agent_overlay::on_agent_line(&self.0, line);
+            }
+        } else if event == "cinderpaw://agent-exit" {
+            // A crashed agent sends no "done": the overlay goes with it.
+            tauri::async_runtime::spawn(agent_overlay::stop(self.0.clone()));
+        }
         let _ = self.0.emit(event, payload.clone());
         let _ = self.1.send(cinderpaw_core::host::HostEvent {
             event: event.to_string(),
@@ -285,11 +295,14 @@ pub(crate) fn file_args(args: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// The main window on a screen too small for its 1280x800: shrunk to the
-/// screen's free area (taskbar and dock left out) and centered in it. `None`
-/// when it already fits.
+/// The main window on a screen too small for its 1262x865 (the Claude app's
+/// size, his pick 30 Oct: "a bit more air"): shrunk to 94% of the screen's free
+/// area (taskbar and dock left out), so a laptop shows a little desktop around
+/// it instead of a window pressed against every edge, and centered. `None` when
+/// it already fits.
 fn fit_into(window: (u32, u32), area: &tauri::PhysicalRect<i32, u32>) -> Option<(u32, u32, i32, i32)> {
-    let (w, h) = (window.0.min(area.size.width), window.1.min(area.size.height));
+    let room = |side: u32| side * 94 / 100;
+    let (w, h) = (window.0.min(room(area.size.width)), window.1.min(room(area.size.height)));
     if (w, h) == window {
         return None;
     }
@@ -339,6 +352,9 @@ pub(crate) fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
         state: Some(tauri::utils::WindowEffectState::Active),
         radius: None,
         color,
+        // New in Tauri 2.12: Liquid Glass reacting to touches, macOS 27+ only.
+        // Off: our glass is a backdrop, not a control.
+        interactive: false,
     }
 }
 
@@ -359,8 +375,11 @@ pub fn run() {
             // all — and a GUI process has no visible stdout to fall back to, so
             // the reason for anything going wrong landed nowhere on two of the
             // three platforms we ship.
-            if let Some(home) = dirs::home_dir() {
-                let dir = home.join(cinderpaw_core::brand::APP_HOME_DIR_NAME).join("logs");
+            // CINDERPAW_HOME first, as everything else does: "Open log" looks there.
+            let root = cinderpaw_core::paths::home_override()
+                .or_else(|| dirs::home_dir().map(|h| h.join(cinderpaw_core::brand::APP_HOME_DIR_NAME)));
+            if let Some(root) = root {
+                let dir = root.join("logs");
                 if std::fs::create_dir_all(&dir).is_ok() {
                     if let Ok(f) = std::fs::OpenOptions::new()
                         .create(true)
@@ -660,11 +679,18 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             remove_byok_provider,
             byok_has_key,
             openrouter_sign_in,
+            chatgpt_account,
+            chatgpt_sign_in,
+            chatgpt_models,
+            chatgpt_sign_out,
+            provider_models,
             set_window_solid,
             cinderpaw_memory_forget,
             take_launch_files,
             jev_decide,
             call_pill::call_pill_open,
+            agent_overlay::agent_overlay_stop,
+            agent_overlay::agent_overlay_state,
             call_pill::call_pill_close,
             call_pill::main_in_front,
             downloads_card::downloads_card_open,
@@ -672,9 +698,17 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             test_byok_provider,
             chat_cloud_complete,
             read_file_as_text,
+            open_local_file,
+            keep_awake::keep_awake,
             read_file_as_data_url,
             extract_file_text,
             stage_pasted_file,
+            allow_video_preview,
+            video_tools_ready,
+            install_video_tools,
+            video_link_info,
+            video_link_preview,
+            video_link_full,
             skills::list_installed_skills,
             skills::get_installed_skill_content,
             skills::fetch_remote_skills,
@@ -690,6 +724,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             cinderpaw_send_message,
             cinderpaw_agent_status,
             cinderpaw_stop_generation,
+            cinderpaw_steer,
             cinderpaw_submit_feedback,
             cinderpaw_run_fractal_benchmark,
             cinderpaw_dream_now,
@@ -857,7 +892,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
         .on_page_load(|window, _| {
             // The call pill is a transparent strip over the desktop: an acrylic
             // backdrop on it is a milky rectangle around the pill (21 Sep).
-            if window.label() == call_pill::LABEL {
+            if window.label() == call_pill::LABEL || agent_overlay::is_overlay(window.label()) {
                 return;
             }
             #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -920,7 +955,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             #[cfg(desktop)]
             tray::on_window_event(window, event);
             // The call pill never gets the backdrop (see on_page_load).
-            if window.label() == call_pill::LABEL {
+            if window.label() == call_pill::LABEL || agent_overlay::is_overlay(window.label()) {
                 return;
             }
             #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -997,7 +1032,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
                 *pending = file_args(&std::env::args().collect::<Vec<_>>());
             }
 
-            // tauri.conf.json opens the window at 1280x800. On a smaller screen
+            // tauri.conf.json opens the window at 1262x865. On a smaller screen
             // (a 1366x768 laptop, any laptop at 125%) it hung past the edges and
             // the first screen's Get started sat under the taskbar: the beta.1
             // install smoke on a 1024x768 Mac showed the welcome cut off (14 Oct).
@@ -1020,8 +1055,14 @@ Everything is there and nothing is at risk. Cinderpaw will                      
                 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
                 let started = app.handle().plugin(
                     tauri_plugin_global_shortcut::Builder::new()
-                        .with_handler(|app, _shortcut, event| {
+                        .with_handler(|app, shortcut, event| {
                             if event.state() != ShortcutState::Pressed {
+                                return;
+                            }
+                            // Esc is only registered while the agent drives the
+                            // computer (agent_overlay.rs): it stops the agent.
+                            if shortcut.key == Code::Escape {
+                                tauri::async_runtime::spawn(agent_overlay::stop(app.clone()));
                                 return;
                             }
                             // Window and page separately: `get_webview_window`
@@ -1086,9 +1127,34 @@ Everything is there and nothing is at risk. Cinderpaw will                      
                         let browser_app = browser_app.clone();
                         Box::pin(async move {
                             if let Some(op) = action.strip_prefix("browser.") {
-                                return crate::browser::handle_from_agent(browser_app, op, &params).await;
+                                let result = crate::browser::handle_from_agent(browser_app, op, &params).await;
+                                // In the log too: "failed to create webview" lived only
+                                // in the tool's answer, nowhere a bug report reads (7 Nov).
+                                if let Err(e) = &result {
+                                    tracing::warn!("browser.{op}: {e}");
+                                }
+                                return result;
                             }
-                            crate::desktop_control::handle_request(&action, &params).await
+                            // `video.*`: the agent watching a link or a local video. A
+                            // local path passes the same wall as the chat's file readers,
+                            // with the agent's own door: its workspace, where it renders
+                            // the videos it makes (the agent's fs wall exempts it too).
+                            if let Some(op) = action.strip_prefix("video.") {
+                                if let Some(src) = params["source"].as_str().filter(|s| !s.starts_with("http")) {
+                                    let canonical = std::fs::canonicalize(src).map_err(|e| format!("Invalid path: {e}"))?;
+                                    let ws = cinderpaw_core::paths::cinderpaw_agent_workspace_path();
+                                    if !ws.canonicalize().is_ok_and(|ws| canonical.starts_with(ws)) {
+                                        crate::commands::files::deny_cinderpaw_private(&canonical)?;
+                                    }
+                                }
+                                return cinderpaw_core::video::handle_from_agent(op, &params).await;
+                            }
+                            // The overlay first (it points at what is about to be
+                            // pressed), then the step, then the press shows.
+                            crate::agent_overlay::before(&browser_app, &action, &params).await;
+                            let result = crate::desktop_control::handle_request(&action, &params).await;
+                            crate::agent_overlay::after(&browser_app, &action, result.is_ok());
+                            result
                         })
                     });
                 Some(dc)
@@ -1251,12 +1317,14 @@ mod tests {
     #[test]
     fn a_window_bigger_than_the_screen_is_shrunk_and_centered() {
         let rect = |x, y, w, h| tauri::PhysicalRect { position: tauri::PhysicalPosition::new(x, y), size: tauri::PhysicalSize::new(w, h) };
-        // A big screen: left alone.
-        assert_eq!(fit_into((1280, 800), &rect(0, 0, 1920, 1040)), None);
-        // 1366x768 with a 48 px taskbar: too tall only, so full height, centered across.
-        assert_eq!(fit_into((1280, 800), &rect(0, 0, 1366, 720)), Some((1280, 720, 43, 0)));
+        // A big screen (1920x1080, 48 px taskbar): left alone.
+        assert_eq!(fit_into((1262, 865), &rect(0, 0, 1920, 1032)), None);
+        // 1366x768 laptop: too tall only, so 94% of the height, centered both ways.
+        assert_eq!(fit_into((1262, 865), &rect(0, 0, 1366, 720)), Some((1262, 676, 52, 22)));
+        // 1920x1080 laptop at 125% (1536x826 free): a margin all round, not edge to edge.
+        assert_eq!(fit_into((1262, 865), &rect(0, 0, 1536, 826)), Some((1262, 776, 137, 25)));
         // A second monitor to the right, under a menu bar.
-        assert_eq!(fit_into((1280, 800), &rect(1920, 25, 1024, 743)), Some((1024, 743, 1920, 25)));
+        assert_eq!(fit_into((1262, 865), &rect(1920, 25, 1024, 743)), Some((962, 698, 1951, 47)));
     }
 
     #[test]

@@ -21,6 +21,9 @@ export function createWriteFileTool(allowedPaths: string[]): Tool {
     name: "write_file",
     description:
       "Create or overwrite a UTF-8 text file. Creates intermediate directories if needed. " +
+      // 4 Nov tour: asked for "a small web page", Haiku wrote index.html here,
+      // could not open it (file: links do not open), and only then made an artifact.
+      "A web page, game or app for the person to look at goes in artifact_create (kind app) instead: it shows in the chat, and artifact_preview lets you test it. Use write_file for a page only when they asked for a file on disk. " +
       (allowedPaths.length > 0
         ? `Writes are allowed ONLY inside these directories: ${allowedPaths.join(", ")}. ` +
           "A path outside them is refused, unless the person chose Full access (then any folder works except Cinderpaw's own keys) — never guess a directory; use one of these roots.\n" +

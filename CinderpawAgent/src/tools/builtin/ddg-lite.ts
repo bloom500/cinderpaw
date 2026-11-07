@@ -213,10 +213,16 @@ export async function ddgLiteSearch(
   }
 }
 
-/** What to tell the user when DDG has cut us off despite the pacing. */
+/**
+ * What the agent is told when DDG has cut us off despite the pacing. It used
+ * to explain SearXNG and stop there, so on a new install a price comparison
+ * ended "I can't check right now" after ~3 searches (smoke test, 7 Nov). It now
+ * names the way on: the same search through the built-in browser, which is a
+ * real browser and is not cut off with it.
+ */
 export const DDG_THROTTLED_HINT =
-  "DuckDuckGo is rate-limiting this machine and searches are paused for a " +
-  "couple of minutes. Cinderpaw already paces its queries to stay under the limit, " +
-  "so hitting this means unusually heavy searching (or another client on the " +
-  "same connection). For search with no rate limit at all, run a SearXNG " +
-  "instance and set CINDERPAW_SEARXNG_URL — see docs/CONFIGURATION.md.";
+  "DuckDuckGo has paused searches from this machine for a couple of minutes. Do not stop the task: " +
+  "if you have the browser tool, search there instead (browser open " +
+  "https://html.duckduckgo.com/html/?q=<your words>, or https://www.bing.com/search?q=<your words>) and " +
+  "read the results from the page. Say in one line that you searched through the browser. " +
+  "(A SearXNG server, CINDERPAW_SEARXNG_URL, removes the limit; mention it only if the person asks.)";

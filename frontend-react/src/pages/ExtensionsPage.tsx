@@ -81,12 +81,12 @@ export function ExtensionsPage() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex-1 overflow-y-auto scrollbar-hide">
+      <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         <div className="max-w-4xl mx-auto px-6 py-8">
           {/* Hero */}
           <div className="mb-6">
-            <h1 className="text-2xl font-bold text-text-primary tracking-tight">
-              Capabilities <span aria-hidden="true">✦</span>
+            <h1 className="text-lg font-semibold text-text-primary">
+              Capabilities
             </h1>
             <p className="text-sm text-text-muted mt-1">
               What your assistant can do. Install with one click, switch off anytime.
@@ -100,12 +100,12 @@ export function ExtensionsPage() {
           <button
             type="button"
             onClick={openSkills}
-            className="mb-8 w-full text-left rounded-xl border border-border-default bg-bg-surface hover:bg-bg-hover transition-colors p-4 flex items-center gap-3"
+            className="mb-8 w-full text-left rounded-xl border border-border-subtle bg-bg-surface hover:bg-bg-hover transition-colors p-4 flex items-center gap-3"
           >
             <span aria-hidden="true" className="text-lg">✨</span>
             <span className="flex-1">
-              <span className="block text-sm font-medium text-text-primary">Skills</span>
-              <span className="block text-xs text-text-muted mt-0.5">
+              <span className="block text-base font-medium text-text-primary">Skills</span>
+              <span className="block text-sm text-text-muted mt-0.5">
                 Written instructions your assistant follows for a particular kind of job.
               </span>
             </span>
@@ -138,7 +138,7 @@ export function ExtensionsPage() {
               {/* Installed */}
               {installed.length > 0 && (
                 <section className="mb-10">
-                  <h2 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
+                  <h2 className="text-sm font-medium text-text-secondary mb-3">
                     Installed
                   </h2>
                   <div className="grid grid-cols-2 gap-3">
@@ -152,7 +152,7 @@ export function ExtensionsPage() {
               {/* Discover */}
               <section>
                 <div className="mb-3">
-                  <h2 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-2">
+                  <h2 className="text-sm font-medium text-text-secondary mb-2">
                     Discover
                   </h2>
                   <div className="flex flex-wrap gap-1.5">
@@ -162,7 +162,7 @@ export function ExtensionsPage() {
                         type="button"
                         onClick={() => setCategory(c)}
                         className={cn(
-                          'px-2.5 py-1 rounded-full text-2xs font-medium transition-colors whitespace-nowrap',
+                          'px-3 py-1 rounded-full text-xs font-medium transition-colors whitespace-nowrap',
                           category === c
                             ? 'bg-brand text-on-brand'
                             : 'bg-bg-hover text-text-muted hover:text-text-secondary',
@@ -257,12 +257,12 @@ function InstalledCard({
   };
 
   return (
-    <div className="rounded-xl border border-border-default bg-bg-surface p-4 flex flex-col">
+    <div className="rounded-xl border border-border-subtle bg-bg-surface p-4 flex flex-col">
       <div className="flex items-start gap-3">
         <BrandLogo id={server.id} name={server.name} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-semibold text-text-primary truncate">{server.name}</p>
+            <p className="text-base font-medium text-text-primary truncate">{server.name}</p>
             <span
               className={cn(
                 'h-1.5 w-1.5 rounded-full shrink-0',
@@ -271,7 +271,7 @@ function InstalledCard({
               title={server.running ? 'Running' : server.enabled ? 'Starting…' : 'Off'}
             />
           </div>
-          <p className="text-xs text-text-muted mt-0.5 leading-relaxed">{server.description}</p>
+          <p className="text-sm text-text-muted mt-0.5">{server.description}</p>
         </div>
         <button
           type="button"
@@ -303,7 +303,7 @@ function InstalledCard({
           type="button"
           onClick={() => void showTools()}
           disabled={!server.running}
-          className="inline-flex items-center gap-1 text-2xs text-text-muted hover:text-text-secondary disabled:opacity-40"
+          className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text-secondary disabled:opacity-40"
         >
           What can it do? {toolsOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
         </button>
@@ -312,7 +312,7 @@ function InstalledCard({
           onClick={() => void remove()}
           onBlur={() => setRemoveArmed(false)}
           className={cn(
-            'inline-flex items-center gap-1 text-2xs',
+            'inline-flex items-center gap-1 text-xs',
             removeArmed ? 'text-error font-medium' : 'text-text-muted hover:text-error',
           )}
         >
@@ -385,20 +385,16 @@ export function CatalogCard({
   return (
     <div
       className={cn(
-        'rounded-xl border border-border-default bg-bg-surface p-4 flex flex-col',
-        'hover:border-brand/40 transition-colors',
+        'rounded-xl border border-border-subtle bg-bg-surface p-4 flex flex-col',
       )}
     >
       <div className="flex items-start gap-3">
         <BrandLogo id={entry.id} name={entry.name} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-semibold text-text-primary truncate">{entry.name}</p>
-            <span className="text-micro px-1.5 py-0.5 rounded bg-bg-hover text-text-muted shrink-0">
-              {entry.category}
-            </span>
+            <p className="text-base font-medium text-text-primary truncate">{entry.name}</p>
           </div>
-          <p className="text-xs text-text-muted mt-0.5 leading-relaxed">{entry.description}</p>
+          <p className="text-sm text-text-muted mt-0.5">{entry.description}</p>
         </div>
       </div>
 
@@ -427,16 +423,18 @@ export function CatalogCard({
         </p>
       )}
 
-      <div className="mt-auto pt-3">
+      {/* A quiet button at the card's foot, not a full-width orange bar: twenty
+          orange bars in a grid made every card shout and none stand out. */}
+      <div className="mt-auto pt-3 flex justify-end">
         <button
           type="button"
           onClick={() => void install()}
           disabled={busy || installed}
           className={cn(
-            'w-full text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5',
+            'h-8 text-sm font-medium px-3 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5',
             installed
-              ? 'bg-bg-hover text-text-muted cursor-default'
-              : 'bg-brand text-on-brand hover:bg-brand/90',
+              ? 'text-text-muted cursor-default'
+              : 'border border-border-default bg-bg-elevated text-text-primary hover:bg-bg-hover',
           )}
         >
           {busy && <Loader2 size={12} className="animate-spin" />}

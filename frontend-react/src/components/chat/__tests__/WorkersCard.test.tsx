@@ -4,11 +4,15 @@ import userEvent from '@testing-library/user-event';
 import { WorkersCard } from '../WorkersCard';
 import { useRlmWorkers } from '@/stores/rlmWorkers';
 import { useChat } from '@/stores/chat';
+import { useUI } from '@/stores/ui';
 
 vi.mock('@/lib/clipboard', () => ({ copyText: vi.fn().mockResolvedValue(true) }));
 
 describe('WorkersCard', () => {
   beforeEach(() => {
+    // The card above the message box: the Context column, where it moves when
+    // open, is closed here.
+    useUI.setState({ contextOpen: false });
     useRlmWorkers.setState({ workers: [] });
     useChat.setState({ sessionId: 's1' });
   });

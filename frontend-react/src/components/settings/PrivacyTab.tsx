@@ -96,24 +96,28 @@ export function PrivacyTab() {
             Retry with a second cloud provider when the first one fails
           </p>
           <p className="text-xs text-text-muted mt-0.5">
-            While this is off, a rate-limited or unreachable provider means the message fails and
-            Cinderpaw tells you why. Turn it on and Cinderpaw will instead resend that message, and
-            the conversation so far, to another provider you have configured, using that provider’s
-            key. It keeps you answering on a bad day; it also means a second company sees the
-            conversation. Your call, not ours.
+            Off: when your provider is busy or down, the message fails and Cinderpaw tells you why.
+            On: Cinderpaw sends the message, and the chat so far, to another provider you set up.
+            You keep getting answers, but a second company sees the chat. Your call.
           </p>
         </div>
-        <input
-          type="checkbox"
+        <button
+          type="button"
+          role="switch"
+          aria-checked={cloudFallback}
           aria-label="Retry with a second cloud provider when the first one fails"
-          checked={cloudFallback}
           disabled={!settings}
-          onChange={(e) => {
-            update({ cloud_fallback_enabled: e.target.checked });
+          onClick={() => {
+            update({ cloud_fallback_enabled: !cloudFallback });
             void save();
           }}
-          className="h-4 w-4 accent-orange-500 shrink-0"
-        />
+          className={cn(
+            'w-10 h-6 rounded-full transition-colors relative shrink-0 overflow-hidden disabled:opacity-50',
+            cloudFallback ? 'bg-brand' : 'bg-border-default',
+          )}
+        >
+          <span className={cn('absolute top-1 left-0 w-4 h-4 rounded-full bg-white transition-transform', cloudFallback ? 'translate-x-5' : 'translate-x-1')} />
+        </button>
       </div>
 
       {/* Opt-in daily usage summary (PROMISES.md 4). Off stops the next send:

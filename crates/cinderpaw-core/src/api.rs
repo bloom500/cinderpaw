@@ -237,6 +237,11 @@ pub fn router(state: ApiState) -> Router {
         .route("/runtime/migrate/apply", post(runtime_migrate_apply))
         // One-click OpenRouter sign-in for the browser app (the desktop has its own button).
         .route("/runtime/openrouter/sign-in", post(runtime_openrouter_sign_in))
+        // A ChatGPT plan behind an OpenAI-compatible face (chatgpt_gateway):
+        // the engine is pointed here with this API's own bearer token, and
+        // the ChatGPT token stays in this process.
+        .route("/chatgpt/v1/chat/completions", post(chatgpt_chat_completions))
+        .route("/chatgpt/v1/models", get(chatgpt_models))
         .route("/runtime/providers/catalog", get(runtime_providers_catalog))
         .route("/runtime/connectors/catalog", get(runtime_connectors_catalog))
         .route("/runtime/connectors/whatsapp/qr", get(runtime_whatsapp_qr))
@@ -4272,6 +4277,100 @@ async fn runtime_openrouter_sign_in(Json(req): Json<OpenRouterSignInReq>) -> Res
             Json(json!({ "url": url })).into_response()
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
+}
+
+fn chatgpt_error(status: u16, message: String) -> Response {
+    (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY), Json(json!({ "error": { "message": message } })))
+        .into_response()
+}
+
+/// `POST /chatgpt/v1/chat/completions` — one model call on the person's
+/// ChatGPT plan: translated to the Responses API, sent with a token renewed
+/// here, and the answer translated back (`chatgpt_gateway`).
+async fn chatgpt_chat_completions(Json(chat): Json<Value>) -> Response {
+    use crate::chatgpt_gateway as gw;
+    let token = match crate::chatgpt_signin::access_token().await {
+        Ok(t) => t,
+        Err(e) => return chatgpt_error(401, e),
+    };
+    let upstream = match reqwest::Client::new().post(gw::RESPONSES_URL).bearer_auth(&token).json(&gw::to_responses(&chat)).send().await {
+        Ok(r) => r,
+        Err(_) => return chatgpt_error(502, "ChatGPT is not reachable right now. Check that you are online and try again.".into()),
+    };
+    if !upstream.status().is_success() {
+        let status = upstream.status().as_u16();
+        let body: Value = upstream.json().await.unwrap_or(Value::Null);
+        let (status, said) = gw::explain(&body["error"], status);
+        return chatgpt_error(status, said);
+    }
+    let model = chat["model"].as_str().unwrap_or_default().to_string();
+    let mut events = gw::Events::new(Box::pin(upstream.bytes_stream()));
+    let mut tr = gw::Translator::new(&model);
+    // Held back until something is said or it fails: a used-up plan must reach
+    // the engine as an error it reports, not as an empty answer.
+    let mut first = Vec::new();
+    let mut ended = false;
+    while first.is_empty() && !ended {
+        let Some(ev) = events.next().await else { break };
+        if let Some((status, said)) = gw::failure(&ev) {
+            return chatgpt_error(status, said);
+        }
+        ended = matches!(ev["type"].as_str(), Some("response.completed" | "response.incomplete"));
+        first.extend(tr.event(&ev));
+    }
+    if chat["stream"].as_bool() != Some(true) {
+        let mut all = gw::Collected::default();
+        first.iter().for_each(|c| all.add(c));
+        while !ended {
+            let Some(ev) = events.next().await else { break };
+            if let Some((status, said)) = gw::failure(&ev) {
+                return chatgpt_error(status, said);
+            }
+            ended = matches!(ev["type"].as_str(), Some("response.completed" | "response.incomplete"));
+            tr.event(&ev).iter().for_each(|c| all.add(c));
+        }
+        return Json(all.into_completion(&model)).into_response();
+    }
+    let body = async_stream::stream! {
+        for c in first {
+            yield Ok::<_, Infallible>(format!("data: {c}\n\n"));
+        }
+        while !ended {
+            let Some(ev) = events.next().await else { break };
+            if let Some((_, said)) = gw::failure(&ev) {
+                // Cut off half way: said where the person is reading.
+                yield Ok(format!("data: {}\n\n", tr.note(&format!("\n\n{said}"))));
+                break;
+            }
+            ended = matches!(ev["type"].as_str(), Some("response.completed" | "response.incomplete"));
+            for c in tr.event(&ev) {
+                yield Ok(format!("data: {c}\n\n"));
+            }
+        }
+        yield Ok("data: [DONE]\n\n".to_string());
+    };
+    Response::builder()
+        .header(header::CONTENT_TYPE, "text/event-stream")
+        .header(header::CACHE_CONTROL, "no-cache")
+        .body(axum::body::Body::from_stream(body))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+/// `GET /chatgpt/v1/models` — the models this ChatGPT account may use, in the
+/// OpenAI list shape every model picker already reads.
+async fn chatgpt_models() -> Response {
+    let token = match crate::chatgpt_signin::access_token().await {
+        Ok(t) => t,
+        Err(e) => return chatgpt_error(401, e),
+    };
+    match crate::chatgpt_gateway::models(&token).await {
+        Ok(list) => Json(json!({
+            "object": "list",
+            "data": list.into_iter().map(|(id, name)| json!({ "id": id, "object": "model", "owned_by": "openai", "name": name })).collect::<Vec<_>>(),
+        }))
+        .into_response(),
+        Err(e) => chatgpt_error(502, e),
     }
 }
 

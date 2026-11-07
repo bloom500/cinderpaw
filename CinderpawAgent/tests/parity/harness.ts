@@ -139,6 +139,12 @@ export async function runScenario(scenario: Scenario): Promise<Outcome> {
       audit.logger,
       db.raw,
     );
+    // A local model's window defaults to CINDERPAW_MAX_CONTEXT (8K), leaving the
+    // transcript ~3K once output and tool schemas are reserved. The system prompt
+    // now fills most of that, so a long Windows temp path in a tool result tipped
+    // empty_after_work into a compaction call: 4 completions, not 3 (CI, 6 Nov).
+    // No scenario here is about compaction, so give them room.
+    router.setContextWindow(32_768);
     const episodic = new EpisodicMemory(db.raw, audit.logger);
     const recall = new RecallEngine(episodic, new SemanticMemory(db.raw, audit.logger));
     const registry = new ToolRegistry(egress, audit, new RealProcessSandbox(audit.logger));

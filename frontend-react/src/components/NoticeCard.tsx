@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import { X, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { BASE } from '@/lib/motion';
 
 /**
  * The one shape every notice takes (Darius, 21 Oct: "cu toate sus"): an icon,
@@ -24,7 +25,7 @@ export function NoticeCard({ icon: Icon, title, line, onClose, children, actions
       initial={{ opacity: 0, x: 24, scale: 0.96 }}
       animate={{ opacity: 1, x: 0, scale: 1 }}
       exit={{ opacity: 0, x: 24, scale: 0.96 }}
-      transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.8 }}
+      transition={BASE}
       // Same glass as the toasts (see Toasts.tsx): blurred slab, top-lit
       // sheen, 1px inner ring for the lit edge.
       className={cn(

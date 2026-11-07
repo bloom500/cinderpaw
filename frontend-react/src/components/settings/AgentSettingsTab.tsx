@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Trash2, AlertCircle, Bot, RefreshCw, Plus } from 'lucide-react';
+import { Trash2, AlertCircle, Bot, Plus } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useAgent } from '@/stores/agent';
 import { useSettings } from '@/stores/settings';
 import { useNavigate } from 'react-router-dom';
 import { TOOL_LABELS } from '@/components/agents/agentUtils';
-import { cn, SECONDARY_BUTTON } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { TeammatesSection } from './TeammatesSection';
 
 export function AgentSettingsTab() {
@@ -53,16 +53,10 @@ export function AgentSettingsTab() {
       <DesktopControlToggle />
       <TokenBudgetToggle />
 
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          disabled={loading}
-          className={cn(SECONDARY_BUTTON, 'inline-flex items-center gap-1.5')}
-        >
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-          Refresh
-        </button>
+      {/* One way to make an agent at a time: the empty card below has its own
+          button, so this row waits for a list. No Refresh: the list is read
+          every time this tab opens, and nothing changes it while you look. */}
+      {list.length > 0 && <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={() => {
@@ -74,7 +68,7 @@ export function AgentSettingsTab() {
           <Plus size={14} />
           New agent
         </button>
-      </div>
+      </div>}
 
       {error && (
         <div className="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 p-3">
@@ -420,12 +414,15 @@ export function DesktopControlToggle() {
               className={segBtn(yolo)}
               aria-pressed={yolo}
             >
-              Don't ask
+              {/* 27 Oct: "tell me after", not "don't ask" (Altman: "tell me after
+                  you do something ... ping me less"). Every step stays in the
+                  chat with its widget and picture: that is the "after". */}
+              Do it, show me after
             </button>
           </div>
           <p className="text-2xs text-text-muted">
             {yolo
-              ? 'Cinderpaw clicks, types and sends without asking. It still asks before opening an app.'
+              ? 'Cinderpaw clicks, types and sends without asking, and every step stays in the chat with what it saw. It still asks before opening an app, and, in its browser, before posting in your name or paying.'
               : 'Cinderpaw asks you before every click, every bit of typing, and every send.'}
           </p>
         </div>

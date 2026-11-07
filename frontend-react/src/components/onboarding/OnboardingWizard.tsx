@@ -1,24 +1,26 @@
 /**
- * OnboardingWizard — first-run experience, drawn from Darius's five boards
- * (Moodboard/Components/onboarding 1-5.png, 1 Oct 2026).
+ * OnboardingWizard — first-run experience, three cards (31 Oct 2026, Darius's
+ * release gate: someone who saw the promo film starts with no effort, "almost
+ * Apple intuitive").
  *
- *   1. Welcome          — what Cinderpaw is, in four cards
- *   2. Names            — what the user is called and what the agent is called
- *   3. Provider         — Cloud, Hugging Face or Local, with the real setup under each
- *   4. Connect          — the real integrations, "+" opens the same form Settings uses
- *   5. Workspace        — a drawing of the app, so the first screen after this is familiar
- *   6. Done             — what was set up (only what really was), then the chat
+ *   1. Welcome   — what Cinderpaw does, as a film ("Your AI team"), then Get started
+ *   2. Provider  — a brain: one free sign-in, or a key, or a model on this computer
+ *   3. Done      — the names, the notices, and a first task that lands in the chat
  *
+ * Connections and the workspace tour left the wizard: a stranger meets them
+ * where they are used, not as two more screens before the first answer.
  * Both names are injected into the agent's system prompt as a USER block.
  *
  * Skippable. If the user dismisses, defaults are used and they can
  * re-open the wizard from Settings later.
  */
 
-import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, Fragment, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, ArrowLeft, ArrowUp, AudioLines, BarChart3, Check, ChevronRight, Cloud, Cpu, Database, Download, ExternalLink, Eye, EyeOff, FileText, Globe, Gpu, Laptop, Layers, Loader2, MemoryStick, Paperclip, PenLine, Search, Settings, Shield, ShieldAlert, ShieldCheck, Sparkles, Star, Wrench, type LucideIcon } from 'lucide-react';
+import { ArrowRight, ArrowLeft, CalendarCheck, Check, ChevronRight, Download, ExternalLink, Eye, EyeOff, KeyRound, Laptop, Loader2, Maximize2, Megaphone, Minimize2, MessageCircle, Search, Shield, ShieldAlert, ShieldCheck, Sparkles, Volume2, VolumeX, type LucideIcon } from 'lucide-react';
 import { STEP_IDS, useOnboarding } from '@/stores/onboarding';
 import { useSystemInfo } from '@/stores/systemInfo';
 import { useDownload } from '@/stores/download';
@@ -29,16 +31,21 @@ import { useCatalog } from '@/stores/catalog';
 import { useNotifications } from '@/stores/notifications';
 import { recommendModel } from '@/lib/hardwareRecommendation';
 import { tauri, type DiskEncryptionStatus, type SetupCandidate, type SetupVerifyOutcome } from '@/lib/tauri';
-import { CinderpawMascot } from '@/components/chat/mascot/CinderpawMascot';
-import type { MascotState } from '@/components/chat/mascot/frames';
-import { BrandLogo } from '@/lib/brandLogos';
+import { signInWithOpenRouter } from '@/lib/openrouterSignIn';
+import { CHATGPT_ID, signInWithChatGPT } from '@/lib/chatgptSignIn';
+import { CinderpawMascot, usePrefersReducedMotion } from '@/components/chat/mascot/CinderpawMascot';
 import { ModelLogo } from '@/lib/modelLogos';
-import { ConnectStep } from './ConnectStep';
 import { ImportCard } from './ImportCard';
+import logoUrl from '@/assets/logo.svg';
 import { WhatIsSent } from '@/components/usage/WhatIsSent';
 import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 import { ListenButton } from '@/components/voice/ListenButton';
 import type { CubbyLineId } from '@/voice/cubby-lines';
+import { BASE } from '@/lib/motion';
+import { useAttention } from '@/lib/attention';
+import filmWebm from '@/assets/onboarding/your-ai-team.webm';
+import filmMp4 from '@/assets/onboarding/your-ai-team.mp4';
+import filmPoster from '@/assets/onboarding/your-ai-team-poster.webp';
 
 const stepVariants = {
   enter: { opacity: 0, y: 12 },
@@ -46,11 +53,24 @@ const stepVariants = {
   exit: { opacity: 0, y: -12 },
 };
 
-/** The mascot's pose on each board, in step order. */
-const ART: MascotState[] = ['wave', 'love', 'curious', 'excited', 'idle', 'celebrate'];
-
 const PRIMARY_BUTTON =
-  'inline-flex items-center gap-2.5 rounded-2xl bg-brand px-7 py-3.5 text-base font-medium text-on-brand shadow-lg shadow-brand/25 transition-colors hover:bg-brand/90';
+  'inline-flex items-center gap-2.5 rounded-2xl bg-brand px-7 py-3.5 text-base font-medium text-on-brand shadow-lg shadow-brand/25 transition-colors hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-bg-hover disabled:text-text-muted disabled:shadow-none';
+
+/**
+ * Something will answer the first message: a model picked or loaded, a key
+ * saved, a download done or on its way, or a brain found on this machine that
+ * passed a real completion. The brain card's Continue waits for this, so a
+ * stranger cannot click through to a chat that answers "no model".
+ */
+function useBrainReady(): boolean {
+  const cloudModel = useModel((s) => s.cloudModel);
+  const loaded = useModel((s) => s.loaded);
+  const downloading = useDownload((s) => !!s.active);
+  const downloaded = useDownload((s) => s.done);
+  const byok = useSettings((s) => s.byok);
+  const verified = useOnboarding((s) => s.brainVerified);
+  return !!cloudModel || !!loaded || downloaded || downloading || verified || byok.some((p) => p.enabled && p.has_api_key);
+}
 
 export function OnboardingWizard() {
   const navigate = useNavigate();
@@ -61,19 +81,21 @@ export function OnboardingWizard() {
   const next = useOnboarding((s) => s.next);
   const skip = useOnboarding((s) => s.skip);
   const finish = useOnboarding((s) => s.finish);
-  const userName = useOnboarding((s) => s.userName);
+  const brainReady = useBrainReady();
+  const brainWay = useOnboarding((s) => s.brainWay);
+  // Each step starts at its top. The scroll stayed where the last step left it,
+  // so "Almost ready" opened with its heading cut off (4 Nov tour).
+  const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => { scroller.current?.scrollTo?.({ top: 0 }); }, [step]);
 
   if (!active) return null;
   const isFirst = step === 0;
   const isLast = step === totalSteps - 1;
-  // The names board waits for the one thing it asks; the agent's name has a default.
-  const canProceed = step !== 1 || userName.trim().length > 0;
-  // The model board needs the whole width for its cards, so its mascot sits
-  // above them, beside the title, instead of in a column of its own.
-  const hasArt = step !== 2;
+  const onBrain = STEP_IDS[step] === 'provider';
 
   return (
     <div
+      ref={scroller}
       className="fixed inset-0 z-50 overflow-y-auto bg-bg-primary"
       role="dialog"
       aria-modal="true"
@@ -82,12 +104,16 @@ export function OnboardingWizard() {
       {/* This overlay covers the shell's drag strip; the window needs its own. */}
       <div data-tauri-drag-region aria-hidden className="fixed top-0 inset-x-0 h-8" />
       <div className="mx-auto flex min-h-full max-w-6xl flex-col px-4 py-6 sm:px-10 sm:py-8">
-        <header className="flex items-center gap-2" aria-hidden>
-          <CinderpawMascot state="idle" width={32} />
-          <span className="font-display text-xl text-text-primary">Cinderpaw</span>
+        {/* The same mark and name as the sidebar's, so the app reads as one from
+            its first screen: a 32 px full-body Cubby here was a second logo (4 Nov). */}
+        <header className="flex items-center gap-2.5" aria-hidden>
+          <img src={logoUrl} alt="" draggable={false} className="size-8 shrink-0" />
+          <span className="font-display text-2xl tracking-[-0.01em] text-text-primary">Cinderpaw</span>
         </header>
 
-        <div className={cn('grid flex-1 items-center gap-10 py-6', hasArt && 'lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]')}>
+        {/* One column: the film, the choices and the first tasks each need the
+            whole width; a mascot beside them squeezed the tasks into a strip. */}
+        <div className="grid flex-1 items-center gap-10 py-6">
           <div className="min-w-0">
             <StepCounter step={step} total={totalSteps} />
             <AnimatePresence mode="wait">
@@ -97,15 +123,12 @@ export function OnboardingWizard() {
                 initial="enter"
                 animate="center"
                 exit="exit"
-                transition={{ duration: 0.18, ease: 'easeOut' }}
+                transition={BASE}
                 className="mt-6"
               >
                 {step === 0 && <WelcomeStep />}
-                {step === 1 && <NamesStep />}
-                {step === 2 && <ProviderStep />}
-                {step === 3 && <ConnectStep />}
-                {step === 4 && <WorkspaceStep />}
-                {step === 5 && <DoneStep />}
+                {step === 1 && <ProviderStep />}
+                {step === 2 && <DoneStep />}
               </motion.div>
             </AnimatePresence>
 
@@ -113,7 +136,9 @@ export function OnboardingWizard() {
                 board pushed "Start exploring" below the fold (UX lab, item 8). */}
             <nav className="sticky bottom-0 z-10 mt-8 flex flex-wrap items-center gap-4 bg-bg-primary py-4">
               {!isFirst && (
-                <button type="button" onClick={prev} className={cn(SECONDARY_BUTTON, 'rounded-2xl px-5 py-3 text-base')}>
+                // inline-flex: the shared button is a block, and the arrow sat
+                // on a line of its own above "Back".
+                <button type="button" onClick={prev} className={cn(SECONDARY_BUTTON, 'inline-flex items-center gap-2 rounded-2xl px-5 py-3 text-base')}>
                   <ArrowLeft size={16} /> Back
                 </button>
               )}
@@ -124,17 +149,16 @@ export function OnboardingWizard() {
                   // route behind the overlay — the provider step can leave the router
                   // elsewhere (e.g. a deep-link to /models). Finish closes the wizard.
                   onClick={() => { navigate('/chat'); void finish(); }}
-                  className={PRIMARY_BUTTON}
+                  // With nothing to answer, "Choose a model" is the one orange action on the card.
+                  className={brainReady ? PRIMARY_BUTTON : cn(SECONDARY_BUTTON, 'inline-flex items-center gap-2 rounded-2xl px-5 py-3 text-base')}
                 >
                   Start exploring <ArrowRight size={16} />
                 </button>
               ) : (
-                <button type="button" onClick={next} disabled={!canProceed} className={cn(PRIMARY_BUTTON, 'disabled:cursor-not-allowed disabled:opacity-40')}>
+                <button type="button" onClick={next} disabled={onBrain && !brainReady} className={PRIMARY_BUTTON}>
                   {isFirst ? 'Get started' : 'Continue'} <ArrowRight size={16} />
                 </button>
               )}
-              {/* A grey button with no reason was a wall (UX lab, item 13). */}
-              {!canProceed && <span className="text-sm text-text-muted">Type your name to continue.</span>}
               {isFirst && (
                 <button
                   type="button"
@@ -145,26 +169,30 @@ export function OnboardingWizard() {
                   Skip
                 </button>
               )}
+              {/* A Continue that does nothing must say why on the screen, and
+                  leave a way on: skipping is the person's call, said out loud. */}
+              {onBrain && !brainReady && (
+                <span className="text-sm text-text-muted">
+                  {/* After a pick it names the next step: "Pick one way" again
+                      read as if the click had not counted (4 Nov tour). */}
+                  {/* The key box appears only after a provider is picked (7 Nov). */}
+                  {brainWay === 'key' ? 'Pick your provider above, then paste your key, or'
+                    : brainWay === 'local' ? 'Press Download above, or'
+                    : 'Pick one way above so I can answer you, or'}{' '}
+                  <button type="button" onClick={next} className="underline underline-offset-4 hover:text-text-primary">skip for now</button>.
+                </span>
+              )}
+              {/* Beside the button that sends it, so it is read before the press:
+                  at the end of the board it sat under this bar, ticked and unseen
+                  (smoke test, 7 Nov: box at 834 px, bar from 797 px, window 865). */}
+              {isLast && (
+                <div className="min-w-0 flex-1 basis-72">
+                  <InstallCountNotice />
+                </div>
+              )}
             </nav>
           </div>
 
-          {/* The drawing beside each board. Decoration only, and hidden on a
-              narrow window, where the steps need the whole width. */}
-          {hasArt && <div className="hidden justify-center lg:flex" aria-hidden>
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={step}
-                initial={{ opacity: 0, scale: 0.96 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.25, ease: 'easeOut' }}
-              >
-                {step === 3 ? <ConnectArt /> : step === 4 ? <WorkspaceArt /> : (
-                  <CinderpawMascot state={ART[step] ?? 'wave'} width={320} />
-                )}
-              </motion.div>
-            </AnimatePresence>
-          </div>}
         </div>
       </div>
     </div>
@@ -173,15 +201,21 @@ export function OnboardingWizard() {
 
 function StepCounter({ step, total }: { step: number; total: number }) {
   return (
-    <div className="flex items-center gap-5" aria-label={`Step ${step + 1} of ${total}`}>
-      <span className="text-xs font-medium tracking-[0.22em] text-text-muted">{step + 1} OF {total}</span>
+    <div className="flex items-center gap-5" aria-label={`Installed. Step ${step + 1} of ${total}`}>
+      <span className="text-xs font-medium text-text-muted">{step + 1} of {total}</span>
       <span className="flex items-center" aria-hidden>
+        {/* Never at zero (27 Oct): the install is a step the person already did,
+            so the path starts with it ticked rather than with empty dots. */}
+        <span className="flex items-center gap-1 text-xs font-medium text-brand">
+          <Check size={12} /> Installed
+        </span>
+        <span className="h-px w-5 bg-brand/50" />
         {Array.from({ length: total }, (_, i) => (
           <Fragment key={i}>
             {i > 0 && <span className={cn('h-px w-5', i <= step ? 'bg-brand/50' : 'bg-border-default')} />}
             <span
               className={cn(
-                'rounded-full transition-all duration-300',
+                'rounded-full transition-all duration-(--motion-slow)',
                 i === step ? 'size-3.5 bg-brand' : i < step ? 'size-2 bg-brand/50' : 'size-2 bg-border-default',
               )}
             />
@@ -209,203 +243,178 @@ export function StepIntro({ title, lead, body, voice }: { title: ReactNode; lead
   );
 }
 
-function FeatureCards({ items }: { items: { icon: LucideIcon; title: string; line: string }[] }) {
-  return (
-    <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-      {items.map(({ icon: Icon, title, line }) => (
-        <div key={title} className="rounded-2xl border border-border-default bg-bg-surface px-3 py-4 text-center">
-          <Icon size={28} className="mx-auto text-brand" />
-          <p className="mt-2.5 font-display text-base text-text-primary">{title}</p>
-          <p className="mt-1 text-xs leading-relaxed text-text-muted">{line}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // ── Step 1: Welcome ─────────────────────────────────────────────────────────
 
 function WelcomeStep() {
   return (
     <div>
-      <StepIntro
-        voice="onboarding.welcome"
-        title={<>Welcome to<br />Cinderpaw</>}
-        lead="A little wild. A lot to learn."
-        body="Your adaptive AI companion for exploring, creating, and automating work."
-      />
-      <FeatureCards
-        items={[
-          { icon: Layers, title: 'Models', line: 'Use the best models for your goals.' },
-          { icon: Wrench, title: 'Tools', line: 'Get things done with powerful tools.' },
-          { icon: Database, title: 'Memory', line: 'Remembers what matters to you.' },
-          { icon: AudioLines, title: 'Voice', line: 'Chat naturally, with your voice.' },
-        ]}
-      />
+      <div className="grid items-center gap-8 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+        <StepIntro
+          voice="onboarding.welcome"
+          title={<>Your AI<br />team</>}
+          lead="For you, and for your business."
+          body="It makes your posts, answers your customers, compares prices and books a table. It always asks before it posts, pays or books."
+        />
+        <TeamFilm />
+      </div>
       <ImportCard />
     </div>
   );
 }
 
-// ── Step 2: Names ───────────────────────────────────────────────────────────
-
-const NAME_INPUT =
-  'mt-2 w-full rounded-2xl border border-border-default bg-bg-surface px-4 py-3.5 font-display text-xl text-text-primary placeholder:text-text-muted/50 focus:border-brand focus:outline-hidden focus:ring-2 focus:ring-brand/40';
-
-function NamesStep() {
-  const userName = useOnboarding((s) => s.userName);
-  const setUserName = useOnboarding((s) => s.setUserName);
-  const agentName = useOnboarding((s) => s.agentName);
-  const setAgentName = useOnboarding((s) => s.setAgentName);
-  // Empty, the preview read "Sure, you!" (UX lab, item 13).
-  const you = userName.trim();
-  const me = agentName.trim() || 'Cinderpaw';
-
+/**
+ * The "Your AI team" film (videos/your-ai-team): one day in Ana's flower shop,
+ * the four jobs, 37 s. It starts without sound: a webview starts a video on its
+ * own only when it is muted, and nobody opening an app for the first time
+ * should meet music they did not ask for. One button turns the music on and
+ * plays it from the start. With reduced motion nothing plays until asked.
+ * WebM first (Linux webviews ship VP9 more often than H.264), MP4 for the rest,
+ * and the poster stays if neither can play. Full screen opens it over the
+ * whole screen (Darius, 31 Oct), from where it was.
+ */
+function TeamFilm() {
+  const still = usePrefersReducedMotion();
+  const ref = useRef<HTMLVideoElement>(null);
+  const [sound, setSound] = useState(false);
+  const [big, setBig] = useState<number | null>(null);
+  const openBig = () => {
+    const v = ref.current;
+    v?.pause();
+    setBig(v?.currentTime ?? 0);
+  };
+  const closeBig = (at: number) => {
+    setBig(null);
+    const v = ref.current;
+    if (!v) return;
+    v.currentTime = at;
+    if (!still) void v.play()?.catch(() => {});
+  };
+  useEffect(() => {
+    const v = ref.current;
+    if (!v || still) return;
+    // The property, not only the attribute, is what the autoplay rule reads.
+    v.muted = true;
+    void v.play()?.catch(() => {});
+  }, [still]);
+  const toggleSound = () => {
+    const v = ref.current;
+    if (!v) return;
+    v.muted = sound;
+    if (!sound) {
+      v.currentTime = 0;
+      void v.play()?.catch(() => {});
+    }
+    setSound(!sound);
+  };
   return (
-    <div>
-      <StepIntro
-        voice="onboarding.names"
-        title={<>Let’s get<br />acquainted</>}
-        lead="What should we call each other?"
-        body="I’ll use these names whenever we talk. You can change yours later in Settings."
-      />
-      <div className="mt-8 grid gap-4 sm:grid-cols-2">
-        <label className="block">
-          <span className="text-sm font-medium text-text-secondary">Your name</span>
-          <input
-            type="text"
-            value={userName}
-            onChange={(e) => setUserName(e.target.value)}
-            placeholder="e.g. Darius"
-            autoFocus
-            maxLength={40}
-            className={NAME_INPUT}
-          />
-        </label>
-        <label className="block">
-          <span className="text-sm font-medium text-text-secondary">My name</span>
-          <input
-            type="text"
-            value={agentName}
-            onChange={(e) => setAgentName(e.target.value)}
-            placeholder="Cinderpaw"
-            maxLength={40}
-            className={NAME_INPUT}
-          />
-        </label>
-      </div>
-      <div className="mt-6 space-y-2 rounded-2xl bg-bg-surface p-4 text-sm">
-        <p className="ml-auto w-fit rounded-2xl rounded-br-sm bg-brand/10 px-3.5 py-2 text-text-primary">Hi, I have a question.</p>
-        <p className="w-fit rounded-2xl rounded-bl-sm border border-border-default bg-bg-elevated px-3.5 py-2 text-text-primary">
-          <span className="font-medium text-brand">{me}:</span> {you ? `Sure, ${you}!` : 'Sure!'} What can I help you with?
-        </p>
-      </div>
+    <div className="relative">
+      <video
+        ref={ref}
+        className="aspect-video w-full rounded-2xl bg-bg-surface object-cover shadow-xl"
+        poster={filmPoster}
+        autoPlay={!still}
+        muted
+        loop
+        playsInline
+        controls={still}
+        preload="auto"
+        aria-label="A short film: one day in Ana's flower shop. Cinderpaw makes her post, compares prices, answers a customer after closing and books a table, asking her before it posts or books."
+      >
+        <source src={filmWebm} type="video/webm" />
+        <source src={filmMp4} type="video/mp4" />
+      </video>
+      {!still && (
+        <button
+          type="button"
+          onClick={toggleSound}
+          aria-pressed={sound}
+          className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-sm text-white transition-colors hover:bg-black/75"
+        >
+          {/* Icon and words both say what a press does: a muted speaker beside
+              "Sound on" read as a state and an action at once (smoke test, 7 Nov). */}
+          {sound ? <VolumeX size={16} /> : <Volume2 size={16} />} {sound ? 'Sound off' : 'Sound on'}
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={openBig}
+        className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-sm text-white transition-colors hover:bg-black/75"
+      >
+        <Maximize2 size={16} /> Full screen
+      </button>
+      {big !== null && <FilmFullScreen from={big} sound={sound} onClose={closeBig} />}
     </div>
   );
 }
 
-// ── Step 5: Workspace ───────────────────────────────────────────────────────
+/**
+ * The film over the whole screen. Drawn over everything on the page itself,
+ * not through the browser's fullscreen API, which webviews support unevenly
+ * (macOS needs a setting the app does not control); the window goes full
+ * screen too when it was not already, and comes back on close. Esc closes,
+ * like every full-screen video.
+ */
+/** Whether the film put the window in full screen, so closing it gives back only
+ *  what it took. Module-wide: React's dev double-mount must not lose it. */
+let filmMadeWindowFull = false;
 
-function WorkspaceStep() {
-  return (
-    <StepIntro
-      voice="onboarding.workspace"
-      title={<>Meet your<br />workspace</>}
-      lead="Everything you need, without the clutter."
-      body="Chat, browse, build artifacts, manage models, and track tasks from one calm interface."
-    />
+function FilmFullScreen({ from, sound, onClose }: { from: number; sound: boolean; onClose: (at: number) => void }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const close = () => onClose(ref.current?.currentTime ?? from);
+  useEffect(() => {
+    const v = ref.current;
+    if (v) {
+      v.currentTime = from;
+      v.muted = !sound;
+      void v.play()?.catch(() => {});
+    }
+    void (async () => {
+      try {
+        const win = getCurrentWindow();
+        if (!(await win.isFullscreen())) { await win.setFullscreen(true); filmMadeWindowFull = true; }
+      } catch { /* not inside the app (a browser preview): the page is the whole screen */ }
+    })();
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+    // The player's own full-screen button is where people press "again" to get out
+    // (Darius, 31 Oct): it used to put the already-full video in full screen once
+    // more and change nothing. Now it is the way out, like the button that opened it.
+    const onFull = () => {
+      if (!document.fullscreenElement) return;
+      void document.exitFullscreen?.()?.catch(() => {});
+      close();
+    };
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('fullscreenchange', onFull);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('fullscreenchange', onFull);
+      if (filmMadeWindowFull) {
+        filmMadeWindowFull = false;
+        try { void getCurrentWindow().setFullscreen(false).catch(() => {}); } catch { /* not inside the app */ }
+      }
+    };
+    // Opened once per click; `close` only reads the ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return createPortal(
+    <div role="dialog" aria-label="Your AI team, full screen" className="fixed inset-0 z-[300] flex items-center justify-center bg-black">
+      <video ref={ref} className="h-full w-full object-contain" poster={filmPoster} controls playsInline loop>
+        <source src={filmWebm} type="video/webm" />
+        <source src={filmMp4} type="video/mp4" />
+      </video>
+      <button
+        type="button"
+        onClick={close}
+        className="absolute right-4 top-4 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-sm text-white transition-colors hover:bg-white/25"
+      >
+        <Minimize2 size={16} /> Exit full screen
+      </button>
+    </div>,
+    document.body,
   );
 }
 
-// ── The drawings beside the boards ──────────────────────────────────────────
-
-/** The services the Connect board can really connect, around the mascot. */
-const ORBIT: { id: string; name: string }[] = [
-  { id: 'google_docs', name: 'Google Docs' }, { id: 'slack', name: 'Slack' }, { id: 'telegram', name: 'Telegram' },
-  { id: 'notion', name: 'Notion' }, { id: 'github', name: 'GitHub' }, { id: 'discord', name: 'Discord' },
-];
-
-function ConnectArt() {
-  const r = 190;
-  return (
-    <div className="relative size-[440px]">
-      <span className="absolute inset-8 rounded-full border-2 border-dashed border-brand/25" />
-      {ORBIT.map((o, i) => {
-        const a = (i / ORBIT.length) * Math.PI * 2 - Math.PI / 2;
-        return (
-          <span
-            key={o.id}
-            className="absolute -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-bg-elevated p-2 shadow-lg"
-            style={{ left: 220 + Math.cos(a) * r, top: 220 + Math.sin(a) * r }}
-          >
-            <BrandLogo id={o.id} name={o.name} />
-          </span>
-        );
-      })}
-      <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"><CinderpawMascot state="excited" width={220} /></span>
-    </div>
-  );
-}
-
-/** The app, drawn small: the sidebar, the home screen and the Context panel. */
-function WorkspaceArt() {
-  const nav: [LucideIcon, string][] = [[PenLine, 'New Chat'], [FileText, 'Artifacts'], [Globe, 'Browser'], [Layers, 'Models']];
-  // What the real Context panel shows (UX lab, item 15: this drew a panel and
-  // two home cards that do not exist, and the wrong web address).
-  const context: [LucideIcon, string, string][] = [[Layers, 'Model', 'The one answering'], [Database, 'Memory', '2 memories used'], [Wrench, 'Tools', 'Searched the web']];
-  return (
-    <div className="relative w-[520px] pb-16 pt-14">
-      <Callout className="left-4 top-0">All in one place. Chat, browse, build from the sidebar.</Callout>
-      <Callout className="right-0 top-0">Helpful context, within reach.</Callout>
-      <div className="flex overflow-hidden rounded-2xl border border-border-default bg-bg-elevated text-micro shadow-xl">
-        <div className="w-32 shrink-0 space-y-1 border-r border-border-subtle p-3">
-          {nav.map(([Icon, label], i) => (
-            <p key={label} className={cn('flex items-center gap-2 rounded-lg px-2 py-1.5', i === 0 ? 'bg-brand/10 text-brand' : 'text-text-secondary')}>
-              <Icon size={12} /> {label}
-            </p>
-          ))}
-          <p className="flex items-center gap-2 px-2 py-1.5 text-text-secondary"><Settings size={12} /> Settings</p>
-        </div>
-        <div className="flex flex-1 flex-col items-center gap-3 p-4">
-          <CinderpawMascot state="idle" width={44} />
-          <p className="font-display text-base text-text-primary">Good morning!</p>
-          <div className="w-full rounded-xl border border-border-default bg-bg-surface p-2.5">
-            <p className="text-text-muted">Ask anything…</p>
-            <p className="mt-3 flex items-center gap-2 text-text-muted">
-              <Paperclip size={12} /><Globe size={12} /><span className="flex-1" />
-              <span className="rounded-md bg-brand/15 p-1 text-brand"><ArrowUp size={12} /></span>
-            </p>
-          </div>
-          <div className="grid w-full grid-cols-2 gap-2">
-            <p className="rounded-xl border border-border-subtle p-2"><span className="flex items-center gap-1.5 text-text-primary"><Search size={12} className="text-brand" /> Research</span><span className="text-text-muted">Find and sum up.</span></p>
-            <p className="rounded-xl border border-border-subtle p-2"><span className="flex items-center gap-1.5 text-text-primary"><PenLine size={12} className="text-brand" /> Create</span><span className="text-text-muted">Write and build.</span></p>
-          </div>
-        </div>
-        <div className="w-36 shrink-0 space-y-1.5 border-l border-border-subtle p-3">
-          <p className="font-medium text-text-primary">Context</p>
-          {context.map(([Icon, title, line]) => (
-            <p key={title} className="flex items-start gap-2 rounded-lg border border-border-subtle p-1.5">
-              <Icon size={12} className="mt-0.5 shrink-0 text-text-secondary" />
-              <span><span className="block text-text-primary">{title}</span><span className="text-text-muted">{line}</span></span>
-            </p>
-          ))}
-        </div>
-      </div>
-      <Callout className="bottom-0 left-28">A calm place to create. Chat, plan, and act with powerful tools.</Callout>
-    </div>
-  );
-}
-
-function Callout({ children, className }: { children: ReactNode; className?: string }) {
-  return (
-    <span className={cn('absolute max-w-[220px] rounded-xl border border-border-default bg-bg-elevated px-3 py-2 text-xs leading-snug text-text-secondary shadow-md', className)}>
-      {children}
-    </span>
-  );
-}
-
-// ── Step 3: Provider — "Choose your brain" ──────────────────────────────────
-// (render order: Welcome → Personalize → Provider → Showcase → Done)
+// ── Step 2: Provider — "Pick my brain" ─────────────────────────────────────
 
 // ponytail: pinned curated GGUFs per hardware tier (keys match
 // recommendModel().sizeClass exactly — the key describes the hardware budget,
@@ -439,7 +448,7 @@ const CURATED_PROVIDERS: {
   {
     id: 'openai', name: 'OpenAI', console: 'https://platform.openai.com/api-keys',
     keyPlaceholder: 'sk-...',
-    note: 'New accounts get ~$5 free credit (no card, 3-month expiry); after that, add a prepaid balance under Billing. A ChatGPT Plus/Pro subscription does not cover API keys.',
+    note: 'New accounts get ~$5 free credit (no card, 3-month expiry); after that, add a prepaid balance under Billing. A ChatGPT plan does not pay for API keys: for your plan, use Continue with ChatGPT above.',
     steps: [
       'Sign in at platform.openai.com',
       'Settings → API keys → "Create new secret key"',
@@ -495,100 +504,110 @@ export function pointChatAt(providerId: string, providerName: string, modelId: s
 }
 
 export function ProviderStep() {
-  const navigate = useNavigate();
-  const defer = useOnboarding((s) => s.defer);
   const sysInfo = useSystemInfo((s) => s.info);
   const fetchSysInfo = useSystemInfo((s) => s.fetch);
   useEffect(() => { void fetchSysInfo(); }, [fetchSysInfo]);
-  // Cloud first, on purpose. Cinderpaw's tools fumble on anything under ~27B,
-  // and most machines cannot run 27B, so "local" is the right first day only
-  // for a machine that fits the top tier; the LocalBranch says so per tier.
+  // Cinderpaw's tools fumble on anything under ~27B and most machines cannot
+  // run 27B, so "this computer" is only called a good start where it fits.
   const localFits = recommendModel(sysInfo)?.sizeClass === '13–14B';
-  const [choice, setChoice] = useState<'cloud' | 'hub' | 'local'>('cloud');
-
-  const hardware: [LucideIcon, string, string][] = sysInfo
-    ? [
-        [Cpu, 'CPU', `${sysInfo.cores} cores`],
-        [Gpu, 'GPU', sysInfo.gpu_name || 'None'],
-        [MemoryStick, 'RAM', `${Math.round(sysInfo.ram_total_mb / 1024)} GB`],
-      ]
-    : [];
+  // In the store, not here: the footer under the card reads it too.
+  const other = useOnboarding((s) => s.brainWay);
+  const setOther = (f: (o: typeof other) => typeof other) => useOnboarding.setState({ brainWay: f(other) });
 
   return (
     <div>
       <div className="flex items-start justify-between gap-6">
         <StepIntro
           voice="onboarding.provider"
-          title="Choose your model"
-          lead="Pick where my brain runs: online, or on this computer."
-          body="Online is the easiest start. You can change this anytime in Models."
+          title="Pick my brain"
+          lead="The brain is the AI model that thinks and writes for me."
+          // The first card is ChatGPT, which needs a paid plan: "the easiest
+          // way is free" above it was not true (smoke test, 7 Nov).
+          body="Pay for ChatGPT? Use that. If not, OpenRouter is free and works on any computer. You can change it anytime in Models."
         />
         <span className="hidden shrink-0 sm:block" aria-hidden><CinderpawMascot state="curious" width={150} /></span>
       </div>
 
       <div className="mt-6"><DetectedSection /></div>
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-3">
-        <ForkCard
-          icon={<Cloud size={28} className="text-brand" />}
-          title="Online"
-          subtitle="Ready in a minute. Uses the best models over the internet."
-          badge="Easiest"
-          selected={choice === 'cloud'}
-          onClick={() => setChoice('cloud')}
+      {/* Two sign-ins, no key to copy: the ChatGPT plan many people already
+          pay for (4 Nov, Darius: more will come with GPT than with OpenRouter),
+          and OpenRouter's free models for everyone else. Each opens the browser;
+          the host says how it went in a toast. */}
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <SignInCard
+          provider={CHATGPT_ID}
+          title="Continue with ChatGPT"
+          done="Signed in with ChatGPT"
+          body="Use the ChatGPT plan you already pay for. No key, no extra bill."
+          dim={!!other}
+          signIn={() => signInWithChatGPT().then(() => true, (err) => {
+            useNotifications.getState().push('error', 'ChatGPT sign-in did not finish', String(err));
+            return false;
+          })}
         />
+        <SignInCard
+          provider="openrouter"
+          title="Sign in with OpenRouter"
+          done="Signed in with OpenRouter"
+          body="Free, with a daily limit. Works on any computer. Sign in with Google or email."
+          dim={!!other}
+          signIn={signInWithOpenRouter}
+        />
+      </div>
+
+      <p className="mt-5 text-sm font-medium text-text-secondary">Or</p>
+      <div className="mt-2 grid gap-3 sm:grid-cols-2">
         <ForkCard
-          icon={<BrandLogo id="huggingface" name="Hugging Face" className="size-8 border-0 bg-transparent" />}
-          title="Hugging Face"
-          subtitle="Thousands of free models you can download."
-          badge="Most choice"
-          selected={choice === 'hub'}
-          onClick={() => setChoice('hub')}
+          icon={<KeyRound size={28} className="text-text-secondary" />}
+          title="I have a key"
+          subtitle="OpenAI, Claude, Gemini and more."
+          selected={other === 'key'}
+          onClick={() => setOther((o) => (o === 'key' ? null : 'key'))}
         />
         <ForkCard
           icon={<Laptop size={28} className="text-text-secondary" />}
           title="This computer"
-          subtitle="Runs here, private. Needs a strong computer."
-          selected={choice === 'local'}
-          onClick={() => setChoice('local')}
-        >
-          {hardware.length > 0 && (
-            <span className="mt-3 grid grid-cols-3 divide-x divide-border-subtle rounded-xl border border-border-subtle text-left">
-              {hardware.map(([Icon, label, value]) => (
-                <span key={label} className="min-w-0 px-1.5 py-1">
-                  <span className="flex items-center gap-1 text-micro font-medium text-text-secondary"><Icon size={12} /> {label}</span>
-                  <span className="block truncate text-micro text-text-muted" title={value}>{value}</span>
-                </span>
-              ))}
-            </span>
-          )}
-        </ForkCard>
+          subtitle={localFits ? 'Free and private. Your computer is strong enough.' : 'Free and private. Needs a strong computer.'}
+          selected={other === 'local'}
+          onClick={() => setOther((o) => (o === 'local' ? null : 'local'))}
+        />
       </div>
-
-      <p className="mt-3 flex items-center gap-2 rounded-full bg-brand/10 px-4 py-2 text-sm text-text-primary">
-        <Star size={16} className="fill-brand text-brand" />
-        <span><span className="font-medium text-brand">Recommended:</span> start with {localFits ? 'this computer, it can run a model big enough' : 'Online'}</span>
-      </p>
 
       <div className="mt-4">
-        {choice === 'cloud' && <CloudBranch />}
-        {choice === 'local' && <LocalBranch />}
-        {choice === 'hub' && (
-          <div className="rounded-lg border border-border-subtle bg-bg-primary/40 p-4 space-y-3">
-            <p className="text-sm text-text-secondary leading-relaxed">
-              Pick any free model from Hugging Face and Cinderpaw downloads it for you. The Models page shows which ones fit this computer.
-            </p>
-            <button
-              type="button"
-              onClick={() => { defer(); navigate('/models?tab=browse'); }}
-              className="flex items-center gap-1 text-sm font-medium text-brand hover:underline"
-            >
-              Browse Hugging Face models <ChevronRight size={14} />
-            </button>
-          </div>
-        )}
+        {other === 'key' && <CloudBranch />}
+        {other === 'local' && <LocalBranch />}
       </div>
     </div>
+  );
+}
+
+/**
+ * One sign-in that needs no key: highlighted while it is the suggestion, plain
+ * once another way is open (two orange cards read as two picks, 4 Nov tour).
+ */
+function SignInCard({ provider, title, done, body, dim, signIn }: {
+  provider: string; title: string; done: string; body: string; dim: boolean; signIn: () => Promise<boolean>;
+}) {
+  const signedIn = useModel((s) => s.cloudModel?.providerId === provider);
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      type="button"
+      disabled={busy || signedIn}
+      onClick={() => { setBusy(true); void signIn().finally(() => setBusy(false)); }}
+      className={cn(
+        'flex w-full items-center gap-4 rounded-2xl border-2 p-5 text-left transition-colors disabled:cursor-default',
+        dim && !signedIn ? 'border-border-default hover:bg-bg-hover' : 'border-brand bg-brand/10 hover:bg-brand/15',
+      )}
+    >
+      <ModelLogo provider={provider} className="size-10 shrink-0" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-lg font-medium text-text-primary">{signedIn ? done : busy ? 'Finish in your browser…' : title}</span>
+        <span className="block text-sm text-text-muted">{signedIn ? 'I am ready to answer. Press Continue.' : body}</span>
+      </span>
+      {signedIn ? <Check size={20} className="shrink-0 text-brand" /> : busy ? <Loader2 size={20} className="shrink-0 animate-spin text-brand" /> : <ArrowRight size={20} className="shrink-0 text-brand" />}
+    </button>
   );
 }
 
@@ -621,6 +640,12 @@ function DetectedSection() {
     try {
       const outcome = await tauri.raw.setupVerify(c, undefined, true);
       setResults((r) => ({ ...r, [c.id]: outcome }));
+      // The brain card's Continue waits for an answer it can trust; a key found
+      // here also lands in the key list it reads.
+      if (outcome.ok) {
+        useOnboarding.setState({ brainVerified: true });
+        void useSettings.getState().fetchByok();
+      }
     } catch (e) {
       setResults((r) => ({
         ...r,
@@ -792,7 +817,9 @@ function CloudBranch() {
   // whose id appears in the catalog keep their rich UX (steps, keyPlaceholder,
   // free tier badge). Catalog-only entries get a generic card with console_url.
   const curatedIds = new Set(CURATED_PROVIDERS.map((p) => p.id));
-  const visibleCurated = catalogLoaded
+  // A failed catalog load also ends `loaded` with an empty list; filtering by
+  // it then showed "I have a key" with nothing under it.
+  const visibleCurated = catalogLoaded && catalogEntries.length > 0
     ? CURATED_PROVIDERS.filter((p) => catalogEntries.some((c) => c.id === p.id))
     : CURATED_PROVIDERS; // offline fallback: show all curated
   // Hugging Face has its own card above; listed here too it read as two things.
@@ -871,28 +898,51 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
   const [showKey, setShowKey] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // The steps open under the fold on a laptop-height window: picking a provider
+  // looked like nothing happened, with "paste it below" and no field in sight
+  // (4 Nov tour). Bring the field up and put the cursor in it.
+  const keyInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    keyInput.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    keyInput.current?.focus({ preventScroll: true });
+  }, [def.id]);
 
   // Trimmed at both call sites. Copying a key out of a browser or a password
   // manager routinely picks up trailing whitespace, and a key stored with a
   // newline in it goes onto the wire inside the Authorization header — which
   // the provider answers with a 401. The user then re-pastes the same correct
   // key, gets the same error, and nothing suggests whitespace is the problem.
-  const handleTest = async () => {
+  // One button, Connect: it tries the key, and saves it only when the provider
+  // answered. Test, Save and Continue side by side were three choices for one
+  // step (4 Nov tour). A key the test refuses can still be kept, said out loud.
+  const [refused, setRefused] = useState(false);
+  const handleConnect = async () => {
     const key = apiKey.trim();
     if (!key) { setMsg({ ok: false, text: 'Paste the key first' }); return; }
-    setBusy(true); setMsg(null);
+    setBusy(true); setMsg(null); setRefused(false);
     try {
       const r = await testByokProvider({ providerId: def.id, apiKey: key, baseUrl: null });
-      setMsg(r.ok ? { ok: true, text: '✓ Connected' } : { ok: false, text: r.error ?? 'Connection failed' });
+      if (!r?.ok) {
+        // The provider's own answer is JSON for developers ("Auth failed (HTTP
+        // 401): { \"error\": ..."); the person needs what to do next.
+        const err = r?.error ?? '';
+        const refusedKey = /(401|403)|invalid|incorrect|unauthori[sz]ed/i.test(err);
+        setMsg({ ok: false, text: refusedKey ? `${def.name} did not accept this key. Copy the whole key again from the console.` : err || 'The key did not work.' });
+        setRefused(true);
+        return;
+      }
     } catch (e) {
       setMsg({ ok: false, text: String(e) });
+      setRefused(true);
+      return;
     } finally { setBusy(false); }
+    await handleSave();
   };
 
   const handleSave = async () => {
     const key = apiKey.trim();
     if (!key) { setMsg({ ok: false, text: 'Paste the key first' }); return; }
-    setBusy(true); setMsg(null);
+    setBusy(true); setMsg(null); setRefused(false);
     try {
       await saveByokProvider({ providerId: def.id, enabled: true, apiKey: key, baseUrl: null, defaultModel: null });
       // The provider just configured is the one that answers, in both modes,
@@ -930,6 +980,7 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
 
       <div className="relative">
         <input
+          ref={keyInput}
           type={showKey ? 'text' : 'password'}
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
@@ -951,65 +1002,60 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={() => void handleTest()}
+          onClick={() => void handleConnect()}
           disabled={busy || !apiKey}
-          className={SECONDARY_BUTTON}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
         >
-          Test
-        </button>
-        <button
-          type="button"
-          onClick={() => void handleSave()}
-          disabled={busy || !apiKey}
-          className="px-3 py-1.5 rounded-md bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
-        >
-          Save
+          {busy && <Loader2 size={14} className="animate-spin" />}
+          {busy ? 'Connecting…' : 'Connect'}
         </button>
         {msg && <span className={cn('text-xs', msg.ok ? 'text-success' : 'text-error')}>{msg.text}</span>}
+        {refused && !busy && (
+          <button type="button" onClick={() => void handleSave()} className="text-xs text-text-muted underline underline-offset-2 hover:text-text-primary">
+            Save it anyway
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-// ── Step 5: Done ────────────────────────────────────────────────────────────
+// ── Step 3: Done ────────────────────────────────────────────────────────────
+
+/** The film's four jobs, as first tasks. Each fills the chat box and stops
+ *  there (the Home intents' rule): the person reads it and presses Enter. */
+const FIRST_TASKS: { icon: LucideIcon; team: string; task: string }[] = [
+  { icon: Megaphone, team: 'Marketing', task: "Make a poster and a short post for my shop's weekend sale" },
+  { icon: Search, team: 'Research', task: 'Find the five best-reviewed coffee machines and put them in a table' },
+  { icon: MessageCircle, team: 'Customers', task: "Help me answer my shop's customers on WhatsApp" },
+  { icon: CalendarCheck, team: 'Personal', task: 'Plan a weekend trip for two: where to go, how to get there and what it costs' },
+];
+
+const NAME_INPUT =
+  'mt-1.5 w-full rounded-xl border border-border-default bg-bg-surface px-3.5 py-2.5 text-base text-text-primary placeholder:text-text-muted/60 focus:border-brand focus:outline-hidden focus:ring-2 focus:ring-brand/40';
 
 function DoneStep() {
-  // The ticks say what is true, not what the board drew: a person who skipped
-  // the model step sees it unticked and where to finish it, instead of a
-  // "Model selected" that leaves the first message answered with "no model".
-  const cloudModel = useModel((s) => s.cloudModel);
-  const loaded = useModel((s) => s.loaded);
-  const downloaded = useDownload((s) => s.done);
-  const byok = useSettings((s) => s.byok);
-  const hasModel = !!cloudModel || !!loaded || downloaded || byok.some((p) => p.enabled && p.has_api_key);
-  const [hasTools, setHasTools] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    void Promise.all([
-      tauri.mcp.list().catch(() => []),
-      tauri.connectors.list().catch(() => []),
-    ]).then(([tools, chats]) => {
-      if (alive) setHasTools(tools.length > 0 || chats.some((c) => c.enabled));
-    });
-    return () => { alive = false; };
-  }, []);
-
-  const ticks: [boolean, string, string][] = [
-    [hasModel, 'Model selected', 'Pick a model in Models'],
-    [hasTools, 'Tools connected', 'Connect apps in Settings'],
-    [true, 'Workspace ready', ''],
-  ];
+  const navigate = useNavigate();
+  const ready = useBrainReady();
+  const downloading = useDownload((s) => !!s.active && !s.done);
+  const finish = useOnboarding((s) => s.finish);
+  const setFirstTask = useOnboarding((s) => s.setFirstTask);
+  const userName = useOnboarding((s) => s.userName);
+  const setUserName = useOnboarding((s) => s.setUserName);
+  const agentName = useOnboarding((s) => s.agentName);
+  const setAgentName = useOnboarding((s) => s.setAgentName);
+  const begin = (task: string) => { setFirstTask(task); navigate('/chat'); void finish(); };
 
   return (
     <div>
       {/* With no model nothing can answer, so it does not say "ready" (UX lab,
           item 2: confetti here, then "No model is chosen yet" on the first message). */}
-      {hasModel ? (
+      {ready ? (
         <StepIntro
           voice="onboarding.done"
-          title={<>You’re ready<br />to explore</>}
-          lead="Your workspace is set up."
-          body="Start a conversation, build an artifact, or let Cinderpaw help with research, writing, and automation."
+          title={<>What should<br />we do first?</>}
+          lead="Pick a job, or ask me anything."
+          body="It goes in the chat box. Nothing is sent until you press Enter."
         />
       ) : (
         <div>
@@ -1023,34 +1069,51 @@ function DoneStep() {
           </button>
         </div>
       )}
-      <FeatureCards
-        items={[
-          { icon: Search, title: 'Research', line: 'Find, summarize, and explore information.' },
-          { icon: PenLine, title: 'Create', line: 'Write, design, and build artifacts.' },
-          { icon: BarChart3, title: 'Analyze', line: 'Make sense of data and find insights.' },
-          { icon: Settings, title: 'Automate', line: 'Turn ideas into actions with powerful tools.' },
-        ]}
-      />
-      <ul className="mt-5 flex flex-wrap gap-x-6 gap-y-2">
-        {ticks.map(([ok, label, todo]) => (
-          <li key={label} className="flex items-center gap-2 text-sm">
-            <span className={cn('flex size-6 items-center justify-center rounded-full', ok ? 'bg-brand text-on-brand' : 'bg-bg-hover text-text-muted')}>
-              <Check size={14} />
+      {downloading && (
+        <p className="mt-3 flex items-center gap-2 text-sm text-text-muted">
+          <Loader2 size={14} className="animate-spin" /> Your model is still downloading. I can answer as soon as it is done.
+        </p>
+      )}
+
+      {/* 27 Oct: names are optional. A forced field is a decision the person
+          must make before anything happens (Settings already allows none). */}
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="text-sm font-medium text-text-secondary">Your name (optional)</span>
+          <input type="text" value={userName} onChange={(e) => setUserName(e.target.value)} placeholder="e.g. Ana" maxLength={40} className={NAME_INPUT} />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-text-secondary">My name</span>
+          <input type="text" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="Cinderpaw" maxLength={40} className={NAME_INPUT} />
+        </label>
+      </div>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        {FIRST_TASKS.map(({ icon: Icon, team, task }) => (
+          <button
+            key={team}
+            type="button"
+            onClick={() => begin(task)}
+            className="flex items-start gap-3 rounded-xl border border-border-subtle bg-bg-surface p-4 text-left transition-colors hover:border-brand/50 hover:bg-bg-hover"
+          >
+            <Icon size={20} className="mt-0.5 shrink-0 text-brand" />
+            <span>
+              <span className="block text-sm font-medium text-text-secondary">{team}</span>
+              <span className="block text-base text-text-primary">{task}</span>
             </span>
-            <span className={ok ? 'text-text-primary' : 'text-text-muted'}>{ok ? label : todo}</span>
-          </li>
+          </button>
         ))}
-      </ul>
+      </div>
+
       {/* Alpha, said once, here: it used to be a card that came back every
           week over whatever the person was doing (Darius, 20 Oct). One quiet
           line, not another box: this screen already has enough of them. */}
-      <p className="mt-4 text-xs leading-relaxed text-text-muted">
+      <p className="mt-6 text-xs leading-relaxed text-text-muted">
         Cinderpaw is still in alpha, so some things may change or break between updates.
         If something goes wrong, Settings, About, Report a bug helps us fix it.
       </p>
-      <div className="mt-5 grid gap-2 sm:grid-cols-2">
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <DiskEncryptionNotice />
-        <InstallCountNotice />
         <ShareUsageNotice />
         <HeardFromQuestion />
       </div>
@@ -1245,6 +1308,16 @@ export function OnboardingOrchestrator() {
   const active = useOnboarding((s) => s.active);
   const persistFailed = useOnboarding((s) => s.persistFailed);
   const [checked, setChecked] = useState(false);
+  // First run: the wizard opens a beat after the check, and nothing else may
+  // take the screen in that beat either.
+  const [due, setDue] = useState(false);
+
+  // The update card, What's new and the usage question wait while the
+  // first-run question is open: until we know whether the wizard opens, and
+  // while it is open (Darius, 31 Oct: the update card drew over it).
+  useEffect(() => {
+    useAttention.getState().setWizard(!checked || due || active);
+  }, [checked, due, active]);
 
   /*
     Neither storage layer took the record. Before this, that was two
@@ -1271,7 +1344,8 @@ export function OnboardingOrchestrator() {
       if (!alreadyDone) {
         // First run — show the wizard after a brief tick so the app shell
         // has time to paint underneath (avoids a white flash).
-        setTimeout(() => start(), 300);
+        setDue(true);
+        setTimeout(() => { start(); setDue(false); }, 300);
       }
       setChecked(true);
     })();

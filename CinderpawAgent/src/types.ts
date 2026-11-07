@@ -250,6 +250,7 @@ export interface DesktopControlBridge {
     action: string,
     params: Record<string, unknown>,
     sessionId?: string,
+    timeoutMs?: number,
   ): Promise<unknown>;
 }
 
@@ -1304,7 +1305,7 @@ export interface InboundMessage {
   // the user has already been heard and answered; `message` would make the
   // agent reply to a question that is already answered, which is why this is a
   // type of its own rather than a flag on that one.
-  type: "message" | "record_turn" | "ping" | "shutdown" | "set_model" | "stop"
+  type: "message" | "record_turn" | "ping" | "shutdown" | "set_model" | "stop" | "steer"
     | "ask_user_response" | "ask_user_cancel"
     // The person's answer to a heads_up card (tools/builtin/heads-up.ts).
     | "heads_up_answer"
@@ -1551,7 +1552,9 @@ export interface InboundMessage {
    * this session only — the summarizer and memory extractor keep their own
    * fixed params. Values are validated and clamped by the agent loop.
    */
-  inferParams?: { temperature?: number; max_tokens?: number };
+  inferParams?: { temperature?: number; max_tokens?: number; effort?: string };
+  /** Dev-only: answer with the model alone, no Cinderpaw (core/bare-turn.ts). */
+  bare?: boolean;
   /**
    * Roster of currently-installed LOCAL skills, rebuilt by Rust on every send.
    * The agent loop renders this as a short "Available skills" menu inside the
@@ -1589,6 +1592,9 @@ export interface InboundMessage {
    *  Rust API lazily re-load the multi-GB model the unload just released.
    *  Absent = unknown; the sidecar keeps its boot-time behaviour. */
   localFallbackAvailable?: boolean;
+  /** set_model, Automatic: the person's other models (provider, model, baseUrl,
+   *  apiKey each), which the brain may route a turn to. Absent = one model. */
+  candidates?: Array<{ provider?: unknown; model?: unknown; baseUrl?: unknown; apiKey?: unknown }>;
   /** heads_up_answer: the card answered (its `data.headsUp.id`) and how. */
   headsUpId?: string;
   headsUpChoice?: "more" | "knew" | "dismiss";
@@ -1596,6 +1602,8 @@ export interface InboundMessage {
   /** Matches the id of the original "ask_user" outbound event. */
   /** Explicit desktop task subscriber requesting unfinished-work suggestions. */
   followUps?: boolean;
+  /** cron_list: send a test notice to the owner's phone and say where it went. */
+  testNotify?: boolean;
   /** cron_list: set the weekly task limit first (number, or null = none). */
   taskLimit?: { weeklyUsd: number | null };
   requestId?: string;
@@ -1673,6 +1681,10 @@ export interface AskUserQuestion {
    * extension form (a service's link + key) is sent to the desktop app only.
    */
   secret?: { connector: string; field: string } | { extensionUrl: string; extensionName?: string };
+  /** "phone": the card opens a country + phone-number field; the number (+40712345678) comes back as the answer. */
+  input?: "phone";
+  /** What that field starts with: the number saved last time, to keep or fix. */
+  value?: string;
 }
 
 export interface AskUserAnswer {
@@ -1748,7 +1760,11 @@ export type OutboundEvent =
       traceId?: string;
     }
   | { type: "proactive"; content: string; followUp?: { id: string; sessionId: string; mission: string }; traceId?: string }
-  | { type: "model_set"; provider: string; model: string }
+  | { type: "model_set"; provider: string; model: string; automatic?: boolean; choices?: number }
+  /** Steering: what the person added mid-turn reached the model (`id` = the reply). */
+  | { type: "steer_applied"; sessionId: string; id: string; texts: string[] }
+  /** Answer to a `steer` message: false = no turn was running, send it normally. */
+  | { type: "steer_ack"; sessionId: string; accepted: boolean; text: string }
   | { type: "model_error"; message: string; traceId?: string }
   /**
    * Which model this turn is being answered by, and why that one.
@@ -1789,7 +1805,7 @@ export type OutboundEvent =
   | { type: "tool_request"; id: string; sessionId: string; tool: string; arguments: Record<string, unknown> }
   | { type: "ask_user"; id: string; sessionId: string; questions: AskUserQuestion[]; traceId?: string }
   | { type: "ask_user_cancelled"; id: string; sessionId: string; reason: string; traceId?: string }
-  | { type: "usage"; id: string; sessionId: string; promptTokens: number; completionTokens: number; traceId?: string }
+  | { type: "usage"; id: string; sessionId: string; promptTokens: number; completionTokens: number; traceId?: string; /** What the prompt was made of (Context card). */ lanes?: { label: string; tokens: number }[] }
   | { type: "budget_warning"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; percent: number; traceId?: string }
   | { type: "budget_exceeded"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; message: string; traceId?: string }
   // The next request would exceed the provider's requests-per-minute cap, so
@@ -2314,6 +2330,9 @@ export type OutboundEvent =
       error?: string;
       jobs: Array<Pick<CronJob, "id" | "name" | "task" | "schedule" | "enabled" | "nextRunMs" | "lastRunMs" | "kind" | "history" | "watch" | "expiresAt" | "budgetUsd" | "spentUsd">>;
       taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number };
+      /** Where a fired task reaches the owner away from the computer (a
+       *  messenger id), or null; `tested` when this answer sent a test. */
+      phone?: { via: string | null; tested: boolean };
     }
   // Dream Cycle lifecycle — emitted by the host when an evolutionary episode
   // starts (`phase:"started"`) and ends (`phase:"ended"`). Forwarded verbatim

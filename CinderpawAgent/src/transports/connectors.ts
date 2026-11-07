@@ -47,6 +47,7 @@ import {
 import { ChannelAskRouter } from "../core/ask-user-channel.ts";
 import { readAttachments, type InboundAttachment } from "./attachments.ts";
 import { ROOM_KEYED_TRANSPORTS } from "../memory/semantic.ts";
+import { markOwnerChat, setAppOwners } from "../memory/elsewhere.ts";
 import { formatForChat, chatStyleBrief, DISCORD_LIMIT } from "./chat-format.ts";
 import {
   runUnattended,
@@ -627,6 +628,17 @@ export function keyTrouble(detail: string): string | null {
 /** Digits only — used to compare phone numbers across formats. */
 function digits(s: string): string {
   return s.replace(/\D/g, "");
+}
+
+/**
+ * A number WhatsApp can send a link code for: international, country code
+ * first ("+40 712 345 678", "0040712345678"). A local "0712 345 678" names no
+ * country, so it gets the QR instead of a code that would never arrive.
+ */
+export function linkNumber(s: string): string | null {
+  let n = digits(s);
+  if (n.startsWith("00")) n = n.slice(2);
+  return /^[1-9]\d{7,14}$/.test(n) ? n : null;
 }
 
 /**
@@ -1269,6 +1281,10 @@ export async function loadWhatsAppModule(): Promise<typeof import("@whiskeysocke
   return import(url);
 }
 
+/** What an enabled WhatsApp with no phone says, on its card and in the log. */
+export const WHATSAPP_NOT_LINKED =
+  "No phone is linked yet. Ask Cinderpaw to connect WhatsApp, or turn this off and on, then scan the code that appears.";
+
 export class WhatsAppConnector {
   readonly #allow: Set<string>;
   readonly #channels: Set<string>;
@@ -1292,8 +1308,22 @@ export class WhatsAppConnector {
   readonly #sent = new Set<string>();
   /** Dead keys being deleted; a new pairing waits for it. */
   #forgetting: Promise<void> = Promise.resolve();
+  /** Enabled with no phone linked, waiting on purpose for the person to start pairing. */
+  #idle = false;
+  /** The code to type on the phone for this socket, once WhatsApp gave one. */
+  #linkCode: string | null = null;
+  /** A code was asked for this socket (asked once; a QR shows if it fails). */
+  #codeAsked = false;
+  #codeFailed = false;
 
-  constructor(opts: { allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; mode?: ConnectorMode; desk?: LeadDesk; ask?: ChannelAskRouter; profileId?: string; onSender?: (id: string, name: string) => void }) {
+  /** The number to link, when the person gave one: they get a code to type, not a QR. */
+  readonly #linkTo: string;
+  /** Linked or unlinked while running: the manager republishes health. */
+  readonly #onHealth: () => void;
+
+  constructor(opts: { allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; mode?: ConnectorMode; desk?: LeadDesk; ask?: ChannelAskRouter; profileId?: string; onSender?: (id: string, name: string) => void; onHealth?: () => void; linkTo?: string }) {
+    this.#linkTo = opts.linkTo ?? "";
+    this.#onHealth = opts.onHealth ?? (() => {});
     const allow = opts.allowlist.map(digits).filter(Boolean);
     this.#allow = new Set(allow);
     this.#channels = new Set(opts.channels.map((s) => s.trim()).filter(Boolean));
@@ -1386,10 +1416,11 @@ export class WhatsAppConnector {
    */
   async start(opts: { pair?: boolean } = {}): Promise<void> {
     this.#stopped = false;
-    if (!opts.pair && !WhatsAppConnector.isLinked()) {
+    this.#idle = !opts.pair && !WhatsAppConnector.isLinked();
+    if (this.#idle) {
       this.#log(
         "whatsapp: enabled but no phone is linked — staying idle. " +
-          "Run `/connectors qr` (or open the Connectors page) to scan a code and link one.",
+          `Run \`/connectors qr\` in the terminal app to scan a code and link one. On the card: ${WHATSAPP_NOT_LINKED}`,
       );
       return;
     }
@@ -1402,7 +1433,18 @@ export class WhatsAppConnector {
   /** Reads `#sock` at call time so a reconnect never sends over a stale one. */
   async send(sessionId: string, text: string): Promise<void> {
     const jid = sessionId.slice("whatsapp:".length);
-    await this.#sock?.sendMessage(jid, { text });
+    const sent = await this.#sock?.sendMessage(jid, { text });
+    // A notice in the owner's own chat comes back as fromMe in the self chat,
+    // which reads as the owner talking to the agent: it would answer its own
+    // notification. Marked as ours, like the replies there already are.
+    if (sent?.key.id && sessionId === this.ownerSession()) this.#sent.add(sent.key.id);
+  }
+
+  /** The linked account's own chat ("Message yourself"), where its owner talks
+   *  to the agent: scanning the QR is all it takes to be reachable. */
+  ownerSession(): string | null {
+    const self = this.#sock?.user;
+    return self?.id ? `whatsapp:${self.id.split(/[:@]/)[0]}@s.whatsapp.net` : null;
   }
 
   async sendFile(sessionId: string, file: OutboundFile): Promise<void> {
@@ -1420,6 +1462,9 @@ export class WhatsAppConnector {
   /** "Live" must mean a phone is on the other end. An unlinked connector
    *  spinning through pairing retries is not up, and not broken either. */
   health(): ConnectorHealth {
+    // Idle on purpose says why, or the card waits on a code nobody asked for
+    // ("Getting a QR code ready…", then "no pairing code is arriving"; 31 Oct).
+    if (this.#idle) return { live: false, error: WHATSAPP_NOT_LINKED };
     return { live: WhatsAppConnector.isLinked() };
   }
 
@@ -1452,29 +1497,82 @@ export class WhatsAppConnector {
     const fetchLatest = (wa as { fetchLatestWaWebVersion?: (o: object) => Promise<{ version?: [number, number, number] }> })
       .fetchLatestWaWebVersion;
     const latest = await fetchLatest?.({}).catch(() => null);
+    // The library's own QR timing (first code 60 s, each next one 20 s). Keeping
+    // every code up 60 s (31 Oct) got "Check your connection and try again" on
+    // his phone, most likely because the codes after the first expire on
+    // WhatsApp's side long before that (not proven: no phone here to test).
+    // The last phone that linked (26 Sep) did it on these defaults.
+    // ponytail: the library's default name, so the phone lists this PC as
+    // "Google Chrome (macOS)". Naming it "Cinderpaw" made every typed code end in
+    // "Couldn't connect" on his phone (1 Nov); only the default is proven.
     const sock = makeWASocket({ auth: state, ...(latest?.version ? { version: latest.version } : {}) });
     this.#sock = sock;
     sock.ev.on("creds.update", saveCreds);
 
+    // A new socket needs its own code: the last one belonged to the old socket.
+    this.#linkCode = null;
+    this.#codeAsked = false;
+    this.#codeFailed = false;
+    // Only the number given for linking, never a guess from the allowlist: with
+    // the advised second number, the owner's own number would get the code on
+    // the wrong phone.
+    const number = linkNumber(this.#linkTo);
+    const writeCode = (code: string) =>
+      void writeFile(join(cinderpawHome(), "whatsapp-qr.json"), JSON.stringify({ ts: Date.now(), code })).catch(() => {});
+    const showQr = (qr: string) => {
+      this.#log("whatsapp: scan this QR with WhatsApp → Settings → Linked devices:");
+      qrcode.generate(qr, { small: true }, (ascii) => {
+        process.stderr.write("\n" + ascii + "\n");
+        // Mirror the QR to a file so GUI surfaces (desktop Connectors page)
+        // can render it — a GUI user has no terminal to scan from.
+        void writeFile(
+          join(cinderpawHome(), "whatsapp-qr.json"),
+          JSON.stringify({ ts: Date.now(), qr, ascii, svg: qrSvg(qr) }),
+        ).catch(() => {});
+      });
+    };
+
     sock.ev.on("connection.update", (u) => {
       const { connection, lastDisconnect, qr } = u;
-      if (qr) {
-        this.#log("whatsapp: scan this QR with WhatsApp → Settings → Linked devices:");
-        qrcode.generate(qr, { small: true }, (ascii) => {
-          process.stderr.write("\n" + ascii + "\n");
-          // Mirror the QR to a file so GUI surfaces (desktop Connectors page)
-          // can render it — a GUI user has no terminal to scan from.
-          void writeFile(
-            join(cinderpawHome(), "whatsapp-qr.json"),
-            JSON.stringify({ ts: Date.now(), qr, ascii, svg: qrSvg(qr) }),
-          ).catch(() => {});
-        });
+      // A number to link was given: a code to type on the phone, like ChatGPT's
+      // Dot, instead of a square to aim a camera at while it changes every 20 s
+      // (Darius, 31 Oct). WhatsApp gives the code only once the socket is
+      // waiting, which is when a QR comes.
+      if (qr && number && !state.creds.registered && !this.#codeFailed) {
+        if (this.#linkCode) {
+          writeCode(this.#linkCode); // fresh time on the same code: the card keeps it up
+        } else if (!this.#codeAsked) {
+          this.#codeAsked = true;
+          sock.requestPairingCode(number).then(
+            (code) => {
+              // A code for a socket that was replaced meanwhile links nothing.
+              if (this.#sock !== sock) return;
+              this.#linkCode = code;
+              this.#log("whatsapp: link code ready. On the phone: Linked devices → Link a device → Link with phone number instead.");
+              writeCode(code);
+            },
+            (e) => {
+              // The square still works: shown now, not a minute later at the next one.
+              this.#codeFailed = true;
+              this.#log(`whatsapp: WhatsApp gave no link code for that number (${String(e)}); showing a QR instead.`);
+              showQr(qr);
+            },
+          );
+        }
+      } else if (qr) {
+        showQr(qr);
       }
       if (connection === "open") {
         this.#open = true;
         this.#closes = 0;
         this.#log("whatsapp connector online (linked)");
+        // "Message yourself" is the owner talking: their desktop chats and this
+        // one see each other (memory/elsewhere.ts). Both spellings, see #onMessage.
+        const me = this.#sock?.user;
+        if (me) markOwnerChat(`whatsapp:${me.id.split(/[:@]/)[0]}@s.whatsapp.net`);
+        if (me?.lid) markOwnerChat(`whatsapp:${me.lid.split(/[:@]/)[0]}@lid`);
         void unlink(join(cinderpawHome(), "whatsapp-qr.json")).catch(() => {});
+        this.#onHealth();
       }
       if (connection === "close") {
         this.#open = false;
@@ -1488,6 +1586,8 @@ export class WhatsAppConnector {
           this.#sock = null;
           this.#forgetting = WhatsAppConnector.forget();
           this.#log("whatsapp: the phone unlinked this computer. Turn WhatsApp on again to link it with a new code.");
+          // After forget() deletes the keys, so health reads "not linked".
+          void this.#forgetting.then(() => this.#onHealth());
         } else if (++this.#closes >= 5) {
           // Retrying forever hammered WhatsApp's servers and filled the log
           // while every surface still waited for a QR (seen live 25 Sep, 405).
@@ -1758,6 +1858,16 @@ export interface ConnectorRow {
  * nobody is, and every speaker keeps a memory of their own. A wrong guess there
  * is how one member of a server renames everyone else.
  */
+/** Messengers that can reach the owner, in the order tried: phones first. */
+export const OWNER_PAGERS = ["telegram", "whatsapp", "discord"] as const;
+
+/** The owner's private chat on one messenger, as that transport's session id. */
+export function ownerSession(id: (typeof OWNER_PAGERS)[number], owner: string): string {
+  if (id === "telegram") return `telegram:${owner}:${owner}`; // a private chat's id is the user's id
+  if (id === "whatsapp") return `whatsapp:${digits(owner)}@s.whatsapp.net`;
+  return `discord:dm:${owner}`;
+}
+
 export function soleAllowlisted(row: ConnectorRow): string | null {
   const ids = (row.allowlist ?? []).map((s) => s.trim()).filter(Boolean);
   return ids.length === 1 ? ids[0]! : null;
@@ -1901,6 +2011,8 @@ registerTransport("whatsapp", (): LiveConnector => {
         ask: ctx.askRouter,
         ...(ctx.personaProfileId ? { profileId: ctx.personaProfileId } : {}),
         ...(ctx.onSender ? { onSender: ctx.onSender } : {}),
+        ...(ctx.onHealth ? { onHealth: ctx.onHealth } : {}),
+        linkTo: ctx.secrets.WHATSAPP_LINK_NUMBER ?? "",
       });
       await inner.start();
     },
@@ -1912,6 +2024,7 @@ registerTransport("whatsapp", (): LiveConnector => {
     async send(sessionId, text) {
       await inner?.send(sessionId, text);
     },
+    ownerSession: () => inner?.ownerSession() ?? null,
     /** Not part of `LiveConnector`: the manager reaches for it by name when
      *  the user asks to link a phone. See `ConnectorManager.pairWhatsApp`. */
     pair: async () => {
@@ -1948,6 +2061,8 @@ export class ConnectorManager {
   readonly #keys = new Map<string, string>();
   /** Which ids were enabled after the last reconcile; null before the first. */
   #wasEnabled: Set<string> | null = null;
+  /** The WhatsApp number to link after the last reconcile; null before the first. */
+  #wasLinkTo: string | null = null;
   readonly #leadDesk: LeadDesk | null;
   /** Serialize reloads so overlapping pokes can't double-start a connection. */
   #reloading: Promise<void> = Promise.resolve();
@@ -1975,6 +2090,8 @@ export class ConnectorManager {
    * so it is the place that has to write it down.
    */
   readonly #health = new Map<string, ConnectorHealth>();
+  /** The owner (first allowlisted id) per enabled connector, for `notifyOwner`. */
+  readonly #owners = new Map<string, string>();
   /** The last sender each connector heard, listed or not, and who waits for the next. */
   readonly #lastSender = new Map<string, Sender & { at: number }>();
   readonly #senderWaits = new Set<{ connector: string; match: (id: string) => boolean; resolve: (s: Sender | null) => void }>();
@@ -2098,6 +2215,14 @@ export class ConnectorManager {
 
     const wanted = new Map<string, ConnectorRow>();
     for (const row of rows) if (row.enabled) wanted.set(row.id, row);
+    // The owner on each messenger: the first person on its allowlist, the
+    // same convention WhatsApp already pings for leads (`#pingOwner`).
+    this.#owners.clear();
+    for (const row of wanted.values()) {
+      const first = (row.allowlist ?? []).map((s) => s.trim()).find(Boolean);
+      if (first) this.#owners.set(row.id, first);
+    }
+    setAppOwners(this.#owners);
 
     // Gone from the config, or switched off: stop it and forget it. Off by
     // choice is not a failure, so the health entry is removed rather than
@@ -2149,6 +2274,11 @@ export class ConnectorManager {
         ...(profileId ? { personaProfileId: profileId } : {}),
         ...(this.#leadDesk ? { leadDesk: this.#leadDesk } : {}),
         onSender: (senderId, name) => this.#heard(id, { id: senderId, name }),
+        onHealth: () => {
+          if (this.#live.get(id) !== instance) return; // replaced or stopped meanwhile
+          this.#health.set(id, instance.health());
+          void this.#publishHealth();
+        },
       };
       try {
         await instance.start(ctx);
@@ -2173,7 +2303,12 @@ export class ConnectorManager {
     // turning it on anywhere but the chat left it idle and no code ever came.
     const turnedOn = this.#wasEnabled !== null && wanted.has("whatsapp") && !this.#wasEnabled.has("whatsapp");
     this.#wasEnabled = new Set(wanted.keys());
-    if (turnedOn && !WhatsAppConnector.isLinked()) {
+    // A number to link typed on an already-on WhatsApp is the same asking: the
+    // code comes now, not after the person thinks to switch it off and on.
+    const linkTo = wanted.get("whatsapp")?.secrets?.WHATSAPP_LINK_NUMBER?.trim() ?? "";
+    const numberGiven = this.#wasLinkTo !== null && linkTo !== "" && linkTo !== this.#wasLinkTo;
+    this.#wasLinkTo = linkTo;
+    if ((turnedOn || numberGiven) && !WhatsAppConnector.isLinked()) {
       try {
         await this.pairWhatsApp();
       } catch (e) {
@@ -2229,6 +2364,50 @@ export class ConnectorManager {
   /** What actually connected, for one id. */
   healthOf(id: string): ConnectorHealth | undefined {
     return this.#health.get(id);
+  }
+
+  /**
+   * Reach the owner where they are when they are not at the computer: their
+   * private chat on a connected messenger, phones first (27 Oct: a task that
+   * fired while the app sat in the tray reached nobody; Altman's "it pinged me
+   * a few times a day with something urgent" was the bar). Returns the
+   * messenger used, or null when none is connected or every send failed.
+   * Slack is not used: a DM needs a channel id this manager does not keep.
+   */
+  async notifyOwner(text: string): Promise<string | null> {
+    for (const [id, session] of this.#ownerSessions()) {
+      try {
+        await this.#live.get(id)!.send(session, text);
+        return id;
+      } catch (e) {
+        this.#log(`${id}: could not reach the owner (${String(e)})`);
+      }
+    }
+    return null;
+  }
+
+  /** The messenger `notifyOwner` would try first, without sending; null for none. */
+  ownerChannel(): string | null {
+    return this.#ownerSessions()[0]?.[0] ?? null;
+  }
+
+  /**
+   * Each connected messenger with a way to reach its owner, in OWNER_PAGERS
+   * order: the session the transport itself names (WhatsApp: the linked
+   * account's "Message yourself" chat, so scanning the QR is enough), else the
+   * first allowlisted person.
+   */
+  #ownerSessions(): Array<[string, string]> {
+    const out: Array<[string, string]> = [];
+    for (const id of OWNER_PAGERS) {
+      const live = this.#live.get(id);
+      if (!live || this.#health.get(id)?.live === false) continue;
+      const own = live.ownerSession?.() ?? null;
+      const owner = this.#owners.get(id);
+      const session = own ?? (owner ? ownerSession(id, owner) : null);
+      if (session) out.push([id, session]);
+    }
+    return out;
   }
 
   /** Say something in the channel behind `sessionId` (prefix = connector id). */
@@ -2310,6 +2489,7 @@ export class ConnectorManager {
     if (!wa?.pair) return false;
     await wa.pair();
     this.#health.set("whatsapp", wa.health());
+    await this.#publishHealth();
     return true;
   }
 

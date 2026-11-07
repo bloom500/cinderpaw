@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, ChevronLeft, ArrowUpRight } from 'lucide-react';
 import { useUI } from '@/stores/ui';
 import { tauri, type SkillMeta, type SkillPreview } from '@/lib/tauri';
+import { BASE, FAST } from '@/lib/motion';
 
 type Tab = 'installed' | 'discover' | 'community' | 'import';
 
@@ -239,7 +240,7 @@ export function SkillHubDrawer() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
+            transition={FAST}
             className="fixed inset-0 z-30 bg-black/25"
             onClick={closeSkills}
           />
@@ -250,7 +251,7 @@ export function SkillHubDrawer() {
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
-            transition={{ duration: 0.22, ease: 'easeInOut' }}
+            transition={BASE}
             // bg-popover: paper, like every other panel that floats over the chat; on
             // the 34%-ink surface the conversation read through it in the light theme.
             className="fixed right-0 top-0 bottom-0 w-[400px] z-40 bg-popover border-l border-border-subtle flex flex-col shadow-2xl"

@@ -3,6 +3,8 @@ import { ArrowUpRight, BarChart3, PenLine, Repeat, Search } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { tauri } from '@/lib/tauri';
 import { signInWithOpenRouter } from '@/lib/openrouterSignIn';
+import { signInWithChatGPT } from '@/lib/chatgptSignIn';
+import { useNotifications } from '@/stores/notifications';
 
 /**
  * The four intents, under the composer.
@@ -92,23 +94,38 @@ function useHasAnyModel(): boolean | null {
  * intent chips would only lead to a message nothing can answer.
  */
 function SetupCard() {
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'chatgpt' | 'openrouter' | null>(null);
   return (
     // Same frame as the intent cards below the composer: centered, as wide as the composer.
     <div className="mx-auto mt-4 w-full max-w-2xl px-4">
       <div className="rounded-3xl border border-border-default bg-(--surface-typing) p-5 text-left shadow-lg">
         <p className="text-base font-semibold text-text-primary">Cinderpaw needs a model to think with.</p>
+        {/* ChatGPT first, as in the setup wizard and the model menu: this card
+            offered only OpenRouter (smoke test, 7 Nov). */}
         <p className="mt-1 text-sm text-text-secondary">
-          Sign in with OpenRouter and it answers right away, on any computer. Or download a model that runs here, free and private, if this machine is strong enough.
+          Use the ChatGPT plan you already pay for, or sign in with OpenRouter for free, on any computer. Or download a model that runs here, free and private, if this machine is strong enough.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
-            disabled={busy}
-            onClick={() => { setBusy(true); void signInWithOpenRouter().finally(() => setBusy(false)); }}
+            disabled={busy !== null}
+            onClick={() => {
+              setBusy('chatgpt');
+              void signInWithChatGPT()
+                .catch((err) => useNotifications.getState().push('error', 'ChatGPT sign-in did not finish', String(err)))
+                .finally(() => setBusy(null));
+            }}
             className="rounded-xl bg-brand px-4 py-2 text-sm font-medium text-brand-foreground hover:opacity-90 disabled:opacity-60 cursor-pointer"
           >
-            {busy ? 'Finish in your browser…' : 'Sign in with OpenRouter'}
+            {busy === 'chatgpt' ? 'Finish in your browser…' : 'Continue with ChatGPT'}
+          </button>
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => { setBusy('openrouter'); void signInWithOpenRouter().finally(() => setBusy(null)); }}
+            className="rounded-xl border border-border-default px-4 py-2 text-sm text-text-secondary hover:bg-bg-hover disabled:opacity-60 cursor-pointer"
+          >
+            {busy === 'openrouter' ? 'Finish in your browser…' : 'Sign in with OpenRouter'}
           </button>
           <button
             type="button"
