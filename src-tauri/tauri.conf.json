@@ -13,6 +13,9 @@
     "beforeBuildCommand": {
       "script": "node scripts/build-sidecar.mjs && node scripts/build-game.mjs && cd ../frontend-react && npm run build",
       "cwd": "."
+    },
+    "windows": {
+      "staticVCRuntime": false
     }
   },
   "app": {
