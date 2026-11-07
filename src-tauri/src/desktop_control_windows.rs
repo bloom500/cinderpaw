@@ -646,6 +646,15 @@ pub fn find_elements(
     Ok(out)
 }
 
+/// Where an element is on screen (physical pixels) and what it is called, for
+/// the overlay to point at before the agent acts on it. Reads only.
+pub fn element_box(handle: &str) -> Result<(BoundingRect, String), String> {
+    let _com = ComGuard::new();
+    let auto = automation()?;
+    let (_pid, el) = locate_by_handle(&auto, handle)?;
+    Ok((bounding_rect(&el), name_of(&el)))
+}
+
 pub fn click_element(handle: &str) -> Result<(), String> {
     let _com = ComGuard::new();
     let auto = automation()?;

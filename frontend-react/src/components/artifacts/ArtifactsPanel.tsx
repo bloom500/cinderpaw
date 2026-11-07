@@ -1,6 +1,6 @@
 import { panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, useIsPresent } from 'framer-motion';
 import { Archive, ArchiveRestore, ArrowLeft, Check, ChevronDown, Clock, Download, ExternalLink as OpenIcon, FileBox, FileUp, Loader2, MessageSquare, Pencil, Trash2, X, type LucideIcon } from 'lucide-react';
 import {
   ArtifactAction,
@@ -14,6 +14,7 @@ import { emberText, liveUntil, revealedTo, unshown, type Ember } from '@/lib/emb
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SelectMenu } from '@/components/ui/select-menu';
 import { LiveFrame } from './LiveFrame';
+import { TablePreview } from './TablePreview';
 import { BoardView } from '@/components/board/BoardView';
 import { parseBoard } from '@/lib/board';
 import { summaryOf } from '@/lib/artifactSections';
@@ -32,7 +33,7 @@ function Loading() {
   );
 }
 import { useShallow } from 'zustand/react/shallow';
-import { useArtifacts, shownKind, type ArtifactRow, type GoogleDest } from '@/stores/artifacts';
+import { useArtifacts, shownKind, isCsvFile, type ArtifactRow, type GoogleDest } from '@/stores/artifacts';
 import { GoogleMenu, googleCanTake } from './GoogleMenu';
 import { ContextTab } from './ContextTab';
 import { ArtifactCover } from './ArtifactCover';
@@ -46,12 +47,16 @@ import { cn, readLocal, writeLocal } from '@/lib/utils';
 import { tauri } from '@/lib/tauri';
 import { useNotifications } from '@/stores/notifications';
 import { useOnboarding } from '@/stores/onboarding';
+import { BASE } from '@/lib/motion';
 
 const WIDTH_KEY = 'cinderpaw.artifactsPanelWidth';
+const GOOGLE_KEY = 'cinderpaw.googleRegistered';
 const DEFAULT_WIDTH = 416;
 const MIN_WIDTH = 320;
 /** Must match the chat column's min-w-[28rem] in ChatPage. */
 const CHAT_MIN_WIDTH = 448;
+/** The Context panel's fixed width: a column of cards, not a resizable sheet. */
+const CONTEXT_WIDTH = 320;
 
 /**
  * Never narrower than a readable column, never so wide the chat cannot be read.
@@ -126,9 +131,13 @@ export function ArtifactsPanel({
   const isDraft = open?.row.version === 0;
   // A build without Cinderpaw's Google registration (a fork, a local build, a
   // release whose CI secret is missing) gets no button, not one that only fails.
-  const [googleRegistered, setGoogleRegistered] = useState(false);
+  // Starts from the last answer, kept: asked fresh on every open, the button
+  // popped into a panel already on screen (29 Oct, recording C4). A build's
+  // registration does not change between opens, so the guess is right.
+  const [googleRegistered, setGoogleRegistered] = useState(() => readLocal(GOOGLE_KEY) === '1');
   useEffect(() => {
-    tauri.google.status().then((s) => setGoogleRegistered(s !== null), () => setGoogleRegistered(false));
+    const known = (yes: boolean) => { setGoogleRegistered(yes); writeLocal(GOOGLE_KEY, yes ? '1' : '0'); };
+    tauri.google.status().then((s) => known(s !== null), () => known(false));
   }, []);
 
   // The list is also kept current by `artifact` events, which arrive from every
@@ -139,6 +148,10 @@ export function ArtifactsPanel({
   }, [refresh]);
 
   const asideRef = useRef<HTMLElement>(null);
+  // Closing, it lifts out of the row for its slide: the chat takes the room
+  // back in the same frame and glides there (ChatPage), instead of waiting
+  // the panel's slide and then jumping wide (29 Oct, recording C5).
+  const leaving = !useIsPresent();
   // The row = chat column + this panel. Before the first layout there is no
   // row to measure, so the window stands in; the chat's CSS min-width still
   // protects it in that one frame, and on every window resize after.
@@ -154,6 +167,14 @@ export function ArtifactsPanel({
       panelMotionExit();
     };
   }, []);
+  // The sheet stays opaque both ways: faded over the Context cards it was two
+  // pictures at once for ~0.12 s (recording, 29 Oct). It settles in from 32px
+  // and leaves by sliding out past the window's right edge (12px = mr-3). Not
+  // in from the edge too: the frames spent mounting it ate ~90% of that slide
+  // in the dev build, so it read as a jump.
+  const sheet = tab !== 'context';
+  const enter = sheet ? { x: 32 } : { x: 32, opacity: 0 };
+  const leave = sheet ? { x: 'calc(100% + 12px)' } : { x: 32, opacity: 0 };
   const drag = useRef<{ x: number; w: number } | null>(null);
   const resizeTo = (w: number) => setWidth(clampWidth(w, rowWidth()));
   // A mouse reports moves faster than the screen draws: keep the newest and
@@ -168,11 +189,16 @@ export function ArtifactsPanel({
     // Transform and opacity are composited, so the chat reflows once.
     <motion.aside
       ref={asideRef}
-      initial={{ x: 32, opacity: 0 }}
+      initial={enter}
       animate={{ x: 0, opacity: 1 }}
-      exit={{ x: 32, opacity: 0 }}
-      style={compact ? undefined : { width }}
-      transition={{ duration: 0.16, ease: 'easeOut' }}
+      exit={leave}
+      // Context is a quiet column beside the chat (his ask, 29 Oct: like Claude's
+      // side cards), not a resizable sheet.
+      style={compact ? undefined : { width: tab === 'context' ? CONTEXT_WIDTH : width }}
+      // A wall for Cubby: thrown at the panel, it lands against it instead of
+      // flying through the cards (MascotPerch reads every data-mascot-wall).
+      data-mascot-wall=""
+      transition={BASE}
       onAnimationComplete={() => {
         if (!entered.current) {
           entered.current = true;
@@ -184,14 +210,19 @@ export function ArtifactsPanel({
         // panel gives way down to its minimum rather than pushing the chat off.
         // The boards draw the panel as a card of its own, lifted off the window's
         // edges; mt-10 keeps it under the window's close/maximize/minimize.
-        'artifact-sheet relative mb-3 mr-3 mt-10 flex shrink flex-col overflow-hidden rounded-3xl border border-border-default bg-bg-surface shadow-xl',
+        tab === 'context'
+          ? 'relative mb-3 mr-3 mt-10 flex shrink-0 flex-col overflow-hidden'
+          : 'artifact-sheet relative mb-3 mr-3 mt-10 flex shrink flex-col overflow-hidden rounded-3xl border border-border-default bg-bg-surface shadow-xl',
         compact ? 'ml-3 min-w-0 flex-1' : 'min-w-[320px]',
+        // Over the Context cards (z-30), which stay where they are under it.
+        tab !== 'context' && 'z-[35]',
+        leaving && !compact && 'absolute inset-y-0 right-0',
         // The frame is another document: without this, crossing it mid-drag
         // hands the pointer to the page inside and the drag stops.
         dragging && '[&_iframe]:pointer-events-none select-none',
       )}
     >
-      {!compact && <div
+      {!compact && tab !== 'context' && <div
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize artifacts panel"
@@ -243,9 +274,8 @@ export function ArtifactsPanel({
       {tab === 'context' ? <>
         {/* No tab strip: the sidebar's Artifacts row and the chat's Context
             button each open their own view, as on the boards. */}
-        <div className="relative flex shrink-0 items-start gap-2 px-5 pb-3 pt-5">
-          <PanelTitle icon={MessageSquare} title="Context" sub="Everything Cinderpaw knows and is using for this conversation." />
-          <span className="-mb-3 -mt-2 shrink-0" aria-hidden><CinderpawMascot state="curious" width={64} /></span>
+        <div className="flex shrink-0 items-center justify-between gap-2 px-4 pb-2 pt-1">
+          <h2 className="text-sm font-medium text-text-secondary">Context</h2>
           <ArtifactClose onClick={onClose} aria-label="Close panel" />
         </div>
         <ContextTab onCompose={onCompose} onAttach={onAttach} />
@@ -260,7 +290,7 @@ export function ArtifactsPanel({
               <FileBox size={16} />
             </span>
             {editing || isDraft || rows.length < 2
-              ? <ArtifactTitle className="shrink-0 font-display text-xl font-normal">Artifact</ArtifactTitle>
+              ? <ArtifactTitle className="min-w-0 truncate font-display text-xl font-normal" title={open.row.title}>{open.row.title || 'Artifact'}</ArtifactTitle>
               : <Switcher rows={rows} current={open.row.id} />}
           </div>
         ) : (
@@ -366,7 +396,7 @@ function Switcher({ rows, current }: { rows: ArtifactRow[]; current: string }) {
         className="flex min-w-0 items-baseline gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-bg-hover focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand/40"
         aria-label="Switch artifact"
       >
-        <ArtifactTitle className="shrink-0 font-display text-xl font-normal">Artifact</ArtifactTitle>
+        <ArtifactTitle className="min-w-0 truncate font-display text-xl font-normal" title={rows[index]?.title}>{rows[index]?.title || 'Artifact'}</ArtifactTitle>
         {index >= 0 && <span className="shrink-0 text-xs tabular-nums text-text-muted">{index + 1}/{rows.length}</span>}
         <ChevronDown size={14} className="shrink-0 self-center text-text-muted" />
       </DropdownMenuTrigger>
@@ -954,6 +984,7 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
  */
 function Preview({ kind, title, content, id = '', ember }: { kind: string; title: string; content: string; id?: string; ember?: Ember }) {
   if (kind === 'building') return <Building content={content} />;
+  if (kind === 'table' || isCsvFile(kind, title)) return <TablePreview title={title} content={content} />;
   const image = kind === 'image' ? artifactImageSource(content) : null;
   if (image) {
     return (

@@ -10,6 +10,7 @@ import { scoreFit, type FitLevel, type RunMode } from '@/lib/fitScore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import type { ModelInfo } from '@/lib/tauri';
 import { BTN_OUTLINE, BTN_PRIMARY, CARD, Chip, MakerTile, Meter, Pill, Status, makerFor, paramsOf, prettyModelName } from './ui';
+import { BASE, SLOW } from '@/lib/motion';
 
 // ── Spinner ──────────────────────────────────────────────────────────────────
 
@@ -169,7 +170,7 @@ export function LocalModelCard({ model, onDelete }: Props) {
                 <span className="tabular-nums">{loadProgress.percentage.toFixed(0)}%</span>
               </div>
               <div className="h-1.5 overflow-hidden rounded-full bg-bg-elevated" role="progressbar" aria-valuenow={Math.round(loadProgress.percentage)}>
-                <div className="h-full bg-brand transition-all duration-300" style={{ width: `${loadProgress.percentage}%` }} />
+                <div className="h-full bg-brand transition-all duration-(--motion-slow)" style={{ width: `${loadProgress.percentage}%` }} />
               </div>
             </div>
           ) : isActive ? (
@@ -209,7 +210,7 @@ export function LocalModelCard({ model, onDelete }: Props) {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
+            transition={BASE}
             className="overflow-hidden"
           >
             <div className="border-t border-border-subtle bg-bg-elevated/50">
@@ -342,7 +343,7 @@ function ScoreRing({ score, tone }: { score: number; tone: 'success' | 'brand' |
           strokeDasharray={c}
           initial={{ strokeDashoffset: c }}
           animate={{ strokeDashoffset: c * (1 - score / 100) }}
-          transition={{ duration: 0.7, ease: [0.2, 0.8, 0.2, 1] }}
+          transition={SLOW}
         />
       </svg>
       <span className="absolute inset-0 flex items-center justify-center text-sm font-semibold tabular-nums text-text-primary">{score}</span>

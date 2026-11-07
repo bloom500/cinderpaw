@@ -3,7 +3,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { createPortal } from 'react-dom';
 import { motion, Reorder } from 'framer-motion';
 import { ArrowLeft, ArrowRight, BookOpen, ChevronDown, ChevronUp, Download, Globe, History, Lock, LockOpen, Star, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, ScrollText, Search, Settings2, ShieldCheck, X } from 'lucide-react';
-import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { tauri } from '@/lib/tauri';
 import { SEARCH_ENGINES, useBrowser } from '@/stores/browser';
 import { useUI } from '@/stores/ui';
@@ -19,6 +18,8 @@ import { type HistoryEntry, loadHistory, saveHistory, recordVisit, recordTitle, 
 import { AddressSuggestions, useAddressSuggestions } from './AddressSuggestions';
 import { DownloadsCard } from './DownloadsCard';
 import { cardHeight } from './DownloadsPopup';
+import { uiZoom } from '@/lib/uiZoom';
+import { BASE } from '@/lib/motion';
 
 const WIDTH_KEY = 'cinderpaw.browserPanelWidth';
 const ZOOM_KEY = 'cinderpaw.browserZoom';
@@ -65,8 +66,11 @@ const SHORTCUTS: Array<{ label: string; url: string; mark: string }> = [
  */
 function place(r: DOMRect | null) {
   useBrowser.getState().setPageRect(r && { x: r.left, y: r.top, w: r.width, h: r.height });
+  // The native page is placed in window pixels; at a window size other than
+  // 100% (Ctrl +) a CSS pixel is `uiZoom()` of those.
+  const z = uiZoom();
   void tauri.browser
-    .ui('set_bounds', r ? { x: r.left, y: r.top, width: r.width, height: r.height, visible: true } : { visible: false })
+    .ui('set_bounds', r ? { x: r.left * z, y: r.top * z, width: r.width * z, height: r.height * z, visible: true } : { visible: false })
     .catch(() => {});
 }
 
@@ -413,7 +417,7 @@ export function BrowserPanel({ chat, onCompose, compact = false }: {
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: 32, opacity: 0 }}
       style={wide ? undefined : { width }}
-      transition={dragging ? { duration: 0 } : { duration: 0.16, ease: 'easeOut' }}
+      transition={dragging ? { duration: 0 } : BASE}
       onAnimationComplete={() => {
         setSettled(true);
         if (!entered.current) {
@@ -710,34 +714,7 @@ export function BrowserPanel({ chat, onCompose, compact = false }: {
         </div>
       )}
       {settingsOpen && <BrowserSettings engine={engine} onEngine={setEngine} />}
-      {/* Floating over the toolbar, never in the flow: as a row of its own it
-          pushed the whole page down and back up on every agent action, which
-          read as the browser resizing (17 Sep). The page is a native view and
-          always paints above this, so it sits over the chrome, not the page. */}
-      <div className="relative h-0">
-        {agent && (
-          // The canvas's agent bar (spec 7.4): the head, what it is doing, Stop.
-          // Stop ends the run that is driving the page, like the composer's
-          // Stop; a paused agent is already waiting, so it has none.
-          <div
-            role="status"
-            className="absolute left-1/2 top-0 z-10 flex max-w-[calc(100%-24px)] -translate-x-1/2 -translate-y-full items-center gap-2.5 rounded-xl border border-border-default bg-bg-active py-1.5 pl-2 pr-1.5 text-xs text-text-primary shadow-md"
-          >
-            <img src={logoUrl} alt="" className={cn('h-5 w-5 shrink-0', agent.busy && 'animate-pulse')} />
-            <span className="min-w-0 truncate">{agentLine(agent)}</span>
-            {agent.op !== 'paused' && (
-              <button
-                type="button"
-                onClick={() => { void requestCinderpawStop(); useBrowser.setState({ agent: null }); }}
-                className="h-7 shrink-0 rounded-lg border border-border-default bg-bg-elevated px-3 text-xs text-text-primary hover:bg-text-primary/5"
-              >
-                Stop
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-      {error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-(--warning)">{error}</p>}
+      {error &&<p className="border-y border-border-subtle px-3 py-2 text-2xs text-(--warning)">{error}</p>}
       {notice && !error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-text-muted">{notice}</p>}
       {finding && (
         <form
@@ -884,6 +861,33 @@ export function BrowserPanel({ chat, onCompose, compact = false }: {
         </div>
       )}
       </div>
+      {agent && (
+        // The canvas's agent bar (spec 7.4): the head, what it is doing, Stop.
+        // Stop ends the run that is driving the page, like the composer's
+        // Stop; a paused agent is already waiting, so it has none.
+        //
+        // At the bottom, in the flow. It floated over the toolbar and covered
+        // the address bar while the agent worked (1 Nov, Darius). A row under
+        // the toolbar pushed the whole page down and up on every action
+        // (17 Sep); down here only the page's bottom edge moves, and what the
+        // person is reading stays where it is.
+        <div
+          role="status"
+          className="flex shrink-0 items-center gap-2.5 border-t border-border-default bg-bg-active py-1.5 pl-3 pr-1.5 text-xs text-text-primary"
+        >
+          <img src={logoUrl} alt="" className={cn('h-5 w-5 shrink-0', agent.busy && 'animate-pulse')} />
+          <span className="min-w-0 flex-1 truncate">{agentLine(agent)}</span>
+          {agent.op !== 'paused' && (
+            <button
+              type="button"
+              onClick={() => { void requestCinderpawStop(); useBrowser.setState({ agent: null }); }}
+              className="h-7 shrink-0 rounded-lg border border-border-default bg-bg-elevated px-3 text-xs text-text-primary hover:bg-text-primary/5"
+            >
+              Stop
+            </button>
+          )}
+        </div>
+      )}
       <FullscreenCurtain />
     </motion.aside>
   );
@@ -908,7 +912,7 @@ function FullscreenCurtain() {
       aria-hidden
       className={cn(
         'pointer-events-none fixed inset-0 z-[9999] bg-black transition-opacity ease-out',
-        on ? 'opacity-100 duration-0' : 'opacity-0 duration-150',
+        on ? 'opacity-100 duration-0' : 'opacity-0 duration-(--motion-fast)',
       )}
     />,
     document.body,
@@ -990,7 +994,7 @@ function BrowserSettings({ engine, onEngine }: { engine: string; onEngine: (e: s
             adblockOn ? 'bg-brand hover:bg-brand-hover' : 'bg-border-default hover:bg-bg-hover',
           )}
         >
-          <span className={cn('inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200', adblockOn ? 'translate-x-[18px]' : 'translate-x-[2px]')} />
+          <span className={cn('inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-(--motion-base)', adblockOn ? 'translate-x-[18px]' : 'translate-x-[2px]')} />
         </button>
       </SettingRow>
       <SettingRow
@@ -1026,7 +1030,7 @@ function BrowserSettings({ engine, onEngine }: { engine: string; onEngine: (e: s
             ? ext.extensions.map((e) => `${e.name} ${e.version}`).join(', ')
             : 'Drop an unpacked Chrome extension in the folder; it loads when Cinderpaw next opens.'}
         >
-          <button type="button" onClick={() => void shellOpen(ext.path)} className={btn}>Open folder</button>
+          <button type="button" onClick={() => void tauri.raw.openLocalFile(ext.path, false).catch(() => {})} className={btn}>Open folder</button>
         </SettingRow>
       )}
       <SettingRow title="Site data" hint={cleared ?? 'Cookies, cache and storage every site kept. Clearing signs you out everywhere.'}>

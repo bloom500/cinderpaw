@@ -346,7 +346,7 @@ describe("computer_use rename", () => {
     );
     for (const action of [
       "list_windows", "get_tree", "find_elements", "click", "type",
-      "send_keys", "get_value", "get_focused", "perform_action", "launch",
+      "send_keys", "get_value", "get_focused", "perform_action", "launch", "screenshot",
     ]) {
       expect(desc).toContain(action);
     }
@@ -442,5 +442,40 @@ describe("find_elements can be scoped to the page", () => {
     await tool.execute({ action: "find_elements", pid: 7, query: { role: "Button,Hyperlink", under_role: "Main,Document" } }, ctx);
     expect(sent.query).toEqual({ role: "Button,Hyperlink", under_role: "Main,Document" });
     expect(JSON.stringify(tool.parameters)).toContain("under_role");
+  });
+});
+
+describe("computer_use screenshot", () => {
+  const picture = "data:image/jpeg;base64,/9j/AAAA";
+
+  it("takes a picture without asking: the window by pid, the whole screen without one", async () => {
+    const tool = createComputerUseTool();
+    // No askUser bridge: a read-only action that asked would hang here.
+    const { ctx, requests } = makeCtx({
+      onRequest: (_a, p) => ({ data_url: picture, width: 1280, height: 720, scope: p.pid ? "window" : "screen", title: p.pid ? "Untitled - Notepad" : null, note: null }),
+    });
+    const win = await tool.execute({ action: "screenshot", pid: 1234 }, ctx);
+    const screen = await tool.execute({ action: "screenshot" }, ctx);
+    expect(requests).toEqual([
+      { action: "screenshot", params: { pid: 1234 } },
+      { action: "screenshot", params: {} },
+    ]);
+    expect(win.ok).toBe(true);
+    // The picture rides in `images` (the model sees it, the chat shows it), not again in `data`.
+    expect(win.images).toEqual([picture]);
+    expect(JSON.stringify(win.data)).not.toContain("base64");
+    expect(win.content).toContain('the window "Untitled - Notepad" (1280x720)');
+    expect(screen.content).toContain("the screen (1280x720)");
+  });
+
+  it("says so when the host sends no picture, and passes the host's reason through", async () => {
+    const tool = createComputerUseTool();
+    const empty = await tool.execute({ action: "screenshot" }, makeCtx({ onRequest: () => ({}) }).ctx);
+    expect(empty.ok).toBe(false);
+    const refused = await tool.execute({ action: "screenshot" }, makeCtx({
+      onRequest: () => { throw new Error("screenshot: 1Password is open on the screen, and a password manager is never photographed."); },
+    }).ctx);
+    expect(refused.ok).toBe(false);
+    expect(refused.content).toContain("password manager is never photographed");
   });
 });

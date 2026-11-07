@@ -22,7 +22,7 @@ import { readFile, mkdir } from "node:fs/promises";
 import { atomicWriteFile } from "../../atomic-write.ts";
 import { dirname } from "node:path";
 import type { Tool, ToolManifest } from "../../types.ts";
-import { configPath, WhatsAppConnector, whatsappAvailable, type ConnectorRow } from "../../transports/connectors.ts";
+import { configPath, linkNumber, WhatsAppConnector, whatsappAvailable, type ConnectorRow } from "../../transports/connectors.ts";
 import { installWhatsApp } from "../../transports/whatsapp-install.ts";
 import { sessionHasCards } from "../../core/card-surface.ts";
 
@@ -88,12 +88,18 @@ export const CATALOG: Record<string, CatalogEntry> = {
   },
   whatsapp: {
     secrets: [],
-    note: "No secrets — pairing is QR-based. Enable it, then the user scans the QR code shown in the Cinderpaw app (Connectors page or TUI).",
+    note:
+      "No secrets. In the Cinderpaw app and page, configure with enabled:true shows the person a card with a phone " +
+      "field: do not ask for the number in a sentence there. Elsewhere, ask for the number of the WhatsApp account to " +
+      "link (theirs, or a second number), country code first, and configure with enabled:true and link_number. Either " +
+      "way they get a code to type on the phone, no QR; they can pick a QR on the card instead. If the person says the " +
+      "number was wrong, or no code reached the phone, call configure with enabled:true again: in the app the card " +
+      "comes back holding that number to fix; elsewhere pass the right number as link_number.",
     steps: [
-      "WhatsApp needs no token. You link it with your phone.",
-      "Say the word and I will turn it on. The first time, I ask to download what WhatsApp needs.",
-      "A square code then shows up right here, under our chat. In the desktop app it is on the Connectors page. In the terminal chat, type /connectors qr.",
-      "On your phone, open WhatsApp. Tap Settings, then Linked devices, then Link a device. Point the camera at the square.",
+      "WhatsApp needs no token. You link it with a phone number.",
+      "I ask for the WhatsApp number to link, with the country code first. In Romania that is +40, then the number without its first 0.",
+      "The first time, I ask to download what WhatsApp needs. Then a code of 8 letters and numbers shows up right here, under our chat.",
+      "On that phone, open WhatsApp. Tap Settings, then Linked devices, then Link a device. Tap Link with phone number instead, and type the code.",
     ],
   },
   // Every other transport the sidecar can run. Without an entry the agent
@@ -414,6 +420,7 @@ const WHATSAPP_DOWNLOAD =
 
 const DOWNLOAD = "Download";
 const NOT_NOW = "Not now";
+const USE_QR = "Use a QR code";
 
 export async function readRows(): Promise<ConnectorRow[]> {
   try {
@@ -526,6 +533,15 @@ export function createConnectorsManageTool(
         required: false,
         schema: { type: "array", items: { type: "string" } },
       },
+      link_number: {
+        type: "string",
+        description:
+          "WhatsApp only (configure): the number of the WhatsApp account to link to this computer, country code " +
+          "first (e.g. +40 712 345 678). In the Cinderpaw app and page leave it out: turning WhatsApp on shows the " +
+          "person a phone card. Elsewhere ask for it first: the person then types a code on that phone instead of " +
+          "scanning a QR.",
+        required: false,
+      },
     },
     async execute(args, ctx) {
       const action = typeof args.action === "string" ? args.action : "";
@@ -623,6 +639,75 @@ export function createConnectorsManageTool(
       }
       const rows = await readRows();
       const row: ConnectorRow = rows.find((r) => r.id === id) ?? { id };
+      if (id === "whatsapp" && typeof args.link_number === "string" && args.link_number.trim()) {
+        // Refused, not guessed: a number with no country code gets a code that never arrives.
+        if (!linkNumber(args.link_number)) {
+          return {
+            ok: false,
+            content:
+              `"${args.link_number}" has no country code. Ask for the number with the country code first ` +
+              "(Romania: +40, then the number without its first 0) and call configure again.",
+            error: "bad_args",
+          };
+        }
+        row.secrets = { ...row.secrets, WHATSAPP_LINK_NUMBER: args.link_number.trim() };
+      }
+      // 31 Oct, Darius: the number goes on a card with a phone field, in the
+      // chat, not in a sentence the person has to answer by typing. It comes
+      // back every time the phone is not linked yet, holding the number saved
+      // last time: one wrong digit sent the code to nobody, and with the card
+      // shown only while no number was saved, every retry reused it (1 Nov).
+      const typedOnCall = typeof args.link_number === "string" && args.link_number.trim() !== "";
+      if (
+        id === "whatsapp" && args.enabled === true && !isLinked() && !typedOnCall &&
+        ctx?.askUser && sessionHasCards(ctx.sessionId)
+      ) {
+        const saved = row.secrets?.WHATSAPP_LINK_NUMBER?.trim();
+        let typed = "";
+        try {
+          const [a] = await ctx.askUser.ask(
+            [
+              {
+                question: saved
+                  ? "Is this the WhatsApp number to link? Fix it if a digit is wrong."
+                  : "Which WhatsApp number should I link?",
+                header: "WhatsApp",
+                input: "phone",
+                ...(saved ? { value: saved } : {}),
+                options: [
+                  { label: USE_QR, description: "Scan a code with the phone's camera instead." },
+                  { label: NOT_NOW, description: "Nothing changes." },
+                ],
+                multiSelect: false,
+              },
+            ],
+            ctx.sessionId,
+          );
+          // The desktop card sends the typed number as the pick; the web page as customText.
+          typed = (a?.customText || a?.selected?.[0] || "").trim();
+        } catch {
+          typed = "";
+        }
+        if (!typed || typed === NOT_NOW) {
+          return { ok: true, content: "The person chose not to link WhatsApp now. Nothing was changed. Say that is fine." };
+        }
+        if (typed === USE_QR) {
+          // A number left behind would keep asking for a code instead of the QR.
+          const { WHATSAPP_LINK_NUMBER: _dropped, ...rest } = row.secrets ?? {};
+          row.secrets = rest;
+        } else {
+          if (!linkNumber(typed)) {
+            return {
+              ok: false,
+              content:
+                "The number typed on the card has no country code. Say so in one sentence, then call configure " +
+                "again with enabled:true and no link_number: the card comes back.",
+              error: "bad_args",
+            };
+          }
+          row.secrets = { ...row.secrets, WHATSAPP_LINK_NUMBER: typed };
+        }
+      }
       if (typeof args.enabled === "boolean") row.enabled = args.enabled;
       if (args.secrets && typeof args.secrets === "object" && !Array.isArray(args.secrets)) {
         row.secrets = { ...row.secrets };
@@ -681,14 +766,26 @@ export function createConnectorsManageTool(
       // and blocking here would leave them unable to connect at all. So it
       // saves, and says — in the result the model reads, not only in a log line
       // it never sees — that the bot it just brought online answers no one.
-      const deaf = row.enabled && (row.allowlist?.length ?? 0) === 0;
+      // WhatsApp is never deaf to its owner: their chat with themselves is
+      // always answered (connectors.ts, ownerToSelf), and it never reaches
+      // connectors_pair, which then waited ten minutes on a message it could not
+      // hear while the person was already chatting there (Darius, 1 Nov).
+      const ownerChat = id === "whatsapp" && row.enabled && isLinked();
+      const deaf = row.enabled && (row.allowlist?.length ?? 0) === 0 && !ownerChat;
       const hint =
         row.enabled && missing.length > 0
           ? ` Still missing secrets: ${missing.join(", ")} — the connector stays offline until provided.`
-          : pairing
+          : pairing && linkNumber(row.secrets?.WHATSAPP_LINK_NUMBER ?? "")
             // Before the allowlist: nobody can message a WhatsApp that has no phone yet.
-            ? " A QR code is on its way. On the Cinderpaw page it shows up under the chat by itself; in the desktop app it is on the Connectors page; in the terminal chat: /connectors qr. " +
-              "Tell the user: on your phone open WhatsApp, then Settings, Linked devices, Link a device, and point the camera at the code."
+            ? " A code to type on the phone is on its way. In the Cinderpaw app it shows up right in this chat, under your reply; in the terminal chat: /connectors qr. " +
+              "Tell the user: on that phone open WhatsApp, then Settings, Linked devices, Link a device, tap Link with phone number instead, and type the code."
+          : pairing
+            ? " A QR code is on its way. In the Cinderpaw app and on the Cinderpaw page it shows up right in this chat, under your reply; in the terminal chat: /connectors qr. " +
+              "Tell the user: on your phone open WhatsApp, then Settings, Linked devices, Link a device, and point the camera at the code. " +
+              "A code to type instead of a QR comes when you call configure again with link_number (the number to link, country code first)."
+            : ownerChat
+              ? " WhatsApp is linked. Tell the user: on that phone, open the chat with yourself (Message yourself) and write there; " +
+                "Cinderpaw answers in that chat. Do NOT call connectors_pair for this: it only lets ANOTHER number in, and it cannot hear that chat."
             : deaf
               ? ` WARNING: ${id} is online but its allowlist is EMPTY, which means it ` +
                 `answers NOBODY — not "everyone". ` +
@@ -707,7 +804,9 @@ export function createConnectorsManageTool(
       return {
         ok: true,
         content: `Saved and reloaded.${hint}\n${JSON.stringify(state, null, 2)}`,
-        data: state,
+        // `whatsappPairing` draws the live code in the desktop chat (28 Oct, Darius:
+        // the QR in the chat, where the person already is, not on another page).
+        data: pairing ? { ...state, whatsappPairing: true } : state,
       };
     },
   };

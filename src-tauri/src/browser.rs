@@ -58,6 +58,15 @@ struct Tab {
     /// tab the person is using: he wants to watch a video "fara sa traiesc cu
     /// frica ca agentul ma intrerupe deschizand alt site peste YouTube" (20 Oct).
     agent: bool,
+    /// The agent typed into this tab: a form it filled for the person to send
+    /// (an application, a cart, a booking). It stays open when the task ends.
+    held: bool,
+}
+
+/// The agent's tabs a finished task leaves behind: every one except the tab in
+/// front of the person and those holding a form it filled in for them.
+fn finished_agent_tabs(t: &Tabs) -> Vec<u32> {
+    t.list.iter().filter(|x| x.agent && !x.held && t.active != Some(x.id)).map(|x| x.id).collect()
 }
 
 #[derive(Default)]
@@ -136,9 +145,11 @@ fn restore_once(app: &AppHandle) {
 const HOME: &str = "about:blank";
 
 fn tabs_json() -> Value {
+    let working = live_agent_tab(); // before the lock below: it takes the same one
     let t = tabs().lock();
     json!({
         "active": t.active,
+        "working": working,
         "tabs": t.list.iter().map(|tab| json!({
             "id": tab.id,
             "title": tab.title,
@@ -203,6 +214,16 @@ const NEW_WINDOW_SCRIPT: &str = "(() => {   const here = (u) => { try { const ur
 /// `watch_active_url` reads and puts back. Only the listed keys, so a page
 /// cannot forge anything worse than "close me".
 const KEY_SCRIPT: &str = "(() => { addEventListener('keydown', (e) => { if (!e.isTrusted || !(e.ctrlKey || e.metaKey) || e.altKey) return; const k = e.key.toLowerCase(); if (!['=', '+', '-', '0', 't', 'w', 'l', 'f', 'd', 'h', 'j', 'tab', '1', '2', '3', '4', '5', '6', '7', '8', '9'].includes(k)) return; e.preventDefault(); e.stopPropagation(); try { history.replaceState(history.state, '', location.pathname + location.search + '#cp-key=' + encodeURIComponent(k) + '&s=' + (e.shiftKey ? 1 : 0) + '&h=' + encodeURIComponent(location.hash.slice(1))); } catch {} }, true); })()";
+
+/// A site's own `alert` and `confirm`, back. tauri-plugin-dialog swaps both in
+/// every webview for an async call to the app, which a web page is not allowed
+/// to make: on sites `alert()` did nothing and `confirm()` returned a Promise,
+/// which `if (confirm("Delete?"))` reads as yes (found 29 Oct). Its script runs
+/// before ours, in the top frame only, so a fresh frame still holds the
+/// browser's own; called for this page, it is a real dialog again, which
+/// `hook_dialogs` puts in the app. ponytail: the page can see a hidden iframe
+/// come and go during the call.
+const NATIVE_DIALOGS_SCRIPT: &str = "(() => { if (window.top !== window) return; const native = (name) => function (...args) { const f = document.createElement('iframe'); f.style.display = 'none'; (document.body || document.documentElement).appendChild(f); try { return f.contentWindow[name].apply(window, args); } finally { f.remove(); } }; window.alert = native('alert'); window.confirm = native('confirm'); })()";
 
 /// When the agent last acted in the page (ms since the epoch, the page's clock
 /// too). A person's touch after this hands the page to them.
@@ -660,6 +681,14 @@ fn page(app: &AppHandle) -> Option<Webview> {
     app.get_webview(&label)
 }
 
+/// The tab is the one in front of the person: the panel is open on it and it
+/// is not on the start page. The same test `place_all` shows a tab by; every
+/// other tab is parked off screen, where nobody can answer a question it asks.
+fn on_screen(t: &Tabs, b: &Bounds, label: &str) -> bool {
+    b.visible && t.active.and_then(|id| t.list.iter().find(|x| x.id == id))
+        .is_some_and(|tab| tab.label == label && tab.history.get(tab.cursor).is_some_and(|u| u != HOME))
+}
+
 /// Put every tab where it belongs: the active one over the panel body when the
 /// panel is showing and not on the home page, every other one parked.
 fn place_all(app: &AppHandle) -> Result<(), String> {
@@ -933,6 +962,103 @@ fn hook_fullscreen(wv: &Webview, app: AppHandle, label: String) {
     });
 }
 
+#[cfg(windows)]
+thread_local! {
+    /// Pages' dialogs waiting for the person's answer, by id. On the main
+    /// thread: WebView2 raises them there, and they are answered there.
+    static WAITING: std::cell::RefCell<std::collections::HashMap<u64, (
+        webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2ScriptDialogOpeningEventArgs,
+        webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Deferral,
+    )>> = Default::default();
+}
+#[cfg(windows)]
+static NEXT_DIALOG: AtomicU64 = AtomicU64::new(0);
+
+/// A page's own dialogs: `alert`, `confirm`, `prompt` and "Leave site?".
+///
+/// Chromium draws them as windows owned by the app's main window, where the
+/// page is. A tab parked off screen got its "Leave site?" there: invisible,
+/// and still modal, so the whole app stopped taking clicks with nothing on
+/// screen to say why (29 Oct, an agent tab on X with an unsent draft; found
+/// with "Parasiti site-ul?" hidden at 0,0). WebView2 hands them to us instead:
+/// - "Leave site?" from a tab the person is not looking at (closed, parked,
+///   discarded) is answered "leave" at once, and the app says on screen that
+///   the page had changes it had not saved;
+/// - everything else is asked in the app's own dialog (`browser://dialog`),
+///   where it can be seen, and answered through `dialog_answer`.
+///
+/// Must be in place before the tab's first page loads: the setting is read
+/// when a document loads, and set after, it changed nothing for the page
+/// already there (measured 29 Oct). `new_tab_with` hooks it at creation.
+#[cfg(windows)]
+fn hook_dialogs(wv: &Webview, app: AppHandle, label: String) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::*;
+    use webview2_com::{take_pwstr, ScriptDialogOpeningEventHandler};
+    use windows_core::PWSTR;
+    let _ = wv.with_webview(move |pw| unsafe {
+        let Ok(core) = pw.controller().CoreWebView2() else { return };
+        if let Err(e) = core.Settings().and_then(|s| s.SetAreDefaultScriptDialogsEnabled(false)) {
+            tracing::warn!(%label, error = %e, "browser: the page's dialogs stay Chromium's own");
+            return;
+        }
+        let handler = ScriptDialogOpeningEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else { return Ok(()) };
+            let mut kind = COREWEBVIEW2_SCRIPT_DIALOG_KIND::default();
+            args.Kind(&mut kind)?;
+            let (mut uri, mut message, mut text) = (PWSTR::null(), PWSTR::null(), PWSTR::null());
+            args.Uri(&mut uri)?;
+            args.Message(&mut message)?;
+            args.DefaultText(&mut text)?;
+            let (uri, message, text) = (take_pwstr(uri), take_pwstr(message), take_pwstr(text));
+            let site = Url::parse(&uri).ok()
+                .and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_string()))
+                .unwrap_or(uri);
+            let kind = match kind {
+                COREWEBVIEW2_SCRIPT_DIALOG_KIND_ALERT => "alert",
+                COREWEBVIEW2_SCRIPT_DIALOG_KIND_CONFIRM => "confirm",
+                COREWEBVIEW2_SCRIPT_DIALOG_KIND_PROMPT => "prompt",
+                _ => "leave",
+            };
+            let b = *bounds().lock();
+            let (tab, seen) = {
+                let t = tabs().lock();
+                (t.list.iter().find(|x| x.label == label).map(|x| x.id), on_screen(&t, &b, &label))
+            };
+            if kind == "leave" && !seen {
+                args.Accept()?;
+                tracing::info!(%label, %site, closed = tab.is_none(), "browser: left a page that had unsaved changes, out of sight");
+                let _ = app.emit("browser://left", json!({ "site": site, "closed": tab.is_none() }));
+                return Ok(());
+            }
+            let id = NEXT_DIALOG.fetch_add(1, Ordering::SeqCst) + 1;
+            let deferral = args.GetDeferral()?;
+            WAITING.with(|w| w.borrow_mut().insert(id, (args, deferral)));
+            // ponytail: an entry whose tab closes unanswered stays here (two COM
+            // pointers); forget it on close_tab if that ever adds up.
+            let _ = app.emit("browser://dialog", json!({
+                "id": id, "tab": tab, "kind": kind, "site": site,
+                "message": message, "text": text,
+            }));
+            Ok(())
+        }));
+        let mut token = 0i64;
+        let _ = core.add_ScriptDialogOpening(&handler, &mut token);
+    });
+}
+
+/// The person's answer to a page's dialog. On the main thread, where it waits.
+#[cfg(windows)]
+fn answer_dialog(id: u64, ok: bool, text: Option<String>) {
+    let Some((args, deferral)) = WAITING.with(|w| w.borrow_mut().remove(&id)) else { return };
+    unsafe {
+        if ok {
+            if let Some(text) = text { let _ = args.SetResultText(&windows_core::HSTRING::from(text)); }
+            let _ = args.Accept();
+        }
+        let _ = deferral.Complete();
+    }
+}
+
 /// A new tab, in front, loading `url`.
 fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
     new_tab_with(app, url, true)
@@ -948,7 +1074,7 @@ fn new_tab_with(app: &AppHandle, url: Url, front: bool) -> Result<Webview, Strin
         t.next_id += 1;
         let id = t.next_id;
         let label = format!("browser-tab-{id}");
-        t.list.push(Tab { id, label: label.clone(), title: String::new(), history: Vec::new(), cursor: 0, expecting: None, loading: true, placed: None, dormant: false, last_active: std::time::Instant::now(), agent: false });
+        t.list.push(Tab { id, label: label.clone(), title: String::new(), history: Vec::new(), cursor: 0, expecting: None, loading: true, placed: None, dormant: false, last_active: std::time::Instant::now(), agent: false, held: false });
         if front { t.active = Some(id); }
         (id, label)
     };
@@ -960,6 +1086,7 @@ fn new_tab_with(app: &AppHandle, url: Url, front: bool) -> Result<Webview, Strin
         .initialization_script(TOUCH_SCRIPT)
         .initialization_script(NEW_WINDOW_SCRIPT)
         .initialization_script(KEY_SCRIPT)
+        .initialization_script(NATIVE_DIALOGS_SCRIPT)
         .data_directory(cinderpaw_core::paths::cinderpaw_dir().join("browser-profile"));
     // Extensions ride the WebView2 environment, which is created with the first
     // tab and shared by the rest, so one installed later shows up after a restart.
@@ -1075,8 +1202,21 @@ fn new_tab_with(app: &AppHandle, url: Url, front: bool) -> Result<Webview, Strin
             }
         });
     let b = *bounds().lock();
-    let wv = window
-        .add_child(builder, LogicalPosition::new(PARKED.0, PARKED.1), LogicalSize::new(b.w.max(1.0), b.h.max(1.0)))
+    // Made on the main thread, where Tauri runs `with_webview` at once: the
+    // dialog hook is then in place before the first page loads. From any other
+    // thread it is a message the page's own load can overtake.
+    let (made, made_rx) = std::sync::mpsc::channel();
+    let (parent, hook_app, hook_label) = (window.clone(), app.clone(), label.clone());
+    app.run_on_main_thread(move || {
+        let wv = parent.add_child(builder, LogicalPosition::new(PARKED.0, PARKED.1), LogicalSize::new(b.w.max(1.0), b.h.max(1.0)));
+        #[cfg(windows)]
+        if let Ok(wv) = &wv { hook_dialogs(wv, hook_app, hook_label); }
+        #[cfg(not(windows))]
+        let _ = (hook_app, hook_label);
+        let _ = made.send(wv);
+    }).map_err(|e| format!("browser: could not open the page ({e})"))?;
+    let wv = made_rx.recv()
+        .map_err(|_| "browser: could not open the page".to_string())?
         .map_err(|e| format!("browser: could not open the page ({e})"))?;
     // Ads and trackers are answered before they leave the machine (Windows).
     crate::adblock::hook_requests(&wv, label.clone());
@@ -1433,6 +1573,52 @@ async fn fire(wv: &Webview, script: &str) -> Result<Value, String> {
     Ok(json!({ "ok": true, "url": now.as_str() }))
 }
 
+/// A picture of the page as it is drawn, as a JPEG data URL, so the agent sees
+/// what the text snapshot misses (a chart, a layout, a captcha it must hand
+/// over) and the chat shows the person the page it worked on. Windows asks
+/// Chromium itself through WebView2's DevTools door: it draws the tab even when
+/// it is behind the person's page.
+#[cfg(windows)]
+async fn picture(wv: &Webview) -> Result<String, String> {
+    use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+    use windows_core::w;
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
+    wv.with_webview(move |pw| unsafe {
+        // Every early return drops `tx`, which the wait below reads as "no picture".
+        let Ok(core) = pw.controller().CoreWebView2() else { return };
+        let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |res, json| {
+            let _ = tx.send(res.map(|()| json).map_err(|e| e.to_string()));
+            Ok(())
+        }));
+        let _ = core.CallDevToolsProtocolMethod(
+            w!("Page.captureScreenshot"),
+            w!("{\"format\":\"jpeg\",\"quality\":80}"),
+            &handler,
+        );
+    })
+    .map_err(|e| e.to_string())?;
+    let json = match tokio::time::timeout(Duration::from_secs(10), rx).await {
+        Ok(Ok(answer)) => answer.map_err(|e| format!("browser: the page could not be photographed ({e})"))?,
+        _ => return Err("browser: the page did not hand over a picture. Take a snapshot to read it instead.".into()),
+    };
+    let data = serde_json::from_str::<Value>(&json)
+        .ok()
+        .and_then(|v| v.get("data").and_then(|d| d.as_str()).map(str::to_owned))
+        .ok_or("browser: the page's picture was unreadable")?;
+    Ok(format!("data:image/jpeg;base64,{data}"))
+}
+
+/// ponytail: Windows only. macOS (WKWebView takeSnapshot) and Linux (WebKitGTK
+/// get_snapshot) each need their own native call; until then the agent is told
+/// to photograph the screen, where the open browser panel is visible.
+#[cfg(not(windows))]
+async fn picture(_wv: &Webview) -> Result<String, String> {
+    Err("browser: a picture of the page is not available on this computer yet. Use computer_use with action \
+         \"screenshot\" (no pid) to photograph the whole screen, where the browser panel is."
+        .into())
+}
+
 fn type_script(reference: &str, text: &str) -> String {
     let t = serde_json::to_string(text).unwrap_or_else(|_| "\"\"".into());
     element_script(
@@ -1470,7 +1656,11 @@ fn open_page(app: &AppHandle) -> Result<Webview, String> {
 /// what the agent is doing, so "Cinderpaw can use this browser too" is
 /// something the person sees happen rather than reads about.
 pub async fn handle_from_agent(app: AppHandle, op: &str, params: &Value) -> Result<Value, String> {
-    let acts = !matches!(op, "snapshot" | "tabs" | "state");
+    // A page's question is put to the person; the agent does not answer for them.
+    if op == "dialog_answer" {
+        return Err("browser: the page asked the user a question on their screen; only they can answer it.".into());
+    }
+    let acts = !matches!(op, "snapshot" | "screenshot" | "tabs" | "state");
     // Includes `snapshot`: reading a hidden page is pointless, and reaching
     // `handle` at all restores last session's tabs into the hidden window.
     if !matches!(op, "tabs" | "state") && crate::call_pill::main_out_of_sight(&app) {
@@ -1489,10 +1679,35 @@ pub async fn handle_from_agent(app: AppHandle, op: &str, params: &Value) -> Resu
         let _ = app.emit("browser://agent", json!({ "op": "paused", "busy": false, "ok": false }));
         return Err(format!("browser: {}", crate::call_pill::OUT_OF_SIGHT));
     }
+    // The agent moves between its tabs like a person does. Switching makes that
+    // tab the one it works in (in front, unless the person is on a page of their
+    // own); closing its current one hands the work to its newest other tab.
+    // Neither touches a page's content, so a take-over does not block them.
+    // Closing a tab the PERSON opened is asked about in the tool, before this.
+    if op == "switch_tab" {
+        let id = params.get("id").and_then(|v| v.as_u64()).ok_or_else(|| "browser: \"id\" is required".to_string())? as u32;
+        if !tabs().lock().list.iter().any(|x| x.id == id) {
+            return Err("browser: no such tab. Call action \"tabs\" for the list.".into());
+        }
+        if let Ok(mut g) = AGENT_TAB.lock() { *g = Some(id); }
+        if !person_on_own_page() { handle(app.clone(), "switch_tab", &json!({ "id": id, "by_agent": true })).await?; }
+        return Ok(with_memory(tabs_json()));
+    }
+    if op == "close_tab" {
+        let out = handle(app.clone(), "close_tab", params).await?;
+        if live_agent_tab().is_none() {
+            let newest = tabs().lock().list.iter().filter(|x| x.agent).map(|x| x.id).max();
+            if let Ok(mut g) = AGENT_TAB.lock() { *g = newest; }
+        }
+        return Ok(with_memory(out));
+    }
+    if op == "tabs" {
+        return Ok(with_memory(tabs_json()));
+    }
     // The agent works in tabs of its own (20 Oct): `open` makes a new one, and
-    // every other action works there, or on the person's page when the agent
-    // asked for it (`tab: "user"`, "summarize this page"). Never on a page the
-    // person opened, unasked.
+    // every other action works in its current one, or on the person's page when
+    // the agent asked for it (`tab: "user"`, "summarize this page"). Never on a
+    // page the person opened, unasked.
     let opening = matches!(op, "open" | "navigate");
     let target = if params.get("tab").and_then(|v| v.as_str()) == Some("user") { None } else { live_agent_tab() };
     AGENT_TARGET.scope(target, async move {
@@ -1505,6 +1720,12 @@ pub async fn handle_from_agent(app: AppHandle, op: &str, params: &Value) -> Resu
         let _ = app.emit("browser://agent", json!({ "op": op, "url": params.get("url"), "ref": params.get("ref"), "busy": true }));
         let out = if opening { agent_open(&app, params).await } else { handle(app.clone(), op, params).await };
         if acts { *AGENT_LAST_MS.lock() = now_ms(); }
+        // A form filled in its own tab waits for the person: keep that tab.
+        if op == "type" && out.as_ref().is_ok_and(|v| v.get("ok") == Some(&json!(true))) {
+            if let Some(id) = target {
+                if let Some(tab) = tabs().lock().list.iter_mut().find(|x| x.id == id) { tab.held = true; }
+            }
+        }
         let _ = app.emit("browser://agent", json!({ "op": op, "busy": false, "ok": out.is_ok() }));
         out
     }).await
@@ -1516,40 +1737,57 @@ fn live_agent_tab() -> Option<u32> {
     tabs().lock().list.iter().any(|t| t.id == id).then_some(id)
 }
 
-/// The agent opens a page: always in a new tab of its own. In front, unless
-/// the person is on a page of their own in the open panel; then behind it, and
-/// their page keeps the screen and the keyboard. The agent's previous tab is
-/// done and closes, unless the person has it in front.
+/// The person is on a page of their own in the open panel: what the agent opens
+/// or switches to goes behind it, and their page keeps the screen and the keyboard.
+fn person_on_own_page() -> bool {
+    let b = *bounds().lock();
+    let t = tabs().lock();
+    b.visible && t.active.and_then(|id| t.list.iter().find(|x| x.id == id))
+        .is_some_and(|tab| !tab.agent && tab.history.get(tab.cursor).is_some_and(|u| u != HOME))
+}
+
+/// Free and total memory, sent with the agent's tab results. There is no cap on
+/// its tabs (Darius, 1 Nov: a cap of 6 silently closed job links 1-4 of 10);
+/// it sees how much room is left and closes the tabs it is done with itself.
+fn memory_json() -> Value {
+    let mut sys = sysinfo::System::new();
+    sys.refresh_memory();
+    json!({ "freeMb": sys.available_memory() / 1024 / 1024, "totalMb": sys.total_memory() / 1024 / 1024 })
+}
+
+fn with_memory(mut v: Value) -> Value {
+    if let Some(o) = v.as_object_mut() { o.insert("memory".into(), memory_json()); }
+    v
+}
+
+/// The agent opens a page: always in a new tab of its own, which becomes the one
+/// it works in. In front, unless the person is on a page of their own. Its
+/// earlier tabs stay open: ten links are ten tabs. Each `open` used to close the
+/// tab before it, so ten job links ran one after another in what looked like a
+/// single tab (Darius, 1 Nov).
 async fn agent_open(app: &AppHandle, params: &Value) -> Result<Value, String> {
     restore_once(app);
     let url = parse_address(param_str(params, "url")?)?;
-    let behind = {
-        let b = *bounds().lock();
-        let t = tabs().lock();
-        b.visible && t.active.and_then(|id| t.list.iter().find(|x| x.id == id))
-            .is_some_and(|tab| !tab.agent && tab.history.get(tab.cursor).is_some_and(|u| u != HOME))
-    };
+    let behind = person_on_own_page();
     if !behind {
         // Ask the panel to show itself: the person should see what the agent opens.
         let _ = app.emit("browser://open", json!({ "url": url.as_str() }));
     }
-    let previous = live_agent_tab();
     let wv = new_tab_with(app, url, !behind)?;
     let id = tabs().lock().list.iter_mut().find(|x| x.label == wv.label()).map(|tab| { tab.agent = true; tab.id });
     if let Ok(mut g) = AGENT_TAB.lock() { *g = id; }
-    if let Some(old) = previous.filter(|old| tabs().lock().active != Some(*old)) {
-        let _ = handle(app.clone(), "close_tab", &json!({ "id": old })).await;
-    }
     emit_state(app);
     settle(Duration::from_secs(20)).await;
     let now = wv.url().map_err(|e| e.to_string())?;
-    Ok(json!({ "ok": true, "url": now.as_str(), "loading": LOADING.load(Ordering::SeqCst), "background": behind }))
+    Ok(with_memory(json!({ "ok": true, "url": now.as_str(), "loading": LOADING.load(Ordering::SeqCst), "background": behind })))
 }
 
 /// One entry point for the agent (`browser.<op>` over desktop control) and the
 /// panel (`browser_ui`). The two must never drift, so they share it.
 pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, String> {
-    restore_once(&app);
+    // Asked at the end of every task: on a browser nobody opened this session
+    // it must not restore last session's tabs just to find none of the agent's.
+    if op != "close_agent_tabs" { restore_once(&app); }
     match op {
         "open" | "navigate" => {
             let url = parse_address(param_str(params, "url")?)?;
@@ -1565,6 +1803,12 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
             let wv = open_page(&app)?;
             settle(Duration::from_secs(10)).await;
             run(&wv, &format!("(() => {{ {VISIBLE_TEXT} return ({SNAPSHOT}); }})()")).await.map(with_downloads)
+        }
+        "screenshot" => {
+            let wv = open_page(&app)?;
+            settle(Duration::from_secs(10)).await;
+            let data_url = picture(&wv).await?;
+            Ok(json!({ "ok": true, "url": wv.url().map(|u| u.to_string()).unwrap_or_default(), "data_url": data_url }))
         }
         "click" => {
             let wv = open_page(&app)?;
@@ -1712,6 +1956,20 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
             Ok(json!({ "ok": true }))
         }
         "tabs" | "state" => Ok(tabs_json()),
+        // A task ended (the page asks): its finished tabs go, like Claude and
+        // Codex closing their tab group (Darius, 1 Nov). Each tab is a whole
+        // page in memory, and ten job links had left ten open.
+        "close_agent_tabs" => {
+            let done = finished_agent_tabs(&tabs().lock());
+            for id in done {
+                let _ = Box::pin(handle(app.clone(), "close_tab", &json!({ "id": id }))).await;
+            }
+            if live_agent_tab().is_none() {
+                let newest = tabs().lock().list.iter().filter(|x| x.agent).map(|x| x.id).max();
+                if let Ok(mut g) = AGENT_TAB.lock() { *g = newest; }
+            }
+            Ok(tabs_json())
+        }
         "extensions" => Ok(extensions_json()),
         // The built-in blocker (Brave's engine): its state, and the on/off switch.
         "adblock" => Ok(crate::adblock::status_json()),
@@ -1743,7 +2001,13 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
                 let mut t = tabs().lock();
                 if !t.list.iter().any(|x| x.id == id) { return Err("browser: no such tab".into()); }
                 t.active = Some(id);
-                if let Some(tab) = t.list.iter_mut().find(|x| x.id == id) { tab.last_active = std::time::Instant::now(); }
+                // The person went to one of the agent's tabs: they wanted it, so
+                // it is theirs now and the end of the task leaves it open (1 Nov).
+                let by_person = params.get("by_agent") != Some(&json!(true));
+                if let Some(tab) = t.list.iter_mut().find(|x| x.id == id) {
+                    tab.last_active = std::time::Instant::now();
+                    if by_person { tab.agent = false; }
+                }
             }
             place_all(&app)?;
             emit_state(&app);
@@ -1783,11 +2047,36 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
                 let _ = app.emit("browser://curtain", json!({ "on": false }));
             }
             if let Some(wv) = app.get_webview(&label) {
-                let _ = wv.close();
+                // WebView2 closes a page without running its "Leave site?"
+                // (measured 29 Oct), so a draft in a closed tab went without a
+                // word. Sent to the blank page first, the page runs it, and
+                // `hook_dialogs` leaves and says on screen what was not saved.
+                // The address turns blank only after that, so close then; a
+                // page that never gets there is closed after two seconds.
+                let _ = wv.hide();
+                if let Ok(blank) = Url::parse(HOME) { let _ = wv.navigate(blank); }
+                tauri::async_runtime::spawn(async move {
+                    for _ in 0..40 {
+                        if wv.url().is_ok_and(|u| u.as_str() == HOME) { break; }
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
+                    let _ = wv.close();
+                });
             }
             place_all(&app)?;
             emit_state(&app);
             Ok(tabs_json())
+        }
+        // The person answered a page's own dialog (see `hook_dialogs`).
+        "dialog_answer" => {
+            let id = params.get("id").and_then(|v| v.as_u64()).ok_or_else(|| "browser: \"id\" is required".to_string())?;
+            let ok = params.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+            let text = params.get("text").and_then(|v| v.as_str()).map(String::from);
+            #[cfg(windows)]
+            app.run_on_main_thread(move || answer_dialog(id, ok, text)).map_err(|e| e.to_string())?;
+            #[cfg(not(windows))]
+            let _ = (id, ok, text);
+            Ok(json!({ "ok": true }))
         }
         // The person chose where a download goes, in the save dialog.
         "save_download" => {
@@ -1845,6 +2134,46 @@ mod tests {
         assert_eq!(localized(&dir, &m, "__MSG_missing__"), "__MSG_missing__");
         assert_eq!(localized(&dir, &m, "Plain"), "Plain");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A page's question is put to the person only from the tab in front of
+    /// them; from any other tab "Leave site?" is answered at once, since an
+    /// unseen dialog froze the whole app (29 Oct).
+    #[test]
+    fn only_the_tab_in_front_of_the_person_is_on_screen() {
+        let tab = |id: u32, url: &str| Tab {
+            id, label: format!("browser-tab-{id}"), title: String::new(), history: vec![url.into()], cursor: 0,
+            expecting: None, loading: false, placed: None, dormant: false, last_active: std::time::Instant::now(), agent: false, held: false,
+        };
+        let t = Tabs { list: vec![tab(1, "https://x.com/compose/post"), tab(2, "https://example.com/"), tab(3, HOME)], active: Some(1), next_id: 3 };
+        let open = Bounds { x: 0.0, y: 0.0, w: 800.0, h: 600.0, visible: true };
+        assert!(on_screen(&t, &open, "browser-tab-1"));
+        // Parked behind the one in front, like the agent's tab while the person is on theirs.
+        assert!(!on_screen(&t, &open, "browser-tab-2"));
+        // The panel is closed: every tab is parked.
+        assert!(!on_screen(&t, &Bounds { visible: false, ..open }, "browser-tab-1"));
+        // Closed: no longer listed.
+        assert!(!on_screen(&t, &open, "browser-tab-9"));
+        // On the start page the panel draws its own page; the webview is parked.
+        let home = Tabs { active: Some(3), ..t };
+        assert!(!on_screen(&home, &open, "browser-tab-3"));
+    }
+
+    /// Ten job links left ten tabs open (1 Nov). A finished task closes the
+    /// agent's tabs, never the person's, the one in front, or a filled-in form.
+    #[test]
+    fn a_finished_task_closes_only_the_agents_idle_tabs() {
+        let tab = |id: u32, agent: bool, held: bool| Tab {
+            id, label: format!("browser-tab-{id}"), title: String::new(), history: vec!["https://jobs.example/".into()], cursor: 0,
+            expecting: None, loading: false, placed: None, dormant: false, last_active: std::time::Instant::now(), agent, held,
+        };
+        let t = Tabs {
+            list: vec![tab(1, false, false), tab(2, true, false), tab(3, true, true), tab(4, true, false), tab(5, true, false)],
+            active: Some(4),
+            next_id: 5,
+        };
+        // 1 is the person's, 3 holds a form waiting to be sent, 4 is in front.
+        assert_eq!(finished_agent_tabs(&t), vec![2, 5]);
     }
 
     #[test]

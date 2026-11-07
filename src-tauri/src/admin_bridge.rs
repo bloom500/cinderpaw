@@ -163,6 +163,7 @@ async fn model_switch(app: &AppHandle, params: &Value) -> Result<Value, String> 
         provider_id.clone(),
         model.clone(),
         base_url,
+        params.get("automatic").and_then(|v| v.as_bool()),
     )
     .await?;
 

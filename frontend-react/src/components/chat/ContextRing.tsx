@@ -44,6 +44,14 @@ export function ContextRing() {
     return { used, ctxWindow, pct, modelName: modelLabel(model) || 'Unknown', remaining, isLive };
   }, [messages, livePromptTokens, liveCompletionTokens, cinderpawConfig, loaded, catalogAt]);
 
+  // How many times this chat was shortened to fit (the "Made room in this chat"
+  // step): after a few, older details may be summarized away, and the person
+  // can see that is why (Hermes shows the same count, 1 Nov).
+  const roomMade = useMemo(
+    () => messages.reduce((n, m) => n + (m.toolActivity ?? []).filter((a) => a.tool === 'context_compaction' && a.status === 'done').length, 0),
+    [messages],
+  );
+
   // Only a cloud model whose window nobody here knows costs a request, and the
   // catalog is cached for a day: an offline or local-only install never calls out.
   const needsCatalog = ctxWindow === null;
@@ -55,6 +63,10 @@ export function ContextRing() {
   }, [needsCatalog, modelName]);
 
   if (messages.length === 0) return null;
+  // At rest, a grey quarter-ring after one question looked exactly like a
+  // loading spinner that never stopped (28 Oct). It shows while the agent
+  // works, and once the chat has used half its room, when it starts to matter.
+  if (!isStreaming && pct < 0.5) return null;
 
   // `--c-red` and `--color-text-muted` do not exist — the tokens are `--error`
   // and `--text-muted` — so every branch fell through to its hardcoded fallback
@@ -150,7 +162,17 @@ export function ContextRing() {
 
           <span className="text-text-muted">Messages</span>
           <span className="text-text-primary text-right">{messages.length}</span>
+
+          {roomMade > 0 && (
+            <>
+              <span className="text-text-muted">Made room</span>
+              <span className="text-text-primary text-right">{roomMade === 1 ? 'once' : `${roomMade} times`}</span>
+            </>
+          )}
         </div>
+        {roomMade > 0 && (
+          <p className="text-text-muted mt-1">Older parts of this chat were summarized to fit.</p>
+        )}
 
         <Separator className="my-2" />
 

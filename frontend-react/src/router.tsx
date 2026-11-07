@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
-import { createMemoryRouter, Navigate } from 'react-router-dom';
+import { createMemoryRouter, Navigate, type RouteObject } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
+import { RouteError } from '@/components/ErrorBoundary';
 import { ChatPage } from '@/pages/ChatPage';
 
 // Non-chat pages are code-split so their dependencies (Fractal: WebGL2 +
@@ -46,7 +47,9 @@ export const router = createMemoryRouter([
   {
     path: '/',
     element: <AppShell />,
-    children: [
+    errorElement: <RouteError />,
+    // Every page carries its own error screen, drawn inside the shell.
+    children: ([
       { index: true, element: <Navigate to="/chat" replace /> },
       { path: 'chat',     element: <ChatPage /> },
       { path: 'chat/:id', element: <ChatPage /> },
@@ -66,6 +69,6 @@ export const router = createMemoryRouter([
       { path: 'connectors',    element: <Navigate to="/settings?cat=accounts" replace /> },
       { path: 'memory-layers', element: <Navigate to="/settings?cat=memory" replace /> },
       { path: 'memory-graph',  element: <Navigate to="/settings?cat=memory" replace /> },
-    ],
+    ] as RouteObject[]).map((r) => ({ ...r, errorElement: <RouteError /> })),
   },
 ]);

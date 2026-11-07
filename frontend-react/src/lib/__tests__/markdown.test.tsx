@@ -19,6 +19,18 @@ describe('Markdown math', () => {
   });
 });
 
+// One highlighter is shared by every block (it used to be rebuilt, all ~37
+// languages, per block per render): it must still colour each new block.
+describe('Markdown code highlighting', () => {
+  it('colours code in every block, not only the first one drawn', () => {
+    for (const code of ['```sql\nSELECT 1;\n```', '```python\ndef f():\n    return 1\n```']) {
+      const { container, unmount } = render(<Markdown>{code}</Markdown>);
+      expect(container.querySelector('[class^="hljs-"]')).not.toBeNull();
+      unmount();
+    }
+  });
+});
+
 describe('Markdown mermaid', () => {
   it('keeps the source readable when the diagram cannot be drawn', () => {
     // jsdom has no layout, so mermaid's render fails here exactly as it does in

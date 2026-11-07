@@ -17,6 +17,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Ban, Check, ChevronDown, ChevronRight, Copy, Loader2, Network, X } from 'lucide-react';
 import { useChat } from '@/stores/chat';
 import { displayName, useRlmWorkers, workersFor, type RlmWorker } from '@/stores/rlmWorkers';
+import { useContextVisible } from '@/components/artifacts/ContextColumn';
 import { copyText } from '@/lib/clipboard';
 
 function elapsed(w: RlmWorker, now: number): string {
@@ -113,7 +114,9 @@ function WorkerRow({ w, now }: { w: RlmWorker; now: number }) {
   );
 }
 
-export function WorkersCard() {
+/** `inPanel`: the Context panel's copy. While that panel is open the card lives
+ *  there, so the one above the message box steps aside (nothing shows twice). */
+export function WorkersCard({ inPanel = false }: { inPanel?: boolean } = {}) {
   const sessionId = useChat((s) => s.sessionId);
   const all = useRlmWorkers((s) => s.workers);
   const clearSettled = useRlmWorkers((s) => s.clearSettled);
@@ -129,7 +132,9 @@ export function WorkersCard() {
     return () => window.clearInterval(t);
   }, [running]);
 
-  if (workers.length === 0) return null;
+  const inContextPanel = useContextVisible();
+
+  if (workers.length === 0 || (!inPanel && inContextPanel)) return null;
   const settled = workers.length - running;
 
   return (
@@ -138,9 +143,12 @@ export function WorkersCard() {
       data-testid="rlm-workers-card"
       // Same width and material as the composer under it: narrower and 80%
       // see-through, it read as a stray popup with the reply showing through.
-      className="px-4 pb-2"
+      className={inPanel ? undefined : 'px-4 pb-2'}
     >
-      <div className="rounded-2xl border border-border-default bg-(--surface-typing) liquid-glass liquid-glass-rim px-3 py-2">
+      {/* In the panel it wears the panel's cards: filled squircle, no outline. */}
+      <div className={inPanel
+        ? 'rounded-[18px] [corner-shape:squircle] bg-bg-elevated px-3.5 py-2.5'
+        : 'rounded-2xl border border-border-default bg-(--surface-typing) liquid-glass liquid-glass-rim px-3 py-2'}>
         <div className="flex items-center gap-2">
           <button
             type="button"

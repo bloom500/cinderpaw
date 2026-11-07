@@ -132,15 +132,47 @@ pub(crate) async fn read_file_as_data_url(path: String) -> Result<String, String
 /// agent gets a real path it can open again.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn stage_pasted_file(bytes: Vec<u8>, name: String) -> Result<String, String> {
-    if bytes.len() > 25 * 1024 * 1024 {
-        return Err("File too large (max 25 MB)".into());
+pub(crate) async fn stage_pasted_file(data: String, name: String) -> Result<String, String> {
+    // Base64, not Vec<u8>: as a JSON array of numbers a 45 MB video froze the
+    // app before it got here (29 Oct 2026). 200 MB matches STAGE_MAX in attachments.ts.
+    use base64::Engine as _;
+    if data.len() / 4 * 3 > 200 * 1024 * 1024 {
+        return Err("File too large (max 200 MB)".into());
     }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.as_bytes())
+        .map_err(|e| format!("Bad file data: {e}"))?;
     let dir = std::env::temp_dir().join("cinderpaw-attachments");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(format!("{}-{}", uuid::Uuid::new_v4(), safe_file_name(&name)));
     std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().into_owned())
+}
+
+/// A picked or dropped video reaches the composer as a path, and the webview
+/// may only load files inside the asset scope (voice notes, the image cache),
+/// so the chip showed nothing but the file name. This opens that one file to
+/// the asset protocol so the composer can show its first frame. Videos only,
+/// never the private or credential folders: the same guards as
+/// `read_file_as_data_url`, so it cannot become a read-any-file primitive.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn allow_video_preview(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    use tauri::Manager as _;
+    let canonical = std::fs::canonicalize(&path)
+        .map_err(|e| format!("Invalid path: {}", e))?;
+    deny_cinderpaw_private(&canonical)?;
+    let ext = canonical
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !matches!(ext.as_str(), "mp4" | "m4v" | "mov" | "webm") {
+        return Err(format!("Not a supported video format: .{ext}"));
+    }
+    app.asset_protocol_scope()
+        .allow_file(&canonical)
+        .map_err(|e| e.to_string())
 }
 
 /// The last path segment of `name`, with nothing that could leave the folder.
@@ -396,5 +428,61 @@ mod stage_pasted_file_tests {
         assert_eq!(safe_file_name(".."), "pasted-file");
         assert_eq!(safe_file_name(""), "pasted-file");
         assert_eq!(safe_file_name("a:b?.pdf"), "ab.pdf");
+    }
+}
+
+/// Open a file the agent wrote, or show it in its folder (`reveal`). The
+/// shell plugin's `open` lets only web links through from the page, so "Show
+/// in folder" on a browser download did nothing (1 Nov). A program or a script
+/// is never opened, only shown: a click on Open must not run something the
+/// agent wrote. The private folder and the key folders stay closed, as for the
+/// readers above.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_local_file(app: tauri::AppHandle, path: String, reveal: bool) -> Result<(), String> {
+    let canonical = std::fs::canonicalize(&path).map_err(|_| format!("{path} is not there any more."))?;
+    deny_cinderpaw_private(&canonical)?;
+    // A program or a script opens its folder instead: the person can still run
+    // it from there, on purpose.
+    let reveal = reveal || runs_when_opened(&canonical);
+    // Explorer does not read the `\\?\` form canonicalize gives on Windows.
+    let shown = canonical.to_string_lossy().trim_start_matches(r"\\?\").to_string();
+    if reveal {
+        #[cfg(windows)]
+        return std::process::Command::new("explorer").arg(format!("/select,{shown}")).spawn().map(|_| ()).map_err(|e| e.to_string());
+        #[cfg(target_os = "macos")]
+        return std::process::Command::new("open").arg("-R").arg(&shown).spawn().map(|_| ()).map_err(|e| e.to_string());
+    }
+    let target = if reveal { canonical.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or(shown) } else { shown };
+    use tauri_plugin_shell::ShellExt;
+    // The Rust side of `open` has no web-only rule; the checks above are ours.
+    #[allow(deprecated)]
+    app.shell().open(target, None).map_err(|e| e.to_string())
+}
+
+/// Opened by a double click, these run instead of showing.
+fn runs_when_opened(path: &std::path::Path) -> bool {
+    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    !path.is_dir()
+        && matches!(
+            ext.as_str(),
+            "exe" | "msi" | "bat" | "cmd" | "com" | "scr" | "pif" | "cpl" | "ps1" | "psm1" | "vbs" | "vbe" | "js" | "jse"
+                | "wsf" | "wsh" | "hta" | "lnk" | "reg" | "jar" | "py" | "pyw" | "sh" | "command" | "app" | "appimage"
+        )
+}
+
+#[cfg(test)]
+mod open_local_file_tests {
+    use super::runs_when_opened;
+    use std::path::Path;
+
+    #[test]
+    fn programs_and_scripts_are_shown_never_run() {
+        for f in ["setup.exe", "run.BAT", "x.ps1", "a.vbs", "b.lnk", "c.py"] {
+            assert!(runs_when_opened(Path::new(f)), "{f}");
+        }
+        for f in ["orase.csv", "raport.pdf", "notes.txt", "pagina.html", "poza.png"] {
+            assert!(!runs_when_opened(Path::new(f)), "{f}");
+        }
     }
 }

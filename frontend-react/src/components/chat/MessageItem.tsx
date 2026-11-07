@@ -1,7 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { isVideoName, videoPreviewUrl } from '@/lib/attachments';
 import { useNavigate } from 'react-router-dom';
-import logoUrl from '@/assets/logo.svg';
 import { AlertTriangle, FileText, File as FileIcon, Image as ImageIcon, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { parseUserAttachments, type DisplayAttachment } from '@/lib/attachmentDisplay';
@@ -11,13 +10,18 @@ import { MessageToolWidgets } from './MessageToolWidgets';
 import { ChatWidget } from './ChatWidget';
 import { TaskSuggestionCard } from './TaskSuggestionCard';
 import { SourcesContext, SourcesList } from './Sources';
+import { WrittenFiles, writtenFiles } from './WrittenFiles';
 import { MemoryPeek } from './MemoryPeek';
 import { FollowUps } from './FollowUps';
+import { NextStepCard } from './NextStepCard';
 import { citedSources, sourcesOf } from '@/lib/sources';
-import { MessageChain } from './MessageChain';
+import { MessageChain, firstLooks } from './MessageChain';
+import { ZoomableImage } from './ZoomableImage';
 import { MessageActions, WHILE_IDLE } from './MessageActions';
 import { VoiceBubble } from './VoiceBubble';
 import { LinkChip } from './LinkChip';
+import { VideoLinkCard } from './VideoLinkCard';
+import { isVideoLink } from '@/lib/videoLinks';
 import { splitLinks } from '@/lib/linkLabel';
 import { timeline } from '@/lib/timeline';
 import { useChat, type ChatMessage } from '@/stores/chat';
@@ -25,84 +29,28 @@ import { useAskUser } from '@/stores/askUser';
 import { useRlmWorkers, workersFor, type RlmWorker } from '@/stores/rlmWorkers';
 import { useT } from '@/lib/i18n';
 
+/** Read-only file chip shown in a sent user message (no remove button). */
 /**
- * Attached-image thumbnail with click-to-zoom. First click expands the image
- * into a fullscreen lightbox (smooth fade + scale), second click (anywhere)
- * shrinks it back. Escape closes too.
+ * A sent video plays in the bubble, from the path its note carries; full screen
+ * is the player's own button. The asset scope forgets the file on a restart, so
+ * it is opened again here. A file that is gone or cannot be decoded stays a chip.
  */
-function ZoomableImage({ src, alt }: { src: string; alt: string }) {
-  const [open, setOpen] = useState(false);
-  // Two-phase mount so the CSS transition actually plays: render the overlay
-  // in its "from" state first, then flip to "to" on the next frame.
-  const [shown, setShown] = useState(false);
-
+function MessageVideo({ attachment }: { attachment: DisplayAttachment }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [broken, setBroken] = useState(false);
   useEffect(() => {
-    if (!open) return;
-    const raf = requestAnimationFrame(() => setShown(true));
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') setShown(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
-
-  // Unmount the overlay only after the shrink transition finishes.
-  const onTransitionEnd = () => {
-    if (!shown) setOpen(false);
-  };
-
+    let live = true;
+    void videoPreviewUrl(attachment.path!).then((u) => { if (live) u ? setSrc(u) : setBroken(true); });
+    return () => { live = false; };
+  }, [attachment.path]);
+  if (broken) return <MessageAttachmentChip attachment={attachment} />;
+  if (!src) return <span className="block h-40 w-72 rounded-xl bg-bg-surface" aria-label={attachment.name} />;
   return (
-    <>
-      {/* A real button, not a click handler on an <img>: the thumbnail was not
-          focusable and carried no role, so opening an attachment full-size was
-          mouse-only. Escape already closed the lightbox; nothing could open it. */}
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-label={`View ${alt || 'image'} full size`}
-        className="block cursor-zoom-in rounded-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand"
-      >
-        <img
-          src={src}
-          alt={alt}
-          loading="lazy"
-          className="max-h-52 max-w-full rounded-lg border border-border-subtle object-contain transition-transform duration-200 hover:scale-[1.02]"
-        />
-      </button>
-      {/* In a portal: the message row clips and contains what it draws
-          (MessageList), so a fixed overlay inside it would fill only the row. */}
-      {open && createPortal(
-        <div
-          role="button"
-          aria-label="Close image preview"
-          onClick={() => setShown(false)}
-          className={cn(
-            'fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs cursor-zoom-out',
-            'transition-opacity duration-300 ease-out',
-            shown ? 'opacity-100' : 'opacity-0',
-          )}
-        >
-          <img
-            src={src}
-            alt={alt}
-            onTransitionEnd={onTransitionEnd}
-            className={cn(
-              'max-h-[90vh] max-w-[92vw] rounded-xl object-contain shadow-2xl',
-              'transition-transform duration-300 ease-out',
-              shown ? 'scale-100' : 'scale-75',
-            )}
-          />
-        </div>,
-        document.body,
-      )}
-    </>
+    <video src={src} controls preload="metadata" playsInline aria-label={attachment.name} title={attachment.name}
+      onError={() => setBroken(true)} className="max-h-80 w-72 rounded-xl bg-black object-contain" />
   );
 }
 
-/** Read-only file chip shown in a sent user message (no remove button). */
 function MessageAttachmentChip({ attachment }: { attachment: DisplayAttachment }) {
   const Icon =
     attachment.kind === 'image' ? ImageIcon : attachment.kind === 'binary' ? FileIcon : FileText;
@@ -111,26 +59,6 @@ function MessageAttachmentChip({ attachment }: { attachment: DisplayAttachment }
       <Icon size={12} className="shrink-0 text-text-muted" />
       <span className="max-w-[160px] truncate">{attachment.name}</span>
     </span>
-  );
-}
-
-/**
- * The logo head at the end of the latest reply (spec 6). It stands in for a
- * spinner: moving while the reply is being written, still once it is done.
- * `prefers-reduced-motion` makes it still throughout.
- */
-export function ReplyHead({ writing }: { writing: boolean }) {
-  // A CSS animation (`.reply-head-writing`, globals.css), not framer-motion:
-  // separate y and rotate values are driven from script, a style write on
-  // every frame of every reply; a keyframed transform runs on the compositor.
-  return (
-    <img
-      src={logoUrl}
-      alt=""
-      data-testid="reply-head"
-      data-writing={writing}
-      className={cn('h-7 w-7 shrink-0', writing && 'reply-head-writing')}
-    />
   );
 }
 
@@ -148,13 +76,20 @@ export const MessageItem = memo(function MessageItem({
   onEdit,
   head,
   onFollowUp,
+  onAnswer,
+  answered,
 }: {
   message: ChatMessage;
   streaming?: boolean;
-  /** The logo head after this reply: only the latest reply carries one. */
+  /** Set on the latest reply only, which carries the chat's helpers. (It drew a
+   *  logo head under the reply until 1 Nov: one Cubby too many on screen.) */
   head?: 'writing' | 'still';
   /** Put a follow-up chip's words in the composer. Only the latest reply gets it. */
   onFollowUp?: (text: string) => void;
+  /** Send a next-step card's answer as the person's message. Only the latest reply gets it. */
+  onAnswer?: (text: string) => void;
+  /** What the person wrote next, when this reply is no longer the latest: its card stays, answered. */
+  answered?: string;
   /** Send this turn again. Absent while a reply is still arriving. */
   onRetry?: () => void;
   /** Send this user turn again with different words. */
@@ -183,6 +118,7 @@ export const MessageItem = memo(function MessageItem({
     const { attachments, text: visibleText } = parseUserAttachments(message.content);
     // When real pixels are in memory we render thumbnails; the image chips are
     // only the post-reload fallback, so drop them while thumbnails are shown.
+    const videoLinks = [...new Set(splitLinks(visibleText).flatMap((p) => (p.kind === 'link' && isVideoLink(p.href) ? [p.href] : [])))];
     const fileChips =
       images.length > 0 ? attachments.filter((a) => a.kind !== 'image') : attachments;
     return (
@@ -237,7 +173,9 @@ export const MessageItem = memo(function MessageItem({
           {fileChips.length > 0 && (
             <div className={cn('flex flex-wrap gap-1', visibleText && 'mb-2')}>
               {fileChips.map((a, i) => (
-                <MessageAttachmentChip key={`${a.name}-${i}`} attachment={a} />
+                a.path && isVideoName(a.name)
+                  ? <MessageVideo key={`${a.name}-${i}`} attachment={a} />
+                  : <MessageAttachmentChip key={`${a.name}-${i}`} attachment={a} />
               ))}
             </div>
           )}
@@ -247,6 +185,12 @@ export const MessageItem = memo(function MessageItem({
                 part.kind === 'link' ? <LinkChip key={i} href={part.href} /> : part.text,
               )}
             </p>
+          )}
+          {/* A video link is also shown as the video, under the words that carry it. */}
+          {videoLinks.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {videoLinks.map((href) => <VideoLinkCard key={href} href={href} />)}
+            </div>
           )}
         </div>
         )}
@@ -264,7 +208,7 @@ export const MessageItem = memo(function MessageItem({
   }
 
   const showThinking = message.thinking != null;
-  const pieces = timeline(message.content, message.toolActivity ?? []);
+  const pieces = timeline(message.content, message.toolActivity ?? [], message.steered);
   const isTruncated = message.truncated === true;
   const askUser = message.askUser;
   const submitAskUser = useAskUser((s) => s.submit);
@@ -301,6 +245,8 @@ export const MessageItem = memo(function MessageItem({
   // The pages this turn's searches found: a link to one is a source chip, and
   // the ones the answer cited close it as a list once it is done.
   const sources = useMemo(() => sourcesOf(activity), [activity]);
+  // Decided over the whole reply: one first look at a site, not one per line.
+  const looks = useMemo(() => firstLooks(activity), [activity]);
   const cited = useMemo(() => (streaming ? [] : citedSources(message.content, sources)), [streaming, message.content, sources]);
   const lastGroup = pieces
     ? pieces.reduce((k, p, i) => (p.kind === 'tools' && p.tools.some(isStep) ? i : k), -1)
@@ -319,12 +265,14 @@ export const MessageItem = memo(function MessageItem({
         // In the timeline the tools sit in the text instead; this keeps the reasoning.
         steps={pieces ? [] : activity.filter(isStep)}
         streaming={streaming}
+        looks={looks}
       />
       {pieces ? (
         // The reply in the order it happened: what it said, the tools it then
         // ran, what it said next. Each group is the same collapsible chain,
         // open while its tool runs and folded once it is done.
         pieces.map((p, i) => {
+          if (p.kind === 'steer') return <SteerBubble key={`s${i}`} text={p.text} />;
           if (p.kind === 'text') {
             return (
               <div key={`t${i}`} className="text-base leading-relaxed">
@@ -345,6 +293,7 @@ export const MessageItem = memo(function MessageItem({
                   steps={plain}
                   streaming={streaming && plain.some((a) => a.status === 'running')}
                   helpers={i === lastGroup ? helpers : NO_HELPERS}
+                  looks={looks}
                 />
               )}
               {widgets.map((a) => <ChatWidget key={a.id} w={a.widget!} />)}
@@ -364,6 +313,7 @@ export const MessageItem = memo(function MessageItem({
         </>
       )}
       <SourcesList hits={cited} />
+      {!streaming && <WrittenFiles paths={writtenFiles(activity)} />}
       {/* The injected memories, then what a recall lookup found (no Forget:
           its facts arrive as sentences, with no edge to remove). */}
       {!streaming && (
@@ -373,10 +323,25 @@ export const MessageItem = memo(function MessageItem({
         ]} />
       )}
       {!streaming && taskCards.map((c) => <TaskSuggestionCard key={c.id} card={c} sessionId={sessionId} />)}
-      {!streaming && onFollowUp && followUps?.kind === 'followups' && (
-        <FollowUps next={followUps.next} onPick={onFollowUp} />
+      {!streaming && followUps?.kind === 'followups' && (followUps.ask
+        ? (onAnswer || answered !== undefined) && <NextStepCard ask={followUps.ask} next={followUps.next} onAnswer={onAnswer} answered={answered} />
+        : onFollowUp && <FollowUps next={followUps.next} onPick={onFollowUp} />
       )}
-      {head && <ReplyHead writing={head === 'writing'} />}
+      {/* Always shown, not on hover: a bare reply filmed without this line
+          could pass for one Cinderpaw wrote. */}
+      {/* Faded until the model reads it, as a message about to go in (his
+          design, 4 Nov). Only while it works: a turn stopped before its next
+          step never reads it, and the bubble goes with the turn. */}
+      {streaming && message.steerPending?.map((t, i) => <SteerBubble key={`p${i}`} text={t} waiting />)}
+      {message.answeredBy && !streaming && (
+        <div className="flex items-center gap-1.5 text-xs text-text-muted">
+          <span aria-hidden className="size-1.5 rounded-full bg-success" />
+          Automatic · answered by {message.answeredBy}
+        </div>
+      )}
+      {message.bare && (
+        <div className="text-xs text-text-muted">Bare model · no tools, no memory, no Cinderpaw prompt</div>
+      )}
       {/* Only on a finished reply: a copy button beside text that is still
           arriving would copy half of it. */}
       {!streaming && (
@@ -512,18 +477,30 @@ const QUIET = 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 
 const TIME = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 const FULL = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' });
 
+/** A message the person added while the reply was written: their own bubble,
+ *  faded while it waits for the model's current step to end. */
+function SteerBubble({ text, waiting }: { text: string; waiting?: boolean }) {
+  return (
+    <div className={cn('flex justify-end transition-opacity', waiting && 'opacity-50')} title={waiting ? 'It reads this when its current step is done' : undefined}>
+      <div className="max-w-[78%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-(--bubble-user) px-4 py-3 text-text-primary">{text}</div>
+    </div>
+  );
+}
+
 function MessageMeta({ message, className }: { message: ChatMessage; className?: string }) {
   const at = message.completedAt ?? message.createdAt;
   const parts = [TIME.format(at)];
-  if (message.tokenCount) {
-    parts.push(`${message.tokensEstimated ? '~' : ''}${message.tokenCount.toLocaleString()} tok`);
-  }
-  if (message.tokensPerSec) parts.push(`${message.tokensPerSec} tok/s`);
   const scratch = scratchLabel(message.scratch);
   if (scratch) parts.push(scratch);
-  const fullDate = FULL.format(at);
+  // "412 tok · 48 tok/s" under every reply was engine talk for a person who
+  // only wants the answer (28 Oct). The numbers stay, on hover, for whoever asks.
+  const details = [FULL.format(at)];
+  if (message.tokenCount) {
+    details.push(`${message.tokensEstimated ? '~' : ''}${message.tokenCount.toLocaleString()} tokens`);
+  }
+  if (message.tokensPerSec) details.push(`${message.tokensPerSec} tokens/s`);
   return (
-    <div className={cn('text-xs text-text-muted tabular-nums select-text cursor-text', className)} title={fullDate}>{parts.join(' · ')}</div>
+    <div className={cn('text-xs text-text-muted tabular-nums select-text cursor-text', className)} title={details.join(' · ')}>{parts.join(' · ')}</div>
   );
 }
 

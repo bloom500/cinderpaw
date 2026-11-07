@@ -60,6 +60,17 @@
 #      A hostile archive needs our signing key. SUID and Unix permissions do not
 #      exist on the Windows path at all.
 #
+#  ── RUSTSEC-2026-0429 — zip 0.5.13 (added 2026-11-08) ───────────────────────
+#
+#  Advisory: `ZipArchive::extract` aborts the process on a symlink entry with a
+#  large declared size. Again only in `extract`. zip 4.6.1 left the lockfile with
+#  Tauri 2.12 / updater 2.14.1 (97da6aa), so only zip 0.5.13 is still affected,
+#  and it is unreachable for the same reason as above: ndarray-npy 0.5.0 opens
+#  the bundled `model.npz` with `ZipArchive::new` and reads entries by name
+#  (src/npz.rs); it never calls `extract` and never sees outside input.
+#  Checked 2026-11-08: `cargo tree -i zip@0.5.13` -> ndarray-npy ->
+#  grapheme_to_phoneme -> cinderpaw-core (kokoro feature) only.
+#
 #  The waiver is by advisory ID, so it would also hide a NEW zip < 9 that calls
 #  `extract` on outside input. Check `cargo tree -i zip@<v>` before adding one.
 #
@@ -69,4 +80,4 @@
 #  Recheck by 2026-12-01.
 
 [advisories]
-ignore = ["RUSTSEC-2026-0235", "RUSTSEC-2026-0367", "RUSTSEC-2026-0368", "RUSTSEC-2026-0369"]
+ignore = ["RUSTSEC-2026-0235", "RUSTSEC-2026-0367", "RUSTSEC-2026-0368", "RUSTSEC-2026-0369", "RUSTSEC-2026-0429"]

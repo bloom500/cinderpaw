@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event';
 import { APP_IFRAME_SANDBOX } from '@/lib/artifactSandbox';
 import { tauri } from '@/lib/tauri';
 import { useChat, type ChatMessage } from '@/stores/chat';
+import { useRlmWorkers } from '@/stores/rlmWorkers';
 import { useNotifications } from '@/stores/notifications';
 import { useConversations } from '@/stores/conversations';
 import { useProjects } from '@/stores/projects';
@@ -97,6 +98,47 @@ describe('the list', () => {
 });
 
 describe('the viewer', () => {
+  it('fits an explicitly sized poster in an isolated canvas with an actual-size option', async () => {
+    useArtifacts.setState({ loaded: true, open: {
+      row: row({ kind: 'app', title: 'Poster' }),
+      content: '<style>@page { size: 1240px 1754px; margin: 0; }</style><main>Poster</main>',
+      showing: 2, versions: [],
+    } });
+    const { container } = render(<ArtifactsPanel onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    const frame = await waitFor(() => { const el = container.querySelector('iframe'); if (!el) throw new Error('no frame'); return el; });
+    expect(frame.parentElement).toHaveStyle({ width: '1240px', height: '1754px' });
+    expect(frame.getAttribute('sandbox')).toBe(APP_IFRAME_SANDBOX);
+    fireEvent.click(screen.getByRole('button', { name: 'Actual size' }));
+    expect(frame.parentElement).toHaveStyle({ transform: 'scale(1)' });
+    expect(screen.getByRole('button', { name: 'Fit page' })).toBeInTheDocument();
+  });
+
+  it.each([
+    { data: { columns: ['Item', 'Amount'], rows: [{ Amount: 120, Item: 'Books' }] } },
+    { data: [['Item', 'Amount'], ['Books', 120]] },
+  ])('renders exported table shapes in column order: %j', ({ data }) => {
+    useArtifacts.setState({ loaded: true, open: {
+      row: row({ kind: 'table', title: 'Budget' }), content: JSON.stringify(data), showing: 2, versions: [],
+    } });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    expect(screen.getAllByRole('cell').map((el) => el.textContent)).toEqual(['Books', '120']);
+  });
+
+  it('opens table data as a complete accessible table, including later columns', () => {
+    useArtifacts.setState({ loaded: true, open: {
+      row: row({ kind: 'table', title: 'Budget' }),
+      content: JSON.stringify([{ Category: 'Books', Amount: 120 }, { Category: 'Lights', Amount: 150, Note: 'Approved' }]),
+      showing: 2, versions: [],
+    } });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    expect(screen.getByRole('table', { name: 'Budget' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Note' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'Approved' })).toBeInTheDocument();
+  });
+
   it('runs an app with scripts but WITHOUT our origin', async () => {
     // The security boundary. This webview can call invoke(); an artifact that
     // shared our origin would be a stored-XSS primitive pointed at the Tauri
@@ -764,24 +806,44 @@ describe('the Artifact Dock', () => {
 });
 
 describe('the Context tab', () => {
-  it('says what will show up in a new chat, and has no tool switches', () => {
+  it('shows the same cards in a new chat, each saying None, and has no tool switches', () => {
     // Opened from the chat's Context button; the panel has no tab strip.
+    // Like Claude's side panel (29 Oct): the cards are always there, in order.
     useArtifacts.setState({ panelTab: 'context' });
     render(<ArtifactsPanel onClose={() => {}} />);
-    expect(screen.getByText(/Nothing here yet. Files you add/)).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'This chat' })).toHaveTextContent('Ready');
+    for (const name of ['Memory', 'Files', 'Sources', 'Connected']) {
+      expect(screen.getByRole('region', { name })).toHaveTextContent('None');
+    }
     expect(screen.queryByRole('switch', { name: /Web search/ })).toBeNull();
   });
 
-  it("lists the chat's files, and says Cinderpaw picks its own tools", () => {
+  it("lists the chat's files, and asks nothing of you when nothing waits", () => {
     useChat.setState({ messages: [{ id: 'u', role: 'user', content: '[Image attached: cat.png]\n\nhi', createdAt: 0 }] });
     useArtifacts.setState({ panelTab: 'context' });
     render(<ArtifactsPanel onClose={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Files' })).toHaveTextContent('1 file');
     expect(screen.getByRole('region', { name: 'Files' })).toHaveTextContent('cat.png');
-    expect(screen.queryByText(/Nothing here yet/)).toBeNull();
-    expect(screen.getByText(/Cinderpaw picks the tools it needs/)).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Needs your OK' })).toBeNull();
   });
 
-  it('says what the chat is about, folds each kind of context, and Add fills the composer', () => {
+  it('shows the helpers this chat started only while there are any', () => {
+    const sessionId = useChat.getState().sessionId;
+    useRlmWorkers.setState({ workers: [{ childId: 'c1', sessionId, name: 'subagent-count-the-files-a1b2', status: 'running', detail: null, answer: null, startedAt: 0, endedAt: null }] });
+    useArtifacts.setState({ panelTab: 'context' });
+    const { rerender } = render(<ArtifactsPanel onClose={() => {}} />);
+    expect(screen.getByRole('region', { name: 'Background workers' })).toHaveTextContent('count the files');
+
+    act(() => {
+      useRlmWorkers.setState({ workers: [] });
+    });
+    rerender(<ArtifactsPanel onClose={() => {}} />);
+    return waitFor(() => {
+      expect(screen.queryByRole('region', { name: 'Background workers' })).toBeNull();
+    });
+  });
+
+  it('says how the chat runs, opens each kind of context, and Add fills the composer', () => {
     useChat.setState({ streamStatus: 'streaming', messages: [
       { id: 'u', role: 'user', content: '[Image attached: cat.png]\n\nPlan the launch week', createdAt: 0 },
       { id: 'a', role: 'assistant', content: '', createdAt: 1, memoryUsed: [{ kind: 'fact', text: 'likes: ramen' }] } as ChatMessage,
@@ -789,11 +851,11 @@ describe('the Context tab', () => {
     useArtifacts.setState({ panelTab: 'context' });
     const onCompose = vi.fn();
     render(<ArtifactsPanel onClose={() => {}} onCompose={onCompose} />);
-    expect(screen.getByText('Current task')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Plan the launch week' })).toBeInTheDocument();
-    expect(screen.getByText('In progress')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'This chat' })).toHaveTextContent('Working');
+    expect(screen.getByRole('region', { name: 'Memory' })).toHaveTextContent('1 used');
     expect(screen.getByRole('region', { name: 'Memory' })).toHaveTextContent('likes: ramen');
-    expect(screen.getByText('Recent memory')).toBeInTheDocument();
+    // Shown once: no second "Recent memory" card repeating the fold.
+    expect(screen.queryByText('Recent memory')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Add a memory' }));
     expect(onCompose).toHaveBeenCalledWith('Remember that ');
     useChat.setState({ streamStatus: 'idle' });

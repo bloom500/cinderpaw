@@ -335,7 +335,7 @@ export function SearchOverlay() {
   const rowKey = (r: SearchResult) =>
     r.kind === 'action' ? `a:${r.action.id}` : r.kind === 'project' ? `p:${r.project.id}` : r.kind === 'tab' ? `t:${r.tab.id}` : `c:${r.conv.id}`;
   const heading = (label: string) => (
-    <div role="presentation" className="px-4 pt-3 pb-1 text-2xs font-medium uppercase tracking-wider text-text-muted">
+    <div role="presentation" className="px-4 pt-3 pb-1 text-xs font-medium text-text-muted">
       {label}
     </div>
   );

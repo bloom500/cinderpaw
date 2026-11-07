@@ -35,7 +35,7 @@ describe('parseUserAttachments', () => {
     });
     const path = `[File attached: thing.zip (binary file at path: C:\\x\\thing.zip). If you have file tools, you can read it from that path.]\n\nunzip`;
     expect(parseUserAttachments(path)).toEqual({
-      attachments: [{ name: 'thing.zip', kind: 'binary' }],
+      attachments: [{ name: 'thing.zip', kind: 'binary', path: 'C:\\x\\thing.zip' }],
       text: 'unzip',
     });
   });

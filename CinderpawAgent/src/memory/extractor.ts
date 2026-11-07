@@ -25,6 +25,7 @@ import type { ChatMessage, AfterMemoryWritePayload } from "../types.ts";
 import type { MemoryGraph } from "./graph.ts";
 import type { HookRegistry } from "../core/hook-registry.ts";
 import type { ObservationStore, NotePriority } from "./observations.ts";
+import { localDay } from "./day.ts";
 
 const USER_CHARS = 4000;
 const ANSWER_CHARS = 1500;
@@ -131,8 +132,7 @@ export function unobserved(
 }
 
 function todayWithWeekday(now: number): string {
-  const d = new Date(now);
-  return `${d.toISOString().slice(0, 10)} (${WEEKDAYS[d.getUTCDay()]})`;
+  return `${localDay(now)} (${WEEKDAYS[new Date(now).getDay()]})`;
 }
 
 function observerPrompt(now: number): string {
@@ -148,6 +148,11 @@ function observerPrompt(now: number): string {
     "is for, what a document contains) are not facts about them. Never ids, file names or page counts.",
     "One per line: category | key: value",
     "category is one of: fact, preference, decision, commitment, goal, event, instruction, relationship, context, learning, observation, error, artifact",
+    // 28 Oct: one store held ~22 keys for one person's language and ~10 for
+    // their name, half of them in Romanian, because each run named facts blind.
+    "key is a short English snake_case name for WHAT the fact is about (name, language, location, occupation),",
+    "whatever language the conversation is in. If a fact is about the same thing as one of the keys already",
+    "in use, reuse that exact key: the new value replaces the old one. Skip a fact that is already known.",
     "Example: preference | units: metric",
     "If none: NONE",
     "",
@@ -405,7 +410,13 @@ export class MemoryExtractor {
     let content: string;
     try {
       const already = this.#notes?.forSession(sessionId, 10) ?? [];
+      // Keys only, newest first: enough to reuse a key, ~5 tokens each.
+      // ponytail: the 60 newest; a key unused for that long is re-learned
+      // once under the canonical name, which the alias table then holds.
+      const keys = this.#semantic.all(memoryScope(sessionId)).slice(0, 60).map((f) => f.key);
       const user = [
+        `Keys already in use: ${keys.length > 0 ? keys.join(", ") : "(none yet)"}`,
+        "",
         "Notes already written for this conversation:",
         already.length > 0 ? already.map((n) => `- ${n.text}`).join("\n") : "(none)",
         "",
@@ -661,6 +672,16 @@ const FACT_KEY_ALIASES: Readonly<Record<string, string>> = {
   "speaks": "language",
   "spoken language": "language",
   "preferred language": "language",
+  // The language of the conversation itself, under the names one store
+  // collected over two months (28 Oct). A language for something else
+  // (`document language`, `social post language`) is its own fact.
+  "communication language": "language",
+  "chat language": "language",
+  "response language": "language",
+  "user language": "language",
+  "language preference": "language",
+  "user language preference": "language",
+  "operating system": "os",
   "job": "occupation",
   "role": "occupation",
   "profession": "occupation",
@@ -668,8 +689,11 @@ const FACT_KEY_ALIASES: Readonly<Record<string, string>> = {
 
 /** Canonical storage key for an already-lowercased, sanitized fact name. */
 export function canonicalFactKey(key: string): string {
-  const alias = FACT_KEY_ALIASES[key];
+  // Aliases are written with spaces; the model writes `user_name` as often
+  // as `user name`, and the underscore form walked straight past the table.
+  const spaced = key.replace(/[\s_-]+/g, " ").trim();
+  const alias = FACT_KEY_ALIASES[spaced];
   if (alias) return alias;
   // `project dir` and `project_dir` must not be two different facts.
-  return key.replace(/\s+/g, "_");
+  return spaced.replace(/ /g, "_");
 }

@@ -10,6 +10,7 @@ import type { InferenceRouter } from "../egress/inference-router.ts";
 import type { SemanticMemory } from "./semantic.ts";
 import { weekPeriod, type Note, type ObservationStore } from "./observations.ts";
 import type { MemoryHealth } from "./extractor.ts";
+import { localDay } from "./day.ts";
 
 export const REFLECT_IDLE_MS = 10 * 60_000;
 export const REFLECT_COOLDOWN_MS = 4 * 60 * 60_000;
@@ -28,7 +29,7 @@ export interface ReflectorDeps {
   log?: (m: string) => void;
 }
 
-const stamp = (ts: number) => new Date(ts).toISOString().slice(0, 10);
+const stamp = localDay;
 const line = (n: Note) => `${stamp(n.observedAt)} ${n.priority}: ${n.text}${n.refDate ? ` (for ${n.refDate})` : ""}`;
 
 function sections(raw: string): { card: string; digests: string } {

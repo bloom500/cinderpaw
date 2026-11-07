@@ -138,7 +138,7 @@ function NotesPanel({
     <section className="rounded-lg border border-border-default bg-bg-surface/80 p-4">
       <header className="mb-3 flex items-center gap-2">
         <Brain size={14} className="text-brand" />
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-text-primary">
+        <h2 className="text-sm font-medium text-text-primary">
           What Cinderpaw remembers
         </h2>
       </header>
@@ -225,7 +225,7 @@ function DreamCard({ ep, now, bestScore }: { ep: DreamEpisode; now: number; best
   );
 }
 
-/** Live RSI pill — same data as before, now lives above the Cinderpaw's Dreams
+/** Live RSI pill — same data as before, now lives above the Cinderpaw's dreams
  *  panel so the connection is obvious. */
 function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
   const phase = snapshot.phase;
@@ -413,15 +413,14 @@ export default function MemoryLayersPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden text-text-primary">
-      {/* Drag region — without it the frameless window can't be moved,
-          and the scrollbar extends into the titlebar area. */}
-      <div data-tauri-drag-region className="h-8 shrink-0" />
-      <div className="flex flex-1 overflow-y-auto">
+      {/* No drag strip of its own: Settings draws one above every tab, and a
+          second one pushed Memory 32px lower than the tabs beside it. */}
+      <div className="flex flex-1 overflow-y-auto [scrollbar-gutter:stable]">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-8">
         {/* ── HEADER ──────────────────────────────────────────────── */}
         <header className="flex items-start gap-3">
           <div className="flex-1">
-            <h1 className="text-2xl font-semibold leading-tight text-text-primary">Memory</h1>
+            <h1 className="text-lg font-semibold text-text-primary">Memory</h1>
             <p className="mt-2 text-base text-text-muted">
               What Cinderpaw remembers about you. Forget anything, any time.
             </p>
@@ -507,8 +506,8 @@ export default function MemoryLayersPage() {
         <section className={`rounded-lg border border-border-default bg-bg-surface/60 p-4 transition-shadow ${panelGlow}`}>
           <header className="mb-3 flex items-center gap-2">
             <Sparkles size={14} className="text-brand" />
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-text-primary">
-              Cinderpaw's Dreams
+            <h2 className="text-sm font-medium text-text-primary">
+              Cinderpaw's dreams
             </h2>
             <span className="text-xs text-text-muted">
               {dreamLast.length} {dreamLast.length === 1 ? 'dream' : 'dreams'}

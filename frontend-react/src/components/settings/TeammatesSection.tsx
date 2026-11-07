@@ -75,7 +75,9 @@ export function TeammatesSection() {
       {!loaded && !error ? (
         <p className="text-xs text-text-muted">Loading…</p>
       ) : (
-        <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        // One card per row: two side by side in the Settings column left each
+        // name and role ~150px, "Chief of …", "Can use: E…" (28 Oct).
+        <ul className="grid grid-cols-1 gap-3">
           {roster.map((t) => {
             const job = workingOn(t.id);
             return (

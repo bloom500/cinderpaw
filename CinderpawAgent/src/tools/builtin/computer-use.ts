@@ -42,7 +42,8 @@ type Action =
   | "get_value"
   | "get_focused"
   | "perform_action"
-  | "launch";
+  | "launch"
+  | "screenshot";
 
 const WRITE_ACTIONS: ReadonlySet<Action> = new Set<Action>(["click", "type", "send_keys", "perform_action", "launch"]);
 
@@ -64,6 +65,7 @@ const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
   "get_focused",
   "perform_action",
   "launch",
+  "screenshot",
 ]);
 
 /** Elements listed by id in a `find_elements` result; the rest are counted. */
@@ -176,8 +178,7 @@ export function createComputerUseTool(): Tool {
       name: "computer_use",
       description:
         "Drive a native desktop application (not a web page: that is the `browser` " +
-        "tool) through the OS accessibility tree " +
-        "(structural control — no screenshots/OCR). Use `list_windows` to find " +
+        "tool) through the OS accessibility tree (structural control, no OCR). Use `list_windows` to find " +
         "an app's pid, `get_tree`/`find_elements` to discover elements, then " +
         "`click`/`type`/`send_keys`/`perform_action` to act on an element by its `element_id`. " +
         "Use `launch` (with `app`) to OPEN an application: its name as the Start Menu shows it " +
@@ -195,6 +196,9 @@ export function createComputerUseTool(): Tool {
         "`send_keys` ADDS to whatever the field already holds: to replace it (a browser " +
         "address bar, a search box), start with {Ctrl+L} in an address bar or {Ctrl+A} in a field, " +
         "e.g. keys=\"{Ctrl+L}https://example.com{Enter}\". " +
+        "Use `screenshot` to SEE an app: with `pid` it photographs that app's main window, without " +
+        "`pid` the whole main screen; the picture comes back to you and is shown to the person. " +
+        "Take one when the tree is empty or unclear, or to check the result of what you did. " +
         "State-changing actions ask the user to confirm first (unless YOLO mode is on). " +
         "Security-sensitive apps (password managers, OS credential dialogs, Cinderpaw itself) are blocked. " +
         "Requires desktop control to be enabled by the user. " +
@@ -226,12 +230,12 @@ export function createComputerUseTool(): Tool {
         description:
           "What to do: 'list_windows' | 'get_tree' | 'find_elements' | 'click' | " +
           "'type' | 'send_keys' | 'get_value' | 'get_focused' | 'perform_action' | " +
-          "'launch'.",
+          "'launch' | 'screenshot'.",
         required: true,
       },
       pid: {
         type: "number",
-        description: "Target process id (required for get_tree, find_elements).",
+        description: "Target process id (required for get_tree, find_elements; optional for screenshot: without it, the whole screen).",
         required: false,
       },
       element_id: {
@@ -399,6 +403,10 @@ export function createComputerUseTool(): Tool {
         case "list_windows":
         case "get_focused":
           break;
+        case "screenshot":
+          // Optional: without a pid the host photographs the whole main screen.
+          if (typeof args.pid === "number") params.pid = args.pid;
+          break;
       }
 
       // Confirmation gate for state-changing actions. `launch` always confirms
@@ -430,6 +438,7 @@ export function createComputerUseTool(): Tool {
       try {
         const data = await ctx.desktopControl.request(action, params, ctx.sessionId);
         if (action === "find_elements" || action === "get_tree" || action === "get_focused") rememberElements(data);
+        if (action === "screenshot") return screenshotResult(data);
         return {
           ok: true,
           content: summarize(action, data),
@@ -492,6 +501,28 @@ async function confirmWrite(
     // Timeout / cancel → treat as a denial (fail safe).
     return false;
   }
+}
+
+/**
+ * The host's picture as the tool's result: in `images`, so a vision model sees
+ * it and the chat shows it, and NOT in `data` too, where a megabyte of base64
+ * would be stored a second time. `content` says what it is for a text-only model.
+ */
+export function screenshotResult(data: unknown): ToolResult {
+  const d = (data ?? {}) as { data_url?: unknown; width?: unknown; height?: unknown; scope?: unknown; title?: unknown; note?: unknown };
+  if (typeof d.data_url !== "string" || !d.data_url.startsWith("data:image/")) {
+    return structuredError("computer_use: the screenshot came back empty.", true);
+  }
+  const what = d.scope === "window" ? (typeof d.title === "string" && d.title ? `the window "${d.title}"` : "the app's window") : "the screen";
+  const size = typeof d.width === "number" && typeof d.height === "number" ? ` (${d.width}x${d.height})` : "";
+  const note = typeof d.note === "string" && d.note ? ` ${d.note}` : "";
+  const { data_url: _picture, ...rest } = d;
+  return {
+    ok: true,
+    content: `Took a picture of ${what}${size}. It is attached to this result.${note}`,
+    images: [d.data_url],
+    data: rest,
+  };
 }
 
 /** Compact, model-facing summary of a successful action. */

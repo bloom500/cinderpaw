@@ -200,16 +200,19 @@ async fn discover_active_model(base_url: &str, api_token: &str) -> Option<String
     }
     let body: serde_json::Value = resp.json().await.ok()?;
     let arr = body.get("data").and_then(|d| d.as_array())?;
-    let pick = arr
-        .iter()
-        .filter_map(|m| m.get("id").and_then(|v| v.as_str()))
-        .find(|id| *id != paths::EMBED_FILENAME)
-        .or_else(|| {
-            arr.first()
-                .and_then(|m| m.get("id"))
-                .and_then(|v| v.as_str())
-        })?;
-    Some(pick.to_string())
+    first_chat_model(arr.iter().filter_map(|m| m.get("id").and_then(|v| v.as_str())))
+}
+
+/// The first id that can hold a conversation, or None.
+///
+/// There used to be a fallback to the first id of any kind. On a fresh install
+/// the only file on disk is the embedding model memory downloads by itself, so
+/// a stranger with no model at all booted "on" bge-m3, and the composer named it
+/// as their model beside a card saying they had none (4 Nov tour).
+fn first_chat_model<'a>(ids: impl Iterator<Item = &'a str>) -> Option<String> {
+    ids.into_iter()
+        .find(|id| !crate::models::is_embedding_model(id))
+        .map(str::to_string)
 }
 
 /// Spawn the cinderpaw-agent sidecar and wire up stdin/stdout communication.
@@ -426,7 +429,20 @@ pub async fn spawn(
     let env_byok = crate::env::env_var("CINDERPAW_BYOK_PROVIDER");
     let route_is_source = env_byok.is_none() && persisted_route.is_some();
     let byok_pid = env_byok.or_else(|| persisted_route.as_ref().map(|(pid, _)| pid.clone()));
-    let byok = byok_pid.as_deref().and_then(load_byok_provider_endpoint);
+    let byok = byok_pid.as_deref().and_then(|pid| {
+        // A ChatGPT plan answers through this host's own API, which holds
+        // its token: there is no key to load, only a sign-in to still have.
+        if pid == crate::chatgpt_signin::PROVIDER_ID {
+            crate::chatgpt_signin::account()?;
+            return Some(ByokEndpoint {
+                family: crate::byok::Provider::Openai.family(),
+                base_url: crate::chatgpt_signin::engine_base_url(api_port),
+                api_key: String::new(),
+                model: crate::byok::load(&crate::settings::load()).get_provider(pid)?.default_model.clone(),
+            });
+        }
+        load_byok_provider_endpoint(pid)
+    });
 
     // Without the BYOK family an Anthropic key booted onto Anthropic's
     // OpenAI-compatible door, which never names a workspace: every chat after a
@@ -1504,6 +1520,16 @@ async fn stderr_logger(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_embedding_model_is_never_the_chat_model() {
+        // A fresh install: memory's embedding model is the only file on disk.
+        assert_eq!(first_chat_model(["bge-m3-Q8_0.gguf"].into_iter()), None);
+        assert_eq!(
+            first_chat_model(["bge-m3-Q8_0.gguf", "qwen3.5-4b-Q4_K_M.gguf"].into_iter()),
+            Some("qwen3.5-4b-Q4_K_M.gguf".to_string())
+        );
+    }
 
     /// The two halves of the ready protocol live in different languages and
     /// different files. This pins the host half; `boot.ts` prints the same

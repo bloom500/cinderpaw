@@ -50,7 +50,7 @@ export function DreamingCard() {
         <span className="text-sm font-semibold text-text-primary">Dreaming</span>
         <span className="truncate text-2xs text-text-muted">{stage ? WORDS[stage] : 'Improving itself while you are away'}</span>
         <span className="mt-1 h-1 rounded-full bg-bg-active" aria-hidden>
-          <span className="block h-1 rounded-full bg-brand transition-[width] duration-500" style={{ width: `${pct}%` }} />
+          <span className="block h-1 rounded-full bg-brand transition-[width] duration-(--motion-slow)" style={{ width: `${pct}%` }} />
         </span>
       </span>
     </div>

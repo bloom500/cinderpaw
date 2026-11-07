@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { memoryUsedFrom, turnEndFrom, useChat } from '@/stores/chat';
+import { contextLanesFrom, memoryUsedFrom, turnEndFrom, useChat } from '@/stores/chat';
 
 // The approval verdict must reach the sidecar; in tests there is no Tauri
 // runtime, so stub the one call this suite exercises and let everything
@@ -257,5 +257,7 @@ describe('what a saved reply carries back', () => {
     expect(turnEndFrom({ kind: 'error' })).toBeUndefined();
     expect(memoryUsedFrom([{ kind: 'fact', text: 'pet: Miso' }, { kind: 'x', text: 'no' }, 3])).toEqual([{ kind: 'fact', text: 'pet: Miso' }]);
     expect(memoryUsedFrom(null)).toBeUndefined();
+    expect(contextLanesFrom([{ label: 'Tools', tokens: 9000 }, { label: 'x' }])).toEqual([{ label: 'Tools', tokens: 9000 }]);
+    expect(contextLanesFrom(undefined)).toBeUndefined();
   });
 });

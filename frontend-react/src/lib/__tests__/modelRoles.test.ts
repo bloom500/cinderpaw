@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveRole, sameModel, type RoleModel } from '../modelRoles';
+import { resolveRole, type RoleModel } from '../modelRoles';
 
 const haiku: RoleModel = { kind: 'cloud', providerId: 'openrouter', providerName: 'OpenRouter', modelId: 'anthropic/claude-haiku' };
 const opus: RoleModel = { kind: 'cloud', providerId: 'openrouter', providerName: 'OpenRouter', modelId: 'anthropic/claude-opus' };
@@ -18,14 +18,5 @@ describe('model roles', () => {
   it('a chosen model wins over the default', () => {
     expect(resolveRole('primary', { primary: opus }, haiku, qwen)).toBe(opus);
     expect(resolveRole('deep', { deep: opus }, haiku, qwen)).toBe(opus);
-  });
-
-  it('knows the model answering now, by route and id, or by file', () => {
-    expect(sameModel(haiku, { ...haiku })).toBe(true);
-    expect(sameModel(haiku, opus)).toBe(false);
-    // Agent mode knows a local model only by its name.
-    expect(sameModel(qwen, { kind: 'local', path: '', name: 'qwen.gguf' })).toBe(true);
-    expect(sameModel(qwen, haiku)).toBe(false);
-    expect(sameModel(null, haiku)).toBe(false);
   });
 });

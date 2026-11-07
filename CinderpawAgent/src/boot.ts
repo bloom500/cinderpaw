@@ -85,6 +85,7 @@ import { createToolForgeTool, registerPersistedCustomTools } from "./tools/built
 import { createTodoWriteTool, TodoStore } from "./tools/builtin/todo-write.ts";
 import { ArtifactStore, type ArtifactChangeEvent } from "./artifacts/store.ts";
 import { ArtifactExporter } from "./artifacts/export.ts";
+import { ArtifactPreviewServer } from "./artifacts/preview.ts";
 import {
   artifactStoreGuard,
   createArtifactCreateTool,
@@ -92,6 +93,7 @@ import {
   createArtifactSendTool,
   createArtifactDownloadTool,
   createArtifactEditTool,
+  createArtifactPreviewTool,
   createArtifactExportTool,
   createArtifactListTool,
   createArtifactReadTool,
@@ -100,6 +102,7 @@ import { CheckpointStore } from "./memory/checkpoint.ts";
 import { createGitStatusTool, createGitDiffTool, createGitLogTool, createGitCommitTool, createGitBranchTool } from "./tools/builtin/git.ts";
 import { createHttpRequestTool } from "./tools/builtin/http-request.ts";
 import { createTimeDateTool } from "./tools/builtin/time-date.ts";
+import { createShowVideoTool } from "./tools/builtin/show-video.ts";
 import { createCalculatorTool } from "./tools/builtin/calculator.ts";
 import { createShowWidgetTool } from "./tools/builtin/show-widget.ts";
 import { createWebSearchTool } from "./tools/builtin/web-search.ts";
@@ -136,6 +139,7 @@ import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
 import { HookRegistry } from "./core/hook-registry.ts";
 import { CronJobsRepo, CronScheduler, deliverCron } from "./cron/index.ts";
+import { maybeSendDigest } from "./cron/digest.ts";
 import { CoworkAgentRepo } from "./cowork/agent-store.ts";
 import { CoworkMailboxRepo } from "./cowork/mailbox.ts";
 import { CoworkHandoffService } from "./cowork/handoff.ts";
@@ -183,6 +187,7 @@ import { HostToolBridge, loadHostTools } from "./core/host-tool-bridge.ts";
 import { setHostToolNames } from "./tools/tiers.ts";
 import { createAskUserTool } from "./tools/builtin/ask-user.ts";
 import { createHeadsUpTool } from "./tools/builtin/heads-up.ts";
+import { createSetAppearanceTool } from "./tools/builtin/set-appearance.ts";
 import { createSuggestTaskTool } from "./tools/builtin/suggest-task.ts";
 import { createTaskLimitTool } from "./tools/builtin/task-limit.ts";
 import { TaskLimit } from "./cron/limit.ts";
@@ -191,6 +196,7 @@ import { DesktopControlBridgeImpl } from "./core/desktop-control-bridge.ts";
 import { RequestBridge } from "./core/request-bridge.ts";
 import { createComputerUseTool } from "./tools/builtin/computer-use.ts";
 import { createBrowserTool } from "./tools/builtin/browser.ts";
+import { createWatchVideoTool } from "./tools/builtin/watch-video.ts";
 import { LeadDesk } from "./core/lead-desk.ts";
 import { createCaptureLeadTool } from "./tools/builtin/capture-lead.ts";
 import { createEscalateToHumanTool } from "./tools/builtin/escalate-to-human.ts";
@@ -886,8 +892,11 @@ export async function boot(transportOverride?: Transport) {
   registry.register(createHttpRequestTool(httpDomains.length > 0 ? httpDomains : ["*"]));
   // time_date + calculator: pure utilities, no permissions
   registry.register(createTimeDateTool());
+  // Advertised, not drawered: the moment to use it is right after a render, and
+  // a drawered tool is one the model never thinks of (tiers.ts).
+  registry.register(createShowVideoTool());
   registry.register(createCalculatorTool());
-  registry.register(createShowWidgetTool());
+  registry.register(createShowWidgetTool(config.workspaceRoots));
   registry.register(createWebSearchTool({ searxngOrigin: searxng }));
   // fetch_url: open egress by default, same posture as http_request above.
   // Set CINDERPAW_FETCH_DOMAINS to RESTRICT.
@@ -979,6 +988,10 @@ export async function boot(transportOverride?: Transport) {
   registry.register(createArtifactDeleteTool(artifactDeps));
   // Same egress posture as fetch_url, which this is the byte-for-byte sibling of.
   registry.register(createArtifactDownloadTool({ ...artifactDeps, allowedDomains: fetchDomains.length > 0 ? fetchDomains : ["*"] }));
+  // Pages the agent built, at a loopback link it can open and look at. One
+  // server: the bare-model turn (dispatch) links its pages through it too.
+  const artifactPreview = new ArtifactPreviewServer(artifactStore);
+  registry.register(createArtifactPreviewTool({ ...artifactDeps, preview: artifactPreview }));
   registry.register(createCodeQualityTool("run_tests", config.workspaceRoots));
   registry.register(createCodeQualityTool("format_code", config.workspaceRoots));
   registry.register(createCodeQualityTool("lint_code", config.workspaceRoots));
@@ -1000,7 +1013,11 @@ export async function boot(transportOverride?: Transport) {
   // pure event emission through the AskUserBridge in the tool context.
   registry.register(createAskUserTool());
   registry.register(createHeadsUpTool());
-  registry.register(createSuggestTaskTool());
+  registry.register(createSetAppearanceTool());
+  // Set once the connectors exist: which messenger a fired task reaches, for
+  // the card's one-time offer to connect WhatsApp. null = none connected.
+  let phoneChannel: () => string | null = () => "unknown";
+  registry.register(createSuggestTaskTool(undefined, undefined, () => phoneChannel()));
   const taskLimit = new TaskLimit(db.raw);
   registry.register(createTaskLimitTool(taskLimit));
 
@@ -1014,6 +1031,8 @@ export async function boot(transportOverride?: Transport) {
   // drives one web page inside Cinderpaw's own window, not the machine. Outside
   // the desktop app it says it is unavailable.
   registry.register(createBrowserTool());
+  // Videos as pictures + words, for every model; the host does the downloading.
+  registry.register(createWatchVideoTool());
   if (cfgBool("CINDERPAW_ENABLE_DESKTOP_CONTROL")) {
     registry.register(createComputerUseTool());
     log("computer_use enabled (CINDERPAW_ENABLE_DESKTOP_CONTROL=true) — OS desktop control is active");
@@ -1744,6 +1763,9 @@ export async function boot(transportOverride?: Transport) {
   } catch (err) {
     log(`import failed (will retry next conversation): ${err instanceof Error ? err.message : String(err)}`);
   }
+  // Set once the connectors exist (below). A missed task can catch up at boot,
+  // before they do; it then stays in the app instead of touching them early.
+  let notifyOwner: ((text: string) => Promise<string | null>) | null = null;
   const cronScheduler = new CronScheduler({
     repo: cronRepo,
     limit: taskLimit,
@@ -1873,14 +1895,22 @@ export async function boot(transportOverride?: Transport) {
       // For V1 the default fetch (globalThis.fetch) is fine — the
       // webhook URL is admin-controlled, not user-controlled.
       if (target.kind === "chat") {
-        transport.send({
-          type: "cron_fired",
-          jobId: job.id,
-          jobName: job.name,
-          sessionId: target.sessionId,
-          content,
+        // A task the person made is news they asked for; with the app in the
+        // tray, the chat alone reached nobody. It also goes to their phone
+        // when a messenger is connected, and the chat says where it went.
+        // CINDERPAW_TASKS_TO_PHONE=false keeps it in the app.
+        const toPhone = notifyOwner && readEnv("CINDERPAW_TASKS_TO_PHONE") !== "false"
+          ? notifyOwner(`⏰ ${job.name}\n\n${content.length > 1500 ? `${content.slice(0, 1500)}…` : content}`)
+          : Promise.resolve(null);
+        return toPhone.catch(() => null).then((via) => {
+          transport.send({
+            type: "cron_fired",
+            jobId: job.id,
+            jobName: job.name,
+            sessionId: target.sessionId,
+            content: via ? `${content}\n\n_Also sent to your ${via[0]!.toUpperCase()}${via.slice(1)}._` : content,
+          });
         });
-        return;
       }
       return deliverCron(target, content, job, ctx);
     },
@@ -2602,6 +2632,8 @@ export async function boot(transportOverride?: Transport) {
   };
 
   const connectors = new ConnectorManager(agent, log, leadDesk, runHooks);
+  notifyOwner = (text) => connectors.notifyOwner(text);
+  phoneChannel = () => connectors.ownerChannel();
   // The one person on a Discord or Slack allowlist is the owner, so what they
   // say there is the owner's memory, the same as on the desktop or a call. The
   // facts they already left under their speaker scope are folded in, newest
@@ -2872,6 +2904,7 @@ export async function boot(transportOverride?: Transport) {
     // stops being one.
     artifacts: artifactStore,
     artifactExporter,
+    artifactPreview,
     // Not connector-only, despite where they are built: an autonomous turn over
     // the sidecar transport is the same kind of unattended work and needs the
     // same guards. Passed through so `dispatch` stops being the one live path
@@ -2942,6 +2975,20 @@ export async function boot(transportOverride?: Transport) {
     // deliver through the transport.
     cronScheduler.start();
     log(`cron scheduler enabled (${cronRepo.list().length} job(s) loaded)`);
+    // One message a day of what the tasks did, to the owner's phone, from run
+    // history (no model). CINDERPAW_DIGEST_HOUR is the local hour (default 20);
+    // -1 turns it off. Checked every 10 minutes; sent once a day.
+    const digestHour = Number(readEnv("CINDERPAW_DIGEST_HOUR") ?? 20);
+    if (Number.isFinite(digestHour) && digestHour >= 0) {
+      const digestTimer = setInterval(() => {
+        void maybeSendDigest({
+          hour: digestHour,
+          jobs: () => cronRepo.list(),
+          send: (text) => notifyOwner?.(text) ?? Promise.resolve(null),
+        }).then((sent) => { if (sent) log("tasks: daily digest sent"); }).catch((e) => log(`tasks: digest failed: ${String(e)}`));
+      }, 10 * 60_000);
+      digestTimer.unref?.();
+    }
 
     // Agent Cowork (S3.5): start the reactive worker loop after the
     // transport is up, same pattern as cron. Silent when no agents exist.

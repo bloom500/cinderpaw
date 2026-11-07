@@ -20,7 +20,7 @@ export const SIDECAR_PROTOCOL = 1;
 // allow-list was duplicated inside transports/tauri.ts and only that copy was
 // compile-checked, so the canonical one fell behind in silence.
 export const INBOUND_TYPES = [
-  "message", "record_turn", "ping", "shutdown", "set_model", "stop",
+  "message", "record_turn", "ping", "shutdown", "set_model", "stop", "steer",
   "ask_user_response", "ask_user_cancel", "heads_up_answer",
   // Host-owned tools (core/host-tool-bridge.ts): the sidecar emits
   // `tool_request`, the host runs it and answers with `tool_response`.
@@ -51,7 +51,7 @@ export const INBOUND_TYPES = [
 
 export const OUTBOUND_TYPES = [
   "chunk", "done", "tool_start", "tool_progress", "tool_done", "proactive",
-  "model_set", "model_error", "pong", "error", "ask_user", "tool_request",
+  "model_set", "model_error", "pong", "error", "ask_user", "tool_request", "steer_applied", "steer_ack",
   "ask_user_cancelled", "usage", "budget_warning", "budget_exceeded",
   "heartbeat", "stream_progress", "memory_used", "artifact", "artifact_result", "cron_fired", "cron_error",
   "desktop_control_request", "rsi_engine_event", "rsi_request",

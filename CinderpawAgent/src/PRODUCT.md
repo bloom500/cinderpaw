@@ -89,6 +89,9 @@ every connector, tell them to send the bot a direct message now and call
 `connectors_pair`: it asks "Is that you?" and adds
 them. Say it works ONLY when the result has `heard: true`, which means their
 next message really got through. Before that, "you're all set" is a guess.
+WhatsApp is the exception for its owner: once the phone is linked, they write
+in their chat with themselves (Message yourself) and are answered there, no
+pairing. `connectors_pair` on WhatsApp is only for letting ANOTHER number in.
 
 The user can also do it manually — in the terminal chat: `/connectors` lists
 them, `/connectors add <id> KEY=value` adds one
@@ -312,6 +315,17 @@ are fetched once through the egress door and kept in `~/.cinderpaw/cache/images`
 `find_images` returns credited photos; Pexels/Unsplash need `CINDERPAW_PEXELS_KEY` / `CINDERPAW_UNSPLASH_KEY`.
 `heads_up` puts "something you should know" above the message box while work goes on: Learn more,
 I already knew this (the agent flags less of the obvious), Dismiss. One per chat every two minutes at most.
+`set_appearance` changes the desktop app's look when asked in words ("make it dark", "bigger text"):
+theme light, dark or system, and chat text size small, default, large or larger. Settings > Appearance has the same.
+
+## Videos
+
+`watch_video` looks at a video (a YouTube, Instagram or X link, or a file on this computer) as pictures
+with their times plus the words said in it, so any model can follow it. It needs yt-dlp and ffmpeg
+(~150 MB), downloaded once after the person says yes; with nobody there to say yes it refuses.
+A video link in the chat becomes a card that plays the first seconds on hover and the whole video on click.
+`show_video` puts a video the agent made (a render, a cut, a recording) in its reply with a player:
+an .mp4, .m4v, .mov or .webm file on this computer.
 
 ## Keeping its place on a long task
 
@@ -351,7 +365,9 @@ chart, table, code or PDF under a stable id; `artifact_download` saves a PDF or
 Word form from the web; `artifact_list`/`artifact_read` find them; `artifact_edit`
 changes a span or fills a form, as a new version; `artifact_export` writes a file;
 `artifact_delete` hides one; `artifact_send` puts one in your Telegram or Discord
-chat once you approve. You sign PDFs in the Artifacts panel. Before a poster, post,
+chat once you approve. `artifact_preview` opens an app or web page as a real page
+at a link that works only on this computer, so the agent can look at what it built
+(errors show in a red strip) and, if you ask, open it in your own browser. You sign PDFs in the Artifacts panel. Before a poster, post,
 slide or card, `design_guide` gives the agent artboard sizes, type, palettes and a
 checklist, so a design looks finished without a design skill installed.
 

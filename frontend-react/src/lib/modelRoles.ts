@@ -18,13 +18,6 @@ export const ROLES: { id: Role; label: string; line: string; icon: LucideIcon }[
   { id: 'local',   label: 'Local',   line: 'Runs on your device, private and offline', icon: Laptop },
 ];
 
-export function sameModel(a: RoleModel | null | undefined, b: RoleModel | null | undefined): boolean {
-  if (!a || !b || a.kind !== b.kind) return false;
-  return a.kind === 'cloud'
-    ? a.providerId === (b as typeof a).providerId && a.modelId === (b as typeof a).modelId
-    : a.path === (b as typeof a).path || a.name === (b as typeof a).name;
-}
-
 /**
  * The model a role stands for right now. Most people never open the roles, so
  * the defaults are the product: Primary is the model answering now until one
@@ -41,8 +34,4 @@ export function resolveRole(
   if (role === 'primary') return active;
   if (role === 'local') return firstLocal;
   return null;
-}
-
-export function roleModelName(m: RoleModel): string {
-  return m.kind === 'cloud' ? m.modelId : m.name;
 }

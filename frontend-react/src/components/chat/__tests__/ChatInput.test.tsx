@@ -21,6 +21,7 @@ import { ChatInput, DRAFT_KEY } from '../ChatInput';
 import { useChat } from '@/stores/chat';
 import { useNotifications } from '@/stores/notifications';
 import { useConversations } from '@/stores/conversations';
+import { tauri } from '@/lib/tauri';
 
 // Everything the composer mounts that talks to the OS, the microphone or a
 // call. None of it participates in the send path under test.
@@ -113,6 +114,26 @@ describe('a send that fails', () => {
 });
 
 describe('a message written while a reply is arriving', () => {
+  // These are the fallback: the engine could not take it mid-turn (steering,
+  // below), so it waits for the reply like before.
+  beforeEach(() => {
+    vi.spyOn(tauri.raw, 'cinderpawSteer').mockRejectedValue('cinderpaw-agent is not running');
+  });
+
+  it('joins the running turn when the engine takes it, with nothing left waiting', async () => {
+    const steer = vi.spyOn(tauri.raw, 'cinderpawSteer').mockResolvedValue(undefined);
+    const sendFn = vi.fn(async () => {});
+    useChat.setState({ sessionId: 'steer-chat', streamStatus: 'streaming' });
+    render(<ChatInput sendFn={sendFn} />);
+    const box = await type('make it shorter');
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(steer).toHaveBeenCalledWith('steer-chat', 'make it shorter');
+    expect(box.value).toBe('');
+    expect(screen.queryByText(/Sends when this reply is done/)).toBeNull();
+    act(() => useChat.setState({ streamStatus: 'done' }));
+    expect(sendFn).not.toHaveBeenCalled();
+  });
+
   it('restores a queued message and newer draft after leaving the chat', async () => {
     useConversations.setState({ currentId: 'queue-chat' });
     useChat.setState({ sessionId: 'queue-chat', streamStatus: 'streaming' });
@@ -120,6 +141,7 @@ describe('a message written while a reply is arriving', () => {
     const view = render(<ChatInput sendFn={sendFn} />);
     const box = await type('queued words');
     fireEvent.keyDown(box, { key: 'Enter' });
+    await screen.findByText(/Sends when this reply is done/);
     await type('newer words');
     view.unmount();
     render(<ChatInput sendFn={sendFn} />);
@@ -135,6 +157,7 @@ describe('a message written while a reply is arriving', () => {
     render(<ChatInput sendFn={sendFn} />);
     const box = await type('belongs to the old chat');
     fireEvent.keyDown(box, { key: 'Enter' });
+    await screen.findByText(/Sends when this reply is done/);
     act(() => {
       useChat.setState({ sessionId: 'other-chat', streamStatus: 'done' });
       useConversations.setState({ currentId: 'other-chat' });
@@ -153,6 +176,7 @@ describe('a message written while a reply is arriving', () => {
     useChat.setState({ streamStatus: 'streaming' });
     const view = render(<ChatInput sendFn={vi.fn()} />);
     fireEvent.keyDown(await type('survive reload'), { key: 'Enter' });
+    await screen.findByText(/Sends when this reply is done/);
     fireEvent(window, new Event('pagehide'));
     expect(localStorage.getItem(DRAFT_KEY('queue-chat'))).toBe('survive reload');
     view.unmount();
@@ -164,7 +188,7 @@ describe('a message written while a reply is arriving', () => {
     render(<ChatInput sendFn={sendFn} />);
     const box = await type('and one more thing');
     fireEvent.keyDown(box, { key: 'Enter' });
-    expect(screen.getByText(/Sends when this reply is done/)).toBeTruthy();
+    expect(await screen.findByText(/Sends when this reply is done/)).toBeTruthy();
     expect(box.value).toBe('');
     expect(sendFn).not.toHaveBeenCalled();
     act(() => useChat.setState({ streamStatus: 'done' }));
@@ -178,6 +202,7 @@ describe('a message written while a reply is arriving', () => {
     render(<ChatInput sendFn={sendFn} />);
     const box = await type('wait');
     fireEvent.keyDown(box, { key: 'Enter' });
+    await screen.findByText(/Sends when this reply is done/);
     act(() => useChat.setState({ streamStatus: 'stopped' }));
     await waitFor(() => expect(box.value).toBe('wait'));
     expect(sendFn).not.toHaveBeenCalled();
@@ -190,7 +215,7 @@ describe('a message written while a reply is arriving', () => {
 describe('a file dropped on the composer', () => {
   it('is attached through the same helper as a paste', async () => {
     const attachments = await import('@/lib/attachments');
-    const spy = vi.spyOn(attachments, 'attachmentsFromClipboard').mockResolvedValue([]);
+    const spy = vi.spyOn(attachments, 'pendingFromClipboard').mockReturnValue([]);
     render(<ChatInput sendFn={vi.fn(async () => {})} />);
     const composer = screen.getByRole('textbox').closest('[class*="rounded-[28px]"]') as HTMLElement;
     expect(composer).not.toBeNull();
@@ -202,6 +227,27 @@ describe('a file dropped on the composer', () => {
     fireEvent.drop(composer, { dataTransfer });
     await waitFor(() => expect(spy).toHaveBeenCalledWith(dataTransfer));
     expect(composer.className).not.toContain('border-dashed');
+  });
+});
+
+describe('a file on its way in', () => {
+  it('shows by name at once and fills in when read; send waits for it', async () => {
+    const attachments = await import('@/lib/attachments');
+    let finish!: (f: import('../AttachedFileChip').AttachedFile) => void;
+    const ready = new Promise<import('../AttachedFileChip').AttachedFile>((r) => { finish = r; });
+    vi.spyOn(attachments, 'pendingFromClipboard').mockReturnValue([{ name: 'report.pdf', ready }]);
+    const sendFn = vi.fn(async () => {});
+    render(<ChatInput sendFn={sendFn} />);
+    const composer = screen.getByRole('textbox').closest('[class*="rounded-[28px]"]') as HTMLElement;
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.drop(composer, { dataTransfer: { types: ['Files'], items: [], files: [] } as unknown as DataTransfer });
+    expect(await screen.findByText('report.pdf')).toBeInTheDocument();
+    expect(screen.getByLabelText('Reading')).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+    expect(sendFn).not.toHaveBeenCalled();
+    finish({ name: 'report.pdf', path: 'C:/report.pdf', content: 'the report' });
+    await waitFor(() => expect(screen.queryByLabelText('Reading')).toBeNull());
+    expect(screen.getByText('report.pdf')).toBeInTheDocument();
   });
 });
 

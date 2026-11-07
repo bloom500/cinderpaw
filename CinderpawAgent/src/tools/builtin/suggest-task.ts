@@ -98,17 +98,26 @@ export function buildSchedule(
 
 /** Per chat: titles already offered, and when the last card went out. */
 export class SuggestionLedger {
-  readonly #sessions = new Map<string, { titles: Set<string>; lastAt: number }>();
+  readonly #sessions = new Map<string, { titles: Set<string>; lastAt: number; phoneOffered: boolean }>();
   session(sessionId: string) {
     let s = this.#sessions.get(sessionId);
-    if (!s) this.#sessions.set(sessionId, (s = { titles: new Set(), lastAt: -Infinity }));
+    if (!s) this.#sessions.set(sessionId, (s = { titles: new Set(), lastAt: -Infinity, phoneOffered: false }));
     return s;
   }
 }
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
 
-export function createSuggestTaskTool(ledger = new SuggestionLedger(), now: () => Date = () => new Date()): Tool {
+/**
+ * `phoneChannel`: the messenger a fired task reaches the person on, or null.
+ * With none, the first card in a chat tells the agent to offer WhatsApp once
+ * (28 Oct, Darius: the agent should offer it, and the code shows in the chat).
+ */
+export function createSuggestTaskTool(
+  ledger = new SuggestionLedger(),
+  now: () => Date = () => new Date(),
+  phoneChannel: () => string | null = () => "unknown",
+): Tool {
   return {
     manifest: {
       name: "suggest_task",
@@ -192,11 +201,20 @@ export function createSuggestTaskTool(ledger = new SuggestionLedger(), now: () =
       s.lastAt = t;
       const card: TaskSuggestion = { id: randomUUID(), title, task, kind, schedule: built.schedule, when: built.when,
         ...(watch ? { watch, expiryDays } : {}) };
+      // Away from the computer a task reaches nobody until a messenger is
+      // connected. Offered once per chat, in one sentence, never pushed.
+      const offerPhone = !s.phoneOffered && phoneChannel() === null;
+      if (offerPhone) s.phoneOffered = true;
       return {
         ok: true,
         // One line is enough: the card says the rest (24 Oct: three sentences
         // explaining that nothing was set yet).
-        content: `Shown as a card under your reply: "${title}", ${built.when}. It is created only when they press Create. In your reply, one short line pointing to the card; do not say it is set.`,
+        content: `Shown as a card under your reply: "${title}", ${built.when}. It is created only when they press Create. In your reply, one short line pointing to the card; do not say it is set.` +
+          (offerPhone
+            ? " Their phone is not connected, so a task reaches them only in this app. Add one more sentence, in their language: " +
+              "you can also send it to their WhatsApp, they only scan a code. If they agree, call connectors_manage to turn on " +
+              "whatsapp: the code then appears right in this chat."
+            : ""),
         data: { taskSuggestion: card },
       };
     },

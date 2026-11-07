@@ -5,6 +5,76 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
+## 2026.11.06
+
+> Cinderpaw picks the right AI model for each message, shows you its work, and
+> reaches your phone.
+
+### New
+
+- **Let Cinderpaw choose.** A new switch in the model menu, on by default,
+  picks a model for each message: a fast one for small talk, a strong one for
+  code and hard work. Under each reply you see which model answered. Turn the
+  switch off to always use the model you pick.
+- **Use your ChatGPT plan.** "Continue with ChatGPT" sits next to OpenRouter on
+  the first screen. The model menu lists every model by name, each with its
+  own Effort.
+- **A new first run in three cards:** a short film about your AI team, a brain
+  to think with, and a first task. Your name is optional.
+- **Cinderpaw shows its work.** It can take a picture of an app, the whole
+  screen or a browser page. The pictures sit on a quiet grey line under the
+  reply: hover to see one bigger, click to open it, use the arrows to step
+  through. A video it made plays right in the chat.
+- **It looks at a page before it says "done".** When Cinderpaw builds a web
+  page or an app, it opens it, looks at it and fixes what it sees.
+- **You can see when Cinderpaw uses your computer.** A warm glow runs round the
+  screen, its own cursor moves to what it is about to press, and a bar at the
+  top says which app and which step, with Stop. Press Esc anywhere to stop it.
+  Windows only for now.
+- **Your tasks reach your phone.** A task that runs also sends you a WhatsApp
+  message, and once a day you get what your tasks did, failures first. Link
+  WhatsApp with your phone number and a code, or with the QR code, and send a
+  real test from the card.
+- **One Cinderpaw in every chat app.** What you said to it on WhatsApp in the
+  last few hours is known on the desktop, and the other way round. Only your
+  own private chats share this, never a group or another person's chat.
+- **Add a message while Cinderpaw works.** Type while it is busy: your message
+  shows as your own bubble inside the reply, and Cinderpaw reads it as soon as
+  the step it is on is done.
+- **A next step at the end of a task:** one question and two answers you can
+  click. Heads Up cards tell you about choices Cinderpaw made for you.
+- **Files Cinderpaw writes show under the reply**, with Open and Show in folder.
+- **Small comforts.** Your computer stays awake while a reply is written. Pick a
+  chat text size in Settings > Appearance, or say "make it dark" in the chat.
+  Choose what opens when Cinderpaw starts. Retry or Edit on an older message
+  says how many replies it will remove. Ctrl +, Ctrl - and Ctrl 0 zoom the
+  whole window.
+- **A calmer look.** Espresso and Ivory colours, softer motion, a little bigger
+  text, a typing box with your words on top and every button in one row, and
+  Settings in one column.
+- **The browser** opens one tab per link, tidies its tabs, and asks before it
+  books something or sends a job application in your name, as it already did
+  before paying.
+
+### Fixed
+
+- **Long chats no longer overflow the model.** A long cloud chat is shortened
+  before it gets too big for the model. If a reply still runs out of room,
+  Cinderpaw shortens the chat and tries once more. A very long tool result
+  goes to a file instead of filling the chat.
+- **Panels, the sidebar and opening a chat are faster.**
+- **A hidden browser tab's "Leave site?" no longer freezes the whole app.**
+- **Cinderpaw's "today" is your day**, not London's.
+- **A reply streams without the page jumping.**
+- **Chat titles made by AI work on Claude again**, and end on a whole word.
+- **An empty OpenAI account says "out of credit"**, not "wait a minute".
+- **A CSV file opens as a table**, not as raw text with commas.
+- **Deleting several chats in a row no longer brings them back.**
+- **Searching for a file opens only the files that match**, not every file in
+  the folder.
+- **Safer installs:** the Rust and npm security checks pass again (libz-sys
+  1.1.31, xcb 1.7.1, follow-redirects 1.16.2).
+
 ## 2026.10.28
 
 > Skills you install are used without you naming them, and long answers are no

@@ -1,6 +1,6 @@
 import { Download, File, FileArchive, FileAudio, FileImage, FileText, FileVideo, FolderOpen, Package, Sparkles, type LucideIcon } from 'lucide-react';
-import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { useBrowser } from '@/stores/browser';
+import { tauri } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
 
 /**
@@ -24,7 +24,7 @@ const ICONS: [RegExp, LucideIcon][] = [
   [/\.(pdf|docx?|txt|md|rtf|odt|csv|xlsx?)$/i, FileText],
 ];
 
-const iconFor = (name: string) => ICONS.find(([re]) => re.test(name))?.[1] ?? File;
+export const iconFor = (name: string) => ICONS.find(([re]) => re.test(name))?.[1] ?? File;
 
 /** The folder a saved file is in, for "Show in folder". */
 export const folderOf = (path: string) => path.replace(/[\\/][^\\/]*$/, '');
@@ -56,7 +56,7 @@ export function DownloadsCard({ floating = false }: { floating?: boolean }) {
           {lastFolder && (
             <button
               type="button"
-              onClick={() => void shellOpen(folderOf(lastFolder))}
+              onClick={() => void tauri.raw.openLocalFile(folderOf(lastFolder), false).catch(() => {})}
               className="text-2xs text-text-muted hover:text-text-primary"
             >
               Open Downloads folder
@@ -79,7 +79,9 @@ export function DownloadsCard({ floating = false }: { floating?: boolean }) {
                 : d.artifact
                   ? `In Artifacts · ${ago(d.at)}`
                   : `Saved to Downloads · ${ago(d.at)}`;
-              const openIt = d.dest ? () => void shellOpen(d.dest!) : undefined;
+              // Through the host: the shell plugin's open lets only web links
+              // through, so these buttons did nothing (1 Nov).
+              const openIt = d.dest ? () => void tauri.raw.openLocalFile(d.dest!, false).catch(() => {}) : undefined;
               return (
                 <li key={`${d.name}-${d.at}`} className="group flex items-center gap-2.5 rounded-lg px-1.5 py-1.5 hover:bg-bg-hover">
                   <button
@@ -100,7 +102,7 @@ export function DownloadsCard({ floating = false }: { floating?: boolean }) {
                   {d.dest && (
                     <button
                       type="button"
-                      onClick={() => void shellOpen(folderOf(d.dest!))}
+                      onClick={() => void tauri.raw.openLocalFile(d.dest!, true).catch(() => {})}
                       aria-label={`Show ${d.name} in folder`}
                       title="Show in folder"
                       className="rounded-md p-1.5 text-text-muted opacity-0 hover:bg-bg-elevated hover:text-text-primary group-hover:opacity-100 focus-visible:opacity-100"

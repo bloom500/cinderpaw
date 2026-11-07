@@ -36,8 +36,10 @@ export async function titleConversation(id: string, messages: Pick<Message, 'rol
       temperature: 0.3,
       top_p: 0.9,
       repeat_penalty: 1.0,
-      // Room for a reasoning model to think briefly before the few words.
-      max_tokens: 200,
+      // Room for a reasoning model to think before the few words: Claude 5
+      // models think by default, and their thinking counts against this cap,
+      // so 200 could end before any title was written.
+      max_tokens: 1024,
       system_prompt:
         'You name conversations. Reply with a title of 2 to 6 words, in the language the user wrote in. ' +
         'No quotes, no punctuation at the end, nothing else.',

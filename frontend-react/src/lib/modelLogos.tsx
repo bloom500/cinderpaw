@@ -32,7 +32,7 @@ const ROUTE_NAMES: Record<string, string> = {
   openrouter: 'OpenRouter', ollama: 'Ollama', lmstudio: 'LM Studio', groq: 'Groq',
   together: 'Together AI', fireworks: 'Fireworks', deepinfra: 'DeepInfra', anthropic: 'Anthropic',
   openai: 'OpenAI', google: 'Google', mistral: 'Mistral', azure: 'Azure', bedrock: 'Bedrock',
-  local: 'this computer',
+  local: 'this computer', 'cinderpaw-local': 'This computer', chatgpt: 'ChatGPT plan',
 };
 
 /** The maker segment of a model id ("meta/muse-spark" gives "meta"), else the provider. */
@@ -40,6 +40,9 @@ export function makerOf(modelId: string | undefined, provider?: string): string 
   const id = (modelId ?? '').replace(/^~/, '');
   const slash = id.indexOf('/');
   if (slash > 0) return id.slice(0, slash).toLowerCase();
+  // A ChatGPT plan runs OpenAI's models. With no mark of its own it fell
+  // through to Hugging Face, the mark for a local file (1 Nov).
+  if (provider?.toLowerCase() === 'chatgpt') return 'openai';
   return provider ? provider.toLowerCase() : null;
 }
 
