@@ -1896,7 +1896,7 @@ export class AgentLoop {
           : "";
         // Which model: a 4-minute "what do I have tomorrow" on Automatic could
         // not be traced to the model it picked (smoke test, 7 Nov).
-        const model = routeTargets?.primary.model ?? this.#router.currentModel.model;
+        const model = routeTargets?.primary.model ?? this.#router.currentModel?.model;
         log(
           `turn: ${model}: wait ${ttft} → first token, ${total.toFixed(1)}s total, ` +
             `${rate} over ${streamedChunks} chunk(s)${usage}, think=${think}`,
@@ -2643,7 +2643,7 @@ export class AgentLoop {
     // Not with no model at all: its budget is a guess (1K), so the FIRST
     // message of an empty chat showed "Made room in this chat" before failing
     // on "choose a model" (smoke test, 7 Nov).
-    if (routeTargets || !isPlaceholderModel(this.#router.currentModel.model)) {
+    if (routeTargets || !isPlaceholderModel(this.#router.currentModel?.model)) {
       await compact(this.#transcriptBudget());
     }
 
@@ -2843,7 +2843,7 @@ export class AgentLoop {
       // No model at all: nobody answers, so no reply may say who did. A new
       // install read "Automatic · answered by Cinderpaw Local" under the
       // "choose a model" error (smoke test, 7 Nov).
-      if (isPlaceholderModel(current.model)) return null;
+      if (isPlaceholderModel(current?.model)) return null;
       this.#router.noteTaskFallback?.(sessionId);
       ctx.emit({
         type: "model_routed",

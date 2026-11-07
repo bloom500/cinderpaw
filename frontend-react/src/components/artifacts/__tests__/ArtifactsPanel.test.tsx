@@ -811,7 +811,7 @@ describe('the Context tab', () => {
     // Like Claude's side panel (29 Oct): the cards are always there, in order.
     useArtifacts.setState({ panelTab: 'context' });
     render(<ArtifactsPanel onClose={() => {}} />);
-    expect(screen.getByRole('region', { name: 'This chat' })).toHaveTextContent('Ready');
+    expect(screen.getByRole('region', { name: 'This chat' })).toHaveTextContent('No model yet'); // nothing is configured here, so not "Ready" (smoke test, 7 Nov)
     for (const name of ['Memory', 'Files', 'Sources', 'Connected']) {
       expect(screen.getByRole('region', { name })).toHaveTextContent('None');
     }
