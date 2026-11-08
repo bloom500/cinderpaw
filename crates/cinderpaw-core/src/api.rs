@@ -2836,20 +2836,9 @@ async fn system_info() -> Json<crate::sysinfo_mod::SystemInfo> {
 /// typed failure an empty pasted key would produce; we never probe with
 /// an empty credential.
 async fn providers_test(Json(req): Json<ProvidersTestReq>) -> Json<byok::TestProviderResponse> {
-    let pasted = req.api_key.as_deref().map(str::trim).unwrap_or("");
-    let key = if pasted.is_empty() {
-        byok::byok_get(&req.provider_id).unwrap_or_default()
-    } else {
-        pasted.to_string()
-    };
-    if key.is_empty() {
-        return Json(byok::TestProviderResponse {
-            success: false,
-            message: format!("No API key stored for {}.", req.provider_id),
-            models: Vec::new(),
-        });
-    }
-    Json(byok::test_provider(&req.provider_id, &key, req.base_url.as_deref()).await)
+    // An empty key falls back to the stored one inside `test_provider`.
+    let key = req.api_key.as_deref().unwrap_or("");
+    Json(byok::test_provider(&req.provider_id, key, req.base_url.as_deref()).await)
 }
 
 #[derive(serde::Deserialize)]

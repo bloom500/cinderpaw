@@ -927,6 +927,26 @@ pub async fn test_provider(
     api_key: &str,
     base_url: Option<&str>,
 ) -> TestProviderResponse {
+    // An empty key means "test the key I already saved". The Models card
+    // clears its key field on Save, so pressing Test afterwards sent no key at
+    // all and the provider answered 401 "missing_api_key": a correct, saved
+    // key reported as broken (8 Nov, Custom Endpoint). Every caller (desktop
+    // card, gateway, CLI) routes through here, so the fallback lives here.
+    let saved;
+    let api_key = match api_key.trim() {
+        "" => {
+            saved = byok_get(provider_id).unwrap_or_default();
+            if saved.is_empty() {
+                return TestProviderResponse {
+                    success: false,
+                    message: format!("No API key saved for {provider_id}. Paste the key, then press Test."),
+                    models: vec![],
+                };
+            }
+            saved.as_str()
+        }
+        pasted => pasted,
+    };
     let provider = Provider::from_id(provider_id);
     let url = base_url
         .map(|s| s.to_string())
@@ -1452,6 +1472,16 @@ fn write_metadata(settings: &ByokSettings) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Test pressed after Save sends an empty key: it must mean "the saved
+    // key", and with none saved say so on screen instead of sending a keyless
+    // request that comes back as a provider 401.
+    #[tokio::test]
+    async fn an_empty_key_with_nothing_saved_is_refused_before_any_request() {
+        let res = test_provider("cp-test-never-saved-provider", "  ", Some("http://127.0.0.1:9/v1")).await;
+        assert!(!res.success);
+        assert!(res.message.starts_with("No API key saved"), "{}", res.message);
+    }
 
     #[test]
     fn a_model_list_keeps_names_and_chat_models_only() {
