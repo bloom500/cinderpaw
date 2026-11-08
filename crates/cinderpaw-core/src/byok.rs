@@ -60,6 +60,20 @@ impl Provider {
     }
 
     /// Returns the API key prefix format (e.g., "Bearer ")
+    /// The full auth header value for a key. Custom Endpoint used to send the
+    /// key verbatim so a person could paste `Bearer …` themselves, but nobody
+    /// does: every other card takes the bare key, so a stranger pastes the
+    /// bare key there too and every OpenAI-compatible endpoint answers 401
+    /// (8 Nov, abliteration.ai: "missing_api_key"). A key that already names
+    /// its scheme (`Bearer …`, `Basic …`) still goes as typed.
+    pub fn auth_value(&self, api_key: &str) -> String {
+        let key = api_key.trim();
+        if *self == Provider::Custom {
+            return if key.contains(' ') { key.to_string() } else { format!("Bearer {key}") };
+        }
+        format!("{}{}", self.api_key_prefix(), key)
+    }
+
     pub fn api_key_prefix(&self) -> &'static str {
         match self {
             Provider::Anthropic => "",
@@ -969,8 +983,7 @@ pub async fn test_provider(
     };
 
     let header_key = provider.api_key_header();
-    let header_prefix = provider.api_key_prefix();
-    let auth_value = format!("{}{}", header_prefix, api_key);
+    let auth_value = provider.auth_value(api_key);
 
     // Anthropic does NOT publish a `/v1/models` endpoint, so the GET /models
     // probe only applies to OpenAI-compatible providers.
@@ -1110,7 +1123,7 @@ pub async fn list_models(provider_id: &str, api_key: &str, base_url: Option<&str
         .timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| e.to_string())?;
-    let auth = format!("{}{}", provider.api_key_prefix(), api_key);
+    let auth = provider.auth_value(api_key);
     let request = |workspace: Option<&str>| {
         let mut req = client.get(&url).header(provider.api_key_header(), &auth);
         for (name, value) in provider.extra_headers() {
@@ -1662,11 +1675,15 @@ mod tests {
             assert!(p.extra_headers().is_empty(), "no extras for {p:?}");
             assert!(p.is_openai_compatible(), "{p:?} should be OpenAI-compat");
         }
-        // Custom is OpenAI-shaped but sends the key verbatim (empty prefix) so
-        // users can paste a full `Bearer …`/`Basic …`/raw token themselves.
+        // Custom is OpenAI-shaped: a bare key gets `Bearer `, a key that
+        // already names its scheme goes as typed.
         assert_eq!(Provider::Custom.chat_endpoint_path(), "chat/completions");
         assert_eq!(Provider::Custom.api_key_header(), "Authorization");
-        assert_eq!(Provider::Custom.api_key_prefix(), "");
+        assert_eq!(Provider::Custom.auth_value(" sk-abc "), "Bearer sk-abc");
+        assert_eq!(Provider::Custom.auth_value("Bearer sk-abc"), "Bearer sk-abc");
+        assert_eq!(Provider::Custom.auth_value("Basic dXNlcg=="), "Basic dXNlcg==");
+        assert_eq!(Provider::Openai.auth_value("sk-abc"), "Bearer sk-abc");
+        assert_eq!(Provider::Anthropic.auth_value("sk-ant"), "sk-ant");
         assert!(Provider::Custom.is_openai_compatible());
     }
 
