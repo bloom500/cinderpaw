@@ -341,6 +341,14 @@ jobs:
           "$delimiter"         | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "Release notes extracted for v$version ($($notes.Length) chars, $end-$start lines)"
 
+      # Keep the same identity across Mac updates so keychain access persists.
+      - name: macOS signing certificate
+        if: runner.os == 'macOS'
+        env:
+          MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
+          MACOS_SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+        run: bash .github/scripts/macos-signing-cert.sh
+
       - name: Build, sign and publish release
         uses: tauri-apps/tauri-action@v1
         env:
