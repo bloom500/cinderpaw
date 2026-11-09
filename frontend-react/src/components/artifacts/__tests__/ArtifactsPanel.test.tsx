@@ -1,6 +1,9 @@
 import { act, cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ArtifactsPanel } from '../ArtifactsPanel';
+// Load the real editor during collection: a cold Tiptap transform belongs to
+// fixture setup, rather than consuming the first save test's interaction budget.
+import '../ArtifactEditor';
 import { summaryOf } from '@/lib/artifactSections';
 import { useArtifacts, resetArtifactRequests, googlePlan, shownKind, tableCsv, type ArtifactRow } from '@/stores/artifacts';
 import userEvent from '@testing-library/user-event';
