@@ -63,6 +63,16 @@ import { AutonomousSpendDeniedError, type InferenceSpendAuthority } from "./infe
  */
 const MAX_TRANSIENT_RETRIES = 3;
 
+// These 429s require an account change; waiting cannot restore API access.
+// https://developers.openai.com/api/docs/guides/error-codes
+const PERMANENT_QUOTA_ERROR_CODES = new Set([
+  "insufficient_quota",
+  "credit_balance_exhausted",
+  "organization_spend_limit_exceeded",
+  "project_spend_limit_exceeded",
+  "organization_usage_limit_exceeded",
+]);
+
 /** `subagent:<parent>:<id>` → `<parent>`; null for any other session. */
 function subagentParent(sessionId: string): string | null {
   if (!sessionId.startsWith("subagent:")) return null;
@@ -1089,8 +1099,9 @@ export class InferenceRouter {
     isFallback: boolean,
     /**
      * Whether a provider blip on THIS target is worth waiting out. False when a
-     * fallback is configured — see the call site. A 429 is retried either way:
-     * that is the quota gate correcting itself, not an endpoint being unwell.
+     * fallback is configured — see the call site. A rate-limit 429 is retried
+     * either way: that is the quota gate correcting itself. Billing 429s fail
+     * immediately so the caller can surface the error or use its fallback.
      */
     retryTransient: boolean,
     spendCeiling: { maxPromptTokens: number; maxCompletionTokens: number },
@@ -1155,11 +1166,15 @@ export class InferenceRouter {
         // Charge the full conservative hold before considering retry/fallback.
         spendReservation?.commitMaximum();
         // The gate is best-effort — our request count is local, so a key used
-        // from outside Cinderpaw is invisible to it. A 429 is that blind spot
-        // showing up, not a bug: respect the provider's Retry-After and go
-        // again rather than failing the user's task on a transient collision.
-        const status = (err as { status?: number }).status;
-        const rateLimited = status === 429;
+        // from outside Cinderpaw is invisible to it. A rate-limit 429 is that
+        // blind spot showing up: respect Retry-After on a transient collision.
+        // Structured billing/quota errors cannot be fixed by retrying.
+        const { status, providerCode, providerType } = err as {
+          status?: number; providerCode?: string; providerType?: string;
+        };
+        const rateLimited = status === 429 &&
+          providerType !== "insufficient_quota" &&
+          !PERMANENT_QUOTA_ERROR_CODES.has(providerCode ?? "");
         if (!rateLimited && !(retryTransient && isTransientProviderFailure(err))) throw err;
         if (attempt >= MAX_TRANSIENT_RETRIES) throw err;
         // A stop that landed while the provider was failing is still a stop.

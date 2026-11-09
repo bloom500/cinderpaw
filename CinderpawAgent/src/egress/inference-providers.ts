@@ -36,12 +36,23 @@ class InferenceError extends Error {
    */
   readonly status?: number;
   readonly retryAfter?: string | null;
+  readonly providerCode?: string;
+  readonly providerType?: string;
 
-  constructor(message: string, status?: number, retryAfter?: string | null) {
+  constructor(message: string, status?: number, retryAfter?: string | null, detail?: string) {
     super(message);
     this.name = "InferenceError";
     this.status = status;
     this.retryAfter = retryAfter;
+    // Keep structured error fields even when the human-readable detail is
+    // truncated. A billing 429 needs credits/limit changes, not another retry.
+    try {
+      const error = JSON.parse(detail ?? "null")?.error;
+      if (typeof error?.code === "string") this.providerCode = error.code;
+      if (typeof error?.type === "string") this.providerType = error.type;
+    } catch {
+      // Plain-text or malformed errors still retain their HTTP status/header.
+    }
   }
 }
 
@@ -1538,6 +1549,7 @@ async function fetchStream(
       `inference endpoint ${url} returned ${res.status}: ${detail.slice(0, 200)}`,
       res.status,
       res.headers.get("retry-after"),
+      detail,
     );
   }
   if (!res.body) throw new InferenceError("no response body for streaming");
@@ -1572,6 +1584,7 @@ export async function postJson(
         `inference endpoint ${url} returned ${res.status}: ${detail.slice(0, 200)}`,
         res.status,
         res.headers.get("retry-after"),
+        detail,
       );
     }
     return await res.json();
