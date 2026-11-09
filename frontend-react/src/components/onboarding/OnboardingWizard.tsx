@@ -448,7 +448,7 @@ const CURATED_PROVIDERS: {
   {
     id: 'openai', name: 'OpenAI', console: 'https://platform.openai.com/api-keys',
     keyPlaceholder: 'sk-...',
-    note: 'New accounts get ~$5 free credit (no card, 3-month expiry); after that, add a prepaid balance under Billing. A ChatGPT plan does not pay for API keys: for your plan, use Continue with ChatGPT above.',
+    note: 'Check the OpenAI API Billing page for available credit or an active billing plan. Eligible ChatGPT Pro or Business plans may include API credits after activation. You can also use Continue with ChatGPT above.',
     steps: [
       'Sign in at platform.openai.com',
       'Settings → API keys → "Create new secret key"',
