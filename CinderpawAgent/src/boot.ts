@@ -479,7 +479,7 @@ export async function boot(transportOverride?: Transport) {
       void nudges.send({ kind: "followup", sourceId: followUp.id, sessionId: followUp.sessionId }, () => {
         transport.send({ type: "proactive", content: "You left something unfinished", followUp });
         return "desktop";
-      });
+      }).catch((e) => log(`follow-up: send failed: ${String(e)}`));
     }
   }
 
@@ -2984,7 +2984,7 @@ export async function boot(transportOverride?: Transport) {
         void nudges.send({ kind: "thought" }, () => {
           transport.send(event);
           return "desktop";
-        });
+        }).catch((e) => log(`thoughts: send failed: ${String(e)}`));
       });
       innerThoughts.start();
     }
