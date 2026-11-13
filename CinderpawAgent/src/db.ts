@@ -761,6 +761,26 @@ function migrate(db: Database): void {
     );
   `);
 
+  // Nudges: one row per message Cubby sent first (core/nudges.ts). Counts and
+  // times only; the message text is never stored.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS nudges (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      source_id TEXT,
+      channel TEXT NOT NULL,
+      session_id TEXT,
+      created_at INTEGER NOT NULL,
+      sent_at INTEGER,
+      local_hour INTEGER NOT NULL,
+      arm TEXT NOT NULL,
+      decision TEXT NOT NULL,
+      user_requested INTEGER NOT NULL DEFAULT 0,
+      outcome TEXT,
+      outcome_at INTEGER
+    );
+  `);
+
   // Cron jobs (P0-3). One row per user-schedulable job. Schedule + delivery
   // are JSON-serialised blobs so the schedule/delivery unions can evolve
   // without an ALTER TABLE.

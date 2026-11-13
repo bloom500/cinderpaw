@@ -172,6 +172,7 @@ import { ActivityMonitor } from "./rsi/l1-config/activity-monitor.ts";
 import { resolveDreamConfig, autonomousInferenceGate } from "./rsi/l1-config/dream-config.ts";
 import { priceResolverFromJson } from "./rsi/infra/rsi-cost.ts";
 import { FollowUpLedger, recordInteractiveTurn } from "./core/proactive-followups.ts";
+import { Nudges } from "./core/nudges.ts";
 import { episodeStartOptions, episodeBudgetCaps } from "./rsi/l1-config/episode-options.ts";
 import { MetaEvolution } from "./rsi/l6-meta/meta-evolution.ts";
 import { effectiveGates, layerFrozen, loadPolicy } from "./rsi/l5-gov/governance.ts";
@@ -467,12 +468,19 @@ export async function boot(transportOverride?: Transport) {
   // start a new run.
   const runStore = new RunStore(db.raw);
   const followUps = new FollowUpLedger(db.raw);
+  // Every message Cubby sends first goes through this one door.
+  const nudges = new Nudges(db.raw);
   // Lifecycle events, never idle model polling. The card only opens prior work;
   // it does not authorize a resumed task or any external action.
   function offerUnfinishedWork(): void {
     if (!cfgBool("CINDERPAW_FOLLOWUPS_ENABLED")) return;
     const followUp = followUps.take();
-    if (followUp) transport.send({ type: "proactive", content: "You left something unfinished", followUp });
+    if (followUp) {
+      void nudges.send({ kind: "followup", sourceId: followUp.id, sessionId: followUp.sessionId }, () => {
+        transport.send({ type: "proactive", content: "You left something unfinished", followUp });
+        return "desktop";
+      });
+    }
   }
 
   // --- RSI bootstrap (Faza 0 — Keystone) ---
@@ -1903,20 +1911,24 @@ export async function boot(transportOverride?: Transport) {
         // tray, the chat alone reached nobody. It also goes to their phone
         // when a messenger is connected, and the chat says where it went.
         // CINDERPAW_TASKS_TO_PHONE=false keeps it in the app.
-        const toPhone = notifyOwner && readEnv("CINDERPAW_TASKS_TO_PHONE") !== "false"
-          ? notifyOwner(`⏰ ${job.name}\n\n${content.length > 1500 ? `${content.slice(0, 1500)}…` : content}`)
-          : Promise.resolve(null);
-        return toPhone.catch(() => null).then((via) => {
-          transport.send({
-            type: "cron_fired",
-            jobId: job.id,
-            jobName: job.name,
-            sessionId: target.sessionId,
-            // Plain words: the notification shows text as it is, and the
-            // underscores of "_Also sent to your Whatsapp._" showed (smoke test, 7 Nov).
-            content: via ? `${content}\n\nAlso sent to your ${connectorName(via)}.` : content,
+        const kind = job.kind === "watch" ? "watch" : "task";
+        return nudges.send({ kind, sourceId: job.id, sessionId: target.sessionId, userRequested: true }, () => {
+          const toPhone = notifyOwner && readEnv("CINDERPAW_TASKS_TO_PHONE") !== "false"
+            ? notifyOwner(`⏰ ${job.name}\n\n${content.length > 1500 ? `${content.slice(0, 1500)}…` : content}`)
+            : Promise.resolve(null);
+          return toPhone.catch(() => null).then((via) => {
+            transport.send({
+              type: "cron_fired",
+              jobId: job.id,
+              jobName: job.name,
+              sessionId: target.sessionId,
+              // Plain words: the notification shows text as it is, and the
+              // underscores of "_Also sent to your Whatsapp._" showed (smoke test, 7 Nov).
+              content: via ? `${content}\n\nAlso sent to your ${connectorName(via)}.` : content,
+            });
+            return via ?? "desktop";
           });
-        });
+        }).then(() => undefined);
       }
       return deliverCron(target, content, job, ctx);
     },
@@ -2968,7 +2980,12 @@ export async function boot(transportOverride?: Transport) {
     );
     // X1 fix: inner-thoughts is opt-in via CINDERPAW_PROACTIVE_ENABLED.
     if (innerThoughts) {
-      innerThoughts.setEmit((event) => transport.send(event));
+      innerThoughts.setEmit((event) => {
+        void nudges.send({ kind: "thought" }, () => {
+          transport.send(event);
+          return "desktop";
+        });
+      });
       innerThoughts.start();
     }
     // P2-#1: heartbeat always on — even when the proactive loop is off.
@@ -2990,7 +3007,7 @@ export async function boot(transportOverride?: Transport) {
         void maybeSendDigest({
           hour: digestHour,
           jobs: () => cronRepo.list(),
-          send: (text) => notifyOwner?.(text) ?? Promise.resolve(null),
+          send: (text) => nudges.send({ kind: "digest" }, () => notifyOwner?.(text) ?? Promise.resolve(null)),
         }).then((sent) => { if (sent) log("tasks: daily digest sent"); }).catch((e) => log(`tasks: digest failed: ${String(e)}`));
       }, 10 * 60_000);
       digestTimer.unref?.();
