@@ -1871,6 +1871,8 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           });
           return;
         }
+        // Writing in a conversation Cubby offered as unfinished = continued it.
+        ctx.nudges.continued(sessionId);
         // X1 fix: mood updates are only emitted when the proactive
         // subsystem is enabled. Default = off, so the hot message path
         // does no MoodEngine work.
@@ -2078,6 +2080,13 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       // transport layer (the InboundMessage union doesn't carry the
       // detail fields yet — V1 reads them off `msg as any` and
       // validates inside the handler).
+      // The window's unfinished-work card was opened or closed (core/nudges.ts).
+      case "nudge_reaction": {
+        if (typeof msg.sourceId === "string" && (msg.outcome === "opened" || msg.outcome === "dismissed")) {
+          ctx.nudges.react(msg.sourceId, msg.outcome);
+        }
+        break;
+      }
       case "cron_list": {
           if (msg.followUps) ctx.offerUnfinishedWork();
         // Used to answer with a `model_set` carrying only the count, so no

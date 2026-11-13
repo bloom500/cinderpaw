@@ -79,6 +79,8 @@ export interface LiveConnector {
    * account's own "Message yourself" chat). Null when not linked yet.
    */
   ownerSession?(): string | null;
+  /** True when `sessionId` is that owner's own chat, in any form the transport uses for it. */
+  isOwnerSession?(sessionId: string): boolean;
 }
 
 export interface OutboundFile {

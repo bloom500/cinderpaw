@@ -1314,6 +1314,8 @@ export interface InboundMessage {
     // `error` on failure; see core/host-tool-bridge.ts.
     | "tool_response"
     | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list"
+    // The unfinished-work card was opened or dismissed (`sourceId`, `outcome`).
+    | "nudge_reaction"
     | "desktop_control_response" | "capability_response" | "admin_response" | "connectors_reload"
     // PROVISIONAL — temporary Settings button to run the Fractal Memory Search
     // benchmark gate on demand. Remove with the button after the ship/hold call.
@@ -1602,6 +1604,9 @@ export interface InboundMessage {
   /** Matches the id of the original "ask_user" outbound event. */
   /** Explicit desktop task subscriber requesting unfinished-work suggestions. */
   followUps?: boolean;
+  /** nudge_reaction: the card's source (a run id) and what the person did. */
+  sourceId?: string;
+  outcome?: "opened" | "dismissed";
   /** cron_list: send a test notice to the owner's phone and say where it went. */
   testNotify?: boolean;
   /** cron_list: set the weekly task limit first (number, or null = none). */

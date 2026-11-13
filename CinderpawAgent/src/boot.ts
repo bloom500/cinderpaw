@@ -470,6 +470,7 @@ export async function boot(transportOverride?: Transport) {
   const followUps = new FollowUpLedger(db.raw);
   // Every message Cubby sends first goes through this one door.
   const nudges = new Nudges(db.raw);
+  nudges.expire(); // reactions are settled lazily; boot is one of the moments
   // Lifecycle events, never idle model polling. The card only opens prior work;
   // it does not authorize a resumed task or any external action.
   function offerUnfinishedWork(): void {
@@ -2652,6 +2653,14 @@ export async function boot(transportOverride?: Transport) {
   const connectors = new ConnectorManager(agent, log, leadDesk, runHooks);
   notifyOwner = (text) => connectors.notifyOwner(text);
   phoneChannel = () => connectors.ownerChannel();
+  // What the owner does after a phone nudge: their next message in their own
+  // chat answers it; Cubby saying something else there first means it didn't.
+  connectors.askRouter.observe((sessionId, direction) => {
+    if (!connectors.isOwnerSession(sessionId)) return;
+    const channel = sessionId.split(":", 1)[0]!;
+    if (direction === "in") nudges.inbound(channel);
+    else nudges.outbound(channel);
+  });
   // The one person on a Discord or Slack allowlist is the owner, so what they
   // say there is the owner's memory, the same as on the desktop or a call. The
   // facts they already left under their speaker scope are folded in, newest
@@ -2896,6 +2905,7 @@ export async function boot(transportOverride?: Transport) {
   // value on the other side.
   const ctx = {
     offerUnfinishedWork,
+    nudges,
     recordInteractiveTurn: (sessionId: string, mission: string, outcome: string, report: string) => recordInteractiveTurn(runStore, sessionId, mission, outcome, report, db.raw),
     config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     // The semantic graph, for the memory page's Forget (dispatch `memory_forget`),

@@ -991,6 +991,12 @@ fn cron_op_line(
             serde_json::json!({ "type": "cron_toggle", "requestId": request_id, "id": job_id, "enabled": enabled })
         }
         "remove" | "toggle" => return Err("no task selected".to_string()),
+        // The unfinished-work card was opened or closed: counted, nothing runs.
+        "nudge_opened" | "nudge_dismissed" if present(&job_id) => serde_json::json!({
+            "type": "nudge_reaction", "id": request_id, "sourceId": job_id,
+            "outcome": if action == "nudge_opened" { "opened" } else { "dismissed" },
+        }),
+        "nudge_opened" | "nudge_dismissed" => return Err("no card selected".to_string()),
         other => return Err(format!("unknown task action '{other}'")),
     };
     Ok(msg.to_string())
@@ -1026,6 +1032,18 @@ mod cron_op_tests {
         assert!(cron_op_line("r", "list", None, None, None, None, None, None, None).is_ok());
         assert!(cron_op_line("r", "limit", None, None, None, None, None, None, None).unwrap().contains("cron_list"));
         assert!(cron_op_line("r", "limit", None, None, None, None, None, None, None).unwrap().contains("cron_list"));
+    }
+
+    #[test]
+    fn a_card_reaction_names_the_card_and_what_was_done() {
+        let line = cron_op_line("r", "nudge_dismissed", Some("run-1".into()), None, None, None, None, None, None).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(v["type"], "nudge_reaction");
+        assert_eq!(v["sourceId"], "run-1");
+        assert_eq!(v["outcome"], "dismissed");
+        let opened: serde_json::Value = serde_json::from_str(&cron_op_line("r", "nudge_opened", Some("run-1".into()), None, None, None, None, None, None).unwrap()).unwrap();
+        assert_eq!(opened["outcome"], "opened");
+        assert!(cron_op_line("r", "nudge_opened", None, None, None, None, None, None, None).is_err());
     }
 }
 

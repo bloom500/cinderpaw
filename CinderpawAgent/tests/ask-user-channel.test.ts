@@ -82,6 +82,17 @@ describe("parseChannelAnswers", () => {
 });
 
 describe("ChannelAskRouter", () => {
+  it("tells observers of every message in and out, and survives a broken one", async () => {
+    const router = new ChannelAskRouter();
+    router.registerSender("telegram", async () => {});
+    const seen: string[] = [];
+    router.observe(() => { throw new Error("broken observer"); });
+    router.observe((s, d) => seen.push(`${d} ${s}`));
+    expect(router.handleInbound("telegram:1:1", "hi")).toBe(false); // nothing pending: goes to the agent
+    expect(await router.notify("telegram:1:1", "report")).toBe("sent");
+    expect(seen).toEqual(["in telegram:1:1", "out telegram:1:1"]);
+  });
+
   it("sends the question and resolves on the next inbound", async () => {
     const sent: string[] = [];
     const router = new ChannelAskRouter();

@@ -1447,6 +1447,13 @@ export class WhatsAppConnector {
     return self?.id ? `whatsapp:${self.id.split(/[:@]/)[0]}@s.whatsapp.net` : null;
   }
 
+  /** The self chat arrives under the phone number or under the account's LID. */
+  isOwnerSession(sessionId: string): boolean {
+    const self = this.#sock?.user;
+    if (!self?.id) return false;
+    return sessionId === this.ownerSession() || (!!self.lid && sessionId === `whatsapp:${self.lid.split(/[:@]/)[0]}@lid`);
+  }
+
   async sendFile(sessionId: string, file: OutboundFile): Promise<void> {
     const sock = this.#sock;
     if (!sock) throw new Error("WhatsApp is not linked.");
@@ -2384,6 +2391,16 @@ export class ConnectorManager {
       }
     }
     return null;
+  }
+
+  /**
+   * True for the owner's own chat, the one `notifyOwner` writes to. Only a
+   * message there can answer a nudge; a group or a stranger's chat never does.
+   */
+  isOwnerSession(sessionId: string): boolean {
+    const id = sessionId.split(":", 1)[0] ?? "";
+    if (this.#live.get(id)?.isOwnerSession?.(sessionId)) return true;
+    return this.#ownerSessions().some(([i, s]) => i === id && s === sessionId);
   }
 
   /** The messenger `notifyOwner` would try first, without sending; null for none. */

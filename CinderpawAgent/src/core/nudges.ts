@@ -22,6 +22,20 @@ export interface NudgeInfo {
 /** Returns the channel that delivered ("desktop" or a connector id), or null. */
 export type Deliver = () => string | null | Promise<string | null>;
 
+export type NudgeOutcome = "ignored" | "opened" | "answered" | "acted" | "dismissed";
+
+const HOUR = 3_600_000;
+/** A phone reply counts as an answer for this long after the nudge. */
+const ANSWER_WINDOW_MS = 12 * HOUR;
+/** No reaction by then: ignored. Also how long writing in the chat counts as acting on it. */
+const IGNORE_AFTER_MS = 24 * HOUR;
+
+// A stronger outcome replaces a weaker one: acted > answered > opened > ignored.
+// Nothing replaces dismissed, and dismissed does not replace answered or acted:
+// closing a card after using it is not saying no.
+const RANK_SQL = `CASE outcome WHEN 'ignored' THEN 0 WHEN 'opened' THEN 1 WHEN 'answered' THEN 2 WHEN 'acted' THEN 3 ELSE 9 END`;
+const RANK: Record<Exclude<NudgeOutcome, "dismissed">, number> = { ignored: 0, opened: 1, answered: 2, acted: 3 };
+
 export class Nudges {
   readonly #db: Database;
   constructor(db: Database) {
@@ -34,8 +48,80 @@ export class Nudges {
     const channel = await deliver();
     // ponytail: only delivered messages are recorded. 'held_for_digest' and
     // 'dropped' rows arrive with the rule that makes those decisions.
-    if (channel) this.#record(info, channel, now);
+    if (channel) {
+      this.expire(now);
+      this.#record(info, channel, now);
+    }
     return channel;
+  }
+
+  // Reactions are resolved lazily, when something happens (a message in, a
+  // send, boot). No timers. Like #record, a broken ledger never throws.
+
+  /** The owner wrote in their own chat on `channel` (a connector id). */
+  inbound(channel: string, now = Date.now()): void {
+    this.#safe(() => {
+      this.expire(now);
+      const open = this.#db.query(
+        `SELECT id, sent_at FROM nudges WHERE channel = ? AND outcome IS NULL AND sent_at <= ? ORDER BY sent_at DESC, rowid DESC`,
+      ).all(channel, now) as Array<{ id: string; sent_at: number }>;
+      const [latest, ...older] = open;
+      // Only the most recent nudge can be what they are answering; the ones
+      // before it went unanswered.
+      if (latest && now - latest.sent_at <= ANSWER_WINDOW_MS) this.#set(latest.id, "answered", now);
+      else if (latest) older.unshift(latest);
+      for (const n of older) this.#set(n.id, "ignored", now);
+    });
+  }
+
+  /** Cubby said something else in the owner's chat: a reply now answers that. */
+  outbound(channel: string, now = Date.now()): void {
+    this.#safe(() => {
+      this.#db.query(`UPDATE nudges SET outcome = 'ignored', outcome_at = ? WHERE channel = ? AND outcome IS NULL AND sent_at <= ?`)
+        .run(now, channel, now);
+    });
+  }
+
+  /** The desktop card for `sourceId` was opened or dismissed. */
+  react(sourceId: string, outcome: "opened" | "dismissed", now = Date.now()): void {
+    this.#safe(() => {
+      for (const n of this.#db.query(`SELECT id FROM nudges WHERE source_id = ?`).all(sourceId) as Array<{ id: string }>) {
+        this.#set(n.id, outcome, now);
+      }
+    });
+  }
+
+  /** The person wrote in `sessionId`: unfinished work offered there was continued. */
+  continued(sessionId: string, now = Date.now()): void {
+    this.#safe(() => {
+      const rows = this.#db.query(
+        `SELECT id FROM nudges WHERE kind = 'followup' AND session_id = ? AND sent_at <= ? AND sent_at > ?`,
+      ).all(sessionId, now, now - IGNORE_AFTER_MS) as Array<{ id: string }>;
+      for (const n of rows) this.#set(n.id, "acted", now);
+    });
+  }
+
+  /** Nothing happened within a day: ignored. */
+  expire(now = Date.now()): void {
+    this.#safe(() => {
+      this.#db.query(`UPDATE nudges SET outcome = 'ignored', outcome_at = ? WHERE outcome IS NULL AND sent_at <= ?`)
+        .run(now, now - IGNORE_AFTER_MS);
+    });
+  }
+
+  #set(id: string, outcome: NudgeOutcome, now: number): void {
+    const weaker = outcome === "dismissed"
+      ? `(outcome IS NULL OR outcome IN ('ignored', 'opened'))`
+      : `(outcome IS NULL OR (outcome != 'dismissed' AND ${RANK_SQL} < ${RANK[outcome]}))`;
+    this.#db.query(`UPDATE nudges SET outcome = ?, outcome_at = ? WHERE id = ? AND ${weaker}`).run(outcome, now, id);
+  }
+
+  #safe(fn: () => void): void {
+    try {
+      fn();
+    } catch {
+      // The ledger is for counting. A broken one must never stop a message.
+    }
   }
 
   #record(info: NudgeInfo, channel: string, now: number): void {

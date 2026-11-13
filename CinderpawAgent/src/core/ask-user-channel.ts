@@ -150,9 +150,29 @@ export class ChannelAskRouter {
     this.#timeoutMs = timeoutMs;
   }
 
+  readonly #observers: Array<(sessionId: string, direction: "in" | "out") => void> = [];
+
+  /**
+   * Be told of every message that passes through here: a person's message in
+   * (`handleInbound`) and anything this router says out. The nudge ledger uses
+   * it to see whether the owner answered (core/nudges.ts).
+   */
+  observe(fn: (sessionId: string, direction: "in" | "out") => void): void {
+    this.#observers.push(fn);
+  }
+
+  #tell(sessionId: string, direction: "in" | "out"): void {
+    for (const fn of this.#observers) {
+      try { fn(sessionId, direction); } catch { /* an observer never breaks a message */ }
+    }
+  }
+
   /** Connector lifecycle: register a sender for a session prefix on start… */
   registerSender(prefix: string, sender: ChannelSender): void {
-    this.#senders.set(prefix, sender);
+    this.#senders.set(prefix, (sessionId, text) => {
+      this.#tell(sessionId, "out");
+      return sender(sessionId, text);
+    });
   }
 
   /** …and drop it on stop. Pending asks for that prefix are cancelled. */
@@ -283,6 +303,7 @@ export class ChannelAskRouter {
    * an agent turn for it).
    */
   handleInbound(sessionId: string, text: string): boolean {
+    this.#tell(sessionId, "in");
     const p = this.#pending.get(sessionId);
     if (!p) return false;
     // A message with only a picture or a file has no text. It is not an answer:
