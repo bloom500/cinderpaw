@@ -1,10 +1,12 @@
 import type { Database } from "bun:sqlite";
 import { InferenceSpendAuthority, type InferencePrice, type SpendTarget } from "../egress/inference-spend-authority.ts";
 import type { RunStore } from "./run-store.ts";
+import { quietHour, type Nudges } from "./nudges.ts";
 import { redactSecrets, stripPrivate } from "../memory/privacy.ts";
 
 export interface FollowUp { id: string; sessionId: string; mission: string }
 const FOLLOWUPS_KEY = "proactive.followups.v1";
+const ENABLED_KEY = "proactive.followups-enabled.v1";
 const BUDGET_KEY = "proactive.monthly-spend.v1";
 const HOUR = 3_600_000;
 
@@ -20,6 +22,17 @@ function write(db: Database, key: string, value: unknown, now: number): void {
 /** A lifecycle event asks once; no timers, inference, or automatic resumption. */
 export class FollowUpLedger {
   constructor(private readonly db: Database) {}
+
+  /** "Follow-up suggestions" on the Tasks page. The window reports it on start and on change. */
+  setEnabled(enabled: boolean, now = Date.now()): void {
+    write(this.db, ENABLED_KEY, enabled, now);
+  }
+
+  /** The person's own choice; null until the window has said. Only `true` may reach the phone. */
+  enabled(): boolean | null {
+    const value = read<unknown>(this.db, ENABLED_KEY, null);
+    return typeof value === "boolean" ? value : null;
+  }
 
   take(now = Date.now()): FollowUp | null {
     const day = new Date(now).toISOString().slice(0, 10);
@@ -38,6 +51,32 @@ export class FollowUpLedger {
     write(this.db, FOLLOWUPS_KEY, { seen: [...state.seen, row.id].slice(-512), last: now, day, count: (state.day === day ? state.count : 0) + 1 }, now);
     return { id: row.id, sessionId: row.session_id, mission: row.mission.slice(0, 1000) };
   }
+}
+
+/**
+ * Offer one piece of unfinished work, through the one door. `window` = the app
+ * asked (the person is there): a card. `tick` = the scheduler looking while the
+ * person is away: never at night, never after they said no, phone first.
+ */
+export function offerFollowUp(o: {
+  from: "window" | "tick";
+  ledger: FollowUpLedger;
+  nudges: Nudges;
+  card: (followUp: FollowUp) => void;
+  phone: ((text: string) => Promise<string | null>) | null;
+  now?: number;
+}): Promise<string | null> {
+  const now = o.now ?? Date.now();
+  if (o.from === "tick" && (o.nudges.atComputer(now) || quietHour(now) || o.ledger.enabled() !== true)) return Promise.resolve(null);
+  const followUp = o.ledger.take(now);
+  if (!followUp) return Promise.resolve(null);
+  const info = { kind: "followup", sourceId: followUp.id, sessionId: followUp.sessionId } as const;
+  if (o.from === "window") return o.nudges.send(info, () => { o.card(followUp); return "desktop"; }, now);
+  const phone = o.phone;
+  return o.nudges.route(info, {
+    phone: phone ? () => phone(`You left something unfinished: “${followUp.mission.slice(0, 200)}”\n\nOpen Cinderpaw to pick it up.`) : null,
+    desktop: (rang) => { if (!rang) o.card(followUp); },
+  }, now);
 }
 
 /** Record an ordinary chat's terminal verdict without enabling autonomous mode

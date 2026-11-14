@@ -25,7 +25,7 @@ export const INBOUND_TYPES = [
   // Host-owned tools (core/host-tool-bridge.ts): the sidecar emits
   // `tool_request`, the host runs it and answers with `tool_response`.
   "tool_response",
-  "cron_add", "cron_remove", "cron_toggle", "cron_list", "nudge_reaction",
+  "cron_add", "cron_remove", "cron_toggle", "cron_list", "nudge_reaction", "presence", "followups_setting",
   "desktop_control_response", "connectors_reload",
   "fractal_benchmark", "fractal_cluster_leaves", "memory_notes",
   "memory_search", "message_send",

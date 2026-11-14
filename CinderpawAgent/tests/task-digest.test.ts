@@ -35,6 +35,15 @@ describe("the daily task digest", () => {
     expect(buildDigest([job("Old", "agent", [run(30, "success")])], NOW - 24 * HOUR)).toBeNull();
   });
 
+  it("a watch is one line, not one per check, and a watch-only day with no change sends nothing", () => {
+    const watching = job("Headphones under 500 lei", "watch", [run(3, "waiting"), run(2, "waiting"), run(1, "waiting")]);
+    expect(buildDigest([watching], NOW - 24 * HOUR)).toBeNull();
+    const text = buildDigest([watching, job("News", "agent", [run(1, "success")])], NOW - 24 * HOUR)!;
+    expect(text).toContain("1 run, all fine.");
+    expect(text).toContain("Still watching: Headphones under 500 lei. No change.");
+    expect(text.match(/Headphones/g)).toHaveLength(1);
+  });
+
   describe("sending", () => {
     let dir: string;
     beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "digest-")); });

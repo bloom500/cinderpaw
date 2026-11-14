@@ -20,12 +20,21 @@ test("watch policy survives edits, defaults to 30-day expiry, and rejects missin
 test("watch does not infer or notify until freshly fetched visible source text matches", async () => {
   const {repo,job}=setup({kind:"watch",watch:{sourceUrl:"https://example.com/releases",contains:"Version 3 is available"}});
   let now=job.nextRunMs!; let notifications=0; let inference=0; let body='<html><script>Version 3 is available</script><body>Not yet</body></html>';
-  const scheduler=new CronScheduler({repo,now:()=>new Date(now),runJob:async()=>{inference++;return{text:"Model says yes",finished:true}},watchFetch:()=>async()=>({ok:true,status:200,headers:{"content-type":"text/html"},text:async()=>body}),deliver:()=>{notifications++}} as any);
+  const scheduler=new CronScheduler({repo,watchQuiet:()=>false,now:()=>new Date(now),runJob:async()=>{inference++;return{text:"Model says yes",finished:true}},watchFetch:()=>async()=>({ok:true,status:200,headers:{"content-type":"text/html"},text:async()=>body}),deliver:()=>{notifications++}} as any);
   await scheduler.tick(); expect(inference).toBe(0); expect(notifications).toBe(0); expect(repo.get(job.id)!.history.at(-1)?.status).toBe("waiting");
   now+=60000; body='<html><body>Version 3 is available</body></html>'; await scheduler.tick();
   expect(notifications).toBe(1); expect(repo.get(job.id)!.enabled).toBe(false);
   expect(repo.get(job.id)!.history.at(-1)?.proof).toMatchObject({sourceUrl:job.watch!.sourceUrl,excerpt:"Version 3 is available"});
   await scheduler.tick(); expect(notifications).toBe(1);
+});
+test("no watch check between 22:00 and 08:00; the first one after 08:00 reads the page fresh", async () => {
+  const {repo,job}=setup({kind:"watch",watch:{sourceUrl:"https://example.com/releases",contains:"Version 3 is available"}});
+  const night=new Date(job.nextRunMs!);night.setHours(27,0,0,0); // 03:00 the next day
+  let now=night.getTime();let fetches=0;
+  const scheduler=new CronScheduler({repo,now:()=>new Date(now),runJob:async()=>({text:"",finished:true}),watchFetch:()=>async()=>{fetches++;return{ok:true,status:200,headers:{"content-type":"text/html"},text:async()=>"<body>Not yet</body>"}},deliver:()=>{}} as any);
+  await scheduler.tick();expect(fetches).toBe(0);expect(repo.get(job.id)!.history).toHaveLength(0);
+  now=new Date(night).setHours(8,0,0,0);await scheduler.tick();expect(fetches).toBe(1);
+  expect(repo.get(job.id)!.history.at(-1)?.runAt).toBe(now);
 });
 test("expired watches stop without a request and can renew explicitly",async()=>{
   const {repo,job}=setup({kind:"watch",watch:{sourceUrl:"https://example.com",contains:"Launched"},expiryDays:1});
@@ -92,7 +101,7 @@ test("the limit can be raised or removed, and a bad amount is refused",()=>{
 test("watch HTTP errors cannot become proof and private sources are refused",async()=>{
  const {repo,job}=setup({kind:"watch",watch:{sourceUrl:"https://example.com",contains:"Available"}});
  expect(()=>repo.upsert({...job,watch:{sourceUrl:"https://127.0.0.1/private",contains:"Available"}})).toThrow();
- let notifications=0;const scheduler=new CronScheduler({repo,now:()=>new Date(job.nextRunMs!),runJob:async()=>{throw Error("must not infer")},watchFetch:()=>async()=>({ok:false,status:503,headers:{},text:async()=>"Available",json:async()=>null}),deliver:()=>{notifications++}});
+ let notifications=0;const scheduler=new CronScheduler({repo,watchQuiet:()=>false,now:()=>new Date(job.nextRunMs!),runJob:async()=>{throw Error("must not infer")},watchFetch:()=>async()=>({ok:false,status:503,headers:{},text:async()=>"Available",json:async()=>null}),deliver:()=>{notifications++}});
  await scheduler.tick();expect(notifications).toBe(0);expect(repo.get(job.id)!.history.at(-1)?.status).toBe("failed");expect(repo.get(job.id)!.history.at(-1)?.proof).toBeUndefined();
 });
 

@@ -677,10 +677,20 @@ export function useCinderpawGlobal() {
       if (!outputSubscribed || !useFollowUps.getState().enabled) return;
       void tauri.raw.cinderpawCronOp(crypto.randomUUID(), 'followups').catch(() => {});
     };
+    // The engine keeps the switch too: while the person is away it may offer
+    // unfinished work on their phone, and must know if they said no.
+    const reportFollowUps = (enabled: boolean) => {
+      void tauri.raw.cinderpawCronOp(crypto.randomUUID(), 'followups_setting', { enabled }).catch(() => {});
+    };
     const offFollowUps = useFollowUps.subscribe((state, previous) => {
+      if (state.enabled !== previous.enabled) reportFollowUps(state.enabled);
       if (state.enabled && !previous.enabled) requestFollowUp();
     });
     unlisteners.push(offFollowUps);
+    // Focus = at the computer: a nudge rings here, not on the phone.
+    const reportPresence = () => { void tauri.raw.cinderpawCronOp(crypto.randomUUID(), 'presence').catch(() => {}); };
+    window.addEventListener('focus', reportPresence);
+    unlisteners.push(() => window.removeEventListener('focus', reportPresence));
     const setup = async () => {
       const offWait = await events.onRateLimited.listen(({ sessionId, waitMs }) => {
         useConversations.getState().setProviderWait(sessionId, waitMs);
@@ -861,8 +871,9 @@ export function useCinderpawGlobal() {
           );
           // A reminder is for the moment it fires, which is rarely a moment the
           // person is looking at this window: the toast alone lasted 5 s inside
-          // a window behind others (24 Oct). The OS shows it where they are.
-          void notifyIfBackground(toastText(parsed.jobName, 80), preview(parsed.content));
+          // a window behind others (24 Oct). The OS shows it where they are,
+          // unless their phone already rang for it (one ringer).
+          if (!parsed.silent) void notifyIfBackground(toastText(parsed.jobName, 80), preview(parsed.content));
         } else if (parsed.type === 'cron_error') {
           useNotifications.getState().push(
             'error',
@@ -878,6 +889,9 @@ export function useCinderpawGlobal() {
       outputSubscribed = true;
       if (!disposed) {
         void fetchConfig();
+        // Every start, so a "no" chosen before this version reached the engine.
+        reportFollowUps(useFollowUps.getState().enabled);
+        if (document.hasFocus()) reportPresence();
         requestFollowUp();
       }
     };

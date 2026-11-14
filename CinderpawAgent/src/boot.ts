@@ -150,7 +150,7 @@ import {
   CoworkApprovalService,
 } from "./cowork/approval.ts";
 import { TauriTransport } from "./transports/tauri.ts";
-import { ConnectorManager } from "./transports/connectors.ts";
+import { ConnectorManager, setReplyTail } from "./transports/connectors.ts";
 // Imported for the side effect: loading the barrel runs every transport's
 // `registerTransport(...)`. Listing them here instead cost us three shipped
 // connectors nobody could reach — see src/transports/all.ts.
@@ -171,8 +171,9 @@ import { defaultJournalPath } from "./rsi/infra/journal.ts";
 import { ActivityMonitor } from "./rsi/l1-config/activity-monitor.ts";
 import { resolveDreamConfig, autonomousInferenceGate } from "./rsi/l1-config/dream-config.ts";
 import { priceResolverFromJson } from "./rsi/infra/rsi-cost.ts";
-import { FollowUpLedger, recordInteractiveTurn } from "./core/proactive-followups.ts";
+import { FollowUpLedger, offerFollowUp, recordInteractiveTurn } from "./core/proactive-followups.ts";
 import { Nudges } from "./core/nudges.ts";
+import { PhoneOffers } from "./core/phone-offers.ts";
 import { episodeStartOptions, episodeBudgetCaps } from "./rsi/l1-config/episode-options.ts";
 import { MetaEvolution } from "./rsi/l6-meta/meta-evolution.ts";
 import { effectiveGates, layerFrozen, loadPolicy } from "./rsi/l5-gov/governance.ts";
@@ -473,15 +474,12 @@ export async function boot(transportOverride?: Transport) {
   nudges.expire(); // reactions are settled lazily; boot is one of the moments
   // Lifecycle events, never idle model polling. The card only opens prior work;
   // it does not authorize a resumed task or any external action.
-  function offerUnfinishedWork(): void {
+  function offerUnfinishedWork(from: "window" | "tick" = "window"): void {
     if (!cfgBool("CINDERPAW_FOLLOWUPS_ENABLED")) return;
-    const followUp = followUps.take();
-    if (followUp) {
-      void nudges.send({ kind: "followup", sourceId: followUp.id, sessionId: followUp.sessionId }, () => {
-        transport.send({ type: "proactive", content: "You left something unfinished", followUp });
-        return "desktop";
-      }).catch((e) => log(`follow-up: send failed: ${String(e)}`));
-    }
+    void offerFollowUp({
+      from, ledger: followUps, nudges, phone: notifyOwner,
+      card: (followUp) => transport.send({ type: "proactive", content: "You left something unfinished", followUp }),
+    }).catch((e) => log(`follow-up: send failed: ${String(e)}`));
   }
 
   // --- RSI bootstrap (Faza 0 — Keystone) ---
@@ -1028,7 +1026,10 @@ export async function boot(transportOverride?: Transport) {
   // Set once the connectors exist: which messenger a fired task reaches, for
   // the card's one-time offer to connect WhatsApp. null = none connected.
   let phoneChannel: () => string | null = () => "unknown";
-  registry.register(createSuggestTaskTool(undefined, undefined, () => phoneChannel()));
+  // Also set with the connectors: a task offered in a chat app is accepted with "yes".
+  let phoneOffers: PhoneOffers | null = null;
+  registry.register(createSuggestTaskTool(undefined, undefined, () => phoneChannel(),
+    (sessionId, card) => phoneOffers?.offer(sessionId, card) ?? false));
   const taskLimit = new TaskLimit(db.raw);
   registry.register(createTaskLimitTool(taskLimit));
 
@@ -1909,30 +1910,31 @@ export async function boot(transportOverride?: Transport) {
       // webhook URL is admin-controlled, not user-controlled.
       if (target.kind === "chat") {
         // A task the person made is news they asked for; with the app in the
-        // tray, the chat alone reached nobody. It also goes to their phone
-        // when a messenger is connected, and the chat says where it went.
+        // tray, the chat alone reached nobody. Away from the computer it goes
+        // to their phone when a messenger is connected, and the chat says where
+        // it went. One ringer: when the phone rang, the desktop stays quiet.
         // CINDERPAW_TASKS_TO_PHONE=false keeps it in the app.
         const kind = job.kind === "watch" ? "watch" : "task";
-        return nudges.send({ kind, sourceId: job.id, sessionId: target.sessionId, userRequested: true }, () => {
-          const toPhone = notifyOwner && readEnv("CINDERPAW_TASKS_TO_PHONE") !== "false"
-            ? notifyOwner(`⏰ ${job.name}\n\n${content.length > 1500 ? `${content.slice(0, 1500)}…` : content}`)
-            : Promise.resolve(null);
-          return toPhone.catch(() => null).then((via) => {
-            transport.send({
-              type: "cron_fired",
-              jobId: job.id,
-              jobName: job.name,
-              sessionId: target.sessionId,
-              // Plain words: the notification shows text as it is, and the
-              // underscores of "_Also sent to your Whatsapp._" showed (smoke test, 7 Nov).
-              content: via ? `${content}\n\nAlso sent to your ${connectorName(via)}.` : content,
-            });
-            return via ?? "desktop";
-          });
+        return nudges.route({ kind, sourceId: job.id, sessionId: target.sessionId, userRequested: true }, {
+          phone: notifyOwner && readEnv("CINDERPAW_TASKS_TO_PHONE") !== "false"
+            ? () => notifyOwner!(`⏰ ${job.name}\n\n${content.length > 1500 ? `${content.slice(0, 1500)}…` : content}`)
+            : null,
+          desktop: (via) => transport.send({
+            type: "cron_fired",
+            jobId: job.id,
+            jobName: job.name,
+            sessionId: target.sessionId,
+            // Plain words: the notification shows text as it is, and the
+            // underscores of "_Also sent to your Whatsapp._" showed (smoke test, 7 Nov).
+            content: via ? `${content}\n\nAlso sent to your ${connectorName(via)}.` : content,
+            ...(via ? { silent: true } : {}),
+          }),
         }).then(() => undefined);
       }
       return deliverCron(target, content, job, ctx);
     },
+    // Unfinished work is looked at while the person is away too (spec 4.5a).
+    onTick: () => offerUnfinishedWork("tick"),
     tickIntervalMs: Number(readEnv("CINDERPAW_CRON_TICK_MS") ?? 30_000),
     jobTimeoutMs: Number(readEnv("CINDERPAW_CRON_JOB_TIMEOUT_MS") ?? 5 * 60_000),
   });
@@ -2655,7 +2657,29 @@ export async function boot(transportOverride?: Transport) {
   phoneChannel = () => connectors.ownerChannel();
   // What the owner does after a phone nudge: their next message in their own
   // chat answers it; Cubby saying something else there first means it didn't.
+  // A task offered in a chat app: the owner's "yes" creates it, like Create on
+  // the desktop card (spec 4.9). Same task the window would send.
+  const offers = new PhoneOffers({
+    isChat: (sessionId) => connectors.askRouter.canHandle(sessionId),
+    isOwner: (sessionId) => connectors.isOwnerSession(sessionId),
+    create: (card, sessionId) => {
+      const job = cronRepo.upsert({
+        name: card.title, task: card.task, kind: card.kind, schedule: card.schedule,
+        delivery: { kind: "chat", sessionId },
+        ...(card.watch ? { watch: card.watch, expiryDays: card.expiryDays } : {}),
+      });
+      log(`cron_add (accepted on the phone) → ${job.id} (${job.name})`);
+    },
+  });
+  phoneOffers = offers;
+  setReplyTail((sessionId) => offers.tail(sessionId));
+  connectors.askRouter.setAnswers((sessionId, text) => {
+    const confirm = offers.answer(sessionId, text);
+    if (confirm) void connectors.askRouter.notify(sessionId, confirm);
+    return confirm !== null;
+  });
   connectors.askRouter.observe((sessionId, direction) => {
+    if (direction === "out") offers.said(sessionId);
     if (!connectors.isOwnerSession(sessionId)) return;
     const channel = sessionId.split(":", 1)[0]!;
     if (direction === "in") nudges.inbound(channel);
@@ -2905,6 +2929,7 @@ export async function boot(transportOverride?: Transport) {
   // value on the other side.
   const ctx = {
     offerUnfinishedWork,
+    followUps,
     nudges,
     recordInteractiveTurn: (sessionId: string, mission: string, outcome: string, report: string) => recordInteractiveTurn(runStore, sessionId, mission, outcome, report, db.raw),
     config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
@@ -3008,16 +3033,22 @@ export async function boot(transportOverride?: Transport) {
     // deliver through the transport.
     cronScheduler.start();
     log(`cron scheduler enabled (${cronRepo.list().length} job(s) loaded)`);
-    // One message a day of what the tasks did, to the owner's phone, from run
-    // history (no model). CINDERPAW_DIGEST_HOUR is the local hour (default 20);
-    // -1 turns it off. Checked every 10 minutes; sent once a day.
+    // One message a day of what the tasks did, from run history (no model):
+    // the phone when the person is away, else a card in the app, so a new
+    // install with no messenger gets it too. CINDERPAW_DIGEST_HOUR is the
+    // local hour (default 20); -1 turns it off. Checked every 10 minutes.
     const digestHour = Number(readEnv("CINDERPAW_DIGEST_HOUR") ?? 20);
     if (Number.isFinite(digestHour) && digestHour >= 0) {
       const digestTimer = setInterval(() => {
         void maybeSendDigest({
           hour: digestHour,
           jobs: () => cronRepo.list(),
-          send: (text) => nudges.send({ kind: "digest" }, () => notifyOwner?.(text) ?? Promise.resolve(null)),
+          send: (text) => nudges.route({ kind: "digest" }, {
+            phone: notifyOwner ? () => notifyOwner!(text) : null,
+            desktop: (rang) => {
+              if (!rang) transport.send({ type: "cron_fired", jobId: "digest", jobName: "Your day", sessionId: "", content: text });
+            },
+          }),
         }).then((sent) => { if (sent) log("tasks: daily digest sent"); }).catch((e) => log(`tasks: digest failed: ${String(e)}`));
       }, 10 * 60_000);
       digestTimer.unref?.();

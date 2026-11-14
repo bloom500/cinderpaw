@@ -117,6 +117,8 @@ export function createSuggestTaskTool(
   ledger = new SuggestionLedger(),
   now: () => Date = () => new Date(),
   phoneChannel: () => string | null = () => "unknown",
+  /** In a chat app there is no card: true = kept as an offer the owner accepts with "yes" (core/phone-offers.ts). */
+  offerInChat: (sessionId: string, card: TaskSuggestion) => boolean = () => false,
 ): Tool {
   return {
     manifest: {
@@ -201,6 +203,17 @@ export function createSuggestTaskTool(
       s.lastAt = t;
       const card: TaskSuggestion = { id: randomUUID(), title, task, kind, schedule: built.schedule, when: built.when,
         ...(watch ? { watch, expiryDays } : {}) };
+      if (offerInChat(ctx.sessionId, card)) {
+        return {
+          ok: true,
+          // There is no card in a chat app; "see the card below" pointed at nothing (spec 4.9).
+          content: `Offered: "${title}", ${built.when}. The app adds one line after your reply that says how to turn it on` +
+            (kind === "agent" ? " (on their computer: it uses the AI each time)" : " (they reply \"yes\")") +
+            ". In your reply, at most one short sentence about it. Do not mention a card, do not ask them to confirm, " +
+            "do not say it is set, and do not end your reply with a question of your own.",
+          data: { taskSuggestionStatus: "offered_in_chat" },
+        };
+      }
       // Away from the computer a task reaches nobody until a messenger is
       // connected. Offered once per chat, in one sentence, never pushed.
       const offerPhone = !s.phoneOffered && phoneChannel() === null;

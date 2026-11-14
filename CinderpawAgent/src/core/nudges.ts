@@ -5,9 +5,9 @@ import type { Database } from "bun:sqlite";
  * cards, fired tasks and watches, the evening digest, inner thoughts.
  * Replies to the person in the same turn are not nudges.
  *
- * Today it only records which channel delivered what, and when. Routing,
- * quiet hours, reactions and the rule come in later slices
- * (docs/superpowers/specs/2026-11-13-real-proactivity-design.md).
+ * It records which channel delivered what and when, what the person did
+ * after, and picks the one place that rings (`route`). The rule comes in a
+ * later slice (docs/superpowers/specs/2026-11-13-real-proactivity-design.md).
  */
 export type NudgeKind = "followup" | "task" | "watch" | "digest" | "thought" | "receipt";
 
@@ -29,6 +29,22 @@ const HOUR = 3_600_000;
 const ANSWER_WINDOW_MS = 12 * HOUR;
 /** No reaction by then: ignored. Also how long writing in the chat counts as acting on it. */
 const IGNORE_AFTER_MS = 24 * HOUR;
+/** "At the computer": the window was focused, or the person wrote in the app, this recently. */
+const PRESENT_MS = 10 * 60_000;
+
+/** 22:00-08:00 local. No watch checks, and nothing Cubby chose to say goes out. */
+export function quietHour(at: number): boolean {
+  const h = new Date(at).getHours();
+  return h >= 22 || h < 8;
+}
+
+/** The ways one nudge can reach the person (see `Nudges.route`). */
+export interface Ways {
+  /** Sends to the owner's phone; the connector that delivered, or null. */
+  phone?: (() => Promise<string | null>) | null;
+  /** Always runs. `rang` is the phone that already rang (stay quiet), or null (ring here). */
+  desktop: (rang: string | null) => void;
+}
 
 // A stronger outcome replaces a weaker one: acted > answered > opened > ignored.
 // Nothing replaces dismissed, and dismissed does not replace answered or acted:
@@ -38,8 +54,39 @@ const RANK: Record<Exclude<NudgeOutcome, "dismissed">, number> = { ignored: 0, o
 
 export class Nudges {
   readonly #db: Database;
+  // ponytail: in memory. After an engine restart the person counts as away
+  // until the window reports focus again, which it does when it opens.
+  #lastSeen = 0;
   constructor(db: Database) {
     this.#db = db;
+  }
+
+  /** The window was focused, or the person wrote in the app. */
+  seen(now = Date.now()): void {
+    this.#lastSeen = now;
+  }
+
+  atComputer(now = Date.now()): boolean {
+    return now - this.#lastSeen <= PRESENT_MS;
+  }
+
+  /**
+   * One ringer, not one place: the phone when the person is away and the phone
+   * answers, otherwise the desktop. The desktop part always runs, so a task's
+   * result still lands in the chat when the phone rang instead.
+   */
+  route(info: NudgeInfo, ways: Ways, now = Date.now()): Promise<string | null> {
+    return this.send(info, () => {
+      if (!ways.phone || this.atComputer(now)) {
+        ways.desktop(null);
+        return "desktop";
+      }
+      const phone = ways.phone;
+      return Promise.resolve().then(phone).catch(() => null).then((rang) => {
+        ways.desktop(rang);
+        return rang ?? "desktop";
+      });
+    }, now);
   }
 
   async send(info: NudgeInfo, deliver: Deliver, now = Date.now()): Promise<string | null> {

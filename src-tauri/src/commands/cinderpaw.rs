@@ -997,6 +997,13 @@ fn cron_op_line(
             "outcome": if action == "nudge_opened" { "opened" } else { "dismissed" },
         }),
         "nudge_opened" | "nudge_dismissed" => return Err("no card selected".to_string()),
+        // The window was focused: the person is at the computer, so a nudge
+        // rings here instead of on the phone.
+        "presence" => serde_json::json!({ "type": "presence", "id": request_id }),
+        // "Follow-up suggestions": a person who said no is never written to on the phone.
+        "followups_setting" => serde_json::json!({
+            "type": "followups_setting", "id": request_id, "enabled": enabled.ok_or("on or off?")?,
+        }),
         other => return Err(format!("unknown task action '{other}'")),
     };
     Ok(msg.to_string())
@@ -1044,6 +1051,16 @@ mod cron_op_tests {
         let opened: serde_json::Value = serde_json::from_str(&cron_op_line("r", "nudge_opened", Some("run-1".into()), None, None, None, None, None, None).unwrap()).unwrap();
         assert_eq!(opened["outcome"], "opened");
         assert!(cron_op_line("r", "nudge_opened", None, None, None, None, None, None, None).is_err());
+    }
+
+    #[test]
+    fn presence_and_the_follow_up_switch_reach_the_engine() {
+        let p: serde_json::Value = serde_json::from_str(&cron_op_line("r", "presence", None, None, None, None, None, None, None).unwrap()).unwrap();
+        assert_eq!(p["type"], "presence");
+        let off: serde_json::Value = serde_json::from_str(&cron_op_line("r", "followups_setting", None, None, None, None, None, None, Some(false)).unwrap()).unwrap();
+        assert_eq!(off["type"], "followups_setting");
+        assert_eq!(off["enabled"], false);
+        assert!(cron_op_line("r", "followups_setting", None, None, None, None, None, None, None).is_err());
     }
 }
 

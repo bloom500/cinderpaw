@@ -167,6 +167,16 @@ export class ChannelAskRouter {
     }
   }
 
+  #answers: ((sessionId: string, text: string) => boolean) | null = null;
+
+  /**
+   * Other things a reply can answer when no question is pending: an offer made
+   * in this chat (core/phone-offers.ts). True = answered, no agent turn.
+   */
+  setAnswers(fn: (sessionId: string, text: string) => boolean): void {
+    this.#answers = fn;
+  }
+
   /** Connector lifecycle: register a sender for a session prefix on start… */
   registerSender(prefix: string, sender: ChannelSender): void {
     this.#senders.set(prefix, (sessionId, text) => {
@@ -305,7 +315,7 @@ export class ChannelAskRouter {
   handleInbound(sessionId: string, text: string): boolean {
     this.#tell(sessionId, "in");
     const p = this.#pending.get(sessionId);
-    if (!p) return false;
+    if (!p) return this.#answers?.(sessionId, text) ?? false;
     // A message with only a picture or a file has no text. It is not an answer:
     // read as one, it picked the first option, which is "Allow" on every
     // permission question. The question stays open and the person is told so.

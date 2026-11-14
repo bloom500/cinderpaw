@@ -524,6 +524,21 @@ export function isDedicatedChannel(
 
 export type RunSurface = "discord" | "slack" | "whatsapp" | "desktop";
 
+let replyTail: ((sessionId: string) => string | null) | null = null;
+/**
+ * A line code adds after the agent's reply in a chat app, so it is the last
+ * thing said (how to accept an offer, core/phone-offers.ts). One place, because
+ * every connector's reply comes out of `runAgent`.
+ */
+export function setReplyTail(fn: ((sessionId: string) => string | null) | null): void {
+  replyTail = fn;
+}
+function withTail(sessionId: string, reply: string): string {
+  let tail: string | null = null;
+  try { tail = replyTail?.(sessionId) ?? null; } catch { /* never breaks a reply */ }
+  return tail ? `${reply}\n\n${tail}` : reply;
+}
+
 /**
  * Run one agent turn, mapping its tool events to a friendly status string.
  *
@@ -595,7 +610,7 @@ export async function runAgent(
     // other surface gets it too — see the note beside the `done` event.
     // The verdict goes to the PERSON, not just into the row. A failed check
     // that only a database knows about is the same silence we started with.
-    const reply = (run.outcome === "no_answer" && keyTrouble(failure)) || [run.text, verdict].filter(Boolean).join("\n\n");
+    const reply = withTail(sessionId, (run.outcome === "no_answer" && keyTrouble(failure)) || [run.text, verdict].filter(Boolean).join("\n\n"));
     // Durable before it is spoken. Anything that goes wrong between here and
     // the caller's `markDelivered()` leaves the report on disk for the next
     // boot, rather than only in the memory of a process that may be dying.
@@ -603,7 +618,7 @@ export async function runAgent(
     return { reply, markDelivered: () => record?.delivered() };
   }
   return {
-    reply: await agent.handle(sessionId, text, messageId, emit, undefined, images),
+    reply: withTail(sessionId, await agent.handle(sessionId, text, messageId, emit, undefined, images)),
     markDelivered: () => {},
   };
 }

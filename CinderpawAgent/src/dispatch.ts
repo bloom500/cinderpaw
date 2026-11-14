@@ -1873,6 +1873,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         }
         // Writing in a conversation Cubby offered as unfinished = continued it.
         ctx.nudges.continued(sessionId);
+        ctx.nudges.seen(); // and the person is at the computer
         // X1 fix: mood updates are only emitted when the proactive
         // subsystem is enabled. Default = off, so the hot message path
         // does no MoodEngine work.
@@ -2085,6 +2086,17 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         if (typeof msg.sourceId === "string" && (msg.outcome === "opened" || msg.outcome === "dismissed")) {
           ctx.nudges.react(msg.sourceId, msg.outcome);
         }
+        break;
+      }
+      // The window was focused: the person is at the computer (spec 4.4).
+      case "presence": {
+        ctx.nudges.seen();
+        break;
+      }
+      // "Follow-up suggestions" on the Tasks page, sent on start and on change,
+      // so a person who said no is never written to on the phone.
+      case "followups_setting": {
+        if (typeof msg.enabled === "boolean") ctx.followUps.setEnabled(msg.enabled);
         break;
       }
       case "cron_list": {

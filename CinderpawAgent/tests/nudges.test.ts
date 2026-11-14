@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { openDatabase } from "../src/db.ts";
-import { Nudges } from "../src/core/nudges.ts";
+import { Nudges, quietHour } from "../src/core/nudges.ts";
 
 const AT = new Date(2026, 10, 13, 18, 30).getTime(); // 18:30 local
 
@@ -132,6 +132,64 @@ describe("nudges: what the person did after (fake clock, fake phone)", () => {
     nudges.react("run-2", "dismissed", AT + 6);
     expect(outcomes(db)).toEqual(["dismissed", "acted"]);
     db.close();
+  });
+});
+
+describe("nudges: one ringer, where the person is (spec 4.4)", () => {
+  function setup() {
+    const db = openDatabase(":memory:");
+    const nudges = new Nudges(db.raw);
+    const desk: Array<string | null> = [];
+    const phoneSent: string[] = [];
+    const ways = (phone: "ok" | "fails" | "none") => ({
+      phone: phone === "none" ? null : async () => {
+        if (phone === "fails") throw new Error("offline");
+        phoneSent.push("x");
+        return "telegram";
+      },
+      desktop: (rang: string | null) => { desk.push(rang); },
+    });
+    return { db, nudges, desk, phoneSent, ways };
+  }
+
+  test("window focused: the desktop rings, the phone stays silent", async () => {
+    const { db, nudges, desk, phoneSent, ways } = setup();
+    nudges.seen(AT - 9 * 60_000); // focused 9 minutes ago
+    expect(await nudges.route({ kind: "task", userRequested: true }, ways("ok"), AT)).toBe("desktop");
+    expect(desk).toEqual([null]);
+    expect(phoneSent).toHaveLength(0);
+    db.close();
+  });
+
+  test("away with a messenger: the phone rings, the chat still gets the result quietly", async () => {
+    const { db, nudges, desk, phoneSent, ways } = setup();
+    nudges.seen(AT - 11 * 60_000);
+    expect(await nudges.route({ kind: "task", userRequested: true }, ways("ok"), AT)).toBe("telegram");
+    expect(phoneSent).toHaveLength(1);
+    expect(desk).toEqual(["telegram"]); // desktop part ran, told the phone already rang
+    expect(rows(db)[0]).toMatchObject({ channel: "telegram" });
+    db.close();
+  });
+
+  test("away with no messenger: the desktop", async () => {
+    const { db, nudges, desk, ways } = setup();
+    expect(await nudges.route({ kind: "digest" }, ways("none"), AT)).toBe("desktop");
+    expect(desk).toEqual([null]);
+    db.close();
+  });
+
+  test("the phone send fails: the desktop rings and the ledger says desktop", async () => {
+    const { db, nudges, desk, ways } = setup();
+    expect(await nudges.route({ kind: "task", userRequested: true }, ways("fails"), AT)).toBe("desktop");
+    expect(desk).toEqual([null]);
+    expect(rows(db)[0]).toMatchObject({ channel: "desktop" });
+    db.close();
+  });
+
+  test("quiet hours are 22:00 to 08:00 local", () => {
+    const at = (h: number, m = 0) => new Date(2026, 10, 14, h, m).getTime();
+    expect([at(3), at(7, 59), at(22), at(23, 30)].map(quietHour)).toEqual([true, true, true, true]);
+    expect([at(8), at(12), at(21, 59)].map(quietHour)).toEqual([false, false, false]);
   });
 });
 

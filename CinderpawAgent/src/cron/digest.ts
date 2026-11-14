@@ -39,6 +39,12 @@ export function buildDigest(jobs: readonly CronJob[], since: number): string | n
     const recent = job.history.filter((r) => r.runAt >= since && r.status !== "running");
     const last = recent.at(-1);
     if (!last) continue;
+    // A watch is one line, not one per hourly check. "No change" alone is not
+    // news: a day with only that sends nothing.
+    if (job.kind === "watch" && last.status === "waiting") {
+      lines.push(`• Still watching: ${job.name}. No change.`);
+      continue;
+    }
     runs += recent.length;
     if (BAD.has(last.status)) bad += 1;
     const what = job.kind === "watch" && last.status === "success" && last.proof ? "found it" : WORDS[last.status];
