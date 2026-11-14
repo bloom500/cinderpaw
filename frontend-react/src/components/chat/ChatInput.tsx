@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { tauri } from '@/lib/tauri';
-import { Square, Phone, Clock } from 'lucide-react';
+import { Square, Phone, Clock, ChevronDown } from 'lucide-react';
 import { SendIcon } from '@/components/ui/animated-icons/send';
 import { AudioLinesIcon } from '@/components/ui/animated-icons/audio-lines';
 import { useIconHover } from '@/components/ui/animated-icons/useIconHover';
@@ -784,24 +784,41 @@ function ChatInput({ isEmpty, sendFn }, ref) {
             <div className="flex shrink-0 items-center gap-1">
               <ContextRing />
               {!isStreaming && (
-                <button
-                  type="button"
-                  onClick={onMicClick}
-                  onPointerDown={onMicPointerDown}
-                  onPointerUp={clearMicHold}
-                  onPointerEnter={voiceIcon.hover.onPointerEnter}
-                  onPointerLeave={() => { clearMicHold(); voiceIcon.hover.onPointerLeave(); }}
-                  onFocus={voiceIcon.hover.onFocus}
-                  onBlur={voiceIcon.hover.onBlur}
-                  aria-label={rec.state === 'recording' ? 'Stop recording' : 'Record voice message (hold to choose provider)'}
-                  className={cn(
-                    'group flex h-8 items-center rounded-full border border-border-default bg-bg-hover px-2 transition-colors hover:bg-bg-active',
-                    rec.state === 'recording' ? 'text-error animate-pulse' : 'text-text-secondary hover:text-text-primary',
+                // A split button (14 Nov, Darius): nobody guesses that holding
+                // the mic opens the transcription choice, so a small arrow beside
+                // it opens the same card in one visible click. Holding still works.
+                <div className="flex h-8 items-center rounded-full border border-border-default bg-bg-hover">
+                  <button
+                    type="button"
+                    onClick={onMicClick}
+                    onPointerDown={onMicPointerDown}
+                    onPointerUp={clearMicHold}
+                    onPointerEnter={voiceIcon.hover.onPointerEnter}
+                    onPointerLeave={() => { clearMicHold(); voiceIcon.hover.onPointerLeave(); }}
+                    onFocus={voiceIcon.hover.onFocus}
+                    onBlur={voiceIcon.hover.onBlur}
+                    aria-label={rec.state === 'recording' ? 'Stop recording' : 'Record voice message'}
+                    className={cn(
+                      'group flex h-full items-center px-2 transition-colors hover:bg-bg-active',
+                      rec.state === 'recording' ? 'rounded-full text-error animate-pulse' : 'rounded-l-full text-text-secondary hover:text-text-primary',
+                    )}
+                  >
+                    {rec.state === 'recording' ? <Square size={16} className="shrink-0" /> : <AudioLinesIcon ref={voiceIcon.ref} size={16} className="flex shrink-0" />}
+                    <span className="composer-slide-label text-sm">{rec.state === 'recording' ? 'Stop' : 'Record'}</span>
+                  </button>
+                  {rec.state !== 'recording' && (
+                    <button
+                      type="button"
+                      onClick={() => setProviderCardOpen(true)}
+                      aria-label={t('voice.provider.title')}
+                      title={t('voice.provider.title')}
+                      aria-haspopup="dialog"
+                      className="flex h-full items-center rounded-r-full border-l border-border-default pl-1 pr-1.5 text-text-muted transition-colors hover:bg-bg-active hover:text-text-primary"
+                    >
+                      <ChevronDown size={12} />
+                    </button>
                   )}
-                >
-                  {rec.state === 'recording' ? <Square size={16} className="shrink-0" /> : <AudioLinesIcon ref={voiceIcon.ref} size={16} className="flex shrink-0" />}
-                  <span className="composer-slide-label text-sm">{rec.state === 'recording' ? 'Stop' : 'Record'}</span>
-                </button>
+                </div>
               )}
               {!isStreaming && (
                 <Button

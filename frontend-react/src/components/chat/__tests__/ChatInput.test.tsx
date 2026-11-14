@@ -335,6 +335,17 @@ describe('a long paste', () => {
 });
 
 
+// 14 Nov, Darius: nobody guesses that holding the mic opens the transcription
+// choice. A visible arrow beside it opens the same card in one click.
+describe('choosing the voice transcription', () => {
+  it('has a visible arrow next to the mic that opens the choice', async () => {
+    render(<ChatInput sendFn={vi.fn(async () => {})} />);
+    expect(screen.getByRole('button', { name: 'Record voice message' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Choose voice transcription' }));
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Choose voice transcription');
+  });
+});
+
 // 30 Sep: with the game open, the perch mascot kept walking the composer's edge
 // right under the game and got in the way of play.
 describe('the campfire game', () => {
