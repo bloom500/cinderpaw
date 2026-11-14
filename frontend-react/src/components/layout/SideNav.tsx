@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { panelMotionEnd, panelMotionStart } from '@/lib/panelMotion';
 import {
-  Plus, Search, Folder, Box, Settings, Globe,
+  Plus, Folder,
   PanelLeftOpen, Loader2, FolderPlus, Star,
   ChevronDown, ChevronLeft, ChevronRight,
 } from 'lucide-react';
@@ -26,8 +26,12 @@ import { Kbd, MOD } from '@/components/ui/kbd';
 import { useMagnetic } from '@/hooks/useMagnetic';
 import { APP_NAME } from '@/lib/brand';
 import { BASE, FAST, MOTION, spring } from '@/lib/motion';
-import './navIcons.css';
-import { ArtifactsIcon, TasksIcon, playNavIcons } from './navIcons';
+import { SearchIcon } from '@/components/ui/animated-icons/search';
+import { ArchiveIcon } from '@/components/ui/animated-icons/archive';
+import { ActivityIcon } from '@/components/ui/animated-icons/activity';
+import { EarthIcon } from '@/components/ui/animated-icons/earth';
+import { BrainIcon } from '@/components/ui/animated-icons/brain';
+import { SettingsIcon } from '@/components/ui/animated-icons/settings';
 
 /**
  * Primary navigation. It answers exactly one question — where do I want to go —
@@ -68,17 +72,20 @@ export const NAV_COLLAPSED_W = 0;
  * does not. Two doors to one room, where the near one is already open.
  */
 const NAV = [
-  { to: '/models',   icon: Box,           label: 'Models',   anim: 'pop' },
-  { to: '/settings', icon: Settings,      label: 'Settings', anim: 'gear' },
+  { to: '/models',   icon: BrainIcon,    label: 'Models' },
+  { to: '/settings', icon: SettingsIcon, label: 'Settings' },
 ] as const;
 
+/** A lucide-animated icon (components/ui/animated-icons): it plays when told to. */
+type AnimatedIcon = React.ForwardRefExoticComponent<
+  { size?: number; className?: string } & React.RefAttributes<{ startAnimation: () => void; stopAnimation: () => void }>
+>;
+
 function Row({
-  icon: Icon, label, collapsed, onClick, to, active, hint, anim,
+  icon: Icon, label, collapsed, onClick, to, active, hint,
 }: {
-  icon: React.ComponentType<{ size?: number | string; strokeWidth?: number; className?: string }>;
+  icon: AnimatedIcon;
   label: string;
-  /** The whole icon's hover move, from navIcons.tsx. Two-part icons carry their own. */
-  anim?: string;
   collapsed: boolean;
   onClick?: () => void;
   to?: string;
@@ -92,6 +99,11 @@ function Row({
   // Expanded these are labelled rows in a list, and a list whose rows move
   // under the cursor is a list that is harder to click.
   const magnet = useMagnetic<HTMLSpanElement>({ enabled: collapsed, radius: 72, pull: 5 });
+  // The whole row is the hover target, not just the 18px icon (14 Nov, Darius:
+  // playful hover moves from lucide-animated). Leaving eases back, never snaps.
+  const icon = useRef<{ startAnimation: () => void; stopAnimation: () => void }>(null);
+  const play = () => icon.current?.startAnimation();
+  const settle = () => icon.current?.stopAnimation();
 
   const inner = (
     <>
@@ -100,7 +112,7 @@ function Row({
         style={{ x: magnet.x, y: magnet.y }}
         className="flex shrink-0 items-center justify-center"
       >
-        <Icon size={18} strokeWidth={1.6} className="nav-ico shrink-0 text-text-muted" {...(anim ? { 'data-anim': anim } : {})} />
+        <Icon ref={icon} size={18} className="flex shrink-0 text-text-muted" />
       </motion.span>
       <AnimatePresence initial={false}>
         {!collapsed && (
@@ -119,7 +131,7 @@ function Row({
   const classes = (isActive: boolean) => cn(
     // 15px in the secondary tone, white only where you are: the same weight
     // read heavy at 14.5px in full white next to Claude's lighter rail.
-    'nav-row w-full flex items-center gap-3 h-9 px-3 rounded-[10px] text-sm transition-colors cursor-pointer',
+    'w-full flex items-center gap-3 h-9 px-3 rounded-[10px] text-sm transition-colors cursor-pointer',
     collapsed && 'justify-center px-0',
     isActive ? 'bg-bg-active text-text-primary' : cn(ROW_HOVER, 'text-text-secondary hover:text-text-primary'),
   );
@@ -127,14 +139,14 @@ function Row({
   if (to) {
     return (
       <NavLink to={to} title={collapsed ? label : undefined} className={({ isActive }) => classes(isActive)}
-        onPointerEnter={(e) => playNavIcons(e.currentTarget)} onFocus={(e) => playNavIcons(e.currentTarget)}>
+        onPointerEnter={play} onPointerLeave={settle} onFocus={play} onBlur={settle}>
         {inner}
       </NavLink>
     );
   }
   return (
     <button type="button" onClick={onClick} title={collapsed ? label : undefined} className={classes(Boolean(active))}
-      onPointerEnter={(e) => playNavIcons(e.currentTarget)} onFocus={(e) => playNavIcons(e.currentTarget)}>
+      onPointerEnter={play} onPointerLeave={settle} onFocus={play} onBlur={settle}>
       {inner}
     </button>
   );
@@ -535,17 +547,17 @@ export function SideNav() {
         </div>
 
         <div className="mt-2 space-y-0.5 shrink-0">
-          <Row icon={Search} label="Search" anim="search" collapsed={false} onClick={() => openSearch()} hint={<Kbd keys={[MOD, 'K']} />} />
+          <Row icon={SearchIcon} label="Search" collapsed={false} onClick={() => openSearch()} hint={<Kbd keys={[MOD, 'K']} />} />
           {/* The artifacts' entrance. It sat in the chat header first, right
               under the window's maximize button, where a miss resizes the window.
               Named Artifacts, not Workspace: the agent's scratch folder is already
               called workspace, and one word for two places confused the agent.
               It opens the gallery page; a card there opens the side panel. */}
-          <Row icon={ArtifactsIcon} label="Artifacts" collapsed={false} to="/artifacts" />
-          <Row icon={TasksIcon} label="Tasks" collapsed={false} to="/tasks" />
-          <Row icon={Globe} label="Browser" anim="spin" collapsed={false} onClick={openBrowser} active={pathname === '/chat' && browserOpen} />
+          <Row icon={ArchiveIcon} label="Artifacts" collapsed={false} to="/artifacts" />
+          <Row icon={ActivityIcon} label="Tasks" collapsed={false} to="/tasks" />
+          <Row icon={EarthIcon} label="Browser" collapsed={false} onClick={openBrowser} active={pathname === '/chat' && browserOpen} />
           {NAV.map((n) => (
-            <Row key={n.to} icon={n.icon} label={n.label} anim={n.anim} collapsed={false} to={n.to} />
+            <Row key={n.to} icon={n.icon} label={n.label} collapsed={false} to={n.to} />
           ))}
         </div>
 
