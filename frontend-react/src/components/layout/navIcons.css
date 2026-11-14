@@ -1,14 +1,6 @@
-/* Sidebar icon micro-animations: the moves live in navIcons.tsx (Web Animations,
-   so a move always finishes instead of snapping back when the pointer leaves).
-   This only sets where each piece turns from: its own middle. */
-.nav-ico,
-.nav-part {
-  transform-box: fill-box;
-  transform-origin: 50% 50%;
-}
-
-/* The clock hands turn around the clock's centre, at (16,16) in the icon. */
-.nav-hands {
-  transform-box: view-box;
-  transform-origin: 16px 16px;
+/* Sidebar icon micro-animations live in navIcons.tsx: each line is traced
+   again in place, so nothing moves and nothing blurs. No layout here; the
+   icons keep their round line ends while the trace runs. */
+.nav-ico {
+  stroke-linecap: round;
 }
