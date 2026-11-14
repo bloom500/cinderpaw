@@ -8,8 +8,8 @@ import type { ReactNode } from 'react';
  *   to its end, even if the pointer leaves halfway (a CSS :hover animation is
  *   cut off and snaps back), and every one ends looking exactly like it began:
  *   the gear turns 120 degrees, which its six teeth make look like 0.
- * - Two-part icons move their parts separately: the calendar and its clock,
- *   the file and its box.
+ * - Icons made of pieces move each piece separately: the calendar, its clock
+ *   face and its hands; the triangle, square and circle of Artifacts.
  *
  * Web Animations API on the element itself: no React state, no re-render.
  * Nothing plays for people who asked their computer for less motion.
@@ -21,19 +21,16 @@ const SPRING = 'cubic-bezier(.34, 1.56, .64, 1)';
 const MOVES: Record<string, Move> = {
   // Search: the magnifier tilts in to look, then settles.
   search: [[{ transform: 'none' }, { transform: 'translate(-1px, -1px) rotate(-14deg) scale(1.08)', offset: 0.45 }, { transform: 'none' }], { duration: 520, easing: 'ease-out' }],
-  // Artifacts: the file shifts back a hair while the box hops out and lands.
-  'artifacts-file': [[{ transform: 'none' }, { transform: 'translate(0.5px, -0.5px)', offset: 0.4 }, { transform: 'none' }], { duration: 520, easing: 'ease-out' }],
-  'artifacts-box': [[{ transform: 'none' }, { transform: 'translate(-0.5px, -3px) rotate(-10deg)', offset: 0.4 }, { transform: 'translateY(0.6px)', offset: 0.75 }, { transform: 'none' }], { duration: 560, easing: 'ease-out' }],
-  // Tasks: the calendar dips once, the clock rings like an alarm.
+  // Artifacts: the three shapes Cubby made play one after another: the
+  // triangle hops, the square tips over a quarter turn, the circle bounces.
+  'artifacts-triangle': [[{ transform: 'none' }, { transform: 'translateY(-3px)', offset: 0.4 }, { transform: 'translateY(0.5px)', offset: 0.75 }, { transform: 'none' }], { duration: 520, easing: 'ease-out' }],
+  'artifacts-square': [[{ transform: 'rotate(0deg)' }, { transform: 'rotate(90deg)' }], { duration: 560, delay: 70, easing: SPRING }],
+  'artifacts-circle': [[{ transform: 'none' }, { transform: 'translateY(-3px) scale(0.92, 1.08)', offset: 0.35 }, { transform: 'translateY(0) scale(1.12, 0.88)', offset: 0.65 }, { transform: 'none' }], { duration: 560, delay: 140, easing: 'ease-out' }],
+  // Tasks: the calendar dips, the clock face pulses, and the hands sweep a
+  // full turn around the clock's centre, so they end where they started.
   'tasks-calendar': [[{ transform: 'none' }, { transform: 'translateY(0.8px)', offset: 0.3 }, { transform: 'none' }], { duration: 420, easing: 'ease-out' }],
-  'tasks-clock': [[
-    { transform: 'none' },
-    { transform: 'rotate(-16deg) scale(1.08)', offset: 0.18 },
-    { transform: 'rotate(13deg) scale(1.08)', offset: 0.36 },
-    { transform: 'rotate(-8deg)', offset: 0.54 },
-    { transform: 'rotate(4deg)', offset: 0.72 },
-    { transform: 'none' },
-  ], { duration: 620, easing: 'ease-in-out' }],
+  'tasks-face': [[{ transform: 'none' }, { transform: 'scale(1.14)', offset: 0.3 }, { transform: 'none' }], { duration: 640, easing: 'ease-out' }],
+  'tasks-hands': [[{ transform: 'rotate(0deg)' }, { transform: 'rotate(360deg)' }], { duration: 760, easing: 'cubic-bezier(.45, 0, .2, 1)' }],
   // Browser: the globe turns once, a full turn, so it ends where it began.
   spin: [[{ transform: 'perspective(40px) rotateY(0deg)' }, { transform: 'perspective(40px) rotateY(360deg)' }], { duration: 720, easing: 'cubic-bezier(.45, 0, .2, 1)' }],
   // Models: the box pops.
@@ -75,27 +72,20 @@ export function TasksIcon(props: IconProps) {
         <path d="M3 10h5" />
         <path d="M8 2v4" />
       </g>
-      <g data-anim="tasks-clock" className="nav-part">
-        <circle cx="16" cy="16" r="6" />
-        <path d="M16 14v2.2l1.6 1" />
-      </g>
+      <circle data-anim="tasks-face" className="nav-part" cx="16" cy="16" r="6" />
+      {/* Turns around the clock's centre (16,16), not its own middle. */}
+      <path data-anim="tasks-hands" className="nav-hands" d="M16 14v2.2l1.6 1" />
     </Svg>
   );
 }
 
-/** Lucide's file-box (ISC), split into its file and its box. */
+/** Lucide's shapes (ISC): a triangle, a square and a circle, each its own piece. */
 export function ArtifactsIcon(props: IconProps) {
   return (
     <Svg {...props}>
-      <g data-anim="artifacts-file" className="nav-part">
-        <path d="M14.5 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v3.8" />
-        <path d="M14 2v5a1 1 0 0 0 1 1h5" />
-      </g>
-      <g data-anim="artifacts-box" className="nav-part">
-        <path d="M11.7 14.2 7 17l-4.7-2.8" />
-        <path d="M3 13.1a2 2 0 0 0-.999 1.76v3.24a2 2 0 0 0 .969 1.78L6 21.7a2 2 0 0 0 2.03.01L11 19.9a2 2 0 0 0 1-1.76V14.9a2 2 0 0 0-.97-1.78L8 11.3a2 2 0 0 0-2.03-.01z" />
-        <path d="M7 17v5" />
-      </g>
+      <path data-anim="artifacts-triangle" className="nav-part" d="M8.3 10a.7.7 0 0 1-.626-1.079L11.4 3a.7.7 0 0 1 1.198-.043L16.3 8.9a.7.7 0 0 1-.572 1.1Z" />
+      <rect data-anim="artifacts-square" className="nav-part" x="3" y="14" width="7" height="7" rx="1" />
+      <circle data-anim="artifacts-circle" className="nav-part" cx="17.5" cy="17.5" r="3.5" />
     </Svg>
   );
 }

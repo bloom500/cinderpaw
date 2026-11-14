@@ -6,3 +6,9 @@
   transform-box: fill-box;
   transform-origin: 50% 50%;
 }
+
+/* The clock hands turn around the clock's centre, at (16,16) in the icon. */
+.nav-hands {
+  transform-box: view-box;
+  transform-origin: 16px 16px;
+}
