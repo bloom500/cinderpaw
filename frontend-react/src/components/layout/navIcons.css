@@ -1,6 +1,17 @@
-/* Sidebar icon micro-animations live in navIcons.tsx: each line is traced
-   again in place, so nothing moves and nothing blurs. No layout here; the
-   icons keep their round line ends while the trace runs. */
+/* Sidebar icon micro-animations live in navIcons.tsx. Here: the icon lights
+   up with its row, and the orange comet that runs along its lines glows. */
 .nav-ico {
   stroke-linecap: round;
+  transition: color 180ms ease;
+}
+.nav-row:hover .nav-ico,
+.nav-row:focus-visible .nav-ico {
+  color: var(--text-primary);
+}
+.nav-comet {
+  stroke: var(--brand);
+  stroke-width: 2.4;
+  fill: none;
+  pointer-events: none;
+  filter: drop-shadow(0 0 2px var(--brand)) drop-shadow(0 0 5px color-mix(in srgb, var(--brand) 60%, transparent));
 }

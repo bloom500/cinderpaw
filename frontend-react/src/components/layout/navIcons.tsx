@@ -12,9 +12,10 @@ import type { ReactNode } from 'react';
  *   is done, so nothing moves: each line is traced again by a pen, in place.
  *   The geometry never shifts, so it stays crisp in every frame.
  *
- * How the trace works: each line gets pathLength 1 and a dash pattern of
- * "1 line, 1 gap". Sliding the dash by 2 makes the gap run along the line and
- * the line follow it back in, and a slide of 2 lands where it started.
+ * How the comet works (his "mai wild, colorat"): a copy of each line, in
+ * Cinderpaw orange with a glow, shows only a short dash (pathLength 1) that
+ * runs from the line's start to its end and fades, then the copy is removed.
+ * Only on hover or focus: nothing plays by itself to grab attention.
  *
  * Web Animations API: no React state, no re-render. Nothing plays for people
  * who asked their computer for less motion.
@@ -47,17 +48,28 @@ export function playNavIcons(row: Element): void {
     if (!t || t.still) return;
     const lines = piece.matches(DRAWABLE) ? [piece] : [...piece.querySelectorAll<SVGElement>(DRAWABLE)];
     lines.forEach((line, i) => {
-      if (typeof line.animate !== 'function') return;
-      // Still tracing from the last hover: let it finish rather than restart it.
-      if (line.getAnimations().some((a) => a.playState === 'running')) return;
-      line.setAttribute('pathLength', '1');
-      line.animate(
+      if (typeof line.animate !== 'function' || !line.parentNode) return;
+      // Still running from the last hover: let it finish rather than stack another.
+      if (line.nextElementSibling?.classList.contains('nav-comet')) return;
+      // The comet: a glowing copy of the line in Cinderpaw orange, of which
+      // only a short dash shows, running from the line's start to its end.
+      // The line itself is never touched, so the icon is whole and sharp in
+      // every frame, and nothing is left to reset when the comet is gone.
+      const comet = line.cloneNode(false) as SVGElement;
+      comet.removeAttribute('data-anim');
+      comet.classList.add('nav-comet');
+      comet.setAttribute('pathLength', '1');
+      line.parentNode.insertBefore(comet, line.nextSibling);
+      const run = comet.animate(
         [
-          { strokeDasharray: '1 1', strokeDashoffset: '0' },
-          { strokeDasharray: '1 1', strokeDashoffset: '-2' },
+          { strokeDasharray: '0.32 1.68', strokeDashoffset: '0.32', opacity: 1 },
+          { strokeDasharray: '0.32 1.68', strokeDashoffset: '-0.85', opacity: 1, offset: 0.85 },
+          { strokeDasharray: '0.32 1.68', strokeDashoffset: '-1', opacity: 0 },
         ],
-        { duration: t.duration, delay: t.delay + i * STAGGER, easing: 'cubic-bezier(.65, 0, .35, 1)' },
+        { duration: t.duration, delay: t.delay + i * STAGGER, easing: 'cubic-bezier(.55, 0, .3, 1)', fill: 'both' },
       );
+      run.onfinish = () => comet.remove();
+      run.oncancel = () => comet.remove();
     });
   });
 }
