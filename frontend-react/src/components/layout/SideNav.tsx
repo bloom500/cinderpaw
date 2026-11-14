@@ -27,7 +27,7 @@ import { useMagnetic } from '@/hooks/useMagnetic';
 import { APP_NAME } from '@/lib/brand';
 import { BASE, FAST, MOTION, spring } from '@/lib/motion';
 import { SearchIcon } from '@/components/ui/animated-icons/search';
-import { ArchiveIcon } from '@/components/ui/animated-icons/archive';
+import { ShapesIcon } from '@/components/ui/animated-icons/shapes';
 import { ActivityIcon } from '@/components/ui/animated-icons/activity';
 import { EarthIcon } from '@/components/ui/animated-icons/earth';
 import { BrainIcon } from '@/components/ui/animated-icons/brain';
@@ -553,7 +553,7 @@ export function SideNav() {
               Named Artifacts, not Workspace: the agent's scratch folder is already
               called workspace, and one word for two places confused the agent.
               It opens the gallery page; a card there opens the side panel. */}
-          <Row icon={ArchiveIcon} label="Artifacts" collapsed={false} to="/artifacts" />
+          <Row icon={ShapesIcon} label="Artifacts" collapsed={false} to="/artifacts" />
           <Row icon={ActivityIcon} label="Tasks" collapsed={false} to="/tasks" />
           <Row icon={EarthIcon} label="Browser" collapsed={false} onClick={openBrowser} active={pathname === '/chat' && browserOpen} />
           {NAV.map((n) => (

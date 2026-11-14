@@ -13,6 +13,7 @@ import { Markdown } from '@/lib/markdown';
 import { emberText, liveUntil, revealedTo, unshown, type Ember } from '@/lib/emberLetters';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SelectMenu } from '@/components/ui/select-menu';
+import { ArchiveIcon, type ArchiveIconHandle } from '@/components/ui/animated-icons/archive';
 import { LiveFrame } from './LiveFrame';
 import { TablePreview } from './TablePreview';
 import { BoardView } from '@/components/board/BoardView';
@@ -121,6 +122,8 @@ export function ArtifactsPanel({
     google, cancelGoogle, panelTab: tab,
   } = useArtifacts(useShallow((s) => ({ rows: s.rows, loaded: s.loaded, openRow: s.open?.row, openShowing: s.open?.showing, busy: s.busy, error: s.error, lastExport: s.lastExport, refresh: s.refresh, close: s.close, editing: s.editing, startEdit: s.startEdit, cancelEdit: s.cancelEdit, save: s.save, importPdf: s.importPdf, showingArchived: s.showingArchived, showArchived: s.showArchived, google: s.google, cancelGoogle: s.cancelGoogle, panelTab: s.panelTab })));
   const pickRef = useRef<HTMLInputElement>(null);
+  // The header's Archived button plays its box-and-lid move while hovered.
+  const archiveIcon = useRef<ArchiveIconHandle>(null);
   // Only the newest version is editable; an older one is restored instead.
   // The chrome needs which artifact and which version, never its text: a
   // streamed chunk changes `open.content` and must not redraw the header (R8).
@@ -313,10 +316,14 @@ export function ArtifactsPanel({
           {!open && (
             <ArtifactAction
               tooltip={showingArchived ? 'Back to artifacts' : 'Archived'}
-              icon={showingArchived ? ArrowLeft : Archive}
+              icon={showingArchived ? ArrowLeft : undefined}
               aria-pressed={showingArchived}
               onClick={() => showArchived(!showingArchived)}
-            />
+              onPointerEnter={() => archiveIcon.current?.startAnimation()}
+              onPointerLeave={() => archiveIcon.current?.stopAnimation()}
+            >
+              <ArchiveIcon ref={archiveIcon} size={16} className="flex" />
+            </ArtifactAction>
           )}
           {!open && !showingArchived && (
             // Any PDF, not only ones Cinderpaw made: filling and signing a form
