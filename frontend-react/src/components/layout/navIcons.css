@@ -1,73 +1,8 @@
-/* Sidebar icon micro-animations (14 Nov, Darius). Hovering a row, or reaching
-   it with the keyboard, plays one short move that fits the icon: the magnifier
-   peeks, the box lifts its lid, the clock rings, the globe turns, the model box
-   pops, the gear turns a quarter. Nothing loops, nothing plays on its own, and
-   people who asked their computer for less motion see none. CSS only, so it
-   costs no React re-render. */
-
-.nav-ico {
+/* Sidebar icon micro-animations: the moves live in navIcons.tsx (Web Animations,
+   so a move always finishes instead of snapping back when the pointer leaves).
+   This only sets where each piece turns from: its own middle. */
+.nav-ico,
+.nav-part {
+  transform-box: fill-box;
   transform-origin: 50% 50%;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .nav-row:hover .nav-ico-search,
-  .nav-row:focus-visible .nav-ico-search { animation: nav-search 520ms cubic-bezier(.34, 1.56, .64, 1); }
-
-  .nav-row:hover .nav-ico-lift,
-  .nav-row:focus-visible .nav-ico-lift { animation: nav-lift 480ms cubic-bezier(.34, 1.56, .64, 1); }
-
-  .nav-row:hover .nav-ico-ring,
-  .nav-row:focus-visible .nav-ico-ring { animation: nav-ring 560ms ease-in-out; }
-
-  .nav-row:hover .nav-ico-spin,
-  .nav-row:focus-visible .nav-ico-spin { animation: nav-spin 700ms cubic-bezier(.45, 0, .2, 1); }
-
-  .nav-row:hover .nav-ico-pop,
-  .nav-row:focus-visible .nav-ico-pop { animation: nav-pop 460ms cubic-bezier(.34, 1.56, .64, 1); }
-
-  .nav-row:hover .nav-ico-gear,
-  .nav-row:focus-visible .nav-ico-gear { animation: nav-gear 640ms cubic-bezier(.34, 1.3, .64, 1); }
-}
-
-/* Search: the magnifier tilts in to look, then settles. */
-@keyframes nav-search {
-  0%   { transform: none; }
-  45%  { transform: translate(-1px, -1px) rotate(-14deg) scale(1.08); }
-  100% { transform: none; }
-}
-
-/* Artifacts: the box jumps a little, as if something was put in. */
-@keyframes nav-lift {
-  0%   { transform: none; }
-  45%  { transform: translateY(-2.5px); }
-  75%  { transform: translateY(0.5px); }
-  100% { transform: none; }
-}
-
-/* Tasks: the calendar clock rings like an alarm. */
-@keyframes nav-ring {
-  0%, 100% { transform: none; }
-  20%      { transform: rotate(-12deg); }
-  40%      { transform: rotate(10deg); }
-  60%      { transform: rotate(-6deg); }
-  80%      { transform: rotate(3deg); }
-}
-
-/* Browser: the globe turns once. */
-@keyframes nav-spin {
-  0%   { transform: perspective(40px) rotateY(0deg); }
-  100% { transform: perspective(40px) rotateY(360deg); }
-}
-
-/* Models: the box pops. */
-@keyframes nav-pop {
-  0%   { transform: none; }
-  45%  { transform: scale(1.15) rotate(-6deg); }
-  100% { transform: none; }
-}
-
-/* Settings: the gear turns a quarter and lands where it started to the eye. */
-@keyframes nav-gear {
-  0%   { transform: rotate(0deg); }
-  100% { transform: rotate(90deg); }
 }

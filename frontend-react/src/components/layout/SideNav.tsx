@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { panelMotionEnd, panelMotionStart } from '@/lib/panelMotion';
 import {
-  Plus, Search, Folder, Box, Settings, FileBox, Globe, CalendarClock,
+  Plus, Search, Folder, Box, Settings, Globe,
   PanelLeftOpen, Loader2, FolderPlus, Star,
   ChevronDown, ChevronLeft, ChevronRight,
 } from 'lucide-react';
@@ -27,6 +27,7 @@ import { useMagnetic } from '@/hooks/useMagnetic';
 import { APP_NAME } from '@/lib/brand';
 import { BASE, FAST, MOTION, spring } from '@/lib/motion';
 import './navIcons.css';
+import { ArtifactsIcon, TasksIcon, playNavIcons } from './navIcons';
 
 /**
  * Primary navigation. It answers exactly one question — where do I want to go —
@@ -76,7 +77,7 @@ function Row({
 }: {
   icon: React.ComponentType<{ size?: number | string; strokeWidth?: number; className?: string }>;
   label: string;
-  /** The icon's hover move, from navIcons.css (search, lift, ring, spin, pop, gear). */
+  /** The whole icon's hover move, from navIcons.tsx. Two-part icons carry their own. */
   anim?: string;
   collapsed: boolean;
   onClick?: () => void;
@@ -99,7 +100,7 @@ function Row({
         style={{ x: magnet.x, y: magnet.y }}
         className="flex shrink-0 items-center justify-center"
       >
-        <Icon size={18} strokeWidth={1.6} className={cn('shrink-0 text-text-muted', anim && `nav-ico nav-ico-${anim}`)} />
+        <Icon size={18} strokeWidth={1.6} className="nav-ico shrink-0 text-text-muted" {...(anim ? { 'data-anim': anim } : {})} />
       </motion.span>
       <AnimatePresence initial={false}>
         {!collapsed && (
@@ -125,13 +126,15 @@ function Row({
 
   if (to) {
     return (
-      <NavLink to={to} title={collapsed ? label : undefined} className={({ isActive }) => classes(isActive)}>
+      <NavLink to={to} title={collapsed ? label : undefined} className={({ isActive }) => classes(isActive)}
+        onPointerEnter={(e) => playNavIcons(e.currentTarget)} onFocus={(e) => playNavIcons(e.currentTarget)}>
         {inner}
       </NavLink>
     );
   }
   return (
-    <button type="button" onClick={onClick} title={collapsed ? label : undefined} className={classes(Boolean(active))}>
+    <button type="button" onClick={onClick} title={collapsed ? label : undefined} className={classes(Boolean(active))}
+      onPointerEnter={(e) => playNavIcons(e.currentTarget)} onFocus={(e) => playNavIcons(e.currentTarget)}>
       {inner}
     </button>
   );
@@ -538,8 +541,8 @@ export function SideNav() {
               Named Artifacts, not Workspace: the agent's scratch folder is already
               called workspace, and one word for two places confused the agent.
               It opens the gallery page; a card there opens the side panel. */}
-          <Row icon={FileBox} label="Artifacts" anim="lift" collapsed={false} to="/artifacts" />
-          <Row icon={CalendarClock} label="Tasks" anim="ring" collapsed={false} to="/tasks" />
+          <Row icon={ArtifactsIcon} label="Artifacts" collapsed={false} to="/artifacts" />
+          <Row icon={TasksIcon} label="Tasks" collapsed={false} to="/tasks" />
           <Row icon={Globe} label="Browser" anim="spin" collapsed={false} onClick={openBrowser} active={pathname === '/chat' && browserOpen} />
           {NAV.map((n) => (
             <Row key={n.to} icon={n.icon} label={n.label} anim={n.anim} collapsed={false} to={n.to} />
