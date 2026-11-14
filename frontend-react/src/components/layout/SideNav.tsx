@@ -3,9 +3,9 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { panelMotionEnd, panelMotionStart } from '@/lib/panelMotion';
 import {
-  Plus, Folder,
-  PanelLeftOpen, Loader2, FolderPlus, Star,
-  ChevronDown, ChevronLeft, ChevronRight,
+  Folder,
+  Loader2, FolderPlus, Star,
+  ChevronDown, ChevronRight,
 } from 'lucide-react';
 import logoUrl from '@/assets/logo.svg';
 import {
@@ -28,6 +28,10 @@ import { APP_NAME } from '@/lib/brand';
 import { BASE, FAST, MOTION, spring } from '@/lib/motion';
 import { SearchIcon } from '@/components/ui/animated-icons/search';
 import { ShapesIcon } from '@/components/ui/animated-icons/shapes';
+import { PlusIcon } from '@/components/ui/animated-icons/plus';
+import { PanelLeftOpenIcon } from '@/components/ui/animated-icons/panel-left-open';
+import { PanelLeftCloseIcon } from '@/components/ui/animated-icons/panel-left-close';
+import { useIconHover } from '@/components/ui/animated-icons/useIconHover';
 import { ActivityIcon } from '@/components/ui/animated-icons/activity';
 import { EarthIcon } from '@/components/ui/animated-icons/earth';
 import { BrainIcon } from '@/components/ui/animated-icons/brain';
@@ -414,6 +418,9 @@ export function SideNav() {
   const collapsed = useUI((s) => s.navCollapsed);
   const toggle = useUI((s) => s.toggleNav);
   const openSearch = useUI((s) => s.openSearch);
+  const expandIcon = useIconHover();
+  const collapseIcon = useIconHover();
+  const newChatIcon = useIconHover();
   const { pathname } = useLocation();
   const browserOpen = useBrowser((s) => s.panelOpen);
   // Same shape as Artifacts: it lives beside the chat, so from elsewhere the
@@ -450,12 +457,13 @@ export function SideNav() {
             onClick={toggle}
             aria-label="Expand navigation"
             title="Expand navigation"
+            {...expandIcon.hover}
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1, transition: { ...FAST, delay: MOTION.base } }}
             exit={{ opacity: 0, scale: 0.9, transition: spring(MOTION.fast / 2) }}
             className="fixed left-3 top-3 z-30 h-9 w-9 grid place-items-center rounded-lg border border-border-subtle bg-bg-elevated/80 backdrop-blur-sm text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors cursor-pointer shadow-md"
           >
-            <PanelLeftOpen size={20} />
+            <PanelLeftOpenIcon ref={expandIcon.ref} size={20} className="flex" />
           </motion.button>
         )}
       </AnimatePresence>
@@ -505,9 +513,10 @@ export function SideNav() {
             onClick={toggle}
             aria-label="Collapse navigation"
             title="Collapse navigation"
+            {...collapseIcon.hover}
             className={cn('grid size-[30px] shrink-0 place-items-center rounded-lg border border-border-default text-text-muted hover:text-text-primary transition-colors cursor-pointer', ROW_HOVER)}
           >
-            <ChevronLeft size={16} strokeWidth={1.75} />
+            <PanelLeftCloseIcon ref={collapseIcon.ref} size={16} className="flex" />
           </button>
         </div>
 
@@ -519,9 +528,10 @@ export function SideNav() {
             type="button"
             onClick={newChat}
             className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2.5 pl-3 pr-1 text-left text-sm font-semibold"
+            {...newChatIcon.hover}
           >
             <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded-full bg-brand text-brand-foreground">
-              <Plus size={12} strokeWidth={2.5} />
+              <PlusIcon ref={newChatIcon.ref} size={12} className="flex [&_svg]:stroke-[2.5]" />
             </span>
             <span className="flex-1 truncate">New chat</span>
             <Kbd keys={[MOD, 'N']} />

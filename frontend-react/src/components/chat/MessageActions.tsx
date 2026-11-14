@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from 'react';
-import { Copy, Pencil, RotateCcw, X } from 'lucide-react';
+import { Pencil, X } from 'lucide-react';
+import { CopyIcon } from '@/components/ui/animated-icons/copy';
+import { RotateCCWIcon } from '@/components/ui/animated-icons/rotate-ccw';
 import { copyText } from '@/lib/clipboard';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -87,7 +89,7 @@ export function MessageActions({
               ? <span className="flex items-center gap-1 text-success"><CopiedCheck size={14} /><span className="text-micro">Copied</span></span>
               : state === 'failed'
                 ? <span className="flex items-center gap-1 text-error"><X size={14} /><span className="text-micro">Failed</span></span>
-                : <Copy size={14} />}
+                : <CopyIcon size={14} className="flex" />}
           </Action>
         )}
         {/* Off while a reply is arriving (MessageList's `data-replying`): both
@@ -99,7 +101,7 @@ export function MessageActions({
         )}
         {onRetry && (
           <Action label="Try again" onClick={onRetry} className={WHILE_IDLE}>
-            <RotateCcw size={14} />
+            <RotateCCWIcon size={14} className="flex" />
           </Action>
         )}
       </div>

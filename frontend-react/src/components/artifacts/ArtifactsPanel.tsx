@@ -1,7 +1,7 @@
 import { panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, useIsPresent } from 'framer-motion';
-import { Archive, ArchiveRestore, ArrowLeft, Check, ChevronDown, Clock, Download, ExternalLink as OpenIcon, FileBox, FileUp, Loader2, MessageSquare, Pencil, Trash2, X, type LucideIcon } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, Check, ChevronDown, Clock, ExternalLink as OpenIcon, FileBox, FileUp, Loader2, MessageSquare, Pencil, Trash2, X, type LucideIcon } from 'lucide-react';
 import {
   ArtifactAction,
   ArtifactActions,
@@ -14,6 +14,7 @@ import { emberText, liveUntil, revealedTo, unshown, type Ember } from '@/lib/emb
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SelectMenu } from '@/components/ui/select-menu';
 import { ArchiveIcon, type ArchiveIconHandle } from '@/components/ui/animated-icons/archive';
+import { DownloadIcon } from '@/components/ui/animated-icons/download';
 import { LiveFrame } from './LiveFrame';
 import { TablePreview } from './TablePreview';
 import { BoardView } from '@/components/board/BoardView';
@@ -549,7 +550,7 @@ function DockCard({ row, busy }: { row: ArtifactRow; busy: boolean }) {
           title="Export"
           className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-default bg-bg-surface text-text-muted hover:bg-text-primary/5 hover:text-text-primary disabled:opacity-60"
         >
-          <Download size={16} />
+          <DownloadIcon size={16} className="flex" />
         </button>
       </div>
     </div>
@@ -1107,7 +1108,7 @@ function Overview({ googleRegistered, onOpen }: { googleRegistered: boolean; onO
             onClick={() => void exportArtifact(row.id)}
             className={cn(button, 'flex-1 border-border-default bg-bg-elevated text-text-primary hover:bg-bg-hover')}
           >
-            <Download size={14} />
+            <DownloadIcon size={14} className="flex" />
             Export
           </button>
         </div>

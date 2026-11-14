@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AppWindow, ArrowRight, Code, Download, FileBox, FileText, Image as ImageIcon, LayoutDashboard, Share2, Table } from 'lucide-react';
+import { AppWindow, ArrowRight, Code, FileBox, FileText, Image as ImageIcon, LayoutDashboard, Share2, Table } from 'lucide-react';
+import { DownloadIcon } from '@/components/ui/animated-icons/download';
 import { BoardView } from '@/components/board/BoardView';
 import { parseBoard } from '@/lib/board';
 import type { ArtifactFact } from '@/hooks/useLiveToolActivity';
@@ -347,7 +348,7 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
                   onClick={() => void useArtifacts.getState().exportArtifact(f.id, { as: 'pdf', row: { title: f.title, kind: f.kind }, version: f.version })}
                   className={iconButton}
                 >
-                  <Download size={16} />
+                  <DownloadIcon size={16} className="flex" />
                 </button>
                 <button
                   type="button"
@@ -423,7 +424,7 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
           onClick={() => void useArtifacts.getState().exportArtifact(f.id, { as: asPdf ? 'pdf' : undefined, row: { title: f.title, kind: f.kind }, version: f.version })}
           className={iconButton}
         >
-          <Download size={16} />
+          <DownloadIcon size={16} className="flex" />
         </button>
         {canShare && (
           <button

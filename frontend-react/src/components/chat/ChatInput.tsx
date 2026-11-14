@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { tauri } from '@/lib/tauri';
-import { ArrowUp, Square, Mic, Phone, Clock } from 'lucide-react';
+import { Square, Mic, Phone, Clock } from 'lucide-react';
+import { SendIcon } from '@/components/ui/animated-icons/send';
+import { useIconHover } from '@/components/ui/animated-icons/useIconHover';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -112,6 +114,7 @@ export function writeDraft(id: string, text: string): void {
 // Mobile UX (deferred): swap to Enter=newline + explicit send button.
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 function ChatInput({ isEmpty, sendFn }, ref) {
+  const sendIcon = useIconHover();
   const [text, setText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   // Links pasted on their own become chips beside the files instead of a
@@ -825,8 +828,9 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                   disabled={(!text.trim() && attachedFiles.length === 0 && rec.state !== 'preview') || attachedFiles.some((f) => f.loading) || disabled}
                   aria-label="Send"
                   className="h-8 w-8 rounded-full"
+                  {...sendIcon.hover}
                 >
-                  <ArrowUp size={16} />
+                  <SendIcon ref={sendIcon.ref} size={16} className="flex" />
                 </Button>
               )}
             </div>
