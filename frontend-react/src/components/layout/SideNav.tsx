@@ -26,6 +26,7 @@ import { Kbd, MOD } from '@/components/ui/kbd';
 import { useMagnetic } from '@/hooks/useMagnetic';
 import { APP_NAME } from '@/lib/brand';
 import { BASE, FAST, MOTION, spring } from '@/lib/motion';
+import './navIcons.css';
 
 /**
  * Primary navigation. It answers exactly one question — where do I want to go —
@@ -66,15 +67,17 @@ export const NAV_COLLAPSED_W = 0;
  * does not. Two doors to one room, where the near one is already open.
  */
 const NAV = [
-  { to: '/models',   icon: Box,           label: 'Models' },
-  { to: '/settings', icon: Settings,      label: 'Settings' },
+  { to: '/models',   icon: Box,           label: 'Models',   anim: 'pop' },
+  { to: '/settings', icon: Settings,      label: 'Settings', anim: 'gear' },
 ] as const;
 
 function Row({
-  icon: Icon, label, collapsed, onClick, to, active, hint,
+  icon: Icon, label, collapsed, onClick, to, active, hint, anim,
 }: {
   icon: React.ComponentType<{ size?: number | string; strokeWidth?: number; className?: string }>;
   label: string;
+  /** The icon's hover move, from navIcons.css (search, lift, ring, spin, pop, gear). */
+  anim?: string;
   collapsed: boolean;
   onClick?: () => void;
   to?: string;
@@ -96,7 +99,7 @@ function Row({
         style={{ x: magnet.x, y: magnet.y }}
         className="flex shrink-0 items-center justify-center"
       >
-        <Icon size={18} strokeWidth={1.6} className="shrink-0 text-text-muted" />
+        <Icon size={18} strokeWidth={1.6} className={cn('shrink-0 text-text-muted', anim && `nav-ico nav-ico-${anim}`)} />
       </motion.span>
       <AnimatePresence initial={false}>
         {!collapsed && (
@@ -115,7 +118,7 @@ function Row({
   const classes = (isActive: boolean) => cn(
     // 15px in the secondary tone, white only where you are: the same weight
     // read heavy at 14.5px in full white next to Claude's lighter rail.
-    'w-full flex items-center gap-3 h-9 px-3 rounded-[10px] text-sm transition-colors cursor-pointer',
+    'nav-row w-full flex items-center gap-3 h-9 px-3 rounded-[10px] text-sm transition-colors cursor-pointer',
     collapsed && 'justify-center px-0',
     isActive ? 'bg-bg-active text-text-primary' : cn(ROW_HOVER, 'text-text-secondary hover:text-text-primary'),
   );
@@ -529,17 +532,17 @@ export function SideNav() {
         </div>
 
         <div className="mt-2 space-y-0.5 shrink-0">
-          <Row icon={Search} label="Search" collapsed={false} onClick={() => openSearch()} hint={<Kbd keys={[MOD, 'K']} />} />
+          <Row icon={Search} label="Search" anim="search" collapsed={false} onClick={() => openSearch()} hint={<Kbd keys={[MOD, 'K']} />} />
           {/* The artifacts' entrance. It sat in the chat header first, right
               under the window's maximize button, where a miss resizes the window.
               Named Artifacts, not Workspace: the agent's scratch folder is already
               called workspace, and one word for two places confused the agent.
               It opens the gallery page; a card there opens the side panel. */}
-          <Row icon={FileBox} label="Artifacts" collapsed={false} to="/artifacts" />
-          <Row icon={CalendarClock} label="Tasks" collapsed={false} to="/tasks" />
-          <Row icon={Globe} label="Browser" collapsed={false} onClick={openBrowser} active={pathname === '/chat' && browserOpen} />
+          <Row icon={FileBox} label="Artifacts" anim="lift" collapsed={false} to="/artifacts" />
+          <Row icon={CalendarClock} label="Tasks" anim="ring" collapsed={false} to="/tasks" />
+          <Row icon={Globe} label="Browser" anim="spin" collapsed={false} onClick={openBrowser} active={pathname === '/chat' && browserOpen} />
           {NAV.map((n) => (
-            <Row key={n.to} icon={n.icon} label={n.label} collapsed={false} to={n.to} />
+            <Row key={n.to} icon={n.icon} label={n.label} anim={n.anim} collapsed={false} to={n.to} />
           ))}
         </div>
 
