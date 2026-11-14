@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { tauri } from '@/lib/tauri';
-import { Square, Mic, Phone, Clock } from 'lucide-react';
+import { Square, Phone, Clock } from 'lucide-react';
 import { SendIcon } from '@/components/ui/animated-icons/send';
+import { AudioLinesIcon } from '@/components/ui/animated-icons/audio-lines';
 import { useIconHover } from '@/components/ui/animated-icons/useIconHover';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -115,6 +116,7 @@ export function writeDraft(id: string, text: string): void {
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 function ChatInput({ isEmpty, sendFn }, ref) {
   const sendIcon = useIconHover();
+  const voiceIcon = useIconHover();
   const [text, setText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   // Links pasted on their own become chips beside the files instead of a
@@ -787,14 +789,17 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                   onClick={onMicClick}
                   onPointerDown={onMicPointerDown}
                   onPointerUp={clearMicHold}
-                  onPointerLeave={clearMicHold}
+                  onPointerEnter={voiceIcon.hover.onPointerEnter}
+                  onPointerLeave={() => { clearMicHold(); voiceIcon.hover.onPointerLeave(); }}
+                  onFocus={voiceIcon.hover.onFocus}
+                  onBlur={voiceIcon.hover.onBlur}
                   aria-label={rec.state === 'recording' ? 'Stop recording' : 'Record voice message (hold to choose provider)'}
                   className={cn(
                     'group flex h-8 items-center rounded-full border border-border-default bg-bg-hover px-2 transition-colors hover:bg-bg-active',
                     rec.state === 'recording' ? 'text-error animate-pulse' : 'text-text-secondary hover:text-text-primary',
                   )}
                 >
-                  {rec.state === 'recording' ? <Square size={16} className="shrink-0" /> : <Mic size={16} className="shrink-0" />}
+                  {rec.state === 'recording' ? <Square size={16} className="shrink-0" /> : <AudioLinesIcon ref={voiceIcon.ref} size={16} className="flex shrink-0" />}
                   <span className="composer-slide-label text-sm">{rec.state === 'recording' ? 'Stop' : 'Record'}</span>
                 </button>
               )}
