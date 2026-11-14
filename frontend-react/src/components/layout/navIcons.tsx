@@ -20,21 +20,21 @@ const SPRING = 'cubic-bezier(.34, 1.56, .64, 1)';
 
 const MOVES: Record<string, Move> = {
   // Search: the magnifier tilts in to look, then settles.
-  search: [[{ transform: 'none' }, { transform: 'translate(-1px, -1px) rotate(-14deg) scale(1.08)', offset: 0.45 }, { transform: 'none' }], { duration: 520, easing: 'ease-out' }],
+  search: [[{ transform: 'none' }, { transform: 'translate(-1px, -1px) rotate(-14deg)', offset: 0.45 }, { transform: 'none' }], { duration: 520, easing: 'ease-out' }],
   // Artifacts: the three shapes Cubby made play one after another: the
   // triangle hops, the square tips over a quarter turn, the circle bounces.
-  'artifacts-triangle': [[{ transform: 'none' }, { transform: 'translateY(-3px)', offset: 0.4 }, { transform: 'translateY(0.5px)', offset: 0.75 }, { transform: 'none' }], { duration: 520, easing: 'ease-out' }],
+  'artifacts-triangle': [[{ transform: 'none' }, { transform: 'translateY(-3px)', offset: 0.4 }, { transform: 'translateY(1px)', offset: 0.75 }, { transform: 'none' }], { duration: 520, easing: 'ease-out' }],
   'artifacts-square': [[{ transform: 'rotate(0deg)' }, { transform: 'rotate(90deg)' }], { duration: 560, delay: 70, easing: SPRING }],
-  'artifacts-circle': [[{ transform: 'none' }, { transform: 'translateY(-3px) scale(0.92, 1.08)', offset: 0.35 }, { transform: 'translateY(0) scale(1.12, 0.88)', offset: 0.65 }, { transform: 'none' }], { duration: 560, delay: 140, easing: 'ease-out' }],
-  // Tasks: the calendar dips, the clock face pulses, and the hands sweep a
-  // full turn around the clock's centre, so they end where they started.
-  'tasks-calendar': [[{ transform: 'none' }, { transform: 'translateY(0.8px)', offset: 0.3 }, { transform: 'none' }], { duration: 420, easing: 'ease-out' }],
-  'tasks-face': [[{ transform: 'none' }, { transform: 'scale(1.14)', offset: 0.3 }, { transform: 'none' }], { duration: 640, easing: 'ease-out' }],
+  'artifacts-circle': [[{ transform: 'none' }, { transform: 'translateY(-3px)', offset: 0.35 }, { transform: 'translateY(1px)', offset: 0.7 }, { transform: 'none' }], { duration: 560, delay: 140, easing: 'ease-out' }],
+  // Tasks: the calendar dips, the clock face thickens for a beat, and the
+  // hands sweep a full turn around the clock's centre, ending where they began.
+  'tasks-calendar': [[{ transform: 'none' }, { transform: 'translateY(1px)', offset: 0.3 }, { transform: 'none' }], { duration: 420, easing: 'ease-out' }],
+  'tasks-face': [[{ strokeWidth: 'var(--nav-stroke)' }, { strokeWidth: 'calc(var(--nav-stroke) + 0.9px)', offset: 0.3 }, { strokeWidth: 'var(--nav-stroke)' }], { duration: 640, easing: 'ease-out' }],
   'tasks-hands': [[{ transform: 'rotate(0deg)' }, { transform: 'rotate(360deg)' }], { duration: 760, easing: 'cubic-bezier(.45, 0, .2, 1)' }],
   // Browser: the globe turns once, a full turn, so it ends where it began.
   spin: [[{ transform: 'perspective(40px) rotateY(0deg)' }, { transform: 'perspective(40px) rotateY(360deg)' }], { duration: 720, easing: 'cubic-bezier(.45, 0, .2, 1)' }],
-  // Models: the box pops.
-  pop: [[{ transform: 'none' }, { transform: 'scale(1.15) rotate(-6deg)', offset: 0.45 }, { transform: 'none' }], { duration: 460, easing: 'ease-out' }],
+  // Models: the box hops and tips, then lands.
+  pop: [[{ transform: 'none' }, { transform: 'translateY(-2px) rotate(-10deg)', offset: 0.45 }, { transform: 'none' }], { duration: 460, easing: 'ease-out' }],
   // Settings: the gear turns 120 degrees; with six teeth it lands looking unmoved.
   gear: [[{ transform: 'rotate(0deg)' }, { transform: 'rotate(120deg)' }], { duration: 700, easing: SPRING }],
 };
@@ -47,7 +47,15 @@ export function playNavIcons(row: Element): void {
     if (!move || typeof el.animate !== 'function') return;
     // Still playing from the last hover: let it finish rather than restart it.
     if (el.getAnimations().some((a) => a.playState === 'running')) return;
-    el.animate(move[0], move[1]);
+    // Sharp, not blurred: a transform-only animation is handed to the GPU,
+    // which moves a picture of the 18px icon and blurs it while it turns.
+    // Carrying the stroke width in every frame keeps it on the main thread,
+    // where the icon is drawn again, crisp, each frame. Same width, so
+    // nothing visible changes.
+    const width = getComputedStyle(el).strokeWidth || '1.6';
+    el.style.setProperty('--nav-stroke', width);
+    const frames = move[0].map((f) => ('strokeWidth' in f ? f : { ...f, strokeWidth: width }));
+    el.animate(frames, move[1]);
   });
 }
 
