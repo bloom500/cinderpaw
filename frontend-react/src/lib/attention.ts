@@ -19,7 +19,9 @@ import { create } from 'zustand';
  * over both, because the notice column sits above them. A notice may still
  * win its turn meanwhile; it shows the moment the screen is free.
  */
-export const ATTENTION_ORDER = ['whatsNew', 'update', 'usage'] as const;
+// `phone` (13 Nov) comes before `usage`: it offers the person something, the
+// usage question asks them for something.
+export const ATTENTION_ORDER = ['whatsNew', 'update', 'phone', 'usage'] as const;
 export type AttentionSlot = (typeof ATTENTION_ORDER)[number];
 
 interface Attention {

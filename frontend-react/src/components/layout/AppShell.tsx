@@ -13,6 +13,7 @@ import { SearchOverlay } from '@/components/chat/SearchOverlay';
 import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
 import { UpdateToast } from '@/components/UpdateToast';
 import { ShareUsageCard } from '@/components/usage/ShareUsageCard';
+import { ConnectPhoneCard } from '@/components/ConnectPhoneCard';
 import { WhatsNew } from '@/components/WhatsNew';
 import { ConnectedDialog } from '@/components/ConnectedDialog';
 import { PageQuestionDialog } from '@/components/browser/PageQuestionDialog';
@@ -188,6 +189,8 @@ export function AppShell() {
           <CoworkApprovalDock />
           {/* Persistent cards wait until the page stops covering; they are not lost. */}
           {!overPage && <UpdateToast />}
+          {/* Offered once, after a first conversation: the phone (13 Nov). */}
+          {!overPage && <ConnectPhoneCard />}
           {/* The usage question, in the same card and place as the update (21 Oct). */}
           {!overPage && <ShareUsageCard />}
           <Toasts compact={overPage} />

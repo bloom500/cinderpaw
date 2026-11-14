@@ -206,6 +206,8 @@ function PhoneRow() {
   // with themselves, and WhatsApp never rings for that: "it arrived but the
   // phone did not ring" read as broken (smoke test, 7 Nov).
   const silent = phone.via === 'whatsapp' ? ' It comes in your chat with yourself, so your phone stays silent.' : '';
+  // Spec 4.8: say on screen that nothing reaches anyone once the app is quit.
+  const closed = ' If you quit Cinderpaw, nothing reaches you. The tray is fine.';
   const button = 'rounded-full px-3 py-1 text-xs font-medium transition-colors';
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm" data-testid="phone-row">
@@ -213,9 +215,9 @@ function PhoneRow() {
       <span className="min-w-0 flex-1 text-text-secondary">
         {testing ? 'Sending a test…'
           : name && phone.tested ? `Test sent to your ${name}. Did it arrive?${silent}`
-          : name ? `Tasks also reach you on ${name}.${silent}`
+          : name ? `Tasks also reach you on ${name}.${silent}${closed}`
           : phone.tested ? 'No phone app answered. Connect one, then try again.'
-          : 'Tasks reach you only here. Get them on your phone too.'}
+          : `Tasks reach you only here. Get them on your phone too.${closed}`}
       </span>
       {name ? (
         <button type="button" disabled={testing} onClick={testPhone} className={cn(button, 'border border-border-default text-text-secondary hover:text-text-primary disabled:opacity-60')}>

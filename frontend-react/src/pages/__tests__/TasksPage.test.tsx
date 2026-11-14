@@ -52,13 +52,14 @@ it('distinguishes a completed source watch from a paused one', () => {
 it('says where tasks reach you, sends a real test, and points to connecting a phone when none is', async () => {
  useTasks.setState({phone:{via:'telegram',tested:false},testing:false});
  const {unmount}=render(<MemoryRouter><TasksPage/></MemoryRouter>);
- expect(screen.getByText('Tasks also reach you on Telegram.')).toBeVisible();
+ expect(screen.getByText('Tasks also reach you on Telegram. If you quit Cinderpaw, nothing reaches you. The tray is fine.')).toBeVisible();
  await userEvent.click(screen.getByRole('button',{name:'Send a test'}));
  expect(invoke).toHaveBeenCalledWith('cinderpaw_cron_op',expect.objectContaining({action:'test_notify'}));
  expect(screen.getByText('Sending a test…')).toBeVisible();
  unmount();
  useTasks.setState({phone:{via:null,tested:false},testing:false});
  render(<MemoryRouter><TasksPage/></MemoryRouter>);
- expect(screen.getByText('Tasks reach you only here. Get them on your phone too.')).toBeVisible();
+ // Spec 4.8, a new install: the silence while the app is quit is said on screen.
+ expect(screen.getByText('Tasks reach you only here. Get them on your phone too. If you quit Cinderpaw, nothing reaches you. The tray is fine.')).toBeVisible();
  expect(screen.getByRole('button',{name:'Connect your phone'})).toBeVisible();
 });
