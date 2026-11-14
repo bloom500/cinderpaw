@@ -1,6 +1,6 @@
 /* highlight.js themes must come before @tailwind to satisfy CSS @import order */
 @import 'highlight.js/styles/atom-one-dark.css' layer(base);
-/* Geist is bundled by the CSS import in main.tsx so Vite rebases its font URLs
+/* Inter is bundled by the CSS import in main.tsx so Vite rebases its font URLs
    before Tailwind inlines the rest of this stylesheet. */
 
 @import 'tailwindcss';
@@ -11,7 +11,7 @@
 @import 'tw-animate-css';
 /* Young Serif: display only (logo, greetings, page and document titles).
    One weight, no italic, so it never sets running text: a bold or italic
-   Young Serif would be faked by the browser. Vendored under OFL like Geist is
+   Young Serif would be faked by the browser. Vendored under OFL like Inter is
    bundled, because the CSP allows fonts from 'self' only. Ranges are
    fontsource's (@fontsource/young-serif, read 27 Sep); latin-ext carries
    the Romanian letters (Ș ș Ț ț Ă ă). */
@@ -289,7 +289,7 @@
 
 @layer base {
   html {
-    font-family: 'Geist Variable', Geist, system-ui, sans-serif;
+    font-family: 'Inter Variable', Inter, system-ui, sans-serif;
   }
   /* A press you can feel. One button in 269 answered being pressed (23 Sep);
      the rest changed colour on hover and then nothing, so a click read as

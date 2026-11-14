@@ -182,7 +182,7 @@ export function AppearanceTab() {
           value={chatFont}
           onPick={setChatFont}
           options={[
-            { value: 'geist', label: 'Geist', note: "Cinderpaw's own typeface", font: "'Geist Variable', Geist, sans-serif" },
+            { value: 'inter', label: 'Inter', note: "Cinderpaw's own typeface", font: "'Inter Variable', Inter, sans-serif" },
             { value: 'system', label: 'System font', note: 'The one your computer uses everywhere else', font: SYSTEM_FONT },
           ]}
         />
