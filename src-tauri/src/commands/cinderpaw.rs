@@ -1002,6 +1002,9 @@ fn cron_op_line(
             "outcome": if action == "nudge_opened" { "opened" } else { "dismissed" },
         }),
         "nudge_opened" | "nudge_dismissed" => return Err("no card selected".to_string()),
+        // Undo on a line of "What I learned": that kind and time of day start counting again.
+        "learned_undo" if present(&job_id) => serde_json::json!({ "type": "learned_undo", "id": request_id, "sourceId": job_id }),
+        "learned_undo" => return Err("no line selected".to_string()),
         // The window was focused: the person is at the computer, so a nudge
         // rings here instead of on the phone.
         "presence" => serde_json::json!({ "type": "presence", "id": request_id }),
@@ -1062,6 +1065,14 @@ mod cron_op_tests {
         let opened: serde_json::Value = serde_json::from_str(&cron_op_line("r", "nudge_opened", Some("run-1".into()), None, None, None, None, None, None).unwrap()).unwrap();
         assert_eq!(opened["outcome"], "opened");
         assert!(cron_op_line("r", "nudge_opened", None, None, None, None, None, None, None).is_err());
+    }
+
+    #[test]
+    fn learned_undo_names_the_line() {
+        let v: serde_json::Value = serde_json::from_str(&cron_op_line("r", "learned_undo", Some("followup:evening".into()), None, None, None, None, None, None).unwrap()).unwrap();
+        assert_eq!(v["type"], "learned_undo");
+        assert_eq!(v["sourceId"], "followup:evening");
+        assert!(cron_op_line("r", "learned_undo", None, None, None, None, None, None, None).is_err());
     }
 
     #[test]

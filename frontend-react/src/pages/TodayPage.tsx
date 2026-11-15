@@ -87,6 +87,29 @@ const LABEL = 'text-sm font-medium text-text-muted';
 const LIST = 'rounded-2xl bg-bg-surface py-1.5';
 const ROW = 'flex min-h-[52px] items-center gap-3.5 px-6';
 
+/**
+ * What the agent learned to stop saying (spec 4.7), each line with Undo.
+ * Hidden while there is nothing learned: an empty list says nothing useful.
+ */
+export function Learned() {
+  const learned = useTasks((s) => s.learned);
+  const undo = useTasks((s) => s.undoLearned);
+  if (!learned.length) return null;
+  return (
+    <section aria-labelledby="today-learned" className={SECTION}>
+      <h2 id="today-learned" className={LABEL}>What I learned</h2>
+      <ul className="space-y-2">
+        {learned.map((l) => (
+          <li key={l.bucket} className="flex items-start justify-between gap-3 text-sm text-text-secondary">
+            <span>{l.line}</span>
+            <button type="button" onClick={() => undo(l.bucket)} className="shrink-0 rounded-full border border-border-default px-3 py-1 text-xs font-medium text-text-primary hover:bg-bg-hover">Undo</button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export function TodayPage() {
   const t = useT();
   const navigate = useNavigate();
@@ -197,6 +220,7 @@ export function TodayPage() {
           </section>
 
           {week && <ThisWeek agent={agent} week={week} now={now} />}
+          <Learned />
         </main>
       </div>
     </div>

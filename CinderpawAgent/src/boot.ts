@@ -140,7 +140,7 @@ import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
 import { HookRegistry } from "./core/hook-registry.ts";
 import { CronJobsRepo, CronScheduler, deliverCron } from "./cron/index.ts";
-import { maybeSendDigest } from "./cron/digest.ts";
+import { maybeSendDigest, maybeSendReceipt } from "./cron/digest.ts";
 import { firstPriceRead, isPriceWatch } from "./cron/watch.ts";
 import { CoworkAgentRepo } from "./cowork/agent-store.ts";
 import { CoworkMailboxRepo } from "./cowork/mailbox.ts";
@@ -471,7 +471,9 @@ export async function boot(transportOverride?: Transport) {
   const runStore = new RunStore(db.raw);
   const followUps = new FollowUpLedger(db.raw);
   // Every message Cubby sends first goes through this one door.
-  const nudges = new Nudges(db.raw);
+  // With the digest off (CINDERPAW_DIGEST_HOUR=-1) nothing can carry a held
+  // note, so the rule drops instead of holding (spec 4.5b).
+  const nudges = new Nudges(db.raw, { digestOn: () => { const h = Number(readEnv("CINDERPAW_DIGEST_HOUR") ?? 20); return Number.isFinite(h) && h >= 0; } });
   nudges.expire(); // reactions are settled lazily; boot is one of the moments
   // Lifecycle events, never idle model polling. The card only opens prior work;
   // it does not authorize a resumed task or any external action.
@@ -3070,6 +3072,7 @@ export async function boot(transportOverride?: Transport) {
         void maybeSendDigest({
           hour: digestHour,
           jobs: () => cronRepo.list(),
+          held: (since) => nudges.heldSince(since),
           send: (text) => nudges.route({ kind: "digest" }, {
             phone: notifyOwner ? () => notifyOwner!(text) : null,
             desktop: (rang) => {
@@ -3077,6 +3080,18 @@ export async function boot(transportOverride?: Transport) {
             },
           }),
         }).then((sent) => { if (sent) log("tasks: daily digest sent"); }).catch((e) => log(`tasks: digest failed: ${String(e)}`));
+        // Sunday's receipt, the same hour; it is something Cubby chose to say, so the rule applies.
+        void maybeSendReceipt({
+          hour: digestHour,
+          jobs: () => cronRepo.list(),
+          week: () => nudges.week(),
+          send: (text) => nudges.route({ kind: "receipt" }, {
+            phone: notifyOwner ? () => notifyOwner!(text) : null,
+            desktop: (rang) => {
+              if (!rang) transport.send({ type: "cron_fired", jobId: "receipt", jobName: "Your week", sessionId: "", content: text });
+            },
+          }),
+        }).then((sent) => { if (sent) log("tasks: weekly receipt sent"); }).catch((e) => log(`tasks: receipt failed: ${String(e)}`));
       }, 10 * 60_000);
       digestTimer.unref?.();
     }

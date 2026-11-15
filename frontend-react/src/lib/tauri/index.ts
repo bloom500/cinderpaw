@@ -815,7 +815,7 @@ export type CinderpawAgentEvent =
   /** The first message after a model is connected, written by the model (lib/welcome.ts). */
   | { type: 'welcome_ready'; id: string; sessionId: string; content: string }
   // Every scheduled task, answering `cinderpawCronOp`, after the change it made.
-  | { type: 'cron_list_result'; id: string; ok: boolean; error?: string; note?: string; jobs: ScheduledTask[]; taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number }; phone?: { via: string | null; tested: boolean }; week?: { wroteFirst: number; answered: number; days: number[] } }
+  | { type: 'cron_list_result'; id: string; ok: boolean; error?: string; note?: string; learned?: { bucket: string; line: string }[]; jobs: ScheduledTask[]; taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number }; phone?: { via: string | null; tested: boolean }; week?: { wroteFirst: number; answered: number; days: number[] } }
   | { type: 'cron_error'; jobId: string; jobName: string; message: string }
   // Agent Cowork (S3.5): one agent-to-agent occurrence, rendered as an
   // activity bubble on the mascot strip. `title` is the human-readable
@@ -1177,7 +1177,7 @@ const raw = {
   cinderpawCoworkHistory: (threadId?: string | null) =>
     invoke<void>('cinderpaw_cowork_history', { threadId: threadId ?? null }),
   /** Scheduled tasks: list, add, remove, toggle. Answered by a `cron_list_result` event. */
-  cinderpawCronOp: (requestId: string, action: 'list' | 'followups' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit' | 'test_notify' | 'nudge_opened' | 'nudge_dismissed' | 'presence' | 'followups_setting' | 'welcome', opts: {
+  cinderpawCronOp: (requestId: string, action: 'list' | 'followups' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit' | 'test_notify' | 'nudge_opened' | 'nudge_dismissed' | 'learned_undo' | 'presence' | 'followups_setting' | 'welcome', opts: {
     jobId?: string; name?: string; task?: string; schedule?: TaskSchedule; kind?: 'agent' | 'reminder' | 'watch'; sessionId?: string; enabled?: boolean; watch?: ScheduledTask['watch']; expiryDays?: number;
     /** 'add' only: the person asked for it on their phone. */
     toPhone?: boolean;

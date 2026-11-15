@@ -2116,6 +2116,12 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         }
         break;
       }
+      // Undo on a line of "What I learned" (spec 4.7): `sourceId` is the bucket, e.g. "followup:evening".
+      case "learned_undo": {
+        if (typeof msg.sourceId === "string") ctx.nudges.undo(msg.sourceId);
+        transport.send({ ...cronListResult(msg.id ?? "", cronRepo.list()), week: ctx.nudges.week(), learned: ctx.nudges.learned() });
+        break;
+      }
       // The window was focused: the person is at the computer (spec 4.4).
       case "presence": {
         ctx.nudges.seen();
@@ -2142,7 +2148,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         const phone = msg.testNotify
           ? { via: await connectors.notifyOwner("✅ Cinderpaw can reach you here. Tasks you set up will tell you in this chat."), tested: true }
           : { via: connectors.ownerChannel(), tested: false };
-        transport.send({ ...cronListResult(msg.id ?? "", jobs, limitError, limit.view()), phone, week: ctx.nudges.week() });
+        transport.send({ ...cronListResult(msg.id ?? "", jobs, limitError, limit.view()), phone, week: ctx.nudges.week(), learned: ctx.nudges.learned() });
         log(`cron_list → ${jobs.length} job(s)`);
         break;
       }

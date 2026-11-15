@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ScheduledTask } from '@/lib/tauri';
 import { doneLately, headline, plannedToday } from '../TodayPage';
 
@@ -43,5 +43,23 @@ describe('Today', () => {
     expect(headline(0)).toBe('Nothing needs you right now. The rest is handled.');
     expect(headline(1)).toBe('One thing needs you. The rest is handled.');
     expect(headline(3)).toBe('3 things need you. The rest is handled.');
+  });
+});
+
+describe('What I learned (spec 4.7)', () => {
+  it('shows each learned line with Undo, sends the Undo, and is hidden when empty', async () => {
+    const { render, screen, fireEvent } = await import('@testing-library/react');
+    const { useTasks } = await import('@/stores/tasks');
+    const { Learned } = await import('../TodayPage');
+    const undoLearned = vi.fn();
+    useTasks.setState({ learned: [], undoLearned });
+    const empty = render(<Learned />);
+    expect(empty.container).toBeEmptyDOMElement();
+    empty.unmount();
+    useTasks.setState({ learned: [{ bucket: 'followup:evening', line: 'I stopped mentioning unfinished work in the evening. You closed it 3 times.' }], undoLearned });
+    render(<Learned />);
+    expect(screen.getByText(/I stopped mentioning unfinished work in the evening/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(undoLearned).toHaveBeenCalledWith('followup:evening');
   });
 });

@@ -23,6 +23,9 @@ interface TasksStore {
   phone: { via: string | null; tested: boolean } | null;
   /** The Today page's "This week" card: sends, reactions, sends per day (oldest first). */
   week: { wroteFirst: number; answered: number; days: number[] } | null;
+  /** "What I learned" (spec 4.7): what the agent stopped saying, each with its Undo key. */
+  learned: { bucket: string; line: string }[];
+  undoLearned: (bucket: string) => void;
   testing: boolean;
   /** Send a real notice to the phone, and learn where it went. */
   testPhone: () => void;
@@ -37,7 +40,7 @@ interface TasksStore {
   edit: (job: ScheduledTask, changes: {name:string;task:string;schedule:ScheduledTask["schedule"];watch?:ScheduledTask["watch"];expiryDays?:number}) => void;
   create: (card: TaskCard, sessionId: string) => void;
   dismiss: (cardId: string) => void;
-  receive: (e: { id: string; ok: boolean; error?: string; note?: string; jobs: ScheduledTask[]; taskLimit?: TasksStore['limit']; phone?: TasksStore['phone']; week?: TasksStore['week'] }) => void;
+  receive: (e: { id: string; ok: boolean; error?: string; note?: string; jobs: ScheduledTask[]; taskLimit?: TasksStore['limit']; phone?: TasksStore['phone']; week?: TasksStore['week']; learned?: TasksStore['learned'] }) => void;
 }
 
 /** Which card a request was for, so its answer can settle that card. */
@@ -50,7 +53,7 @@ export const isCreated = (jobs: ScheduledTask[], card: TaskCard) =>
 export const useTasks = create<TasksStore>()((set) => {
   const settle = (cardId: string, state: 'created' | 'failed', error?: string, note?: string) =>
     set((s) => ({ creating: { ...s.creating, [cardId]: { state, error, ...(note ? { note } : {}) } } }));
-  const send = (action: 'list' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit' | 'test_notify', opts: Parameters<typeof tauri.raw.cinderpawCronOp>[2] = {}, forCard?: string) => {
+  const send = (action: 'list' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit' | 'test_notify' | 'learned_undo', opts: Parameters<typeof tauri.raw.cinderpawCronOp>[2] = {}, forCard?: string) => {
     const requestId = crypto.randomUUID();
     if (forCard) pendingCreate.set(requestId, forCard);
     tauri.raw.cinderpawCronOp(requestId, action, opts).catch((err: unknown) => {
@@ -69,6 +72,8 @@ export const useTasks = create<TasksStore>()((set) => {
     setLimit: (weeklyUsd) => send('limit', { weeklyLimitUsd: weeklyUsd }),
     phone: null,
     week: null,
+    learned: [],
+    undoLearned: (bucket) => send('learned_undo', { jobId: bucket }),
     testing: false,
     testPhone: () => {
       set({ testing: true });
@@ -94,6 +99,7 @@ export const useTasks = create<TasksStore>()((set) => {
         phone: e.phone && (e.phone.tested || !s.phone?.tested) ? e.phone : s.phone,
         testing: e.phone?.tested ? false : s.testing,
         week: e.week ?? s.week,
+        learned: e.learned ?? s.learned,
       }));
       if (forCard) settle(forCard, e.ok ? 'created' : 'failed', e.error, e.note);
     },

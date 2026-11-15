@@ -1319,7 +1319,7 @@ export interface InboundMessage {
     | "tool_response"
     | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list"
     // The unfinished-work card was opened or dismissed (`sourceId`, `outcome`).
-    | "nudge_reaction"
+    | "nudge_reaction" | "learned_undo"
     // The window was focused; and its "Follow-up suggestions" choice (`enabled`).
     | "presence" | "followups_setting" | "welcome"
     | "desktop_control_response" | "capability_response" | "admin_response" | "connectors_reload"
@@ -2347,6 +2347,8 @@ export type OutboundEvent =
       taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number };
       /** After adding a price watch: the price read on accept, said on the card (spec 4.10). */
       note?: string;
+      /** "What I learned" (spec 4.7): one line per kind and time Cubby stopped, each with its Undo key. */
+      learned?: Array<{ bucket: string; line: string }>;
       /** The Today page's "This week" card, from the nudge ledger (Nudges.week). */
       week?: { wroteFirst: number; answered: number; days: number[] };
       /** Where a fired task reaches the owner away from the computer (a
