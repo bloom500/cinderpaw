@@ -126,6 +126,35 @@ if (import.meta.main) {
           process.exit(2);
           break;
         }
+        // Spec slice 8: the two numbers, read-only, from this computer's ledger. Nothing is sent.
+        case "numbers": {
+          const { existsSync } = await import("node:fs");
+          const { Database } = await import("bun:sqlite");
+          const { join } = await import("node:path");
+          const { cinderpawHome, defaultDbPath } = await import("./config.ts");
+          const { Nudges } = await import("./core/nudges.ts");
+          // The desktop app keeps its history in agent/cinderpaw.db (src-tauri lib.rs); a terminal-only
+          // install uses data/. Same order the engine follows when the app starts it.
+          const appDb = join(cinderpawHome(), "agent", "cinderpaw.db");
+          const path = process.env.CINDERPAW_DB ?? (existsSync(appDb) ? appDb : defaultDbPath());
+          if (!existsSync(path)) { console.log(`No data yet: ${path} does not exist.`); break; }
+          // Read-only: works while the app is running (the engine holds the writer lock).
+          const db = new Database(path, { readonly: true });
+          try {
+            const n = new Nudges(db, { rule: false }).numbers();
+            const total = Object.values(n.kinds).reduce((s, k) => s + k.sent, 0);
+            console.log(`Answered or acted on something in each of the last two weeks: ${n.answeredTwoWeeks ? "yes" : "no"}`);
+            console.log(`Things you asked for that went out on time: ${n.onTimePct === null ? "none yet" : `${n.onTimePct}%`}`);
+            console.log(`\nMessages the agent sent first: ${total}`);
+            for (const [kind, k] of Object.entries(n.kinds)) console.log(`  ${kind.padEnd(9)} sent ${k.sent}, reacted ${k.positive}, closed ${k.dismissed}, days with a reaction ${k.daysAnswered}`);
+            console.log("\nThese numbers stay on this computer.");
+          } catch {
+            console.log("No numbers yet: the agent has not written first on this computer.");
+          } finally {
+            db.close();
+          }
+          break;
+        }
         // `brain` has no CLI command to redirect to — the help text has been
         // promising one that does not exist. The sidecar is what reads
         // brain.json, so it is the honest place to answer from.

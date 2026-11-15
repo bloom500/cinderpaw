@@ -41,6 +41,7 @@ export type Subcommand =
   | "models"
   | "providers"
   | "brain"
+  | "numbers"
   | "help"
   | "version";
 
@@ -96,6 +97,9 @@ export function normaliseSubcommand(raw: string): Subcommand | null {
       return "providers";
     case "brain":
       return "brain";
+    case "numbers":
+    case "metrics":
+      return "numbers";
     case "help":
     case "--help":
     case "-h":
@@ -126,6 +130,7 @@ export function dispatch(args: ParsedArgs): DispatchResult {
     case "models":
     case "providers":
     case "brain":
+    case "numbers":
       return { kind: "subcommand", name: args.subcommand };
   }
 }
@@ -146,6 +151,8 @@ Usage:
   cinderpaw models       List installed local models.  (the cinderpaw CLI)
   cinderpaw providers    List configured cloud providers.  (the cinderpaw CLI)
   cinderpaw brain        Show brain.json + the active routing policy.
+  cinderpaw numbers      How often the agent wrote first and how often you reacted.
+                         Read-only, from this computer; nothing is sent.
   cinderpaw help         This text.
   cinderpaw version      Print version and exit.
 

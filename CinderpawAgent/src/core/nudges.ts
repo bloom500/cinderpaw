@@ -248,6 +248,32 @@ export class Nudges {
   }
 
   /**
+   * What "Send my numbers" may send (spec 4.12, slice 8): counts only. Per kind: sent, answered/opened/acted,
+   * closed, and on how many different days the person reacted; plus the two section-1 numbers, as numbers.
+   * No text, titles, ids, channels or times leave this function, so none can leave the machine through it.
+   */
+  numbers(now = Date.now()): {
+    v: 1;
+    kinds: Partial<Record<NudgeKind, { sent: number; positive: number; dismissed: number; daysAnswered: number }>>;
+    answeredTwoWeeks: 0 | 1;
+    onTimePct: number | null;
+  } {
+    const kinds: Partial<Record<NudgeKind, { sent: number; positive: number; dismissed: number; daysAnswered: number }>> = {};
+    const rows = this.#db.query(`SELECT kind,
+        SUM(CASE WHEN decision = 'sent' THEN 1 ELSE 0 END) AS sent,
+        SUM(CASE WHEN outcome IN ('answered', 'opened', 'acted') THEN 1 ELSE 0 END) AS positive,
+        SUM(CASE WHEN outcome = 'dismissed' THEN 1 ELSE 0 END) AS dismissed,
+        COUNT(DISTINCT CASE WHEN outcome IN ('answered', 'opened', 'acted') THEN CAST(outcome_at / 86400000 AS INTEGER) END) AS days
+      FROM nudges GROUP BY kind`).all() as Array<{ kind: string; sent: number; positive: number | null; dismissed: number | null; days: number }>;
+    for (const r of rows) {
+      if (!(r.kind in ABOUT)) continue; // only the known kinds, never a stored string
+      kinds[r.kind as NudgeKind] = { sent: Number(r.sent) || 0, positive: Number(r.positive) || 0, dismissed: Number(r.dismissed) || 0, daysAnswered: Number(r.days) || 0 };
+    }
+    const m = this.metrics(now);
+    return { v: 1, kinds, answeredTwoWeeks: m.answeredTwoWeeks ? 1 : 0, onTimePct: m.onTime === null ? null : Math.round(m.onTime * 1000) / 10 };
+  }
+
+  /**
    * The two numbers the spec is judged by (section 1), from this computer's
    * ledger only. `answeredTwoWeeks`: the person answered, opened or acted on at
    * least one nudge in each of the last two weeks. `onTime`: the share of
