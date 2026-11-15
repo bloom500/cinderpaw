@@ -57,6 +57,8 @@ import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { describeScope } from "./memory/fractal/bench/runner.ts";
 import { routerInfer } from "./memory/fractal/summarize.ts";
 import { runBareTurn } from "./core/bare-turn.ts";
+import { writeWelcome } from "./core/welcome.ts";
+import { loadUserConfig } from "./core/user-loader.ts";
 import { parseResponse } from "./core/agent-loop.ts";
 import { BrainStack } from "./brain/brain-stack.ts";
 import { rebuildDerivedBrain } from "./brain/brain-config.ts";
@@ -1850,6 +1852,32 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       // A call that Gemini conducted, filed after the fact. No reply is
       // generated and no event is emitted beyond the ack: the user already
       // heard the answer, live, and the only thing missing was the record.
+      // The first message after a model is connected: the model writes it from
+      // the app names the window sent, it is filed as the agent's turn, and the
+      // window shows it. Always answered, with the fixed welcome if the model fails.
+      case "welcome": {
+        // In the background: a model call takes seconds, and the person may
+        // already be typing their first message.
+        const sessionId = msg.sessionId ?? "default";
+        const user = loadUserConfig();
+        void writeWelcome({
+          agentName: user.agentName,
+          userName: user.userName,
+          apps: (msg.content ?? "").split("\n").map((a) => a.trim()).filter(Boolean),
+          local: router.isPrimaryLocal,
+          complete: async (system, prompt) => (await router.complete({
+            sessionId,
+            messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
+            maxTokens: 600,
+            cachePrompt: false,
+          })).content,
+        }).then(async (content) => {
+          await agent.recordTurn(sessionId, "", content);
+          transport.send({ type: "welcome_ready", id: msg.id ?? "", sessionId, content });
+        }).catch((err) => log(`welcome failed: ${String(err)}`));
+        break;
+      }
+
       case "record_turn": {
         await agent.recordTurn(
           msg.sessionId ?? "default",
@@ -2114,7 +2142,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         const phone = msg.testNotify
           ? { via: await connectors.notifyOwner("✅ Cinderpaw can reach you here. Tasks you set up will tell you in this chat."), tested: true }
           : { via: connectors.ownerChannel(), tested: false };
-        transport.send({ ...cronListResult(msg.id ?? "", jobs, limitError, limit.view()), phone });
+        transport.send({ ...cronListResult(msg.id ?? "", jobs, limitError, limit.view()), phone, week: ctx.nudges.week() });
         log(`cron_list → ${jobs.length} job(s)`);
         break;
       }
@@ -2129,9 +2157,13 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             agent.stop(`cron:${m.id}`);
             router.setSessionSpendAuthority(`cron:${m.id}`, null);
           }
+          // A new or changed price watch reads the page once first; a failed
+          // read, or a price already under the limit, creates nothing (spec 4.10).
+          const before = m.id ? cronRepo.get(m.id)?.watch : undefined;
+          const note = JSON.stringify(before) === JSON.stringify(m.watch) ? null : await ctx.priceFirstRead(m.watch);
           const job = cronRepo.upsert(m);
           log(`cron_add → ${job.id} (${job.name})`);
-          if (m.requestId) transport.send(cronListResult(m.requestId, cronRepo.list()));
+          if (m.requestId) transport.send({ ...cronListResult(m.requestId, cronRepo.list()), ...(note ? { note } : {}) });
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
           if (m.requestId) transport.send(cronListResult(m.requestId, cronRepo.list(), detail));

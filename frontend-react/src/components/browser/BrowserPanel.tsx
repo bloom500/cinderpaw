@@ -81,11 +81,13 @@ function place(r: DOMRect | null) {
  * native view, and a native view is always on top of anything React draws, so
  * a chat floating over it would be hidden behind it.
  */
-export function BrowserPanel({ chat, onCompose, compact = false }: {
+export function BrowserPanel({ chat, onCompose, onContinue, compact = false }: {
   compact?: boolean;
   chat?: React.ReactNode;
   /** Summarize this page: words for the composer, sent by the person (spec 7.5). */
   onCompose?: (text: string) => void;
+  /** After a take-over: hand the page back to the agent in one press, sent as a message. */
+  onContinue?: () => void;
 }) {
   const {
     url: rawUrl, loading, error, notice, open, go, setPanel, tabs, active, newTab, switchTab, closeTab, reopenTab,
@@ -877,6 +879,17 @@ export function BrowserPanel({ chat, onCompose, compact = false }: {
         >
           <img src={logoUrl} alt="" className={cn('h-5 w-5 shrink-0', agent.busy && 'animate-pulse')} />
           <span className="min-w-0 flex-1 truncate">{agentLine(agent)}</span>
+          {/* Paused because the person took over: one press gives the page back,
+              instead of writing to the agent in the chat (Darius, 14 Nov). */}
+          {agent.op === 'paused' && onContinue && (
+            <button
+              type="button"
+              onClick={() => { useBrowser.setState({ agent: null }); onContinue(); }}
+              className="h-7 shrink-0 rounded-lg bg-brand px-3 text-xs font-medium text-on-brand hover:bg-brand/90"
+            >
+              Let Cinderpaw continue
+            </button>
+          )}
           {agent.op !== 'paused' && (
             <button
               type="button"
@@ -1121,7 +1134,7 @@ function agentLine(a: { op: string; url?: string; ref?: string; busy: boolean })
     type: a.ref ? `Cinderpaw typed into control ${a.ref}` : 'Cinderpaw typed',
     scroll: 'Cinderpaw scrolled', back: 'Cinderpaw went back', forward: 'Cinderpaw went forward',
     reload: 'Cinderpaw reloaded the page',
-    paused: 'You took over; Cinderpaw paused and will ask before continuing',
+    paused: 'You took over, so Cinderpaw paused',
   };
   const line = what[a.op] ?? `Cinderpaw: ${a.op}`;
   return a.busy ? `${line}…` : line;

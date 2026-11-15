@@ -327,8 +327,6 @@ export const MessageItem = memo(function MessageItem({
         ? (onAnswer || answered !== undefined) && <NextStepCard ask={followUps.ask} next={followUps.next} onAnswer={onAnswer} answered={answered} />
         : onFollowUp && <FollowUps next={followUps.next} onPick={onFollowUp} />
       )}
-      {/* Always shown, not on hover: a bare reply filmed without this line
-          could pass for one Cinderpaw wrote. */}
       {/* Faded until the model reads it, as a message about to go in (his
           design, 4 Nov). Only while it works: a turn stopped before its next
           step never reads it, and the bubble goes with the turn. */}
@@ -338,9 +336,6 @@ export const MessageItem = memo(function MessageItem({
           <span aria-hidden className="size-1.5 rounded-full bg-success" />
           Automatic · answered by {message.answeredBy}
         </div>
-      )}
-      {message.bare && (
-        <div className="text-xs text-text-muted">Bare model · no tools, no memory, no Cinderpaw prompt</div>
       )}
       {/* Only on a finished reply: a copy button beside text that is still
           arriving would copy half of it. */}

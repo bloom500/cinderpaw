@@ -161,6 +161,16 @@ describe("nudges: one ringer, where the person is (spec 4.4)", () => {
     db.close();
   });
 
+  // 14 Nov, live: "send it to me on WhatsApp" rang on the desktop because the window had focus.
+  test("asked for the phone: it goes there even at the computer", async () => {
+    const { db, nudges, desk, phoneSent, ways } = setup();
+    nudges.seen(AT - 60_000);
+    expect(await nudges.route({ kind: "task", userRequested: true }, { ...ways("ok"), phoneAsked: true }, AT)).toBe("telegram");
+    expect(phoneSent).toHaveLength(1);
+    expect(desk).toEqual(["telegram"]);
+    db.close();
+  });
+
   test("away with a messenger: the phone rings, the chat still gets the result quietly", async () => {
     const { db, nudges, desk, phoneSent, ways } = setup();
     nudges.seen(AT - 11 * 60_000);
@@ -260,6 +270,22 @@ describe("nudges: the one door every first-contact message goes through", () => 
     void new Nudges(db.raw).send({ kind: "followup" }, () => { order.push("sent"); return "desktop"; }, AT);
     order.push("after");
     expect(order).toEqual(["sent", "after"]);
+    db.close();
+  });
+});
+
+describe("nudges: the week on the Today page", () => {
+  test("counts what was sent in the last 7 days, what helped, and the sends per day", async () => {
+    const db = openDatabase(":memory:");
+    const nudges = new Nudges(db.raw);
+    const DAY = 24 * HOUR;
+    await nudges.send({ kind: "task", sourceId: "old" }, async () => "telegram", AT - 8 * DAY); // too old
+    await nudges.send({ kind: "task", sourceId: "a" }, async () => "telegram", AT - 6 * DAY);
+    await nudges.send({ kind: "followup", sourceId: "b" }, async () => "desktop", AT - DAY);
+    await nudges.send({ kind: "followup", sourceId: "c" }, async () => "desktop", AT);
+    nudges.react("b", "opened", AT - DAY + HOUR);
+    nudges.react("c", "dismissed", AT + HOUR);
+    expect(nudges.week(AT + 2 * HOUR)).toEqual({ wroteFirst: 3, answered: 1, days: [1, 0, 0, 0, 0, 1, 1] });
     db.close();
   });
 });

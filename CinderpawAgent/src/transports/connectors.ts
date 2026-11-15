@@ -2047,6 +2047,10 @@ registerTransport("whatsapp", (): LiveConnector => {
       await inner?.send(sessionId, text);
     },
     ownerSession: () => inner?.ownerSession() ?? null,
+    // The self chat often arrives under the account's LID, not its phone
+    // number. Without this the manager knew only the number, so the owner's
+    // "yes" to a phone offer was treated as a stranger's (14 Nov, live test).
+    isOwnerSession: (sessionId: string) => inner?.isOwnerSession(sessionId) ?? false,
     /** Not part of `LiveConnector`: the manager reaches for it by name when
      *  the user asks to link a phone. See `ConnectorManager.pairWhatsApp`. */
     pair: async () => {

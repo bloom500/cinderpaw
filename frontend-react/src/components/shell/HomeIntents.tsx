@@ -5,6 +5,8 @@ import { tauri } from '@/lib/tauri';
 import { signInWithOpenRouter } from '@/lib/openrouterSignIn';
 import { signInWithChatGPT } from '@/lib/chatgptSignIn';
 import { useNotifications } from '@/stores/notifications';
+import { useConversations } from '@/stores/conversations';
+import { maybeWelcome } from '@/lib/welcome';
 
 /**
  * The four intents, under the composer.
@@ -102,7 +104,10 @@ function SetupCard() {
         <p className="text-base font-semibold text-text-primary">Cinderpaw needs a model to think with.</p>
         {/* ChatGPT first, as in the setup wizard and the model menu: this card
             offered only OpenRouter (smoke test, 7 Nov). */}
-        <p className="mt-1 text-sm text-text-secondary">
+        {/* Hidden in a short window: with it, the card plus the composer left no
+            room for the greeting while the wake-up note is showing (13 Nov).
+            The three buttons name the same three ways. */}
+        <p className="mt-1 text-sm text-text-secondary [@media(max-height:700px)]:hidden">
           Use the ChatGPT plan you already pay for, or sign in with OpenRouter for free, on any computer. Or download a model that runs here, free and private, if this machine is strong enough.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
@@ -145,6 +150,9 @@ function SetupCard() {
 export function HomeIntents({ onPick }: { onPick: (text: string) => void }) {
   const t = useT();
   const hasModel = useHasAnyModel();
+  // The agent writes first once a model is connected (onboarding or after Skip).
+  const chatsLoaded = useConversations((s) => s.loaded);
+  useEffect(() => { void maybeWelcome(hasModel); }, [hasModel, chatsLoaded]);
   const [open, setOpen] = useState<(typeof INTENTS)[number]['key'] | null>(null);
   if (hasModel === false) return <SetupCard />;
   const jobs = INTENTS.find((i) => i.key === open)?.jobs;

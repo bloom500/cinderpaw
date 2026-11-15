@@ -60,6 +60,8 @@ function TaskEditor({job,close}: {job:ScheduledTask;close:()=>void}) {
   const [schedule,setSchedule] = useState(job.schedule.kind === 'every' ? String(job.schedule.intervalMs / 60000) : job.schedule.kind === 'cron' ? job.schedule.expression : localInput(new Date(job.schedule.isoTimestamp)));
   const [source,setSource] = useState(job.watch?.sourceUrl ?? '');
   const [contains,setContains] = useState(job.watch?.contains ?? '');
+  const price = job.watch?.priceBelow !== undefined;
+  const [below,setBelow] = useState(String(job.watch?.priceBelow ?? ''));
   const [expiry,setExpiry] = useState('30');
   const [renew,setRenew] = useState(false);
   const [error,setError] = useState('');
@@ -70,8 +72,11 @@ function TaskEditor({job,close}: {job:ScheduledTask;close:()=>void}) {
       if (!name.trim() || !task.trim()) throw Error('Name and instruction are required.');
       const next:TaskSchedule = kind === 'every' ? {kind,intervalMs:Number(schedule)*60000} : kind === 'cron' ? {kind,expression:schedule} : {kind,isoTimestamp:new Date(schedule).toISOString()};
       if (next.kind === 'every' && (!Number.isFinite(next.intervalMs) || next.intervalMs < 60000)) throw Error('Use an interval of at least one minute.');
-      if (job.kind === 'watch' && (new URL(source).protocol !== 'https:' || !contains.trim())) throw Error('Use a HTTPS source and the exact text to verify.');
-      edit(job,{name:name.trim(),task:task.trim(),schedule:next,...(job.kind === 'watch' ? {watch:{...job.watch,sourceUrl:source,contains},...(renew ? {expiryDays:Number(expiry)} : {})} : {})});
+      if (job.kind === 'watch' && new URL(source).protocol !== 'https:') throw Error('Use a HTTPS source.');
+      if (job.kind === 'watch' && !price && !contains.trim()) throw Error('Add the exact text to look for.');
+      if (price && !(Number(below) > 0)) throw Error('Use a price above zero.');
+      const watch = price ? {...job.watch,sourceUrl:source,priceBelow:Number(below)} : {...job.watch,sourceUrl:source,contains};
+      edit(job,{name:name.trim(),task:task.trim(),schedule:next,...(job.kind === 'watch' ? {watch,...(renew ? {expiryDays:Number(expiry)} : {})} : {})});
       close();
     } catch(e) { setError(e instanceof Error ? e.message : String(e)); }
   }}>
@@ -83,7 +88,9 @@ function TaskEditor({job,close}: {job:ScheduledTask;close:()=>void}) {
     <label className="block">{kind === 'every' ? 'Interval (minutes)' : kind === 'cron' ? 'Cron expression' : 'Time'}<input aria-label="Schedule value" type={kind==='every'?'number':kind==='at'?'datetime-local':'text'} value={schedule} onChange={e=>setSchedule(e.target.value)} className={field}/></label>
     {job.kind === 'watch' && <>
       <label className="block">Source URL<input aria-label="Source URL" type="url" value={source} onChange={e=>setSource(e.target.value)} className={field}/></label>
-      <label className="block">Expected text<input aria-label="Expected text" value={contains} onChange={e=>setContains(e.target.value)} className={field}/></label>
+      {price
+        ? <label className="block">Tell me when the price is under{job.watch?.currency ? ` (${job.watch.currency})` : ''}<input aria-label="Price limit" type="number" min="0" step="any" value={below} onChange={e=>setBelow(e.target.value)} className={field}/></label>
+        : <label className="block">Expected text<input aria-label="Expected text" value={contains} onChange={e=>setContains(e.target.value)} className={field}/></label>}
       <label className="flex items-center gap-2"><input type="checkbox" checked={renew} onChange={e=>setRenew(e.target.checked)}/>Renew expiry from today</label>
       {renew && <label className="block">Expiry (days)<input aria-label="Expiry (days)" type="number" min="1" max="365" value={expiry} onChange={e=>setExpiry(e.target.value)} className={field}/></label>}
       <p className="text-xs leading-relaxed text-text-muted">After renewing an expired or completed watch, press Resume to start checking again.</p>
@@ -128,7 +135,9 @@ function TaskRow({ job }: { job: ScheduledTask }) {
           {job.watch && <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
             <div><dt className="text-xs text-text-muted">Source</dt><dd className="mt-1"><a href={job.watch.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 text-brand hover:underline"><span className="break-all">{sourceHost(job.watch.sourceUrl)}</span><ArrowUpRight size={12} className="shrink-0" aria-hidden /></a></dd></div>
             <div><dt className="text-xs text-text-muted">Expires</dt><dd className="mt-1 text-text-primary">{when(job.expiresAt) || 'Not set'}</dd></div>
-            <div className="sm:col-span-2"><dt className="text-xs text-text-muted">Notify when this text appears</dt><dd className="mt-1 break-words font-medium text-text-primary">“{job.watch.contains}”</dd></div>
+            {job.watch.priceBelow
+              ? <div className="sm:col-span-2"><dt className="text-xs text-text-muted">Tell me when the price is under</dt><dd className="mt-1 font-medium tabular-nums text-text-primary">{job.watch.priceBelow}{job.watch.currency ? ` ${job.watch.currency}` : ''}</dd></div>
+              : <div className="sm:col-span-2"><dt className="text-xs text-text-muted">Notify when this text appears</dt><dd className="mt-1 break-words font-medium text-text-primary">“{job.watch.contains}”</dd></div>}
           </dl>}
           {job.kind === 'agent' && <div className="mt-4">
             <dl className="flex flex-wrap gap-x-8 gap-y-3"><div><dt className="text-xs text-text-muted">Used or reserved</dt><dd className="mt-1 text-base font-medium tabular-nums text-text-primary">${(job.spentUsd ?? 0).toFixed(2)}</dd></div></dl>

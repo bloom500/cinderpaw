@@ -44,6 +44,8 @@ export interface Ways {
   phone?: (() => Promise<string | null>) | null;
   /** Always runs. `rang` is the phone that already rang (stay quiet), or null (ring here). */
   desktop: (rang: string | null) => void;
+  /** The person asked for this on their phone: it goes there even while they are at the computer. */
+  phoneAsked?: boolean;
 }
 
 // A stronger outcome replaces a weaker one: acted > answered > opened > ignored.
@@ -59,6 +61,27 @@ export class Nudges {
   #lastSeen = 0;
   constructor(db: Database) {
     this.#db = db;
+  }
+
+  /**
+   * The "This week" card on the Today page (spec 4.13): how often the agent
+   * wrote first in the last 7 days, how often the person opened, answered or
+   * acted on it, and the sends per day, oldest first, the last being today.
+   * Read from this computer's ledger only; nothing leaves it (4.12).
+   */
+  week(now = Date.now()): { wroteFirst: number; answered: number; days: number[] } {
+    const today = new Date(now); today.setHours(0, 0, 0, 0);
+    const from = today.getTime() - 6 * 24 * 60 * 60_000;
+    const rows = this.#db.query(`SELECT sent_at, outcome FROM nudges WHERE sent_at >= ? AND sent_at <= ?`)
+      .all(from, now) as Array<{ sent_at: number; outcome: string | null }>;
+    const days = [0, 0, 0, 0, 0, 0, 0];
+    for (const r of rows) {
+      const day = new Date(r.sent_at); day.setHours(0, 0, 0, 0);
+      const i = Math.round((day.getTime() - from) / (24 * 60 * 60_000));
+      if (i >= 0 && i < 7) days[i]! += 1;
+    }
+    const answered = rows.filter((r) => r.outcome === "opened" || r.outcome === "answered" || r.outcome === "acted").length;
+    return { wroteFirst: rows.length, answered, days };
   }
 
   /** The window was focused, or the person wrote in the app. */
@@ -77,7 +100,7 @@ export class Nudges {
    */
   route(info: NudgeInfo, ways: Ways, now = Date.now()): Promise<string | null> {
     return this.send(info, () => {
-      if (!ways.phone || this.atComputer(now)) {
+      if (!ways.phone || (this.atComputer(now) && !ways.phoneAsked)) {
         ways.desktop(null);
         return "desktop";
       }

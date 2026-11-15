@@ -186,9 +186,14 @@ fn bounds() -> &'static Mutex<Bounds> {
 static LOADING: AtomicBool = AtomicBool::new(false);
 
 /// Runs in every page before anything else: notes the last moment a real
-/// person clicked or typed in it. The agent's own clicks are `el.click()` and
+/// person took the page over. The agent's own clicks are `el.click()` and
 /// dispatched events, which are never trusted, so only the person moves this.
-const TOUCH_SCRIPT: &str = "(() => { const mark = (e) => { if (e.isTrusted) window.__cpTouched = Date.now(); };     addEventListener('pointerdown', mark, true); addEventListener('keydown', mark, true); })()";
+///
+/// A take-over is something that changes the page: typing in a field or Enter,
+/// a click on a link, button or field, or a second click within 5 seconds. One
+/// stray click on text or empty space, and scrolling by keys, are reading, not
+/// taking over: a single slip used to stop the agent (Darius, 14 Nov).
+const TOUCH_SCRIPT: &str = "(() => { const mark = () => { window.__cpTouched = Date.now(); }; const editable = (t) => t instanceof Element && !!t.closest('input, textarea, select, [contenteditable=\"\"], [contenteditable=true]'); let clicks = []; addEventListener('pointerdown', (e) => { if (!e.isTrusted) return; const now = Date.now(); clicks = clicks.filter((c) => now - c < 5000); clicks.push(now); const t = e.target instanceof Element ? e.target : null; if (clicks.length >= 2 || (t && t.closest('a[href], button, input, select, textarea, label, summary, [contenteditable], [role=button], [role=link], [role=checkbox], [role=tab], [role=menuitem], [onclick]'))) mark(); }, true); addEventListener('keydown', (e) => { if (e.isTrusted && (e.key === 'Enter' || editable(e.target))) mark(); }, true); })()";
 
 /// Pages have no second window here, so everything that asks for one goes to
 /// this tab instead: `window.open(url)` and `<a target=\"_blank\">`. Without

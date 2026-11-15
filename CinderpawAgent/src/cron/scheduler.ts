@@ -21,7 +21,7 @@
  */
 
 import { nextRunAt } from "./schedule.ts";
-import { verifyWatch } from "./watch.ts";
+import { checkWatch } from "./watch.ts";
 import { quietHour } from "../core/nudges.ts";
 import { deliverCron, type CronDeliveryContext } from "./delivery.ts";
 import type {
@@ -262,8 +262,7 @@ export class CronScheduler {
     try {
       if (job.kind === "watch") {
         if (!job.watch || !this.#watchFetch) throw new Error("Watch source verification is unavailable");
-        const proof = await verifyWatch(job.watch, this.#watchFetch(job), startedAt);
-        const result = proof ? `Verified on ${proof.sourceUrl}:\n“${proof.excerpt}”` : "Checked source; expected text is not present yet.";
+        const { proof, result } = await checkWatch(job.watch, this.#watchFetch(job), startedAt);
         if (!this.#repo.updateAfterRun(job.id, startedAt, computeNext(job, this.#now()), {runAt:startedAt,status:proof ? "success" : "waiting",durationMs:this.#now().getTime()-startedAt,result,proof,costUsd:0}, 0, job.updatedAt)) return;
         if (proof) {
           this.#repo.setEnabled(job.id, false);

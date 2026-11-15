@@ -35,8 +35,12 @@ export interface PhoneOffersDeps {
   isChat: (sessionId: string) => boolean;
   /** The allowlisted owner's own chat. */
   isOwner: (sessionId: string) => boolean;
-  /** Create the task, like the desktop's Create button. */
-  create: (card: TaskSuggestion, sessionId: string) => void;
+  /**
+   * Create the task, like the desktop's Create button. A promise (a price
+   * watch, which reads the page first) gives the whole reply instead of the
+   * usual "Turned on" line, so a failed read is said, not "Turned on".
+   */
+  create: (card: TaskSuggestion, sessionId: string) => void | Promise<string>;
   now?: () => number;
 }
 
@@ -67,7 +71,8 @@ export class PhoneOffers {
       return `"${o.card.title}", ${lower(o.card.when)}. This one uses the AI each time it runs, so it costs money: open Cinderpaw on your computer to turn it on.`;
     }
     o.armedAt = this.#now();
-    return `"${o.card.title}", ${lower(o.card.when)}. Reply "yes" to turn it on.`;
+    const seen = o.card.seenPrice !== undefined ? ` I saw ${o.card.seenPrice} on the page.` : "";
+    return `"${o.card.title}", ${lower(o.card.when)}.${seen} Reply "yes" to turn it on.`;
   }
 
   /** Something else was said in that chat: a "yes" now answers that, not the offer. */
@@ -79,12 +84,13 @@ export class PhoneOffers {
    * A message came in. Returns the confirmation to send when it accepted the
    * offer (the agent then does not run), or null (the agent gets it as usual).
    */
-  answer(sessionId: string, text: string): string | null {
+  answer(sessionId: string, text: string): string | Promise<string> | null {
     const o = this.#offers.get(sessionId);
     if (!o || o.armedAt === null || !this.#o.isOwner(sessionId)) return null;
     this.#offers.delete(sessionId); // whatever they said, the offer was answered
     if (!isYes(text) || this.#now() - o.armedAt > ACCEPT_MS) return null;
-    this.#o.create(o.card, sessionId);
+    const created = this.#o.create(o.card, sessionId);
+    if (created) return created;
     return `✅ Turned on: "${o.card.title}", ${lower(o.card.when)}. You can change it in Cinderpaw, under Tasks.`;
   }
 

@@ -21,7 +21,7 @@ import { useChatDockHeight } from '@/lib/chatDock';
  * and the menus as they are. Each size keeps its own line height.
  */
 const CHAT_TEXT = {
-  small: { '--text-base': '14.5px', '--text-base--line-height': '23px', '--text-sm': '13.5px', '--text-sm--line-height': '20px' },
+  small: { '--text-base': '14px', '--text-base--line-height': '23px', '--text-sm': '13px', '--text-sm--line-height': '20px' },
   default: {},
   large: { '--text-base': '18px', '--text-base--line-height': '29px', '--text-sm': '16px', '--text-sm--line-height': '24px' },
   larger: { '--text-base': '20px', '--text-base--line-height': '32px', '--text-sm': '17.5px', '--text-sm--line-height': '26px' },

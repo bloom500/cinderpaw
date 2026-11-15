@@ -7,6 +7,8 @@
  * list of the same strings, never a blank.
  */
 
+import type { TaskWatch } from '@/lib/tauri';
+
 export type WidgetIcon =
   | 'calendar' | 'clock' | 'map-pin' | 'wallet' | 'users' | 'star'
   | 'check' | 'info' | 'file' | 'link' | 'tag' | 'home';
@@ -35,11 +37,15 @@ export interface TaskCard {
   title: string;
   task: string;
   kind: 'agent' | 'reminder' | 'watch';
-  watch?: { sourceUrl: string; contains: string; official?: boolean };
+  watch?: TaskWatch;
+  /** A price watch: the price the agent saw in that turn. */
+  seenPrice?: number;
   expiryDays?: number;
   budgetUsd?: number;
   schedule: { kind: 'cron'; expression: string } | { kind: 'every'; intervalMs: number } | { kind: 'at'; isoTimestamp: string };
   when: string;
+  /** The person asked to get it on their phone: it goes there even while they are at the computer. */
+  toPhone?: boolean;
 }
 
 type Rec = Record<string, unknown>;
@@ -173,9 +179,14 @@ export function widgetOf(tool: string, result: unknown): WidgetData | null {
     const id = str(t.id); const title = str(t.title); const task = str(t.task); const when = str(t.when);
     if (!schedule || !id || !title || !task || !when || (t.kind !== 'agent' && t.kind !== 'reminder' && t.kind !== 'watch')) return null;
     const source = isRec(t.watch) ? t.watch : null;
-    const watch = source && https(source.sourceUrl) && str(source.contains) ? {sourceUrl:source.sourceUrl as string,contains:source.contains as string,official:source.official === true} : undefined;
+    // Exact text, or (spec 4.10) a price under a limit.
+    const priceBelow = source && num(source.priceBelow) && (source.priceBelow as number) > 0 ? source.priceBelow as number : undefined;
+    const watch = source && https(source.sourceUrl) && (priceBelow || str(source.contains))
+      ? {sourceUrl:source.sourceUrl as string, ...(priceBelow ? {priceBelow, ...(str(source.currency) ? {currency:source.currency as string} : {})} : {contains:source.contains as string}), official:source.official === true}
+      : undefined;
     if (t.kind === 'watch' && (!watch || schedule.kind === 'at')) return null;
-    return { kind: 'task', card: { id, title, task, when, kind: t.kind, schedule, ...(watch ? {watch,expiryDays:num(t.expiryDays) ?? 30} : {}) } };
+    const seenPrice = priceBelow && num(t.seenPrice) ? t.seenPrice as number : undefined;
+    return { kind: 'task', card: { id, title, task, when, kind: t.kind, schedule, ...(watch ? {watch,expiryDays:num(t.expiryDays) ?? 30} : {}), ...(seenPrice ? { seenPrice } : {}), ...(t.toPhone === true ? { toPhone: true } : {}) } };
   }
   if (tool === 'connectors_manage' && isRec(data) && data.whatsappPairing === true) return { kind: 'whatsapp_pair' };
   if (tool === 'todo_write' && isRec(data) && Array.isArray(data.items)) {

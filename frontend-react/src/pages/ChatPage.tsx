@@ -533,7 +533,8 @@ export function ChatPage() {
             working in it, an artifact it saves must not cover the page. The
             artifact is still one click away in the sidebar. */}
         {browserOpen && (
-          <BrowserPanel key="browser-panel" compact={compact} chat={chatColumn} onCompose={(text) => chatInputRef.current?.setText(text)} />
+          <BrowserPanel key="browser-panel" compact={compact} chat={chatColumn} onCompose={(text) => chatInputRef.current?.setText(text)}
+            onContinue={() => void cinderpawSend("I'm done in the browser. Please continue where you left off.")} />
         )}
         {/* Kept under an open artifact, not taken away: the panel slides in over
             the cards and slides off them again, one move each way. Taken away,

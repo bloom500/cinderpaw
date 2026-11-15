@@ -41,7 +41,7 @@ import { ContextTab } from './ContextTab';
 import { ArtifactCover } from './ArtifactCover';
 import { ArtifactThumbnail, artifactImageSource } from './ArtifactThumbnail';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { CinderpawMascot } from '@/components/chat/mascot/CinderpawMascot';
+import { BuildingMark } from './BuildingMark';
 import { artifactKind, artifactSize } from '@/components/chat/ArtifactCard';
 import { useChatContext } from '@/hooks/useChatContext';
 import { ExternalLink } from '@/components/chat/ExternalLink';
@@ -666,9 +666,6 @@ function deleteWithUndo(row: Pick<ArtifactRow, 'id' | 'title'>) {
   });
 }
 
-/** Kinds that mean nothing as source to most people: shown only once saved. */
-const BUILT = new Set(['app', 'html', 'document', 'docx', 'board']);
-
 /**
  * An app, a page or a board while Cinderpaw writes it. Its code read as noise,
  * and the app then ran only after the code's letters finished (Darius, 26 Oct).
@@ -677,15 +674,22 @@ const BUILT = new Set(['app', 'html', 'document', 'docx', 'board']);
 function Building({ content }: { content: string }) {
   const lines = content ? content.split('\n').length : 0;
   return (
-    <div role="status" className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-      <CinderpawMascot state="building" width={96} />
-      <p className="text-sm text-text-primary">Building it now</p>
+    <div role="status" className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+      <BuildingMark />
+      <p className="font-display text-xl text-text-primary">Building</p>
       <p className="text-xs tabular-nums text-text-muted">
         {`${lines.toLocaleString()} ${lines === 1 ? 'line' : 'lines'} written. It opens here when it is ready.`}
       </p>
     </div>
   );
 }
+
+/**
+ * Code, markup or data, told by how it starts. The kind can arrive after the
+ * first pieces of text, and until it does a poster's HTML was drawn as text:
+ * the code on screen while it was written (Darius, 14 Nov).
+ */
+const LOOKS_LIKE_CODE = /^\s*(<|\{|\[)/;
 
 /** Text the person can change. A pdf, an image or an uploaded file is not. */
 const EDITABLE_KINDS = new Set(['document', 'markdown', 'app', 'table', 'code', 'json', 'html', 'pdf']);
@@ -815,7 +819,7 @@ function Viewer({ googleRegistered }: { googleRegistered: boolean }) {
   // letters, and it read as markdown for that moment.
   const arrived = shownKind(row.kind, content);
   const viewKind = draft
-    ? (row.kind === 'pdf' || arrived === 'markdown' ? 'markdown' : BUILT.has(arrived) && !live?.stopped ? 'building' : 'code')
+    ? (row.kind === 'pdf' || (arrived === 'markdown' && !LOOKS_LIKE_CODE.test(content)) ? 'markdown' : live?.stopped ? 'code' : 'building')
     : shownKind(row.kind, text);
 
   if (editing) {

@@ -14,7 +14,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { Schedule, Tool, ToolResult } from "../../types.ts";
+import type { Schedule, Tool, ToolResult, WatchCondition } from "../../types.ts";
 import { isBlockedHost } from "../../egress/egress-proxy.ts";
 
 /** What the app draws (the tool's `data.taskSuggestion`). */
@@ -26,8 +26,12 @@ export interface TaskSuggestion {
   schedule: Schedule;
   /** The schedule in words, e.g. "Every weekday at 09:00". */
   when: string;
-  watch?: { sourceUrl: string; contains: string; official?: boolean };
+  watch?: WatchCondition;
+  /** A price watch: the price the agent saw with its web tools in that turn, shown as seen by it (spec 4.10). */
+  seenPrice?: number;
   expiryDays?: number;
+  /** The person asked to get it on their phone: it goes there even while they are at the computer. */
+  toPhone?: boolean;
 }
 
 const REPEATS = ["once", "daily", "weekdays", "weekly", "hourly"] as const;
@@ -69,8 +73,9 @@ export function buildSchedule(
   // just to read the clock before it could offer one (24 Oct).
   if (repeat === "once" && args.in_minutes !== undefined && args.in_minutes !== null) {
     const mins = Number(args.in_minutes);
-    if (!Number.isFinite(mins) || mins < 1 || mins > 60 * 24 * 365) return { error: "in_minutes must be between 1 and 525600." };
-    const at = new Date(now.getTime() + Math.round(mins) * 60_000);
+    // Down to 30 seconds: the scheduler looks every 30 s, so shorter would not be kept.
+    if (!Number.isFinite(mins) || mins < 0.5 || mins > 60 * 24 * 365) return { error: "The shortest reminder is 30 seconds (in_minutes 0.5) and the longest a year. Tell the person this in plain words." };
+    const at = new Date(now.getTime() + Math.round(mins * 60) * 1000);
     const same = at.toDateString() === now.toDateString();
     const words = same ? "Today" : at.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
     return { schedule: { kind: "at", isoTimestamp: at.toISOString() }, when: `${words} at ${pad(at.getHours())}:${pad(at.getMinutes())}` };
@@ -134,7 +139,10 @@ export function createSuggestTaskTool(
         "\"agent\" only when work must be done then (search, read, write; it costs a model run each time). " +
         "repeat: once (date and time, or in_minutes for \"in 10 minutes\" / \"in 2 hours\"), daily, weekdays, weekly " +
         "(needs day) or hourly (every_hours). Times are " +
-        "the person's local clock. At most one card per topic; never for things they did not ask about or imply.",
+        "the person's local clock. At most one card per topic; never for things they did not ask about or imply. " +
+        "When they want a product under a price (\"I want these headphones under 500 lei\"), find the product page " +
+        "with your web tools in this turn, even with no link given, then offer kind \"watch\" with watch.priceBelow " +
+        "(free, checked hourly, no AI runs) and watch.seenPrice set to the price you saw.",
       permissions: [],
       networkAccess: false,
     },
@@ -151,14 +159,19 @@ export function createSuggestTaskTool(
       date: { type: "string", description: '"YYYY-MM-DD", for once.' },
       day: { type: "string", description: '"mon".."sun", for weekly.' },
       every_hours: { type: "number", description: "For hourly: 1 to 168." },
-      in_minutes: { type: "number", description: "For once, instead of date and time: minutes from now (120 = in two hours)." },
+      in_minutes: { type: "number", description: "For once, instead of date and time: minutes from now (0.5 = in 30 seconds, 120 = in two hours)." },
+      to_phone: { type: "boolean", description: "True when the person asks to get it on their phone (WhatsApp, Telegram...). It then goes there even while they are at the computer." },
+      asked: { type: "boolean", description: "True when the person asked for this task in their own words. False (default) for a task you thought of yourself: those are offered at most once every three minutes." },
       watch: {
-        type: "object", description: "For watch only: a public HTTPS source and concrete text whose appearance is the condition. Do not invent a condition or claim a source is official without evidence.",
+        type: "object", description: "For watch only: a public HTTPS source and EITHER concrete text whose appearance is the condition (contains) OR a price limit on a product page (priceBelow). Do not invent a condition or claim a source is official without evidence.",
         schema: { type: "object", properties: {
-          sourceUrl: { type: "string", description: "Public HTTPS page to check." },
+          sourceUrl: { type: "string", description: "Public HTTPS page to check. For a price: the product page itself, not a search or list." },
           contains: { type: "string", description: "Concrete expected visible text, not a model's opinion." },
+          priceBelow: { type: "number", description: "Tell them when the page's price is under this number." },
+          currency: { type: "string", description: "Three-letter code of that price, e.g. RON, EUR." },
+          seenPrice: { type: "number", description: "With priceBelow: the price you saw on the page in this turn." },
           official: { type: "boolean", description: "True only with evidence this is the publisher's official source." },
-        }, required: ["sourceUrl", "contains"], additionalProperties: false },
+        }, required: ["sourceUrl"], additionalProperties: false },
       },
       expiryDays: { type: "number", description: "Watch expiry, 1 to 365 days; default 30. Renewable by the person." },
     },
@@ -173,36 +186,52 @@ export function createSuggestTaskTool(
       const built = buildSchedule(args, now());
       if ("error" in built) return { ok: false, content: "", error: built.error };
       let watch: TaskSuggestion["watch"];
+      let seenPrice: number | undefined;
       let expiryDays: number | undefined;
       if (kind === "watch") {
         const value = args.watch as Record<string, unknown> | undefined;
         const contains = typeof value?.contains === "string" ? value.contains.trim() : "";
+        const priceBelow = typeof value?.priceBelow === "number" && Number.isFinite(value.priceBelow) && value.priceBelow > 0 ? value.priceBelow : null;
+        const currency = typeof value?.currency === "string" ? value.currency.trim().toUpperCase() : "";
         let source: URL;
         try { source = new URL(typeof value?.sourceUrl === "string" ? value.sourceUrl : ""); }
         catch { return { ok: false, content: "", error: "watch.sourceUrl must be a public HTTPS URL." }; }
         // A proposal does not fetch. EgressProxy validates DNS and redirects
-        // when the confirmed watch actually runs.
-        if (source.protocol !== "https:" || source.username || source.password || isBlockedHost(source.hostname) || !contains || contains.length > 500) {
-          return { ok: false, content: "", error: "A watch needs a public HTTPS source without credentials and 1–500 characters of expected text." };
+        // when the confirmed watch actually runs; a price is read once on accept.
+        if (source.protocol !== "https:" || source.username || source.password || isBlockedHost(source.hostname)) {
+          return { ok: false, content: "", error: "A watch needs a public HTTPS source without credentials." };
+        }
+        if (priceBelow === null && (!contains || contains.length > 500)) {
+          return { ok: false, content: "", error: "A watch needs 1–500 characters of expected text, or priceBelow for a price." };
+        }
+        if (priceBelow !== null && currency && !/^[A-Z]{3}$/.test(currency)) {
+          return { ok: false, content: "", error: "watch.currency must be a three-letter code, like RON or EUR." };
         }
         const days = args.expiryDays ?? 30;
         if (typeof days !== "number" || !Number.isInteger(days) || days < 1 || days > 365 || built.schedule.kind === "at") {
           return { ok: false, content: "", error: "A watch needs a recurring schedule and expiryDays between 1 and 365." };
         }
         expiryDays = days;
-        watch = { sourceUrl: source.toString(), contains, ...(typeof value?.official === "boolean" ? { official: value.official } : {}) };
+        const official = typeof value?.official === "boolean" ? { official: value.official } : {};
+        watch = priceBelow !== null
+          ? { sourceUrl: source.toString(), priceBelow, ...(currency ? { currency } : {}), ...official }
+          : { sourceUrl: source.toString(), contains, ...official };
+        if (priceBelow !== null && typeof value?.seenPrice === "number" && Number.isFinite(value.seenPrice) && value.seenPrice > 0) seenPrice = value.seenPrice;
       }
 
       const s = ledger.session(ctx.sessionId);
       if (s.titles.has(norm(title))) return { ok: true, content: "Already offered in this chat, so not shown again.", data: { taskSuggestionStatus: "already_offered" } };
       const t = now().getTime();
-      if (t - s.lastAt < MIN_GAP_MS) {
+      // The gap keeps the agent's own ideas from piling up; a person asking twice is not spam.
+      if (args.asked !== true && t - s.lastAt < MIN_GAP_MS) {
         return { ok: true, content: "Not shown: a task was offered less than three minutes ago. Mention it in your reply if it still matters.", data: { taskSuggestionStatus: "rate_limited" } };
       }
       s.titles.add(norm(title));
       s.lastAt = t;
-      const card: TaskSuggestion = { id: randomUUID(), title, task, kind, schedule: built.schedule, when: built.when,
-        ...(watch ? { watch, expiryDays } : {}) };
+      const toPhone = args.to_phone === true;
+      const card: TaskSuggestion = { id: randomUUID(), title, task, kind, schedule: built.schedule,
+        when: toPhone ? `${built.when}, on your phone` : built.when,
+        ...(watch ? { watch, expiryDays } : {}), ...(seenPrice !== undefined ? { seenPrice } : {}), ...(toPhone ? { toPhone } : {}) };
       if (offerInChat(ctx.sessionId, card)) {
         return {
           ok: true,

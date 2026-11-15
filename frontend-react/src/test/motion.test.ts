@@ -18,7 +18,9 @@ import { readFileSync } from 'node:fs';
 import { CSS_TIME, MOTION, SPRING_CSS, cssMs, spring } from '@/lib/motion';
 
 const RAW = import.meta.glob(['/src/**/*.{ts,tsx}', '!/src/**/__tests__/**', '!/src/test/**'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
-const EXEMPT = /\/sileo\/|\/mascot\/|useMagnetic|GooeyCard|lib\/motion\.ts/;
+// The vendored lucide-animated icons (14 Nov) are out of scope like Sileo: each
+// plays its own short hover, as shipped upstream, and answers no one's action.
+const EXEMPT = /\/sileo\/|\/mascot\/|\/animated-icons\/|useMagnetic|GooeyCard|lib\/motion\.ts/;
 const FILES = Object.entries(RAW).filter(([p]) => !EXEMPT.test(p)).map(([p, text]) => ({ p, text }));
 const CSS = readFileSync('src/styles/globals.css', 'utf8');
 

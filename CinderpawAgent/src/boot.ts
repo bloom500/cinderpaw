@@ -141,6 +141,7 @@ import { HeartbeatLoop } from "./core/heartbeat.ts";
 import { HookRegistry } from "./core/hook-registry.ts";
 import { CronJobsRepo, CronScheduler, deliverCron } from "./cron/index.ts";
 import { maybeSendDigest } from "./cron/digest.ts";
+import { firstPriceRead, isPriceWatch } from "./cron/watch.ts";
 import { CoworkAgentRepo } from "./cowork/agent-store.ts";
 import { CoworkMailboxRepo } from "./cowork/mailbox.ts";
 import { CoworkHandoffService } from "./cowork/handoff.ts";
@@ -1769,6 +1770,19 @@ export async function boot(transportOverride?: Transport) {
   registry.register(createTasksListTool(() => cronRepo.list()));
   const taskPrice = withModelPrices(priceResolverFromJson(cfgPath("CINDERPAW_AUTONOMOUS_PRICING_JSON")));
   const watchEgress = new EgressProxy(audit.logger, { trustedLocalOrigins: [] });
+  const watchFetchFor = (url: string, session: string) => watchEgress.forTool({name:"task_watch",description:"Verify a user-approved source condition",permissions:["network:outbound"],networkAccess:true,allowedDomains:[new URL(url).hostname]}, session);
+  /**
+   * Spec 4.10: a price watch is turned on only after one read through the same
+   * path as its hourly checks. Returns what to tell the person, or null for any
+   * other task. Throws, with a sentence for them, when the read fails or the
+   * price is already under the limit (then there is nothing to wait for).
+   */
+  const priceFirstRead = async (watch: import("./types.ts").WatchCondition | undefined): Promise<string | null> => {
+    if (!watch || !isPriceWatch(watch)) return null;
+    const read = await firstPriceRead(watch, watchFetchFor(watch.sourceUrl, "task_watch:first-read"));
+    if (read.below) throw new Error(`${read.text} There is nothing to wait for, so I did not turn the watch on.`);
+    return read.text;
+  };
   // What an import left while the agent was not running is filed now, so its
   // tasks show under Tasks before anyone starts a conversation.
   try {
@@ -1785,7 +1799,7 @@ export async function boot(transportOverride?: Transport) {
     limit: taskLimit,
     catchUpOnStart: true,
     stopJob: job => { agent.stop(`cron:${job.id}`); router.abort(`cron:${job.id}`); router.setSessionSpendAuthority(`cron:${job.id}`, null); },
-    watchFetch: (job) => watchEgress.forTool({name:"task_watch",description:"Verify a user-approved source condition",permissions:["network:outbound"],networkAccess:true,allowedDomains:[new URL(job.watch!.sourceUrl).hostname]}, `cron:${job.id}`),
+    watchFetch: (job) => watchFetchFor(job.watch!.sourceUrl, `cron:${job.id}`),
     runJob: async (job) => {
       // A reminder is its own text, said at the time it was asked for: no
       // model call, no safety point, no cost.
@@ -1929,6 +1943,9 @@ export async function boot(transportOverride?: Transport) {
             content: via ? `${content}\n\nAlso sent to your ${connectorName(via)}.` : content,
             ...(via ? { silent: true } : {}),
           }),
+          // "Send it to me on WhatsApp": asked for, so not held back because the
+          // window has focus (14 Nov, live test: it rang on the desktop instead).
+          phoneAsked: target.phone === true,
         }).then(() => undefined);
       }
       return deliverCron(target, content, job, ctx);
@@ -2663,19 +2680,28 @@ export async function boot(transportOverride?: Transport) {
     isChat: (sessionId) => connectors.askRouter.canHandle(sessionId),
     isOwner: (sessionId) => connectors.isOwnerSession(sessionId),
     create: (card, sessionId) => {
-      const job = cronRepo.upsert({
-        name: card.title, task: card.task, kind: card.kind, schedule: card.schedule,
-        delivery: { kind: "chat", sessionId },
-        ...(card.watch ? { watch: card.watch, expiryDays: card.expiryDays } : {}),
-      });
-      log(`cron_add (accepted on the phone) → ${job.id} (${job.name})`);
+      const make = () => {
+        const job = cronRepo.upsert({
+          name: card.title, task: card.task, kind: card.kind, schedule: card.schedule,
+          // Accepted on the phone, so it answers on the phone.
+          delivery: { kind: "chat", sessionId, phone: true },
+          ...(card.watch ? { watch: card.watch, expiryDays: card.expiryDays } : {}),
+        });
+        log(`cron_add (accepted on the phone) → ${job.id} (${job.name})`);
+      };
+      if (!card.watch || !isPriceWatch(card.watch)) { make(); return; }
+      // A price watch: the page is read first, and the reply says what was read.
+      return priceFirstRead(card.watch).then(
+        (text) => { make(); return `✅ Turned on: "${card.title}". ${text}`; },
+        (err: unknown) => `Not turned on: "${card.title}". ${err instanceof Error ? err.message : String(err)}`,
+      );
     },
   });
   phoneOffers = offers;
   setReplyTail((sessionId) => offers.tail(sessionId));
   connectors.askRouter.setAnswers((sessionId, text) => {
     const confirm = offers.answer(sessionId, text);
-    if (confirm) void connectors.askRouter.notify(sessionId, confirm);
+    if (confirm) void Promise.resolve(confirm).then((reply) => connectors.askRouter.notify(sessionId, reply));
     return confirm !== null;
   });
   connectors.askRouter.observe((sessionId, direction) => {
@@ -2928,6 +2954,7 @@ export async function boot(transportOverride?: Transport) {
   // this shared, mutable `ctx` object rather than being destructured by
   // value on the other side.
   const ctx = {
+    priceFirstRead,
     offerUnfinishedWork,
     followUps,
     nudges,

@@ -142,7 +142,8 @@ test("finishing an old agent run preserves an edited schedule and charges its sp
 test("a watch edited while fetching is not disabled or notified by the old source proof", async () => {
   const {repo,job}=setup({kind:"watch",watch:{sourceUrl:"https://example.com/old",contains:"Available"}});
   let finish!: (value:import('../src/types.ts').CinderpawFetchResponse)=>void;let deliveries=0;
-  const scheduler=new CronScheduler({repo,now:()=>new Date(job.nextRunMs!),runJob:async()=>{throw Error("no inference")},watchFetch:()=>()=>new Promise(resolve=>{finish=resolve}),deliver:()=>{deliveries++}});
+  // watchQuiet off: at night (22-08) the watch would skip the check and the test would see no fetch.
+  const scheduler=new CronScheduler({repo,watchQuiet:()=>false,now:()=>new Date(job.nextRunMs!),runJob:async()=>{throw Error("no inference")},watchFetch:()=>()=>new Promise(resolve=>{finish=resolve}),deliver:()=>{deliveries++}});
   const running=scheduler.tick();
   const edited=repo.upsert({...repo.get(job.id)!,watch:{sourceUrl:"https://example.com/new",contains:"Available"}});
   finish({ok:true,status:200,headers:{"content-type":"text/html"},text:async()=>'<p>Available</p>',json:async()=>null});await running;

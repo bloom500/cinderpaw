@@ -24,18 +24,6 @@ import { BackendBadge } from '@/components/BackendBadge';
 import { cn } from '@/lib/utils';
 import logoUrl from '@/assets/logo.svg';
 import { isLocalEngineUrl, localApiBase } from '@/lib/localApi';
-import { useBareModel } from '@/lib/bareModel';
-
-/** Dev builds only: answer with the model alone, for the harness-vs-no-harness film. */
-function BareModelItem() {
-  const { on, toggle } = useBareModel();
-  return (
-    <DropdownMenuItem onSelect={(e) => { e.preventDefault(); toggle(); }} className="justify-between text-sm text-text-secondary">
-      <span>Bare model <span className="text-text-muted">· dev, no Cinderpaw</span></span>
-      {on && <Check size={14} className="shrink-0" />}
-    </DropdownMenuItem>
-  );
-}
 
 // Cinderpaw's own model engine exposes an OpenAI-compatible API here. In agent mode
 // a local pick must target THIS (not external Ollama on 11434) so the agent uses
@@ -849,7 +837,6 @@ export function ModelPickerPopover() {
               Manage models
             </DropdownMenuItem>
           </div>
-          {import.meta.env.DEV && <BareModelItem />}
         </div>
         {/* Out of the Tab order like the rows (a menu moves by arrows); Escape
             closes it from the keyboard. */}

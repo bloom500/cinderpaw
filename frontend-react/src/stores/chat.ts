@@ -66,8 +66,6 @@ export interface ChatMessage {
   /** The engine's id for this reply, which a thumbs vote must name for the
    *  engine to know the turn. Not persisted; neither are the votes. */
   agentMessageId?: string;
-  /** Dev-only: answered by the model alone, no Cinderpaw (lib/bareModel.ts). */
-  bare?: boolean;
   /** Automatic: the model the brain picked for this reply, said under it. */
   answeredBy?: string;
   /** What the person added while this reply was being written (steering). */

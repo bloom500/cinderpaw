@@ -129,12 +129,27 @@ describe('the last card', () => {
     expect(screen.getByRole('button', { name: /Start exploring/ })).toBeEnabled();
   });
 
-  it('a first task closes the wizard and waits in the chat box, unsent', () => {
+  it('a job is picked, not started: the wizard stays until Start, and a second press unpicks it', () => {
+    useModel.setState({ cloudModel: OPENAI });
+    renderWizard();
+    const card = screen.getByRole('button', { name: /coffee machines/ });
+    fireEvent.click(card);
+    expect(useOnboarding.getState().firstTask).toBe('Find the five best-reviewed coffee machines and put them in a table');
+    expect(useOnboarding.getState().active).toBe(true);
+    expect(card).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /Start with this job/ })).toBeEnabled();
+    fireEvent.click(card);
+    expect(useOnboarding.getState().firstTask).toBeNull();
+    expect(screen.getByRole('button', { name: /Start exploring/ })).toBeEnabled();
+  });
+
+  it('Start closes the wizard and the picked job waits in the chat box, unsent', () => {
     useModel.setState({ cloudModel: OPENAI });
     renderWizard();
     fireEvent.click(screen.getByRole('button', { name: /coffee machines/ }));
-    expect(useOnboarding.getState().firstTask).toBe('Find the five best-reviewed coffee machines and put them in a table');
+    fireEvent.click(screen.getByRole('button', { name: /Start with this job/ }));
     expect(useOnboarding.getState().active).toBe(false);
+    expect(useOnboarding.getState().firstTask).toBe('Find the five best-reviewed coffee machines and put them in a table');
   });
 });
 

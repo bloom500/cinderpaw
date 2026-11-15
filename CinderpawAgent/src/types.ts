@@ -1187,23 +1187,27 @@ export type Schedule =
  * lands in P0-1 once subagent delegation is wired.
  */
 export type DeliveryTarget =
-  | { kind: "chat"; sessionId: string }
+  /** `phone`: the person asked for it on their phone (suggest_task's to_phone, or accepted there). */
+  | { kind: "chat"; sessionId: string; phone?: boolean }
   | { kind: "webhook"; url: string }
   | { kind: "tool"; toolName: string; args: Record<string, unknown> };
 
 /** One row in a job's run history. Capped to the most recent 50 entries. */
 import type { DoneWhen } from "./cron/done-when.ts";
 
-export interface WatchCondition {
-  sourceUrl: string;
-  contains: string;
-  /** User-selected source preference, never inferred authority. */
-  official?: boolean;
-}
+/**
+ * Exact visible text on a page, or (spec 4.10) a price read from the page's
+ * structured data that must drop below a limit. `official` is the person's
+ * own source preference, never inferred authority.
+ */
+export type WatchCondition =
+  | { sourceUrl: string; contains: string; official?: boolean }
+  | { sourceUrl: string; priceBelow: number; currency?: string; official?: boolean };
 
 export interface CronRunRecord {
   costUsd?: number;
-  proof?: { sourceUrl: string; checkedAt: number; excerpt: string; contentHash: string };
+  /** `price`: the price read on a price watch's hit. */
+  proof?: { sourceUrl: string; checkedAt: number; excerpt: string; contentHash: string; price?: number };
   runAt: number;
   /**
    * `incomplete` = the agent ran but stopped with work outstanding (the turn
@@ -1317,7 +1321,7 @@ export interface InboundMessage {
     // The unfinished-work card was opened or dismissed (`sourceId`, `outcome`).
     | "nudge_reaction"
     // The window was focused; and its "Follow-up suggestions" choice (`enabled`).
-    | "presence" | "followups_setting"
+    | "presence" | "followups_setting" | "welcome"
     | "desktop_control_response" | "capability_response" | "admin_response" | "connectors_reload"
     // PROVISIONAL — temporary Settings button to run the Fractal Memory Search
     // benchmark gate on demand. Remove with the button after the ship/hold call.
@@ -1768,6 +1772,8 @@ export type OutboundEvent =
       find?: string;
       traceId?: string;
     }
+  /** The first message after a model is connected (core/welcome.ts). */
+  | { type: "welcome_ready"; id: string; sessionId: string; content: string }
   | { type: "proactive"; content: string; followUp?: { id: string; sessionId: string; mission: string }; traceId?: string }
   | { type: "model_set"; provider: string; model: string; automatic?: boolean; choices?: number }
   /** Steering: what the person added mid-turn reached the model (`id` = the reply). */
@@ -2339,6 +2345,10 @@ export type OutboundEvent =
       error?: string;
       jobs: Array<Pick<CronJob, "id" | "name" | "task" | "schedule" | "enabled" | "nextRunMs" | "lastRunMs" | "kind" | "history" | "watch" | "expiresAt" | "budgetUsd" | "spentUsd">>;
       taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number };
+      /** After adding a price watch: the price read on accept, said on the card (spec 4.10). */
+      note?: string;
+      /** The Today page's "This week" card, from the nudge ledger (Nudges.week). */
+      week?: { wroteFirst: number; answered: number; days: number[] };
       /** Where a fired task reaches the owner away from the computer (a
        *  messenger id), or null; `tested` when this answer sent a test. */
       phone?: { via: string | null; tested: boolean };

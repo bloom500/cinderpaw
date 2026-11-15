@@ -73,6 +73,28 @@ describe("notifyOwner", () => {
     expect(mgr.ownerChannel()).toBeNull();
   });
 
+  // 14 Nov, live: the self chat arrived as `whatsapp:<lid>@lid`, the wrapper did
+  // not pass the owner check through, and the owner's "yes" to an offer was
+  // treated as a stranger's.
+  it("WhatsApp's own chat under its LID is the owner's, through the real wrapper", async () => {
+    const real = saved.get("whatsapp")!();
+    expect(typeof real.isOwnerSession).toBe("function");
+    expect(real.isOwnerSession!("whatsapp:58643651260498@lid")).toBe(false); // not linked yet
+    registerTransport("whatsapp", () => ({
+      async start() {},
+      async stop() {},
+      health: () => ({ live: true }),
+      async send() {},
+      ownerSession: () => "whatsapp:40712345678@s.whatsapp.net",
+      isOwnerSession: (sid: string) => sid === "whatsapp:58643651260498@lid" || sid === "whatsapp:40712345678@s.whatsapp.net",
+    }));
+    const mgr = new ConnectorManager(fakeAgent(), () => {});
+    await mgr.applyRows([{ id: "whatsapp", enabled: true, secrets: {}, allowlist: [] }]);
+    expect(mgr.isOwnerSession("whatsapp:58643651260498@lid")).toBe(true);
+    expect(mgr.isOwnerSession("whatsapp:999@lid")).toBe(false);
+    await mgr.applyRows([]);
+  });
+
   it("falls through a messenger that fails, and is null with nothing connected or no owner", async () => {
     const sent: string[] = [];
     fake("telegram", sent, { fails: true });

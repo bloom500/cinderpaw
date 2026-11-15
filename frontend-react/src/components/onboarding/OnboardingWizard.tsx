@@ -20,7 +20,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, ArrowLeft, CalendarCheck, Check, ChevronRight, Download, ExternalLink, Eye, EyeOff, KeyRound, Laptop, Loader2, Maximize2, Megaphone, Minimize2, MessageCircle, Search, Shield, ShieldAlert, ShieldCheck, Sparkles, Volume2, VolumeX, type LucideIcon } from 'lucide-react';
+import { ArrowRight, ArrowLeft, CalendarCheck, Check, ChevronRight, Download, ExternalLink, Eye, EyeOff, KeyRound, Laptop, Loader2, Maximize2, Megaphone, Minimize2, MessageCircle, Pause, Play, Search, Shield, ShieldAlert, ShieldCheck, Sparkles, Volume2, VolumeX, type LucideIcon } from 'lucide-react';
 import { STEP_IDS, useOnboarding } from '@/stores/onboarding';
 import { useSystemInfo } from '@/stores/systemInfo';
 import { useDownload } from '@/stores/download';
@@ -41,7 +41,10 @@ import { WhatIsSent } from '@/components/usage/WhatIsSent';
 import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 import { ListenButton } from '@/components/voice/ListenButton';
 import type { CubbyLineId } from '@/voice/cubby-lines';
-import { BASE } from '@/lib/motion';
+import { BASE, MOTION, SLOW, spring } from '@/lib/motion';
+
+/** The tick on a picked job: quick, with a small bounce, like a Duolingo answer. */
+const TICK = spring(MOTION.fast, 0.3);
 import { useAttention } from '@/lib/attention';
 import filmWebm from '@/assets/onboarding/your-ai-team.webm';
 import filmMp4 from '@/assets/onboarding/your-ai-team.mp4';
@@ -83,23 +86,31 @@ export function OnboardingWizard() {
   const finish = useOnboarding((s) => s.finish);
   const brainReady = useBrainReady();
   const brainWay = useOnboarding((s) => s.brainWay);
+  const firstTask = useOnboarding((s) => s.firstTask);
   // Each step starts at its top. The scroll stayed where the last step left it,
   // so "Almost ready" opened with its heading cut off (4 Nov tour).
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => { scroller.current?.scrollTo?.({ top: 0 }); }, [step]);
 
-  if (!active) return null;
   const isFirst = step === 0;
   const isLast = step === totalSteps - 1;
   const onBrain = STEP_IDS[step] === 'provider';
 
+  // Leaving fades and lifts the whole board away, so the chat is revealed
+  // behind it instead of the screen jumping (Darius, 14 Nov: "prea abrupta").
   return (
-    <div
+    <AnimatePresence>
+    {active && (
+    <motion.div
+      key="onboarding"
       ref={scroller}
       className="fixed inset-0 z-50 overflow-y-auto bg-bg-primary"
       role="dialog"
       aria-modal="true"
       aria-labelledby="onboarding-title"
+      initial={{ opacity: 1 }}
+      exit={{ opacity: 0, scale: 1.03, filter: 'blur(6px)' }}
+      transition={SLOW}
     >
       {/* This overlay covers the shell's drag strip; the window needs its own. */}
       <div data-tauri-drag-region aria-hidden className="fixed top-0 inset-x-0 h-8" />
@@ -148,11 +159,17 @@ export function OnboardingWizard() {
                   // Navigate to /chat explicitly rather than relying on it being the
                   // route behind the overlay — the provider step can leave the router
                   // elsewhere (e.g. a deep-link to /models). Finish closes the wizard.
-                  onClick={() => { navigate('/chat'); void finish(); }}
+                  onClick={() => {
+                    if (useOnboarding.getState().firstTask) {
+                      useNotifications.getState().push('info', "Your job is in the chat box. Press Enter when you're ready.");
+                    }
+                    navigate('/chat');
+                    void finish();
+                  }}
                   // With nothing to answer, "Choose a model" is the one orange action on the card.
                   className={brainReady ? PRIMARY_BUTTON : cn(SECONDARY_BUTTON, 'inline-flex items-center gap-2 rounded-2xl px-5 py-3 text-base')}
                 >
-                  Start exploring <ArrowRight size={16} />
+                  {firstTask ? 'Start with this job' : 'Start exploring'} <ArrowRight size={16} />
                 </button>
               ) : (
                 <button type="button" onClick={next} disabled={onBrain && !brainReady} className={PRIMARY_BUTTON}>
@@ -195,7 +212,9 @@ export function OnboardingWizard() {
 
         </div>
       </div>
-    </div>
+    </motion.div>
+    )}
+    </AnimatePresence>
   );
 }
 
@@ -276,6 +295,14 @@ function TeamFilm() {
   const still = usePrefersReducedMotion();
   const ref = useRef<HTMLVideoElement>(null);
   const [sound, setSound] = useState(false);
+  // A film you cannot pause is one you have to sit through (Darius, 14 Nov).
+  const [paused, setPaused] = useState(false);
+  const togglePause = () => {
+    const v = ref.current;
+    if (!v) return;
+    if (v.paused) void v.play()?.catch(() => {});
+    else v.pause();
+  };
   const [big, setBig] = useState<number | null>(null);
   const openBig = () => {
     const v = ref.current;
@@ -318,11 +345,24 @@ function TeamFilm() {
         playsInline
         controls={still}
         preload="auto"
+        onPlay={() => setPaused(false)}
+        onPause={() => setPaused(true)}
+        onClick={still ? undefined : togglePause}
         aria-label="A short film: one day in Ana's flower shop. Cinderpaw makes her post, compares prices, answers a customer after closing and books a table, asking her before it posts or books."
       >
         <source src={filmWebm} type="video/webm" />
         <source src={filmMp4} type="video/mp4" />
       </video>
+      {!still && (
+        <button
+          type="button"
+          onClick={togglePause}
+          aria-label={paused ? 'Play the film' : 'Pause the film'}
+          className="absolute bottom-3 right-36 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-sm text-white transition-colors hover:bg-black/75"
+        >
+          {paused ? <Play size={16} /> : <Pause size={16} />} {paused ? 'Play' : 'Pause'}
+        </button>
+      )}
       {!still && (
         <button
           type="button"
@@ -1035,16 +1075,17 @@ const NAME_INPUT =
   'mt-1.5 w-full rounded-xl border border-border-default bg-bg-surface px-3.5 py-2.5 text-base text-text-primary placeholder:text-text-muted/60 focus:border-brand focus:outline-hidden focus:ring-2 focus:ring-brand/40';
 
 function DoneStep() {
-  const navigate = useNavigate();
   const ready = useBrainReady();
   const downloading = useDownload((s) => !!s.active && !s.done);
-  const finish = useOnboarding((s) => s.finish);
   const setFirstTask = useOnboarding((s) => s.setFirstTask);
   const userName = useOnboarding((s) => s.userName);
   const setUserName = useOnboarding((s) => s.setUserName);
   const agentName = useOnboarding((s) => s.agentName);
   const setAgentName = useOnboarding((s) => s.setAgentName);
-  const begin = (task: string) => { setFirstTask(task); navigate('/chat'); void finish(); };
+  const firstTask = useOnboarding((s) => s.firstTask);
+  // Picking a job selects it; the button at the bottom starts it. It used to
+  // close the wizard on the spot, and he could not tell what had happened (14 Nov).
+  const pick = (task: string) => setFirstTask(firstTask === task ? null : task);
 
   return (
     <div>
@@ -1055,7 +1096,7 @@ function DoneStep() {
           voice="onboarding.done"
           title={<>What should<br />we do first?</>}
           lead="Pick a job, or ask me anything."
-          body="It goes in the chat box. Nothing is sent until you press Enter."
+          body="Pick one, then press Start. It goes in the chat box, and nothing is sent until you press Enter."
         />
       ) : (
         <div>
@@ -1089,20 +1130,44 @@ function DoneStep() {
       </div>
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
-        {FIRST_TASKS.map(({ icon: Icon, team, task }) => (
-          <button
-            key={team}
-            type="button"
-            onClick={() => begin(task)}
-            className="flex items-start gap-3 rounded-xl border border-border-subtle bg-bg-surface p-4 text-left transition-colors hover:border-brand/50 hover:bg-bg-hover"
-          >
-            <Icon size={20} className="mt-0.5 shrink-0 text-brand" />
-            <span>
-              <span className="block text-sm font-medium text-text-secondary">{team}</span>
-              <span className="block text-base text-text-primary">{task}</span>
-            </span>
-          </button>
-        ))}
+        {FIRST_TASKS.map(({ icon: Icon, team, task }) => {
+          const picked = firstTask === task;
+          return (
+            <motion.button
+              key={team}
+              type="button"
+              aria-pressed={picked}
+              onClick={() => pick(task)}
+              whileTap={{ scale: 0.97 }}
+              animate={picked ? { scale: [1, 1.03, 1] } : { scale: 1 }}
+              transition={BASE}
+              className={cn(
+                'relative flex items-start gap-3 rounded-xl border-2 bg-bg-surface p-4 text-left transition-colors hover:bg-bg-hover',
+                picked ? 'border-brand' : 'border-border-subtle hover:border-brand/50',
+              )}
+            >
+              <Icon size={20} className="mt-0.5 shrink-0 text-brand" />
+              <span className="pr-6">
+                <span className="block text-sm font-medium text-text-secondary">{team}</span>
+                <span className="block text-base text-text-primary">{task}</span>
+              </span>
+              <AnimatePresence>
+                {picked && (
+                  <motion.span
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0, opacity: 0 }}
+                    transition={TICK}
+                    className="absolute right-3 top-3 grid size-6 place-items-center rounded-full bg-brand text-on-brand"
+                    aria-hidden
+                  >
+                    <Check size={14} />
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </motion.button>
+          );
+        })}
       </div>
 
       {/* Alpha, said once, here: it used to be a card that came back every

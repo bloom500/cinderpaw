@@ -76,3 +76,15 @@ describe('cached pictures', () => {
   });
 });
 
+describe('suggest_task card', () => {
+  const base = { id: 't1', title: 'Headphones under 500', task: 'Sony under 500 lei', kind: 'watch', when: 'Every hour', schedule: { kind: 'every', intervalMs: 3600000 } };
+  it('draws a price watch, with the price the agent saw (spec 4.10)', () => {
+    const w = widgetOf('suggest_task', { data: { taskSuggestion: { ...base, seenPrice: 529, watch: { sourceUrl: 'https://www.emag.ro/x/pd/Y/', priceBelow: 500, currency: 'RON' } } } });
+    expect(w).toMatchObject({ kind: 'task', card: { seenPrice: 529, watch: { sourceUrl: 'https://www.emag.ro/x/pd/Y/', priceBelow: 500, currency: 'RON' } } });
+  });
+  it('a watch with neither text nor a price is no card', () => {
+    expect(widgetOf('suggest_task', { data: { taskSuggestion: { ...base, watch: { sourceUrl: 'https://www.emag.ro/x' } } } })).toBeNull();
+    expect(widgetOf('suggest_task', { data: { taskSuggestion: { ...base, watch: { sourceUrl: 'https://www.emag.ro/x', priceBelow: -5 } } } })).toBeNull();
+  });
+});
+

@@ -159,7 +159,12 @@ export class CronJobsRepo {
     if (kind !== "agent" && kind !== "reminder" && kind !== "watch") throw new Error("Unknown task kind");
     const watch = input.watch;
     if (kind === "watch") {
-      if (!watch || !watch.contains?.trim() || watch.contains.length > 500) throw new Error("A watch needs the exact text to verify on its source");
+      if (!watch) throw new Error("A watch needs the exact text to verify on its source");
+      if ("priceBelow" in watch) {
+        // Spec 4.10: a number from the page's structured data, never guessed from text.
+        if (!Number.isFinite(watch.priceBelow) || watch.priceBelow <= 0 || watch.priceBelow > 1e9) throw new Error("A price watch needs a limit above zero");
+        if (watch.currency !== undefined && !/^[A-Z]{3}$/.test(watch.currency)) throw new Error("A price watch currency is a three-letter code, like RON or EUR");
+      } else if (!watch.contains?.trim() || watch.contains.length > 500) throw new Error("A watch needs the exact text to verify on its source");
       const url = new URL(watch.sourceUrl);
       if (url.protocol !== "https:" || url.username || url.password || isBlockedHost(url.hostname)) throw new Error("A watch source must be public HTTPS without credentials");
       if (input.schedule.kind === "at") throw new Error("A watch needs a recurring check");

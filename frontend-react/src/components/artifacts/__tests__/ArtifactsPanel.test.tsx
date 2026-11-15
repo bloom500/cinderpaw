@@ -1048,6 +1048,17 @@ describe('live writing', () => {
     expect(screen.getByText(/2 lines written/)).toBeInTheDocument();
   });
 
+  // 14 Nov: a poster's kind arrived after its first HTML, and the code showed
+  // as text the whole time it was written.
+  it('hides code whose kind has not arrived yet', () => {
+    useArtifacts.setState({ loaded: true });
+    const { container } = render(<ArtifactsPanel onClose={() => {}} />);
+    act(() => useArtifacts.getState().onDraft({ id: 'turn-1', sessionId: 's1', draft: '0:0', title: 'Poster', append: '<!doctype html>\n<html><body>Sale</body></html>', onScreen: true }));
+    expect(container.querySelector('pre')).toBeNull();
+    expect(screen.queryByText(/doctype/)).toBeNull();
+    expect(screen.getByText('Building')).toBeInTheDocument();
+  });
+
   // Review of PR #48: "Building" promised an app that was never going to come.
   it('shows what was written, not "Building", when an app stops before it is saved', () => {
     useArtifacts.setState({ loaded: true });

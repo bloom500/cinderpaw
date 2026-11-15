@@ -17,6 +17,7 @@ import { useCinderpawStore } from '@/stores/cinderpaw';
 import { isLocalBaseUrl } from '@/lib/contextWindow';
 import { useNotifications } from '@/stores/notifications';
 import { useFollowUps } from '@/stores/followUps';
+import { receiveWelcome } from '@/lib/welcome';
 import { notifyIfBackground, preview } from '@/lib/systemNotify';
 import { failArtifactRequests, useArtifacts, type DraftEvent } from '@/stores/artifacts';
 import { t } from '@/lib/i18n';
@@ -45,7 +46,6 @@ import { startActivity, finishActivity, type ToolActivity } from '@/hooks/useLiv
 import type { Steer } from '@/lib/timeline';
 import { emojiForTool } from '@/components/chat/mascot/emojiForTool';
 import type { MascotState } from '@/components/chat/mascot/frames';
-import { bareModelOn } from '@/lib/bareModel';
 
 interface StreamCallbacks {
   onToken:      (chunk: string) => void;
@@ -145,8 +145,6 @@ export function useCinderpawStream(chatSessionId: string) {
       }
 
       let messageId: string;
-      // Dev builds only (lib/bareModel.ts): the model alone, for the harness film.
-      const bare = bareModelOn();
       try {
         // The Controls-panel temperature reaches the agent too. max_tokens does
         // not: no slider sets it, so the stored 4096 was a hidden cap on every
@@ -168,14 +166,13 @@ export function useCinderpawStream(chatSessionId: string) {
           // whichever is happening right now. Typed is 'text': it also tells the
           // sidecar this window can show request_secret's password field.
           surface: surface ?? 'text',
-          bare: bare || null,
         });
       } catch (err) {
         callbacks.onError(String(err));
         return;
       }
       // A 👍 on this reply teaches only if it names the turn the engine knows.
-      useChat.getState().patchMessage(callbacks.chatMessageId, { agentMessageId: messageId, ...(bare ? { bare: true } : {}) });
+      useChat.getState().patchMessage(callbacks.chatMessageId, { agentMessageId: messageId });
 
       registerCinderpawStream(messageId, {
         onChunk: (c) => callbacks.onToken(c),
@@ -854,6 +851,8 @@ export function useCinderpawGlobal() {
           // still being written then was never saved, and says so.
           useArtifacts.getState().endDraft(parsed.id, { reason: 'Cinderpaw stopped before saving this.' });
           if (parsed.type === 'done') requestFollowUp();
+        } else if (parsed.type === 'welcome_ready') {
+          receiveWelcome(parsed.sessionId, parsed.content);
         } else if (parsed.type === 'proactive' && parsed.followUp) {
           useFollowUps.getState().receive(parsed.followUp);
         } else if (parsed.type === 'cron_fired') {

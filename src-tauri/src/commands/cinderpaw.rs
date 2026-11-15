@@ -923,6 +923,11 @@ pub(crate) async fn cinderpaw_cron_op(
             payload["expiryDays"] = days.clone();
         }
         if let Some(watch) = options.get("watch") { payload["watch"] = watch.clone(); }
+        // "Send it to me on WhatsApp": the result goes to the phone even while the
+        // window has focus. Only on a new task, which is the one with a delivery.
+        if options.get("toPhone").and_then(|v| v.as_bool()) == Some(true) && payload["delivery"].is_object() {
+            payload["delivery"]["phone"] = serde_json::Value::Bool(true);
+        }
         if action == "limit" {
             // The weekly limit for all scheduled tasks: a positive amount, or null for none.
             let limit = options.get("weeklyLimitUsd").cloned().unwrap_or(serde_json::Value::Null);
@@ -1004,6 +1009,12 @@ fn cron_op_line(
         "followups_setting" => serde_json::json!({
             "type": "followups_setting", "id": request_id, "enabled": enabled.ok_or("on or off?")?,
         }),
+        // The first message after a model is connected: the model writes it from
+        // the app names (one per line, in `task`; empty when they could not be read).
+        "welcome" if present(&session_id) => serde_json::json!({
+            "type": "welcome", "id": request_id, "sessionId": session_id, "content": task.unwrap_or_default(),
+        }),
+        "welcome" => return Err("a welcome needs a chat".to_string()),
         other => return Err(format!("unknown task action '{other}'")),
     };
     Ok(msg.to_string())
@@ -1061,6 +1072,17 @@ mod cron_op_tests {
         assert_eq!(off["type"], "followups_setting");
         assert_eq!(off["enabled"], false);
         assert!(cron_op_line("r", "followups_setting", None, None, None, None, None, None, None).is_err());
+    }
+
+    #[test]
+    fn the_welcome_carries_the_chat_and_the_app_names() {
+        let w: serde_json::Value = serde_json::from_str(&cron_op_line("r", "welcome", None, None, Some("Figma\nSteam".into()), None, None, Some("chat-1".into()), None).unwrap()).unwrap();
+        assert_eq!(w["type"], "welcome");
+        assert_eq!(w["sessionId"], "chat-1");
+        assert_eq!(w["content"], "Figma\nSteam");
+        let none: serde_json::Value = serde_json::from_str(&cron_op_line("r", "welcome", None, None, None, None, None, Some("chat-1".into()), None).unwrap()).unwrap();
+        assert_eq!(none["content"], "");
+        assert!(cron_op_line("r", "welcome", None, None, Some("Figma".into()), None, None, None, None).is_err());
     }
 }
 
