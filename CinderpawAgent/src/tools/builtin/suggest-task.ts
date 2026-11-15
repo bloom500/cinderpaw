@@ -217,6 +217,10 @@ export function createSuggestTaskTool(
           ? { sourceUrl: source.toString(), priceBelow, ...(currency ? { currency } : {}), ...official }
           : { sourceUrl: source.toString(), contains, ...official };
         if (priceBelow !== null && typeof value?.seenPrice === "number" && Number.isFinite(value.seenPrice) && value.seenPrice > 0) seenPrice = value.seenPrice;
+        // Already under the limit: there is nothing to wait for (15 Nov live test: "under 1500", seen 1199).
+        if (priceBelow !== null && seenPrice !== undefined && seenPrice < priceBelow) {
+          return { ok: false, content: "", error: `The price you saw (${seenPrice}) is already under ${priceBelow}, so a watch would have nothing to wait for. Tell them it is already cheaper than their limit; offer a watch with a lower limit only if they want one.` };
+        }
       }
 
       const s = ledger.session(ctx.sessionId);

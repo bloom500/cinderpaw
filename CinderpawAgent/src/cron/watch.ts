@@ -35,7 +35,17 @@ function watchPageText(html: string): string {
 const PAGE_TIMEOUT_MS = 60_000;
 
 async function fetchPage(url: string, fetch: CinderpawFetch): Promise<{ raw: string; isHtml: boolean }> {
-  const response = await fetch(url, { method: "GET", timeoutMs: PAGE_TIMEOUT_MS, headers: { "cache-control": "no-cache" } });
+  const host = new URL(url).hostname.replace(/^www\./, "");
+  let response: Awaited<ReturnType<CinderpawFetch>>;
+  try {
+    response = await fetch(url, { method: "GET", timeoutMs: PAGE_TIMEOUT_MS, headers: { "cache-control": "no-cache" } });
+  } catch (err) {
+    // Said to the person on the card or phone (15 Nov: Altex never answers, and
+    // "request timed out after 60000ms" told nobody what to do).
+    if (/timed out/i.test(String(err))) throw new Error(`${host} did not answer. Some shops block automatic readers. Try the same product on another shop.`);
+    throw err;
+  }
+  if (response.status === 403 || response.status === 429) throw new Error(`${host} refused the read (HTTP ${response.status}). Some shops block automatic readers. Try the same product on another shop.`);
   if (!response.ok) throw new Error(`Source returned HTTP ${response.status}`);
   const raw = await response.text();
   return { raw, isHtml: /html/i.test(response.headers["content-type"] ?? "") || /^\s*<(?:!doctype|html)\b/i.test(raw) };

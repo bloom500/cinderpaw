@@ -57,6 +57,14 @@ describe("one check", () => {
     await expect(checkWatch({ sourceUrl: URL_, priceBelow: 500 }, page("<body>Sold out</body>"), 5)).rejects.toThrow(NO_PRICE);
   });
 
+  test("a shop that never answers gets a sentence a person can act on", async () => {
+    const silent: CinderpawFetch = (async () => { throw new Error("EgressError: request timed out after 60000ms"); }) as never;
+    await expect(checkWatch({ sourceUrl: "https://altex.ro/casti/cpd/X/", priceBelow: 500 }, silent, 5))
+      .rejects.toThrow("altex.ro did not answer. Some shops block automatic readers. Try the same product on another shop.");
+    const refused: CinderpawFetch = (async () => ({ ok: false, status: 403, headers: {}, text: async () => "", json: async () => null })) as never;
+    await expect(checkWatch({ sourceUrl: "https://www.pcgarage.ro/x", priceBelow: 500 }, refused, 5)).rejects.toThrow("pcgarage.ro refused the read (HTTP 403)");
+  });
+
   test("a page that changed currency is not compared", async () => {
     await expect(checkWatch({ sourceUrl: URL_, priceBelow: 500, currency: "EUR" }, page(shop("thomann")), 5)).rejects.toThrow("in RON, not EUR");
   });
@@ -88,6 +96,11 @@ describe("turning one on", () => {
     const card = (res.data as { taskSuggestion: TaskSuggestion }).taskSuggestion;
     expect(card.watch).toEqual({ sourceUrl: URL_, priceBelow: 500, currency: "RON" });
     expect(card.seenPrice).toBe(529);
+    // Seen 1199 with a limit of 1500 (the 15 Nov live test): nothing to wait for, so no card.
+    const already = await createSuggestTaskTool().execute({ title: "XM5 under 1500", task: "Sony XM5 under 1500 lei", kind: "watch", repeat: "hourly", asked: true,
+      watch: { sourceUrl: URL_, priceBelow: 1500, seenPrice: 1199 } }, { sessionId: "s" } as never);
+    expect(already.ok).toBe(false);
+    expect(already.error).toContain("already under 1500");
     const noCondition = await createSuggestTaskTool().execute({ title: "X", task: "X", kind: "watch", repeat: "hourly", watch: { sourceUrl: URL_ } }, { sessionId: "s" } as never);
     expect(noCondition.ok).toBe(false);
   });
