@@ -26,8 +26,16 @@ function watchPageText(html: string): string {
   return htmlToText(stripped);
 }
 
+/**
+ * 60 s, not 15: on the live test of 15 Nov the shop page took longer than 15 s
+ * and Create failed. ponytail: one limit for the accept read and the hourly
+ * check; a page that never answers holds the scheduler tick for up to 60 s,
+ * so split them if reminders start arriving late.
+ */
+const PAGE_TIMEOUT_MS = 60_000;
+
 async function fetchPage(url: string, fetch: CinderpawFetch): Promise<{ raw: string; isHtml: boolean }> {
-  const response = await fetch(url, { method: "GET", timeoutMs: 15000, headers: { "cache-control": "no-cache" } });
+  const response = await fetch(url, { method: "GET", timeoutMs: PAGE_TIMEOUT_MS, headers: { "cache-control": "no-cache" } });
   if (!response.ok) throw new Error(`Source returned HTTP ${response.status}`);
   const raw = await response.text();
   return { raw, isHtml: /html/i.test(response.headers["content-type"] ?? "") || /^\s*<(?:!doctype|html)\b/i.test(raw) };
