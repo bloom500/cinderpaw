@@ -65,6 +65,42 @@ export function monthlyCode(now: Date, day = utcDay(now.getTime())): { code: str
   return { code, since };
 }
 
+// --- "Send my numbers" (proactivity spec 4.12) ---------------------------------
+
+export const NUMBERS_URL = USAGE_URL.replace(/\/usage$/, "/numbers");
+/** Its own monthly code: never `monthlyCode`, which would mark a "since" day for usage sharing the person did not turn on. */
+const numbersCodePath = () => join(cinderpawHome(), "numbers-code.json");
+function numbersCode(now: Date): string {
+  const month = utcDay(now.getTime()).slice(0, 7);
+  try {
+    const f = JSON.parse(readFileSync(numbersCodePath(), "utf8")) as { month?: string; code?: string };
+    if (f.month === month && typeof f.code === "string" && /^[0-9a-f]{32}$/.test(f.code)) return f.code;
+  } catch { /* first time this month */ }
+  const code = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  writeFileSync(numbersCodePath(), JSON.stringify({ month, code }));
+  return code;
+}
+
+export type Numbers = { kinds: Record<string, { sent: number; positive: number; dismissed: number; daysAnswered: number }>; answeredTwoWeeks: 0 | 1; onTimePct: number | null };
+
+/**
+ * Sends the counts once, because the person pressed "Send my numbers". Written to telemetry-sent.jsonl
+ * first, exactly as it leaves, like every usage summary. The answer is a sentence for the button.
+ */
+export async function sendNumbers(n: Numbers, opts: { now?: Date; fetchFn?: typeof fetch } = {}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const now = opts.now ?? new Date();
+  const payload = { v: 1, code: numbersCode(now), app: appVersion(), os: osLabel(), kinds: n.kinds, answeredTwoWeeks: n.answeredTwoWeeks, onTimePct: n.onTimePct };
+  appendFileSync(sentPath(), JSON.stringify(payload) + "\n");
+  try {
+    const r = await (opts.fetchFn ?? fetch)(NUMBERS_URL, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: AbortSignal.timeout(15_000),
+    });
+    return r.ok ? { ok: true } : { ok: false, error: `The server did not take them (code ${r.status}). Please try again later.` };
+  } catch {
+    return { ok: false, error: "Could not reach the server. Check your internet and try again." };
+  }
+}
+
 export function forgetCode(): void {
   rmSync(codePath(), { force: true });
 }

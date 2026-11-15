@@ -63,3 +63,23 @@ describe('What I learned (spec 4.7)', () => {
     expect(undoLearned).toHaveBeenCalledWith('followup:evening');
   });
 });
+
+describe('Send my numbers (spec 4.12)', () => {
+  it('sends only when pressed, then says it was sent', async () => {
+    const { render, screen, fireEvent } = await import('@testing-library/react');
+    const { useTasks } = await import('@/stores/tasks');
+    const { SendNumbers } = await import('../TodayPage');
+    const sendNumbers = vi.fn();
+    useTasks.setState({ numbers: { state: 'idle' }, sendNumbers });
+    const view = render(<SendNumbers />);
+    expect(screen.getByText(/no messages, no names, no times/)).toBeInTheDocument();
+    expect(sendNumbers).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Send my numbers' }));
+    expect(sendNumbers).toHaveBeenCalledTimes(1);
+    view.unmount();
+    useTasks.setState({ numbers: { state: 'failed', error: 'Could not reach the server.' } });
+    render(<SendNumbers />);
+    expect(screen.getByText(/Not sent\. Could not reach the server\./)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+});

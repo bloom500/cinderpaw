@@ -1005,6 +1005,8 @@ fn cron_op_line(
         // Undo on a line of "What I learned": that kind and time of day start counting again.
         "learned_undo" if present(&job_id) => serde_json::json!({ "type": "learned_undo", "id": request_id, "sourceId": job_id }),
         "learned_undo" => return Err("no line selected".to_string()),
+        // "Send my numbers": pressed by the person; the engine sends counts only and logs them first.
+        "numbers_send" => serde_json::json!({ "type": "numbers_send", "id": request_id }),
         // The window was focused: the person is at the computer, so a nudge
         // rings here instead of on the phone.
         "presence" => serde_json::json!({ "type": "presence", "id": request_id }),
@@ -1073,6 +1075,8 @@ mod cron_op_tests {
         assert_eq!(v["type"], "learned_undo");
         assert_eq!(v["sourceId"], "followup:evening");
         assert!(cron_op_line("r", "learned_undo", None, None, None, None, None, None, None).is_err());
+        let n: serde_json::Value = serde_json::from_str(&cron_op_line("r", "numbers_send", None, None, None, None, None, None, None).unwrap()).unwrap();
+        assert_eq!(n["type"], "numbers_send");
     }
 
     #[test]

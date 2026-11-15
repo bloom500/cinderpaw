@@ -2116,6 +2116,13 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         }
         break;
       }
+      // "Send my numbers" (spec 4.12): pressed by the person; counts only, logged before they leave.
+      case "numbers_send": {
+        const { sendNumbers } = await import("./telemetry/usage-sender.ts");
+        const r = await sendNumbers(ctx.nudges.numbers());
+        transport.send({ ...cronListResult(msg.id ?? "", cronRepo.list(), r.ok ? undefined : r.error), ...(r.ok ? { note: "numbers-sent" } : {}) });
+        break;
+      }
       // Undo on a line of "What I learned" (spec 4.7): `sourceId` is the bucket, e.g. "followup:evening".
       case "learned_undo": {
         if (typeof msg.sourceId === "string") ctx.nudges.undo(msg.sourceId);

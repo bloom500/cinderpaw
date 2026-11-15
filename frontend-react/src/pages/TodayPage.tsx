@@ -76,9 +76,33 @@ function ThisWeek({ agent, week, now }: { agent: string; week: { wroteFirst: num
             {week.days.map((_, i) => <span key={i} className="w-3 text-center text-2xs text-text-muted">{dayName(i)}</span>)}
           </div>
         </figure>
-        <p className="w-full text-xs text-text-muted">Stays on this computer.</p>
+        <SendNumbers />
       </div>
     </section>
+  );
+}
+
+/**
+ * "Send my numbers" (spec 4.12): nothing leaves until the person presses it, and then only counts.
+ * The same counts are written to telemetry-sent.jsonl first (Settings, Privacy shows that file).
+ */
+export function SendNumbers() {
+  const numbers = useTasks((s) => s.numbers);
+  const send = useTasks((s) => s.sendNumbers);
+  return (
+    <div className="flex w-full flex-wrap items-center justify-between gap-3 text-xs text-text-muted">
+      <p>
+        {numbers.state === 'sent' ? 'Sent. Thank you for helping make it better.'
+          : numbers.state === 'failed' ? `Not sent. ${numbers.error ?? ''}`
+          : 'Stays on this computer. You can send only these counts to help us: no messages, no names, no times.'}
+      </p>
+      {numbers.state !== 'sent' && (
+        <button type="button" disabled={numbers.state === 'sending'} onClick={send}
+          className="rounded-full border border-border-default px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-bg-hover disabled:opacity-60">
+          {numbers.state === 'sending' ? 'Sending…' : numbers.state === 'failed' ? 'Try again' : 'Send my numbers'}
+        </button>
+      )}
+    </div>
   );
 }
 

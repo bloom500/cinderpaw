@@ -1177,7 +1177,7 @@ const raw = {
   cinderpawCoworkHistory: (threadId?: string | null) =>
     invoke<void>('cinderpaw_cowork_history', { threadId: threadId ?? null }),
   /** Scheduled tasks: list, add, remove, toggle. Answered by a `cron_list_result` event. */
-  cinderpawCronOp: (requestId: string, action: 'list' | 'followups' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit' | 'test_notify' | 'nudge_opened' | 'nudge_dismissed' | 'learned_undo' | 'presence' | 'followups_setting' | 'welcome', opts: {
+  cinderpawCronOp: (requestId: string, action: 'list' | 'followups' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit' | 'test_notify' | 'nudge_opened' | 'nudge_dismissed' | 'learned_undo' | 'numbers_send' | 'presence' | 'followups_setting' | 'welcome', opts: {
     jobId?: string; name?: string; task?: string; schedule?: TaskSchedule; kind?: 'agent' | 'reminder' | 'watch'; sessionId?: string; enabled?: boolean; watch?: ScheduledTask['watch']; expiryDays?: number;
     /** 'add' only: the person asked for it on their phone. */
     toPhone?: boolean;

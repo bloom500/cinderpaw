@@ -26,6 +26,9 @@ interface TasksStore {
   /** "What I learned" (spec 4.7): what the agent stopped saying, each with its Undo key. */
   learned: { bucket: string; line: string }[];
   undoLearned: (bucket: string) => void;
+  /** "Send my numbers" (spec 4.12): idle until pressed; the engine answers sent or why not. */
+  numbers: { state: 'idle' | 'sending' | 'sent' | 'failed'; error?: string };
+  sendNumbers: () => void;
   testing: boolean;
   /** Send a real notice to the phone, and learn where it went. */
   testPhone: () => void;
@@ -53,14 +56,17 @@ export const isCreated = (jobs: ScheduledTask[], card: TaskCard) =>
 export const useTasks = create<TasksStore>()((set) => {
   const settle = (cardId: string, state: 'created' | 'failed', error?: string, note?: string) =>
     set((s) => ({ creating: { ...s.creating, [cardId]: { state, error, ...(note ? { note } : {}) } } }));
-  const send = (action: 'list' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit' | 'test_notify' | 'learned_undo', opts: Parameters<typeof tauri.raw.cinderpawCronOp>[2] = {}, forCard?: string) => {
+  let numbersRequest: string | null = null;
+  const send = (action: 'list' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit' | 'test_notify' | 'learned_undo' | 'numbers_send', opts: Parameters<typeof tauri.raw.cinderpawCronOp>[2] = {}, forCard?: string) => {
     const requestId = crypto.randomUUID();
     if (forCard) pendingCreate.set(requestId, forCard);
+    if (action === 'numbers_send') numbersRequest = requestId;
     tauri.raw.cinderpawCronOp(requestId, action, opts).catch((err: unknown) => {
       // The engine is not running or refused it: say so, never a list that silently never loads.
       const message = err instanceof Error ? err.message : String(err);
       pendingCreate.delete(requestId);
       if (forCard) settle(forCard, 'failed', message);
+      else if (requestId === numbersRequest) set({ numbers: { state: 'failed', error: message } });
       else set({ error: message, testing: false });
     });
   };
@@ -74,6 +80,11 @@ export const useTasks = create<TasksStore>()((set) => {
     week: null,
     learned: [],
     undoLearned: (bucket) => send('learned_undo', { jobId: bucket }),
+    numbers: { state: 'idle' },
+    sendNumbers: () => {
+      set({ numbers: { state: 'sending' } });
+      send('numbers_send');
+    },
     testing: false,
     testPhone: () => {
       set({ testing: true });
@@ -93,6 +104,12 @@ export const useTasks = create<TasksStore>()((set) => {
     receive: (e) => {
       const forCard = pendingCreate.get(e.id);
       pendingCreate.delete(e.id);
+      if (e.id === numbersRequest) {
+        // Answered on the button, not as a Tasks page error.
+        numbersRequest = null;
+        set({ numbers: e.ok ? { state: 'sent' } : { state: 'failed', error: e.error ?? 'That did not work.' } });
+        return;
+      }
       set((s) => ({
         jobs: e.jobs ?? [], loaded: true, limit: e.taskLimit ?? s.limit, error: e.ok ? null : (e.error ?? 'That did not work.'),
         // A plain list after a test must not wipe the test's answer.

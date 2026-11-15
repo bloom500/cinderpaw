@@ -15,6 +15,29 @@ const num = (x, nullable = false) => (nullable && x === null) || (typeof x === '
 const str = (x, n) => typeof x === 'string' && x.length > 0 && x.length <= n;
 const exactKeys = (o, keys) => o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).length === keys.length && keys.every((k) => k in o);
 
+// "Send my numbers" (proactivity spec 4.12): pressed by the person, counts only.
+const NUDGE_KINDS = ['followup', 'task', 'watch', 'digest', 'thought', 'receipt'];
+const NUMBERS_TOP = ['v', 'code', 'app', 'os', 'kinds', 'answeredTwoWeeks', 'onTimePct'];
+const COUNTS = ['sent', 'positive', 'dismissed', 'daysAnswered'];
+const count = (x) => Number.isInteger(x) && x >= 0 && x <= 1_000_000;
+
+/** Numbers only: any text, id or unknown field is refused, so none can be stored. */
+export function validateNumbers(b) {
+  const bad = (error) => ({ ok: false, error });
+  if (!exactKeys(b, NUMBERS_TOP)) return bad('fields');
+  if (b.v !== 1) return bad('v');
+  if (typeof b.code !== 'string' || !/^[0-9a-f]{32}$/.test(b.code)) return bad('code');
+  if (!str(b.app, 32) || !['windows', 'macos', 'linux', 'other'].includes(b.os)) return bad('app/os');
+  if (!b.kinds || typeof b.kinds !== 'object' || Array.isArray(b.kinds)) return bad('kinds');
+  for (const [k, c] of Object.entries(b.kinds)) {
+    if (!NUDGE_KINDS.includes(k)) return bad('kind');
+    if (!exactKeys(c, COUNTS) || !COUNTS.every((f) => count(c[f]))) return bad('counts');
+  }
+  if (b.answeredTwoWeeks !== 0 && b.answeredTwoWeeks !== 1) return bad('answeredTwoWeeks');
+  if (b.onTimePct !== null && !(typeof b.onTimePct === 'number' && b.onTimePct >= 0 && b.onTimePct <= 100)) return bad('onTimePct');
+  return { ok: true };
+}
+
 export function validatePayload(b, now = Date.now()) {
   const bad = (error) => ({ ok: false, error });
   if (!exactKeys(b, TOP)) return bad('fields');

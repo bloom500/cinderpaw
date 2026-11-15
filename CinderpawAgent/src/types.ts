@@ -1319,7 +1319,7 @@ export interface InboundMessage {
     | "tool_response"
     | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list"
     // The unfinished-work card was opened or dismissed (`sourceId`, `outcome`).
-    | "nudge_reaction" | "learned_undo"
+    | "nudge_reaction" | "learned_undo" | "numbers_send"
     // The window was focused; and its "Follow-up suggestions" choice (`enabled`).
     | "presence" | "followups_setting" | "welcome"
     | "desktop_control_response" | "capability_response" | "admin_response" | "connectors_reload"

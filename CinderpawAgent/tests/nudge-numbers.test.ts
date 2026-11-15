@@ -33,6 +33,38 @@ test("the numbers payload holds only numbers, even with secret-looking text in t
   db.close();
 });
 
+test("Send my numbers: what is logged is exactly what leaves, and the worker accepts it", async () => {
+  const { mkdtempSync, readFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const home = mkdtempSync(join(tmpdir(), "cp-numbers-"));
+  const saved = process.env.CINDERPAW_HOME;
+  process.env.CINDERPAW_HOME = home;
+  try {
+    const { sendNumbers, NUMBERS_URL } = await import("../src/telemetry/usage-sender.ts");
+    const { validateNumbers } = await import("../../workers/bug-report/usage.js");
+    const db = openDatabase(":memory:");
+    const nudges = new Nudges(db.raw);
+    await nudges.send({ kind: "task", sourceId: "job-secret", userRequested: true }, () => "desktop", Date.now());
+    let sent: { url: string; body: string } | null = null;
+    const r = await sendNumbers(nudges.numbers(), { fetchFn: (async (url: string, init: RequestInit) => { sent = { url, body: String(init.body) }; return new Response(null, { status: 204 }); }) as never });
+    expect(r).toEqual({ ok: true });
+    expect(sent!.url).toBe(NUMBERS_URL);
+    const logged = readFileSync(join(home, "telemetry-sent.jsonl"), "utf8").trim();
+    expect(logged).toBe(sent!.body);
+    expect(validateNumbers(JSON.parse(sent!.body))).toEqual({ ok: true });
+    expect(sent!.body).not.toContain("secret");
+    // Usage sharing was never turned on: its code file (with its "since" day) is not created.
+    expect(() => readFileSync(join(home, "usage-code.json"))).toThrow();
+    const offline = await sendNumbers(nudges.numbers(), { fetchFn: (async () => { throw new Error("offline"); }) as never });
+    expect(offline).toEqual({ ok: false, error: "Could not reach the server. Check your internet and try again." });
+    db.close();
+  } finally {
+    if (saved === undefined) delete process.env.CINDERPAW_HOME; else process.env.CINDERPAW_HOME = saved;
+    try { rmSync(home, { recursive: true, force: true }); } catch { /* locked on Windows */ }
+  }
+});
+
 test("`numbers` is a read-only command of the engine", () => {
   expect(dispatch(parseArgs(["numbers"]))).toEqual({ kind: "subcommand", name: "numbers" });
   expect(dispatch(parseArgs(["metrics"]))).toEqual({ kind: "subcommand", name: "numbers" });
