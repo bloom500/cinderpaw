@@ -2076,6 +2076,9 @@ export async function boot(transportOverride?: Transport) {
         // behaviour and stays the fallback for teammates created before the
         // column existed.
         allowedTools: agentRec.tools,
+        // Made by the owner, so the team shares one memory: what you tell a
+        // teammate, the main agent and the others know too.
+        owner: true,
       });
       agent.setSessionProfile(sessionId, profileId);
       // `handleTurn()` never throws — it emits `error` events instead

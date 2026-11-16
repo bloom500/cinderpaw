@@ -260,6 +260,8 @@ interface CompiledProfile {
   /** Tools the model is allowed to call — enforced in the exec loop.
    *  `null` = unrestricted (persona-only profile: owner toolset, new voice). */
   allowed: Set<string> | null;
+  /** Fewer tools, but still the owner (a teammate the owner made): memory is shared. */
+  owner: boolean;
 }
 
 /**
@@ -374,6 +376,12 @@ export interface ProfileOptions {
   /** Whitelist of tool names the profile may use. Unknown names are ignored.
    *  Omit for a persona-only profile that keeps the owner's full toolset. */
   allowedTools?: string[];
+  /**
+   * The owner's own teammate (Agent Cowork): fewer tools, same person. Its
+   * turns are remembered like the owner's and its facts are learned, so the
+   * team shares one memory ("hive mind", 16 Nov). Never for a public surface.
+   */
+  owner?: boolean;
 }
 
 export class AgentLoop {
@@ -770,6 +778,7 @@ export class AgentLoop {
     this.#profiles.set(id, {
       systemPrompt: opts.systemPrompt,
       allowed: opts.allowedTools ? new Set(opts.allowedTools) : null,
+      owner: opts.owner === true,
     });
   }
 
@@ -787,7 +796,7 @@ export class AgentLoop {
       // (extractor, episodic, and through it the fractal tree). A profile with
       // no tool whitelist is persona-only — still the owner, in a different
       // voice — and is deliberately not restricted. See session-visibility.ts.
-      markSessionRestricted(sessionId, profile.allowed !== null);
+      markSessionRestricted(sessionId, profile.allowed !== null && !profile.owner);
     }
   }
 
