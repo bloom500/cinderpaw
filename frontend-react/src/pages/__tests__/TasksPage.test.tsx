@@ -63,3 +63,21 @@ it('says where tasks reach you, sends a real test, and points to connecting a ph
  expect(screen.getByText('Tasks reach you only here. Get them on your phone too. If you quit Cinderpaw, nothing reaches you. The tray is fine.')).toBeVisible();
  expect(screen.getByRole('button',{name:'Connect your phone'})).toBeVisible();
 });
+it('draws a price watch: last read in the row, 7 and 30 days, the limit as a line', async () => {
+ const day=86400000,t=30*day;
+ useTasks.setState({jobs:[{id:'p',name:'Headphones',task:'Under 500',kind:'watch',watch:{sourceUrl:'https://shop.example/h',priceBelow:500,currency:'RON'},spentUsd:0,enabled:true,schedule:{kind:'every',intervalMs:3600000},history:[],
+  prices:[{at:t-20*day,amount:600},{at:t-6*day,amount:529},{at:t,amount:479}]}]} as never);
+ render(<MemoryRouter><TasksPage/></MemoryRouter>);
+ expect(screen.getByText(/last read 479 RON/)).toBeInTheDocument();
+ await userEvent.click(screen.getByRole('button',{name:'Headphones'}));
+ expect(screen.getByRole('img',{name:'Price over 7 days: from 529 to 479 RON. Your limit is 500 RON.'})).toBeInTheDocument();
+ expect(screen.getByText('Was 529 RON, −50 RON')).toBeInTheDocument();
+ await userEvent.click(screen.getByRole('button',{name:'30 days'}));
+ expect(screen.getByText('Was 600 RON, −121 RON')).toBeInTheDocument();
+});
+it('a price watch with no read yet says the graph comes with the first check', async () => {
+ useTasks.setState({jobs:[{id:'p',name:'Headphones',task:'Under 500',kind:'watch',watch:{sourceUrl:'https://shop.example/h',priceBelow:500},spentUsd:0,enabled:true,schedule:{kind:'every',intervalMs:3600000},history:[],prices:[]}]} as never);
+ render(<MemoryRouter><TasksPage/></MemoryRouter>);
+ await userEvent.click(screen.getByRole('button',{name:'Headphones'}));
+ expect(screen.getByText('No price read yet. The first check draws the graph.')).toBeInTheDocument();
+});

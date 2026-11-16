@@ -6,6 +6,39 @@ import { useTasks } from '@/stores/tasks';
 import { useFollowUps } from '@/stores/followUps';
 import { cn } from '@/lib/utils';
 
+/** A price watch's reads over 7 or 30 days, with the person's limit as a
+ *  dashed line (spec 4.13). Plain SVG: one line, nothing to install. */
+export function PriceGraph({ reads, limit, currency }: { reads: { at: number; amount: number }[]; limit: number; currency?: string }) {
+  const [days, setDays] = useState<7 | 30>(7);
+  const unit = currency ? ` ${currency}` : '';
+  if (!reads.length) return <p className="mt-2 text-xs text-text-muted">No price read yet. The first check draws the graph.</p>;
+  const from = reads.at(-1)!.at - days * 86_400_000;
+  const shown = reads.filter((r) => r.at >= from);
+  const first = shown[0]!, last = shown.at(-1)!;
+  const values = [...shown.map((r) => r.amount), limit];
+  const lo = Math.min(...values), hi = Math.max(...values), span = hi - lo || 1;
+  const x = (at: number) => shown.length < 2 ? 150 : ((at - first.at) / (last.at - first.at || 1)) * 300;
+  const y = (v: number) => 72 - ((v - lo) / span) * 64;
+  const diff = last.amount - first.amount;
+  return (
+    <div className="mt-3">
+      <div className="flex items-baseline justify-between gap-2 text-xs text-text-muted">
+        <span className="tabular-nums">{diff === 0 ? `Same price for ${days} days` : `Was ${first.amount}${unit}, ${diff < 0 ? '−' : '+'}${Math.abs(Math.round(diff * 100) / 100)}${unit}`}</span>
+        <span className="flex gap-1">{([7, 30] as const).map((d) => (
+          <button key={d} type="button" aria-pressed={days === d} onClick={() => setDays(d)}
+            className={cn('rounded-full px-2 py-0.5', days === d ? 'bg-bg-hover text-text-primary' : 'hover:text-text-primary')}>{d} days</button>))}</span>
+      </div>
+      <svg viewBox="0 0 300 80" preserveAspectRatio="none" className="mt-2 h-20 w-full overflow-visible" role="img" aria-label={`Price over ${days} days: from ${first.amount} to ${last.amount}${unit}. Your limit is ${limit}${unit}.`}>
+        <line x1="0" x2="300" y1={y(limit)} y2={y(limit)} strokeDasharray="4 4" className="stroke-text-muted" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+        <polyline fill="none" points={shown.map((r) => `${x(r.at)},${y(r.amount)}`).join(' ')} className="stroke-brand" strokeWidth="2" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        {/* A zero-length line with a round cap: a dot that stays round when the graph stretches. */}
+        <line x1={x(last.at)} x2={x(last.at)} y1={y(last.amount)} y2={y(last.amount)} className="stroke-brand" strokeWidth="7" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <p className="mt-1 text-xs text-text-muted">Dashed line: your limit, {limit}{unit}.</p>
+    </div>
+  );
+}
+
 const DAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -125,7 +158,7 @@ function TaskRow({ job }: { job: ScheduledTask }) {
             <span className={cn('hidden text-xs sm:inline', state === 'Active' ? 'text-brand' : 'text-text-muted')}>{state}</span>
           </div>
           <p className="mt-1 text-sm text-text-secondary">{scheduleWords(job.schedule)}</p>
-          <p className="mt-1.5 text-xs text-text-muted"><span className="sm:hidden">{state} · </span>{job.kind === 'reminder' ? 'Reminder · Free' : job.kind === 'watch' ? 'Source watch · Free' : <><span className="hidden sm:inline">Uses your model · </span><span className="tabular-nums">${(job.spentUsd ?? 0).toFixed(2)} used</span></>}</p>
+          <p className="mt-1.5 text-xs text-text-muted"><span className="sm:hidden">{state} · </span>{job.kind === 'reminder' ? 'Reminder · Free' : job.kind === 'watch' ? (job.prices?.length ? `Price watch · Free · last read ${job.prices.at(-1)!.amount}${job.watch?.currency ? ` ${job.watch.currency}` : ''}` : 'Source watch · Free') : <><span className="hidden sm:inline">Uses your model · </span><span className="tabular-nums">${(job.spentUsd ?? 0).toFixed(2)} used</span></>}</p>
         </div>
         <ChevronDown size={16} aria-hidden className={cn('mt-1 shrink-0 text-text-muted transition-transform', open && 'rotate-180')} />
       </button>
@@ -136,7 +169,8 @@ function TaskRow({ job }: { job: ScheduledTask }) {
             <div><dt className="text-xs text-text-muted">Source</dt><dd className="mt-1"><a href={job.watch.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 text-brand hover:underline"><span className="break-all">{sourceHost(job.watch.sourceUrl)}</span><ArrowUpRight size={12} className="shrink-0" aria-hidden /></a></dd></div>
             <div><dt className="text-xs text-text-muted">Expires</dt><dd className="mt-1 text-text-primary">{when(job.expiresAt) || 'Not set'}</dd></div>
             {job.watch.priceBelow
-              ? <div className="sm:col-span-2"><dt className="text-xs text-text-muted">Tell me when the price is under</dt><dd className="mt-1 font-medium tabular-nums text-text-primary">{job.watch.priceBelow}{job.watch.currency ? ` ${job.watch.currency}` : ''}</dd></div>
+              ? <div className="sm:col-span-2"><dt className="text-xs text-text-muted">Tell me when the price is under</dt><dd className="mt-1 font-medium tabular-nums text-text-primary">{job.watch.priceBelow}{job.watch.currency ? ` ${job.watch.currency}` : ''}</dd>
+                <PriceGraph reads={job.prices ?? []} limit={job.watch.priceBelow} currency={job.watch.currency} /></div>
               : <div className="sm:col-span-2"><dt className="text-xs text-text-muted">Notify when this text appears</dt><dd className="mt-1 break-words font-medium text-text-primary">“{job.watch.contains}”</dd></div>}
           </dl>}
           {job.kind === 'agent' && <div className="mt-4">

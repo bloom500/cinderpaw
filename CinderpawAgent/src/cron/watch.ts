@@ -168,7 +168,7 @@ export async function firstPriceRead(watch: PriceWatch, fetch: CinderpawFetch): 
 }
 
 /** One scheduled check of any watch: the proof on a hit, and the line for run history. */
-export async function checkWatch(watch: WatchCondition, fetch: CinderpawFetch, checkedAt: number): Promise<{ proof?: Proof; result: string }> {
+export async function checkWatch(watch: WatchCondition, fetch: CinderpawFetch, checkedAt: number): Promise<{ proof?: Proof; result: string; price?: number }> {
   if (!isPriceWatch(watch)) {
     const proof = await verifyWatch(watch, fetch, checkedAt);
     return { proof, result: proof ? `Verified on ${proof.sourceUrl}:\n“${proof.excerpt}”` : "Checked source; expected text is not present yet." };
@@ -177,8 +177,9 @@ export async function checkWatch(watch: WatchCondition, fetch: CinderpawFetch, c
   const cur = price.currency ?? watch.currency;
   const read = money(price.amount, cur);
   const limit = money(watch.priceBelow, cur);
-  if (price.amount >= watch.priceBelow) return { result: `Read ${read}. Waiting for under ${limit}.` };
+  if (price.amount >= watch.priceBelow) return { result: `Read ${read}. Waiting for under ${limit}.`, price: price.amount };
   return {
+    price: price.amount,
     proof: { sourceUrl: watch.sourceUrl, checkedAt, excerpt: `Price read: ${read} (your limit: under ${limit})`, contentHash: hash(raw), price: price.amount },
     result: `The price dropped to ${read}, under your ${limit}.\n${watch.sourceUrl}`,
   };

@@ -25,6 +25,7 @@ import { nextRunAt } from "./schedule.ts";
 import { isBlockedHost } from "../egress/egress-proxy.ts";
 
 const HISTORY_CAP = 50;
+const PRICE_KEEP_MS = 31 * 86_400_000;
 
 /** Tolerate a corrupt done_when payload — an unparseable one becomes "unchecked". */
 function safeParse(json: string): unknown {
@@ -69,6 +70,8 @@ export class CronJobsRepo {
     if (!(db.query("PRAGMA table_info(cron_jobs)").all() as {name:string}[]).some(c => c.name === "policy_json")) {
       db.exec("ALTER TABLE cron_jobs ADD COLUMN policy_json TEXT");
     }
+    db.exec("CREATE TABLE IF NOT EXISTS watch_prices (job_id TEXT NOT NULL, at INTEGER NOT NULL, amount REAL NOT NULL)");
+    db.exec("CREATE INDEX IF NOT EXISTS watch_prices_job ON watch_prices(job_id, at)");
     this.#insert = db.query(`
       INSERT INTO cron_jobs (
         id, name, task, schedule_json, delivery_json,
@@ -237,7 +240,27 @@ export class CronJobsRepo {
   /** Remove a job. Returns true if a row was deleted. */
   remove(id: string): boolean {
     const result = this.#delete.run(id);
+    this.#db.query("DELETE FROM watch_prices WHERE job_id = ?").run(id);
     return result.changes > 0;
+  }
+
+  /**
+   * One price read by a price watch (spec 4.13): a number and a time, nothing
+   * else, kept 31 days for the card's 7/30-day graph.
+   */
+  addPrice(id: string, at: number, amount: number): void {
+    this.#db.query("INSERT INTO watch_prices (job_id, at, amount) VALUES (?, ?, ?)").run(id, at, amount);
+    this.#db.query("DELETE FROM watch_prices WHERE at < ?").run(at - PRICE_KEEP_MS);
+  }
+
+  /**
+   * The jobs as people see them: `list()` plus each price watch's reads. Kept
+   * apart from `list()` because the scheduler compares jobs field by field.
+   */
+  forPeople(): CronJob[] {
+    const reads = this.#db.query("SELECT at, amount FROM watch_prices WHERE job_id = ? ORDER BY at ASC");
+    return this.list().map((j) =>
+      j.watch && "priceBelow" in j.watch ? { ...j, prices: reads.all(j.id) as { at: number; amount: number }[] } : j);
   }
 
   /**

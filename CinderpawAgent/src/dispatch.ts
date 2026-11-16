@@ -172,9 +172,9 @@ export function cronListResult(id: string, jobs: CronJob[], error?: string, task
     ok: error === undefined,
     ...(error ? { error } : {}),
     ...(taskLimit ? { taskLimit } : {}),
-    jobs: jobs.map(({ id, name, task, schedule, enabled, nextRunMs, lastRunMs, kind, history, watch, expiresAt, budgetUsd, spentUsd }) => ({
+    jobs: jobs.map(({ id, name, task, schedule, enabled, nextRunMs, lastRunMs, kind, history, watch, expiresAt, budgetUsd, spentUsd, prices }) => ({
       id, name, task, schedule, enabled, nextRunMs, lastRunMs, kind,
-      ...(watch ? {watch} : {}), ...(expiresAt !== undefined ? {expiresAt} : {}), ...(budgetUsd !== undefined ? {budgetUsd} : {}), ...(spentUsd !== undefined ? {spentUsd} : {}),
+      ...(watch ? {watch} : {}), ...(prices ? {prices} : {}), ...(expiresAt !== undefined ? {expiresAt} : {}), ...(budgetUsd !== undefined ? {budgetUsd} : {}), ...(spentUsd !== undefined ? {spentUsd} : {}),
       // The last few results, for the Tasks page; the full 50 stay on disk.
       // This list also answers every follow-up check after a chat reply, so
       // all 50 (up to 2 KB each) per task went out each time (24 Oct review).
@@ -2120,13 +2120,13 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       case "numbers_send": {
         const { sendNumbers } = await import("./telemetry/usage-sender.ts");
         const r = await sendNumbers(ctx.nudges.numbers());
-        transport.send({ ...cronListResult(msg.id ?? "", cronRepo.list(), r.ok ? undefined : r.error), ...(r.ok ? { note: "numbers-sent" } : {}) });
+        transport.send({ ...cronListResult(msg.id ?? "", cronRepo.forPeople(), r.ok ? undefined : r.error), ...(r.ok ? { note: "numbers-sent" } : {}) });
         break;
       }
       // Undo on a line of "What I learned" (spec 4.7): `sourceId` is the bucket, e.g. "followup:evening".
       case "learned_undo": {
         if (typeof msg.sourceId === "string") ctx.nudges.undo(msg.sourceId);
-        transport.send({ ...cronListResult(msg.id ?? "", cronRepo.list()), week: ctx.nudges.week(), learned: ctx.nudges.learned() });
+        transport.send({ ...cronListResult(msg.id ?? "", cronRepo.forPeople()), week: ctx.nudges.week(), learned: ctx.nudges.learned() });
         break;
       }
       // The window was focused: the person is at the computer (spec 4.4).
@@ -2149,7 +2149,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         if (msg.taskLimit) {
           try { limit.set(msg.taskLimit.weeklyUsd); } catch (error) { limitError = error instanceof Error ? error.message : String(error); }
         }
-        const jobs = cronRepo.list();
+        const jobs = cronRepo.forPeople();
         // Where a fired task would reach the person, and on request a real
         // test, so "will I hear about it?" is answered on the Tasks page.
         const phone = msg.testNotify
@@ -2176,10 +2176,10 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           const note = JSON.stringify(before) === JSON.stringify(m.watch) ? null : await ctx.priceFirstRead(m.watch);
           const job = cronRepo.upsert(m);
           log(`cron_add → ${job.id} (${job.name})`);
-          if (m.requestId) transport.send({ ...cronListResult(m.requestId, cronRepo.list()), ...(note ? { note } : {}) });
+          if (m.requestId) transport.send({ ...cronListResult(m.requestId, cronRepo.forPeople()), ...(note ? { note } : {}) });
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
-          if (m.requestId) transport.send(cronListResult(m.requestId, cronRepo.list(), detail));
+          if (m.requestId) transport.send(cronListResult(m.requestId, cronRepo.forPeople(), detail));
           else transport.send({type:"model_error",message:detail});
         }
         break;
@@ -2198,7 +2198,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         const removed = cronRepo.remove(m.id);
         log(`cron_remove → ${m.id} (${removed ? "ok" : "not found"})`);
         const req = (msg as { requestId?: string }).requestId;
-        if (req) transport.send(cronListResult(req, cronRepo.list(), removed ? undefined : "No task with that id."));
+        if (req) transport.send(cronListResult(req, cronRepo.forPeople(), removed ? undefined : "No task with that id."));
         break;
       }
       case "cron_toggle": {
@@ -2217,7 +2217,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         cronRepo.setEnabled(m.id, m.enabled);
         log(`cron_toggle → ${m.id} enabled=${m.enabled}`);
         const req = (msg as { requestId?: string }).requestId;
-        if (req) transport.send(cronListResult(req, cronRepo.list()));
+        if (req) transport.send(cronListResult(req, cronRepo.forPeople()));
         break;
       }
 

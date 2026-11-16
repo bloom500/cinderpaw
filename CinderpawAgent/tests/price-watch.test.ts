@@ -89,6 +89,21 @@ describe("turning one on", () => {
     expect(() => r.upsert({ ...base, watch: { sourceUrl: URL_, priceBelow: 500, currency: "lei" } } as CronJobInput)).toThrow("three-letter");
   });
 
+  test("price reads are numbers only, kept 31 days, and go with the watch", () => {
+    const { repo: r } = repo();
+    const base = { name: "Headphones", task: "Headphones under 500", kind: "watch", schedule: { kind: "every", intervalMs: 3_600_000 }, delivery: { kind: "chat", sessionId: "chat" } } as const;
+    const watch = r.upsert({ ...base, watch: { sourceUrl: URL_, priceBelow: 500 } } as CronJobInput);
+    const text = r.upsert({ ...base, watch: { sourceUrl: URL_, contains: "in stock" } } as CronJobInput);
+    const day = 86_400_000;
+    r.addPrice(watch.id, 0, 600);
+    r.addPrice(watch.id, 32 * day, 550);
+    expect(r.forPeople().find((j) => j.id === watch.id)!.prices).toEqual([{ at: 32 * day, amount: 550 }]);
+    expect(r.forPeople().find((j) => j.id === text.id)!.prices).toBeUndefined();
+    r.remove(watch.id);
+    r.upsert({ ...base, id: watch.id, watch: { sourceUrl: URL_, priceBelow: 500 } } as CronJobInput);
+    expect(r.forPeople().find((j) => j.id === watch.id)!.prices).toEqual([]);
+  });
+
   test("suggest_task offers a price watch with the price the agent saw, and downloads nothing", async () => {
     const tool = createSuggestTaskTool();
     const res = await tool.execute({ title: "Headphones under 500", task: "Sony headphones under 500 lei", kind: "watch", repeat: "hourly", asked: true,
@@ -152,6 +167,9 @@ test("the headphones scenario, start to finish: offer, 'da' on the phone, a drop
   expect(sent).toEqual([`The price dropped to 479 RON, under your 500 RON.\n${URL_}`]);
   expect(r.get(job.id)!.history.at(-1)?.proof?.price).toBe(479);
   expect(modelRuns).toBe(0);
+  // Every read is kept for the card's graph (spec 4.13), and only for people.
+  expect(r.forPeople()[0]!.prices!.map((p) => p.amount)).toEqual([529, 479]);
+  expect(r.list()[0]!.prices).toBeUndefined();
 
   // 5. The person replies on the phone: the nudge is answered.
   nudges.inbound("whatsapp", now + 60_000);

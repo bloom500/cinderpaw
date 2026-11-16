@@ -262,7 +262,8 @@ export class CronScheduler {
     try {
       if (job.kind === "watch") {
         if (!job.watch || !this.#watchFetch) throw new Error("Watch source verification is unavailable");
-        const { proof, result } = await checkWatch(job.watch, this.#watchFetch(job), startedAt);
+        const { proof, result, price } = await checkWatch(job.watch, this.#watchFetch(job), startedAt);
+        if (price !== undefined) this.#repo.addPrice(job.id, startedAt, price);
         if (!this.#repo.updateAfterRun(job.id, startedAt, computeNext(job, this.#now()), {runAt:startedAt,status:proof ? "success" : "waiting",durationMs:this.#now().getTime()-startedAt,result,proof,costUsd:0}, 0, job.updatedAt)) return;
         if (proof) {
           this.#repo.setEnabled(job.id, false);

@@ -863,6 +863,8 @@ export interface ScheduledTask {
   expiresAt?: number;
   budgetUsd?: number;
   spentUsd?: number;
+  /** A price watch's reads, last 31 days, oldest first (spec 4.13). */
+  prices?: { at: number; amount: number }[];
   nextRunMs?: number;
   lastRunMs?: number;
   /** The last few runs, oldest first. */

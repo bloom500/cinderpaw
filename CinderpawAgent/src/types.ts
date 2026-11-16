@@ -1248,6 +1248,8 @@ export interface CronJob {
   expiresAt?: number;
   budgetUsd?: number;
   spentUsd?: number;
+  /** A price watch's reads, last 31 days, oldest first (`CronJobsRepo.forPeople`); absent elsewhere. */
+  prices?: Array<{ at: number; amount: number }>;
   createdAt: number;
   updatedAt: number;
 }
@@ -2343,7 +2345,7 @@ export type OutboundEvent =
       id: string;
       ok: boolean;
       error?: string;
-      jobs: Array<Pick<CronJob, "id" | "name" | "task" | "schedule" | "enabled" | "nextRunMs" | "lastRunMs" | "kind" | "history" | "watch" | "expiresAt" | "budgetUsd" | "spentUsd">>;
+      jobs: Array<Pick<CronJob, "id" | "name" | "task" | "schedule" | "enabled" | "nextRunMs" | "lastRunMs" | "kind" | "history" | "watch" | "expiresAt" | "budgetUsd" | "spentUsd" | "prices">>;
       taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number };
       /** After adding a price watch: the price read on accept, said on the card (spec 4.10). */
       note?: string;
