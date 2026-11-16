@@ -48,6 +48,10 @@ export const RULE = {
 } as const;
 const RULED: ReadonlySet<NudgeKind> = new Set(["followup", "thought", "receipt"]);
 const RESET_KEY = "proactive.rule-reset.v1";
+/** Kinds the person told Cubby to stop in chat (spec 4.7), each with when they said it. */
+const ASKED_KEY = "proactive.asked-stop.v1";
+/** The kinds a person can stop by saying so: only what Cubby chose to say. */
+export const STOPPABLE: readonly NudgeKind[] = [...RULED];
 
 export type Slot = "morning" | "afternoon" | "evening";
 /** 08-12, 12-18, 18-22 local; null at night (quiet hours already keep it shut). */
@@ -175,7 +179,10 @@ export class Nudges {
   }
 
   #decide(info: NudgeInfo, arm: string, now: number): "sent" | "held_for_digest" | "dropped" {
-    if (!this.#rule || arm === "control" || info.userRequested || !RULED.has(info.kind)) return "sent";
+    if (info.userRequested || !RULED.has(info.kind)) return "sent";
+    // Said in words: no control arm, no rule switch, nothing to learn.
+    if (this.#meta(ASKED_KEY)[info.kind] !== undefined) return "dropped";
+    if (!this.#rule || arm === "control") return "sent";
     const slot = slotOf(new Date(now).getHours());
     if (!slot) return "sent";
     try {
@@ -199,8 +206,12 @@ export class Nudges {
   }
 
   #resets(): Record<string, number> {
+    return this.#meta(RESET_KEY);
+  }
+
+  #meta(key: string): Record<string, number> {
     try {
-      const row = this.#db.query(`SELECT value FROM meta WHERE key = ?`).get(RESET_KEY) as { value: string } | null;
+      const row = this.#db.query(`SELECT value FROM meta WHERE key = ?`).get(key) as { value: string } | null;
       const parsed = row ? JSON.parse(row.value) : {};
       return parsed && typeof parsed === "object" ? parsed as Record<string, number> : {};
     } catch {
@@ -208,9 +219,32 @@ export class Nudges {
     }
   }
 
+  #setMeta(key: string, value: Record<string, number>, now: number): void {
+    this.#safe(() => {
+      this.#db.query(`INSERT INTO meta (key, value, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
+        .run(key, JSON.stringify(value), now);
+    });
+  }
+
+  /**
+   * "Stop telling me about unfinished work" (spec 4.7), said in chat: that kind
+   * stops at every time of day until Undo. `false` = start again. Returns the
+   * line the person sees on My day.
+   */
+  stop(kind: NudgeKind, on = true, now = Date.now()): string {
+    if (!RULED.has(kind)) throw new Error(`Only ${STOPPABLE.map((k) => ABOUT[k]).join(", ")} can be stopped this way.`);
+    const { [kind]: _old, ...rest } = this.#meta(ASKED_KEY);
+    this.#setMeta(ASKED_KEY, on ? { ...rest, [kind]: now } : rest, now);
+    return on ? `You asked me to stop mentioning ${ABOUT[kind]}.` : `I can mention ${ABOUT[kind]} again.`;
+  }
+
   /** What Cubby learned to stop (spec 4.7), one plain line each, for the person to read and undo. */
   learned(): Learned[] {
     const out: Learned[] = [];
+    for (const kind of STOPPABLE) {
+      if (this.#meta(ASKED_KEY)[kind] !== undefined) out.push({ bucket: `${kind}:asked`, line: `You asked me to stop mentioning ${ABOUT[kind]}.` });
+    }
     if (!this.#rule) return out;
     for (const kind of RULED) {
       for (const slot of ["morning", "afternoon", "evening"] as const) {
@@ -228,12 +262,10 @@ export class Nudges {
   /** Undo one learned line: that bucket's counts start again from now. */
   undo(bucket: string, now = Date.now()): void {
     const [kind, slot] = bucket.split(":");
-    if (!RULED.has(kind as NudgeKind) || !["morning", "afternoon", "evening"].includes(slot ?? "")) return;
-    this.#safe(() => {
-      this.#db.query(`INSERT INTO meta (key, value, updated_at) VALUES (?, ?, ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
-        .run(RESET_KEY, JSON.stringify({ ...this.#resets(), [bucket]: now }), now);
-    });
+    if (!RULED.has(kind as NudgeKind)) return;
+    if (slot === "asked") { this.stop(kind as NudgeKind, false, now); return; }
+    if (!["morning", "afternoon", "evening"].includes(slot ?? "")) return;
+    this.#setMeta(RESET_KEY, { ...this.#resets(), [bucket]: now }, now);
   }
 
   /** Lines for the next digest: what the rule held back since `since` (spec 4.5b). */

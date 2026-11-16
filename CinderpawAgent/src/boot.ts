@@ -195,6 +195,10 @@ import { createSetAppearanceTool } from "./tools/builtin/set-appearance.ts";
 import { createSuggestTaskTool } from "./tools/builtin/suggest-task.ts";
 import { createTasksListTool } from "./tools/builtin/tasks-list.ts";
 import { createTaskLimitTool } from "./tools/builtin/task-limit.ts";
+import { createQuietNudgesTool } from "./tools/builtin/quiet-nudges.ts";
+import { thoughtSituation } from "./core/thought-situation.ts";
+import { Pages } from "./core/pages.ts";
+import { createComposePageTool } from "./tools/builtin/compose-page.ts";
 import { TaskLimit } from "./cron/limit.ts";
 import { refreshModelPrices, withModelPrices } from "./egress/model-prices.ts";
 import { DesktopControlBridgeImpl } from "./core/desktop-control-bridge.ts";
@@ -1035,6 +1039,10 @@ export async function boot(transportOverride?: Transport) {
     (sessionId, card) => phoneOffers?.offer(sessionId, card) ?? false));
   const taskLimit = new TaskLimit(db.raw);
   registry.register(createTaskLimitTool(taskLimit));
+  registry.register(createQuietNudgesTool(nudges));
+  // Spec 4.14: pages of cards the agent composes once; they update by code.
+  const pages = new Pages(db.raw);
+  registry.register(createComposePageTool(pages, () => cronRepo.list()));
 
   // computer_use — OS-level desktop control via the accessibility tree. This
   // is powerful (it can click/type into any non-denylisted app), so it is
@@ -1291,6 +1299,8 @@ export async function boot(transportOverride?: Transport) {
       // a maximally non-spammy agent when the user opts in.
       dailyCap: Number(readEnv("CINDERPAW_THOUGHTS_DAILY_CAP") ?? 3),
       moodGateThreshold: Number(readEnv("CINDERPAW_THOUGHTS_MOOD_THRESHOLD") ?? 0.5),
+      // Spec slice 9: talk only about real things (watches, tasks due, unfinished work).
+      situation: () => thoughtSituation(() => cronRepo.list(), db.raw, () => nudges.week()),
     });
     log("inner-thoughts loop enabled (opt-in via CINDERPAW_PROACTIVE_ENABLED)");
   }
@@ -2960,6 +2970,7 @@ export async function boot(transportOverride?: Transport) {
     offerUnfinishedWork,
     followUps,
     nudges,
+    pages,
     recordInteractiveTurn: (sessionId: string, mission: string, outcome: string, report: string) => recordInteractiveTurn(runStore, sessionId, mission, outcome, report, db.raw),
     config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     // The semantic graph, for the memory page's Forget (dispatch `memory_forget`),

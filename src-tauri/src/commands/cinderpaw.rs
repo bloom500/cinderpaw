@@ -1005,6 +1005,12 @@ fn cron_op_line(
         // Undo on a line of "What I learned": that kind and time of day start counting again.
         "learned_undo" if present(&job_id) => serde_json::json!({ "type": "learned_undo", "id": request_id, "sourceId": job_id }),
         "learned_undo" => return Err("no line selected".to_string()),
+        // Remove on a page the agent composed (spec 4.14): the page id.
+        "page_remove" if present(&job_id) => serde_json::json!({ "type": "page_remove", "id": request_id, "sourceId": job_id }),
+        "page_remove" => return Err("no page selected".to_string()),
+        // Yes / Not now on a question card: "pageId:cardIndex", and which button.
+        "page_answer" if present(&job_id) && enabled.is_some() => serde_json::json!({ "type": "page_answer", "id": request_id, "sourceId": job_id, "enabled": enabled }),
+        "page_answer" => return Err("no answer selected".to_string()),
         // "Send my numbers": pressed by the person; the engine sends counts only and logs them first.
         "numbers_send" => serde_json::json!({ "type": "numbers_send", "id": request_id }),
         // The window was focused: the person is at the computer, so a nudge
@@ -1067,6 +1073,23 @@ mod cron_op_tests {
         let opened: serde_json::Value = serde_json::from_str(&cron_op_line("r", "nudge_opened", Some("run-1".into()), None, None, None, None, None, None).unwrap()).unwrap();
         assert_eq!(opened["outcome"], "opened");
         assert!(cron_op_line("r", "nudge_opened", None, None, None, None, None, None, None).is_err());
+    }
+
+    #[test]
+    fn page_remove_names_the_page() {
+        let v: serde_json::Value = serde_json::from_str(&cron_op_line("r", "page_remove", Some("ab12cd34".into()), None, None, None, None, None, None).unwrap()).unwrap();
+        assert_eq!(v["type"], "page_remove");
+        assert_eq!(v["sourceId"], "ab12cd34");
+        assert!(cron_op_line("r", "page_remove", None, None, None, None, None, None, None).is_err());
+    }
+
+    #[test]
+    fn page_answer_names_the_card_and_the_button() {
+        let v: serde_json::Value = serde_json::from_str(&cron_op_line("r", "page_answer", Some("ab12cd34:2".into()), None, None, None, None, None, Some(true)).unwrap()).unwrap();
+        assert_eq!(v["type"], "page_answer");
+        assert_eq!(v["sourceId"], "ab12cd34:2");
+        assert_eq!(v["enabled"], true);
+        assert!(cron_op_line("r", "page_answer", Some("ab12cd34:2".into()), None, None, None, None, None, None).is_err());
     }
 
     #[test]

@@ -2129,6 +2129,19 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         transport.send({ ...cronListResult(msg.id ?? "", cronRepo.forPeople()), week: ctx.nudges.week(), learned: ctx.nudges.learned() });
         break;
       }
+      // Remove on a composed page (spec 4.14): `sourceId` is the page id.
+      case "page_remove":
+      // Yes / Not now on a question card: `sourceId` is "pageId:cardIndex", `enabled` is yes.
+      case "page_answer": {
+        if (typeof msg.sourceId === "string" && msg.type === "page_remove") ctx.pages.remove(msg.sourceId);
+        if (typeof msg.sourceId === "string" && msg.type === "page_answer") {
+          const [pageId, index] = msg.sourceId.split(":");
+          ctx.pages.answer(pageId ?? "", Number(index), msg.enabled === true);
+        }
+        const jobs = cronRepo.forPeople();
+        transport.send({ ...cronListResult(msg.id ?? "", jobs), week: ctx.nudges.week(), learned: ctx.nudges.learned(), pages: ctx.pages.views(jobs, () => ctx.nudges.week()) });
+        break;
+      }
       // The window was focused: the person is at the computer (spec 4.4).
       case "presence": {
         ctx.nudges.seen();
@@ -2155,7 +2168,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         const phone = msg.testNotify
           ? { via: await connectors.notifyOwner("✅ Cinderpaw can reach you here. Tasks you set up will tell you in this chat."), tested: true }
           : { via: connectors.ownerChannel(), tested: false };
-        transport.send({ ...cronListResult(msg.id ?? "", jobs, limitError, limit.view()), phone, week: ctx.nudges.week(), learned: ctx.nudges.learned() });
+        transport.send({ ...cronListResult(msg.id ?? "", jobs, limitError, limit.view()), phone, week: ctx.nudges.week(), learned: ctx.nudges.learned(), pages: ctx.pages.views(jobs, () => ctx.nudges.week()) });
         log(`cron_list → ${jobs.length} job(s)`);
         break;
       }

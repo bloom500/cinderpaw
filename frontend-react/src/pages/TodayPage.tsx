@@ -8,6 +8,7 @@ import { greetingKey } from '@/components/shell/HomeGreeting';
 import { useTasks } from '@/stores/tasks';
 import { useFollowUps } from '@/stores/followUps';
 import { useOnboarding } from '@/stores/onboarding';
+import { ComposedPages } from '@/components/ComposedPages';
 
 /**
  * Today (spec 4.13, slice 3; mockup canvas 6dDtSAjoLHXtvUC6ZmHYgW board 1):
@@ -243,6 +244,7 @@ export function TodayPage() {
             </ul>
           </section>
 
+          <ComposedPages />
           {week && <ThisWeek agent={agent} week={week} now={now} />}
           <Learned />
         </main>

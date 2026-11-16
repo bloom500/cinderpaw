@@ -27,6 +27,8 @@ export function createTasksListTool(jobs: () => CronJob[]): Tool {
     parameters: {},
     async execute() {
       const rows = jobs().map((j) => ({
+        // The id is what compose_page names as a card's source.
+        id: j.id,
         name: j.name,
         kind: j.kind,
         active: j.enabled,

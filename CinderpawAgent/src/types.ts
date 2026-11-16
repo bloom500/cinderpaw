@@ -1321,7 +1321,7 @@ export interface InboundMessage {
     | "tool_response"
     | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list"
     // The unfinished-work card was opened or dismissed (`sourceId`, `outcome`).
-    | "nudge_reaction" | "learned_undo" | "numbers_send"
+    | "nudge_reaction" | "learned_undo" | "numbers_send" | "page_remove" | "page_answer"
     // The window was focused; and its "Follow-up suggestions" choice (`enabled`).
     | "presence" | "followups_setting" | "welcome"
     | "desktop_control_response" | "capability_response" | "admin_response" | "connectors_reload"
@@ -2353,6 +2353,8 @@ export type OutboundEvent =
       learned?: Array<{ bucket: string; line: string }>;
       /** The Today page's "This week" card, from the nudge ledger (Nudges.week). */
       week?: { wroteFirst: number; answered: number; days: number[] };
+      /** Pages the agent composed (spec 4.14), each card ready to draw. */
+      pages?: import("./core/pages.ts").PageView[];
       /** Where a fired task reaches the owner away from the computer (a
        *  messenger id), or null; `tested` when this answer sent a test. */
       phone?: { via: string | null; tested: boolean };

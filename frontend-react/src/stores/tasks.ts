@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { tauri, type ScheduledTask } from '@/lib/tauri';
+import { tauri, type PageView, type ScheduledTask } from '@/lib/tauri';
 import type { TaskCard } from '@/lib/widgets';
 
 /**
@@ -26,6 +26,11 @@ interface TasksStore {
   /** "What I learned" (spec 4.7): what the agent stopped saying, each with its Undo key. */
   learned: { bucket: string; line: string }[];
   undoLearned: (bucket: string) => void;
+  /** Pages the agent composed (spec 4.14), with Remove. */
+  pages: PageView[];
+  removePage: (id: string) => void;
+  /** Yes / Not now on a question card. */
+  answerCard: (pageId: string, index: number, yes: boolean) => void;
   /** "Send my numbers" (spec 4.12): idle until pressed; the engine answers sent or why not. */
   numbers: { state: 'idle' | 'sending' | 'sent' | 'failed'; error?: string };
   sendNumbers: () => void;
@@ -43,7 +48,7 @@ interface TasksStore {
   edit: (job: ScheduledTask, changes: {name:string;task:string;schedule:ScheduledTask["schedule"];watch?:ScheduledTask["watch"];expiryDays?:number}) => void;
   create: (card: TaskCard, sessionId: string) => void;
   dismiss: (cardId: string) => void;
-  receive: (e: { id: string; ok: boolean; error?: string; note?: string; jobs: ScheduledTask[]; taskLimit?: TasksStore['limit']; phone?: TasksStore['phone']; week?: TasksStore['week']; learned?: TasksStore['learned'] }) => void;
+  receive: (e: { id: string; ok: boolean; error?: string; note?: string; jobs: ScheduledTask[]; taskLimit?: TasksStore['limit']; phone?: TasksStore['phone']; week?: TasksStore['week']; learned?: TasksStore['learned']; pages?: PageView[] }) => void;
 }
 
 /** Which card a request was for, so its answer can settle that card. */
@@ -57,7 +62,7 @@ export const useTasks = create<TasksStore>()((set) => {
   const settle = (cardId: string, state: 'created' | 'failed', error?: string, note?: string) =>
     set((s) => ({ creating: { ...s.creating, [cardId]: { state, error, ...(note ? { note } : {}) } } }));
   let numbersRequest: string | null = null;
-  const send = (action: 'list' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit' | 'test_notify' | 'learned_undo' | 'numbers_send', opts: Parameters<typeof tauri.raw.cinderpawCronOp>[2] = {}, forCard?: string) => {
+  const send = (action: 'list' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit' | 'test_notify' | 'learned_undo' | 'numbers_send' | 'page_remove' | 'page_answer', opts: Parameters<typeof tauri.raw.cinderpawCronOp>[2] = {}, forCard?: string) => {
     const requestId = crypto.randomUUID();
     if (forCard) pendingCreate.set(requestId, forCard);
     if (action === 'numbers_send') numbersRequest = requestId;
@@ -80,6 +85,9 @@ export const useTasks = create<TasksStore>()((set) => {
     week: null,
     learned: [],
     undoLearned: (bucket) => send('learned_undo', { jobId: bucket }),
+    pages: [],
+    removePage: (id) => send('page_remove', { jobId: id }),
+    answerCard: (pageId, index, yes) => send('page_answer', { jobId: `${pageId}:${index}`, enabled: yes }),
     numbers: { state: 'idle' },
     sendNumbers: () => {
       set({ numbers: { state: 'sending' } });
@@ -117,6 +125,7 @@ export const useTasks = create<TasksStore>()((set) => {
         testing: e.phone?.tested ? false : s.testing,
         week: e.week ?? s.week,
         learned: e.learned ?? s.learned,
+        pages: e.pages ?? s.pages,
       }));
       if (forCard) settle(forCard, e.ok ? 'created' : 'failed', e.error, e.note);
     },
