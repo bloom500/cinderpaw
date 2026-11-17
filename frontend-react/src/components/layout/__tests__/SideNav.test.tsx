@@ -1,11 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { SideNav } from '../SideNav';
 import { useUI } from '@/stores/ui';
 import { useConversations } from '@/stores/conversations';
 import { useAskUser } from '@/stores/askUser';
+import { useCoworkTeam } from '@/stores/coworkTeam';
+import { useCoworkTranscript } from '@/stores/coworkTranscript';
+import { TeammateChatPage } from '@/pages/TeammateChatPage';
+import { tauri } from '@/lib/tauri';
 
 const navigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -24,9 +28,43 @@ beforeEach(() => {
   useUI.setState({ navCollapsed: false, searchOpen: false, starredChats: [] } as never);
   useConversations.setState({ list: [], currentId: null, streamingIds: {}, unreadIds: {} } as never);
   useAskUser.setState({ pending: null, waiting: [] } as never);
+  useCoworkTeam.setState({ roster: [], loaded: true });
+  useCoworkTranscript.getState().clear();
 });
 
 describe('SideNav', () => {
+  it('shows the main agent first and opens each teammate’s own chat', async () => {
+    useCoworkTeam.setState({ roster: [{
+      id: 'atlas', name: 'Atlas', role: 'Research', instructions: '', tools: [], model: null, createdAt: 0,
+    }] });
+    useCoworkTranscript.getState().hydrate('cowork:atlas', [{
+      id: 'one', fromAgentId: 'human', toAgentId: 'atlas', body: 'Find the report',
+      reply: 'I found the report.', status: 'processed', createdAt: 1000, replyAt: 2000,
+    }]);
+    const send = vi.spyOn(tauri.cinderpawAgent, 'coworkSendMessage').mockResolvedValue(undefined);
+    render(<MemoryRouter initialEntries={['/chat']}><SideNav /><Routes>
+      <Route path="/chat" element={null} />
+      <Route path="/teammates/:id" element={<TeammateChatPage />} />
+    </Routes></MemoryRouter>);
+    const contacts = screen.getByRole('group', { name: 'Team' });
+    const links = contacts.querySelectorAll('a');
+    expect(links[0].textContent).toContain('Cinderpaw');
+    expect(links[1].textContent).toContain('I found the report.');
+    expect(links[1].querySelector('time')?.dateTime).toBe(new Date(2000).toISOString());
+    const user = userEvent.setup();
+    await user.click(links[1]);
+    expect(screen.getByRole('heading', { name: 'Atlas' })).toBeTruthy();
+    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Thanks!');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    expect(send).toHaveBeenCalledWith('atlas', 'Thanks!', 'cowork:atlas');
+    send.mockRestore();
+  });
+
+  it('shows no team section with an empty roster', () => {
+    mount();
+    expect(screen.queryByRole('group', { name: 'Team' })).toBeNull();
+  });
+
   it('is four rows, and no more', () => {
     mount();
     for (const l of ['New chat', 'Search', 'Models', 'Settings']) {

@@ -73,15 +73,15 @@ export interface HumanReplyPayload extends HopPayload {
  */
 export function withHumanReplies(
   rows: CoworkMessage[],
-): Array<CoworkMessage & { reply?: string; replyFailed?: boolean }> {
-  const answers = new Map<string, { body: string; failed: boolean; rowId: string }>();
+): Array<CoworkMessage & { reply?: string; replyFailed?: boolean; replyAt?: number }> {
+  const answers = new Map<string, { body: string; failed: boolean; rowId: string; at: number }>();
   const ids = new Set(rows.map((r) => r.id));
   for (const r of rows) {
     if (r.toAgentId !== HUMAN || !r.payloadJson) continue;
     try {
       const p = JSON.parse(r.payloadJson) as Partial<HumanReplyPayload>;
       if (typeof p.replyTo === "string" && ids.has(p.replyTo)) {
-        answers.set(p.replyTo, { body: r.body, failed: p.failed === true, rowId: r.id });
+        answers.set(p.replyTo, { body: r.body, failed: p.failed === true, rowId: r.id, at: r.createdAt });
       }
     } catch {
       /* not one of ours: leave the row as it is */
@@ -92,7 +92,7 @@ export function withHumanReplies(
     .filter((r) => !folded.has(r.id))
     .map((r) => {
       const a = answers.get(r.id);
-      return a ? { ...r, reply: a.body, replyFailed: a.failed } : r;
+      return a ? { ...r, reply: a.body, replyFailed: a.failed, replyAt: a.at } : r;
     });
 }
 

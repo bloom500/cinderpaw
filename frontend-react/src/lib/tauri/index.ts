@@ -689,6 +689,7 @@ export interface CoworkTeammate {
   /** null means the Brain Stack routes per task. */
   model: string | null;
   createdAt: number;
+  lastMessage?: { text: string; at: number };
 }
 
 export type CinderpawAgentEvent =
@@ -726,6 +727,7 @@ export type CinderpawAgentEvent =
         reply?: string;
         /** True when `reply` is the reason the teammate could not answer. */
         replyFailed?: boolean;
+        replyAt?: number;
       }[];
     }
   // The teammate roster, answering `cinderpawCoworkTeam` ('list' or 'remove').

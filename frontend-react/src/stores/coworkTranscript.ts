@@ -35,6 +35,7 @@ export interface CoworkExchange {
   toAgentId: string;
   requestText: string | null;
   responseText: string | null;
+  responseAt?: number;
   status: CoworkExchangeStatus;
   /** Approval events only: send/publish/delete/purchase/prod_change. */
   approvalClass?: string;
@@ -192,10 +193,10 @@ export function applyCoworkEvent(
       };
       break;
     case 'message_processed':
-      next = { ...base, ...named, kind, threadId, responseText: str(evt.data.output) ?? null, status, at };
+      next = { ...base, ...named, kind, threadId, responseText: str(evt.data.output) ?? null, responseAt: Date.now(), status, at };
       break;
     case 'message_rejected':
-      next = { ...base, ...named, kind, threadId, responseText: str(evt.data.reason) ?? null, status, at };
+      next = { ...base, ...named, kind, threadId, responseText: str(evt.data.reason) ?? null, responseAt: Date.now(), status, at };
       break;
     case 'handoff_received':
       next = {
@@ -258,6 +259,7 @@ export interface CoworkHistoryRow {
   /** The teammate's stored answer, when the person sent this message. */
   reply?: string;
   replyFailed?: boolean;
+  replyAt?: number;
 }
 
 /**
@@ -287,6 +289,7 @@ export function fromHistory(threadId: string, rows: CoworkHistoryRow[]): CoworkE
     // The answer rides on its question (sidecar withHumanReplies). Before it
     // was stored, every reopened chat showed questions with no answers.
     responseText: r.reply ?? null,
+    ...(r.replyAt !== undefined ? { responseAt: r.replyAt } : {}),
     status:
       r.status === 'rejected' || r.replyFailed
         ? ('error' as const)

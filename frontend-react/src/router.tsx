@@ -14,6 +14,7 @@ const ProjectsPage    = lazy(() => import('@/pages/ProjectsPage').then((m) => ({
 const ArtifactsPage   = lazy(() => import('@/pages/ArtifactsPage').then((m) => ({ default: m.ArtifactsPage })));
 const TodayPage       = lazy(() => import('@/pages/TodayPage').then((m) => ({ default: m.TodayPage })));
 const TasksPage       = lazy(() => import('@/pages/TasksPage').then((m) => ({ default: m.TasksPage })));
+const TeammateChatPage = lazy(() => import('@/pages/TeammateChatPage').then((m) => ({ default: m.TeammateChatPage })));
 const ModelsPage      = lazy(() => import('@/pages/ModelsPage').then((m) => ({ default: m.ModelsPage })));
 const SettingsPage    = lazy(() => import('@/pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 
@@ -54,6 +55,7 @@ export const router = createMemoryRouter([
       { index: true, element: <Navigate to="/chat" replace /> },
       { path: 'chat',     element: <ChatPage /> },
       { path: 'chat/:id', element: <ChatPage /> },
+      { path: 'teammates/:id', element: lazyPage(<TeammateChatPage />) },
       { path: 'chats',    element: lazyPage(<ChatsPage />) },
       { path: 'projects', element: lazyPage(<ProjectsPage />) },
       { path: 'artifacts', element: lazyPage(<ArtifactsPage />) },

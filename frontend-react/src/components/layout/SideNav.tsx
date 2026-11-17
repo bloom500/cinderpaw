@@ -21,6 +21,12 @@ import { useProjects } from '@/stores/projects';
 import { DreamingCard } from './DreamingCard';
 import { useArtifacts } from '@/stores/artifacts';
 import { useBrowser } from '@/stores/browser';
+import { useCoworkTeam } from '@/stores/coworkTeam';
+import { useCoworkTranscript } from '@/stores/coworkTranscript';
+import { useCinderpawStore } from '@/stores/cinderpaw';
+import { useOnboarding } from '@/stores/onboarding';
+import { ensureCinderpawListener } from '@/lib/cinderpawAgentStream';
+import { CoworkAvatar } from '@/components/chat/CoworkTranscriptPanel';
 import { cn } from '@/lib/utils';
 import { Kbd, MOD } from '@/components/ui/kbd';
 import { useMagnetic } from '@/hooks/useMagnetic';
@@ -301,6 +307,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto scrollbar-hide pb-2">
+      <TeamContacts />
       {starred.length > 0 && (
         <section>
           <div className={LABEL}>Starred</div>
@@ -410,6 +417,60 @@ function Library({ collapsed }: { collapsed: boolean }) {
       ) : (
         renderGroupedChats(groups)
       )}
+    </div>
+  );
+}
+
+function TeamContacts() {
+  const ready = useCinderpawStore((s) => s.isReady);
+  const roster = useCoworkTeam((s) => s.roster);
+  const mainName = useOnboarding((s) => s.agentName.trim() || APP_NAME);
+  const exchanges = useCoworkTranscript((s) => s.exchanges);
+
+  useEffect(() => {
+    if (!ready) return;
+    let current = true;
+    void ensureCinderpawListener().then(() => {
+      if (current) void useCoworkTeam.getState().refresh();
+    }).catch(() => {});
+    return () => { current = false; };
+  }, [ready]);
+
+  if (!roster.length) return null;
+  const rowClass = ({ isActive }: { isActive: boolean }) => cn(
+    'flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-text-primary',
+    isActive ? 'bg-bg-active' : 'hover:bg-bg-hover',
+  );
+
+  return (
+    <div role="group" aria-label="Team" className="mb-3 space-y-0.5">
+      <NavLink to="/chat" className={rowClass}>
+        <img src={logoUrl} alt="" className="size-7 shrink-0" />
+        <span className="truncate font-medium">{mainName}</span>
+      </NavLink>
+      {roster.map((teammate) => {
+        const latest = exchanges.reduce<{ text: string; at: number } | undefined>((last, exchange) => {
+          if (exchange.threadId !== `cowork:${teammate.id}` || exchange.kind === 'approval') return last;
+          const text = exchange.responseText || exchange.requestText;
+          const at = exchange.responseText ? exchange.responseAt ?? exchange.at : exchange.at;
+          return text && (!last || at >= last.at) ? { text, at } : last;
+        }, teammate.lastMessage);
+        const at = latest && new Date(latest.at);
+        return (
+          <NavLink key={teammate.id} to={`/teammates/${encodeURIComponent(teammate.id)}`} className={rowClass}>
+            <CoworkAvatar id={teammate.id} name={teammate.name} className="size-7" />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-baseline justify-between gap-1.5">
+                <span className="truncate font-medium">{teammate.name}</span>
+                {at && <time dateTime={at.toISOString()} className="shrink-0 text-2xs text-text-muted">
+                  {at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                </time>}
+              </span>
+              {latest && <span className="block truncate text-xs text-text-muted">{latest.text}</span>}
+            </span>
+          </NavLink>
+        );
+      })}
     </div>
   );
 }

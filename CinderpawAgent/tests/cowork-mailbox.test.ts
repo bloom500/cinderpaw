@@ -27,6 +27,19 @@ describe("CoworkMailboxRepo", () => {
     }
   });
 
+  test("finds the last message in a teammate's own chat", () => {
+    const { repo, close } = makeRepo();
+    try {
+      expect(repo.latestInThread("cowork:atlas")).toBeUndefined();
+      repo.send({ fromAgentId: "human", toAgentId: "atlas", threadId: "cowork:atlas", body: "Find it" });
+      const reply = repo.send({ fromAgentId: "atlas", toAgentId: "human", threadId: "cowork:atlas", body: "Found it" });
+      repo.send({ fromAgentId: "human", toAgentId: "atlas", threadId: "another-chat", body: "Other message" });
+      expect(repo.latestInThread("cowork:atlas")).toEqual(reply);
+    } finally {
+      close();
+    }
+  });
+
   test("send delivers to receiver's inbox and sender's outbox", () => {
     const { repo, close } = makeRepo();
     try {

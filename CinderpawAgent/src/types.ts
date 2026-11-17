@@ -1862,6 +1862,7 @@ export type OutboundEvent =
         reply?: string;
         /** True when `reply` is the reason the teammate could not answer. */
         replyFailed?: boolean;
+        replyAt?: number;
       }[];
     }
   /** Answers a `cowork_team_op`: the roster as it stands after the action. */
@@ -1877,6 +1878,7 @@ export type OutboundEvent =
         /** null means the Brain Stack routes per task. */
         model: string | null;
         createdAt: number;
+        lastMessage?: { text: string; at: number };
       }[];
       /** The teammate a "remove" deleted. */
       removed?: string;

@@ -163,7 +163,7 @@ export function toMessages(exchanges: CoworkExchange[]): TranscriptMessage[] {
         authorId: e.toAgentId,
         authorName: e.toName,
         text: e.responseText,
-        at: e.at,
+        at: e.responseAt ?? e.at,
         side: e.toAgentId === 'human' ? 'right' : 'left',
         failed: e.status === 'error',
       });
@@ -476,6 +476,7 @@ function Composer({
         )}
         <input
           value={text}
+          aria-label="Message"
           // Clear the last failure as soon as the person acts on it. A red
           // line that outlives the message it was about starts describing the
           // wrong send.
@@ -510,6 +511,7 @@ function Composer({
 }
 
 const COLLAPSED_KEY = 'cowork-panel-collapsed';
+export { Avatar as CoworkAvatar, Bubble as CoworkBubble, Composer as CoworkComposer };
 const PANEL_WIDTH_KEY = 'cowork-panel-width';
 const PANEL_MIN_W = 280;
 const PANEL_MAX_W = 640;

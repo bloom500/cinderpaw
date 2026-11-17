@@ -198,6 +198,9 @@ _${parsed.diagnostic}_`
         break;
       case 'tool_done':
         if (parsed.id) inflight.get(parsed.id)?.onToolDone?.(parsed.callId, parsed.tool, parsed.result);
+        if (parsed.tool === 'cowork_create_teammate' || parsed.tool === 'cowork_update_teammate' || parsed.tool === 'cowork_remove_teammate') {
+          void useCoworkTeam.getState().refresh();
+        }
         // The agent judged this task worth teaching as a skill. The tool
         // itself does nothing; seeing it on the stream is the signal.
         if (parsed.tool === 'suggest_skill') useUI.getState().setSkillTip(true);

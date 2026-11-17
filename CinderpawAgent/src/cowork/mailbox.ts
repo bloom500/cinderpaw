@@ -81,7 +81,7 @@ export class CoworkMailboxRepo {
     `);
     // Same deterministic tiebreak as the inbox queries.
     this.#lastInThread = db.query(`
-      SELECT payload_json FROM cowork_mailbox
+      SELECT * FROM cowork_mailbox
       WHERE thread_id = ?
       ORDER BY created_at DESC, rowid DESC
       LIMIT 1
@@ -177,6 +177,11 @@ export class CoworkMailboxRepo {
    */
   byThread(threadId: string): CoworkMessage[] {
     return (this.#byThread.all(threadId) as MailboxRow[]).map(fromRow);
+  }
+
+  latestInThread(threadId: string): CoworkMessage | undefined {
+    const row = this.#lastInThread.get(threadId) as MailboxRow | null;
+    return row ? fromRow(row) : undefined;
   }
 
   /**

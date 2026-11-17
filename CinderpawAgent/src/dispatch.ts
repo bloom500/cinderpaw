@@ -1234,7 +1234,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         const threadId = msg.threadId?.trim() || null;
         // Same hop accounting as cowork_send, so a human reply inside a thread
         // advances the chain instead of resetting the cap.
-        const hops = coworkMailbox.lastHopsInThread(threadId) + 1;
+        const hops = threadId === `cowork:${target.id}` ? 0 : coworkMailbox.lastHopsInThread(threadId) + 1;
         coworkMailbox.send({
           fromAgentId: "human",
           toAgentId: target.id,
@@ -1261,7 +1261,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           // A teammate's stored answer rides on the message it answers, so a
           // reopened chat shows the question WITH its answer.
           messages: withHumanReplies(rows).map((m) => ({
-            ...(m.reply !== undefined ? { reply: m.reply, replyFailed: m.replyFailed } : {}),
+            ...(m.reply !== undefined ? { reply: m.reply, replyFailed: m.replyFailed, replyAt: m.replyAt } : {}),
             id: m.id,
             fromAgentId: m.fromAgentId,
             toAgentId: m.toAgentId,
@@ -1294,15 +1294,19 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         }
         transport.send({
           type: "cowork_team_result",
-          roster: coworkAgents.list().map((a) => ({
-            id: a.id,
-            name: a.name,
-            role: a.role,
-            instructions: a.instructions,
-            tools: a.tools ?? null,
-            model: a.modelPin ?? null,
-            createdAt: a.createdAt,
-          })),
+          roster: coworkAgents.list().map((a) => {
+            const last = coworkMailbox.latestInThread(`cowork:${a.id}`);
+            return {
+              id: a.id,
+              name: a.name,
+              role: a.role,
+              instructions: a.instructions,
+              tools: a.tools ?? null,
+              model: a.modelPin ?? null,
+              createdAt: a.createdAt,
+              ...(last ? { lastMessage: { text: last.body, at: last.createdAt } } : {}),
+            };
+          }),
           ...(removed ? { removed } : {}),
           ...(error ? { error } : {}),
           pendingApprovals: coworkApprovals.pending(),
