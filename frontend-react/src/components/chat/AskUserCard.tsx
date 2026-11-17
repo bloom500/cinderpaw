@@ -56,6 +56,7 @@ export function AskUserCard({
   onCancel,
 }: AskUserCardProps) {
   const isAnswered = answered !== undefined;
+  const canSkip = onCancel && !questions.every((question) => question.fixedOptions);
 
   // One slot per question, in the same order. null = unanswered.
   // After every slot is filled, the auto-submit effect below calls
@@ -164,9 +165,9 @@ export function AskUserCard({
           }}
         />
       ))}
-      {!isAnswered && (onCancel || questions.length > 1) && (
+      {!isAnswered && (canSkip || questions.length > 1) && (
         <div className="flex justify-end gap-2">
-          {onCancel && (
+          {canSkip && (
             <button
               type="button"
               onClick={onCancel}
@@ -282,7 +283,7 @@ function QuestionBlock({
       handleSubmitMulti();
       return;
     }
-    if (e.key === 'Escape' && !question.multiSelect) {
+    if (e.key === 'Escape' && !question.multiSelect && !question.fixedOptions) {
       e.preventDefault();
       setOtherOpen(true);
       return;
@@ -420,7 +421,7 @@ function QuestionBlock({
           })}
 
           {/* "Other" — implicit 5th option. Opens a text input. */}
-          {!question.multiSelect && !question.input && (
+          {!question.multiSelect && !question.input && !question.fixedOptions && (
             <OtherInput
               open={otherOpen}
               value={otherText}

@@ -190,6 +190,7 @@ import { AskUserBridgeImpl } from "./core/ask-user-bridge.ts";
 import { HostToolBridge, loadHostTools } from "./core/host-tool-bridge.ts";
 import { setHostToolNames } from "./tools/tiers.ts";
 import { createAskUserTool } from "./tools/builtin/ask-user.ts";
+import { createSuggestTeamTool, statesTeamNeed } from "./tools/builtin/suggest-team.ts";
 import { createHeadsUpTool } from "./tools/builtin/heads-up.ts";
 import { createSetAppearanceTool } from "./tools/builtin/set-appearance.ts";
 import { createSuggestTaskTool } from "./tools/builtin/suggest-task.ts";
@@ -1448,7 +1449,13 @@ export async function boot(transportOverride?: Transport) {
     log(`checkpoint: ${stranded.length} session(s) left mid-turn by a prior process — will resume on next access`);
   }
 
-  agent.setUserTurnObserver((_sessionId, userText) => {
+  const teamNeedBySession = new Map<string, string>();
+  agent.setUserTurnObserver((sessionId, userText) => {
+    teamNeedBySession.delete(sessionId);
+    if (statesTeamNeed(userText)) {
+      teamNeedBySession.set(sessionId, userText);
+      if (teamNeedBySession.size > 128) teamNeedBySession.delete(teamNeedBySession.keys().next().value!);
+    }
     const now = Date.now();
     touchLastActive(db.raw, now);
     setCurrentTask(db.raw, {
@@ -2026,9 +2033,8 @@ export async function boot(transportOverride?: Transport) {
   // installed Cinderpaw could reach the feature at all. It registers the roster
   // tools below itself once the roster stops being empty, which is what removes the
   // "requires a restart" caveat that used to live in this comment.
-  registry.register(
-    createCoworkCreateTool({ agents: coworkAgents, mailbox: coworkMailbox, registry, log }),
-  );
+  const coworkCreate = createCoworkCreateTool({ agents: coworkAgents, mailbox: coworkMailbox, registry, log });
+  registry.register(coworkCreate);
   // The glass over the cost meter. buildCostReport/renderCostReport and the
   // router method that renders them had existed with no caller anywhere in the
   // product, so neither the person nor the agent could see the bill.
@@ -2685,6 +2691,24 @@ export async function boot(transportOverride?: Transport) {
   };
 
   const connectors = new ConnectorManager(agent, log, leadDesk, runHooks);
+  registry.register(createSuggestTeamTool({
+    latestUserText: (sessionId) => teamNeedBySession.get(sessionId),
+    isOwner: (sessionId) => !sessionId.includes(":") || connectors.isOwnerSession(sessionId),
+    hasTeammates: () => coworkAgents.list().length > 0,
+    create: (team) => {
+      db.raw.transaction(() => {
+        for (const teammate of team) {
+          const result = coworkCreate.create(teammate, false);
+          if (!result.ok) throw new Error(result.content);
+        }
+      })();
+      registerCoworkRosterTools(registry, coworkAgents, coworkMailbox);
+      transport.send({ type: "cowork_team_result", roster: coworkAgents.list().map((agent) => ({
+        id: agent.id, name: agent.name, role: agent.role, instructions: agent.instructions,
+        tools: agent.tools ?? null, model: agent.modelPin ?? null, createdAt: agent.createdAt,
+      })) });
+    },
+  }));
   notifyOwner = (text) => connectors.notifyOwner(text);
   phoneChannel = () => connectors.ownerChannel();
   // What the owner does after a phone nudge: their next message in their own

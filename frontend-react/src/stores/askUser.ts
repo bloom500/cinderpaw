@@ -33,6 +33,7 @@ export interface AskUserQuestion {
   header?: string;
   options: AskUserOption[];
   multiSelect: boolean;
+  fixedOptions?: boolean;
   /**
    * `request_secret`: show a password field instead of the options. The value
    * is saved here, never sent back; the agent only hears "Saved" or "Cancel".

@@ -91,6 +91,7 @@ import { selectTools } from "../tools/tool-intent.ts";
 import { createArtifactDraftTracker } from "./artifact-draft.ts";
 import { policyMessages, taskAcknowledgement, turnPolicy, type TurnPolicy } from "./turn-policy.ts";
 import type { TaskSuggestion } from "../tools/builtin/suggest-task.ts";
+import { statesTeamNeed } from "../tools/builtin/suggest-team.ts";
 // Vendored from OpenClaw (MIT) — see src/vendor/tool-call-repair/README.md.
 import {
   parseStandalonePlainTextToolCallBlocks,
@@ -2574,6 +2575,7 @@ export class AgentLoop {
     // is the subset for this session; drawer-loaded tools are still allowed
     // through so a bad guess is recoverable via `load_tool`.
     const intentSelection = this.#toolIntentSelection.get(sessionId) ?? null;
+    const latestUserText = memory.turns.findLast((turn) => turn.role === "user")?.content;
     const advertise = (name: string): boolean => {
       if (policy?.deferredOnly && name !== "suggest_task" && name !== "ask_user") return false;
       // Owner-only tools are withheld from every profiled session, including a
@@ -2582,6 +2584,7 @@ export class AgentLoop {
       // because a null allow-list is exactly the case that used to pass.
       if (profile && isOwnerOnlyTool(name)) return false;
       if (profile?.allowed) return profile.allowed.has(name);
+      if (name === "suggest_team") return isReplayableSession(sessionId) && !!latestUserText && statesTeamNeed(latestUserText);
       // Drawer escape hatch: a tool the model explicitly pulled in is always
       // advertised, even if intent selection would have withheld it. Without
       // this the drawer and the intent router would fight, and the drawer —

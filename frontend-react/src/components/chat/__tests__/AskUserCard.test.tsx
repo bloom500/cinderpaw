@@ -28,6 +28,18 @@ import userEvent from '@testing-library/user-event';
 import { AskUserCard } from '../AskUserCard';
 import type { AskUserQuestion } from '@/stores/askUser';
 
+it('shows just Yes and Not now for a team proposal', async () => {
+  const question = 'Make these teammates?';
+  const submit = vi.fn();
+  render(<AskUserCard requestId="team" questions={[{
+    question, multiSelect: false, fixedOptions: true, options: [{ label: 'Yes' }, { label: 'Not now' }],
+  }]} onSubmit={submit} onCancel={vi.fn()} />);
+  expect(screen.queryByText('Other…')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Skip' })).toBeNull();
+  await userEvent.click(screen.getByRole('radio', { name: /Not now/ }));
+  expect(submit).toHaveBeenCalledWith([{ question, selected: ['Not now'] }]);
+});
+
 const SINGLE_Q: AskUserQuestion[] = [
   {
     question: 'Pick a database',

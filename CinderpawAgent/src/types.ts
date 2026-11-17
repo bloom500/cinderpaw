@@ -1683,6 +1683,8 @@ export interface AskUserQuestion {
    * because each covers the other's blind spot.
    */
   forceEscalate?: boolean;
+  /** Only the listed choices count as answers. */
+  fixedOptions?: boolean;
   /**
    * Text the person must be able to read before answering, shown in a
    * scrolling box under the question: the skill a link would install.
