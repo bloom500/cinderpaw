@@ -143,6 +143,7 @@ import { CronJobsRepo, CronScheduler, deliverCron } from "./cron/index.ts";
 import { maybeSendDigest, maybeSendReceipt } from "./cron/digest.ts";
 import { firstPriceRead, isPriceWatch } from "./cron/watch.ts";
 import { CoworkAgentRepo } from "./cowork/agent-store.ts";
+import { applyCoworkProfile, withCronOwner } from "./cron/owner.ts";
 import { CoworkMailboxRepo } from "./cowork/mailbox.ts";
 import { CoworkHandoffService } from "./cowork/handoff.ts";
 import { CoworkRuntime } from "./cowork/runtime.ts";
@@ -1785,6 +1786,7 @@ export async function boot(transportOverride?: Transport) {
   }
 
   const cronRepo = new CronJobsRepo(db.raw);
+  const cronOwners = new Map<string, string>();
   // What exists, for any chat to check (a WhatsApp chat could not, 7 Nov).
   registry.register(createTasksListTool(() => cronRepo.list()));
   const taskPrice = withModelPrices(priceResolverFromJson(cfgPath("CINDERPAW_AUTONOMOUS_PRICING_JSON")));
@@ -1861,7 +1863,9 @@ export async function boot(transportOverride?: Transport) {
         if (!runRow) throw new Error("A previous run is still active; this occurrence will not replay it.");
         // runUnattended, not handle(): a scheduled task that hits the turn
         // budget half-way gets continued rather than reported as finished.
-        const run = await runUnattended(
+        const teammate = job.ownerAgentId ? coworkAgents.get(job.ownerAgentId) : undefined;
+        if (job.ownerAgentId && !teammate) throw new Error("The teammate was removed. The main agent will take the next run.");
+        const run = await withCronOwner(agent, cronOwners, teammate, sessionId, () => runUnattended(
           (text, messageId) =>
             agent.handleTurn(sessionId, text, messageId, (event) => {
               // No live chat is attached to a cron run — chunk/tool events
@@ -1880,7 +1884,7 @@ export async function boot(transportOverride?: Transport) {
               : undefined,
             verify: () => verifyIfAsserted(job.doneWhen ?? null, safety),
           },
-        );
+        ));
         if (runError) {
           await concludeRun(runRow, "unfinished", "not_continuable", runError);
           // Only the allowance's own refusal is the weekly limit, and only when
@@ -1948,20 +1952,28 @@ export async function boot(transportOverride?: Transport) {
         // it went. One ringer: when the phone rang, the desktop stays quiet.
         // CINDERPAW_TASKS_TO_PHONE=false keeps it in the app.
         const kind = job.kind === "watch" ? "watch" : "task";
-        return nudges.route({ kind, sourceId: job.id, sessionId: target.sessionId, userRequested: true }, {
+        const ownerId = cronRepo.get(job.id)?.ownerAgentId;
+        const teammate = ownerId ? coworkAgents.get(ownerId) : undefined;
+        const sessionId = teammate ? `cowork:${teammate.id}` : target.sessionId;
+        return nudges.route({ kind, sourceId: job.id, sessionId, userRequested: true }, {
           phone: notifyOwner && readEnv("CINDERPAW_TASKS_TO_PHONE") !== "false"
             ? () => notifyOwner!(`⏰ ${job.name}\n\n${content.length > 1500 ? `${content.slice(0, 1500)}…` : content}`)
             : null,
-          desktop: (via) => transport.send({
-            type: "cron_fired",
-            jobId: job.id,
-            jobName: job.name,
-            sessionId: target.sessionId,
-            // Plain words: the notification shows text as it is, and the
-            // underscores of "_Also sent to your Whatsapp._" showed (smoke test, 7 Nov).
-            content: via ? `${content}\n\nAlso sent to your ${connectorName(via)}.` : content,
-            ...(via ? { silent: true } : {}),
-          }),
+          desktop: (via) => {
+            const text = via ? `${content}\n\nAlso sent to your ${connectorName(via)}.` : content;
+            const currentTeammate = teammate && cronRepo.get(job.id)?.ownerAgentId === teammate.id && coworkAgents.get(teammate.id);
+            if (currentTeammate) {
+              const message = coworkMailbox.send({ fromAgentId: teammate.id, toAgentId: "human", threadId: sessionId,
+                body: `${job.name}\n\n${text}` });
+              coworkMailbox.updateStatus(message.id, "processed");
+              transport.send({ type: "cowork_event", eventType: "message_processed", agentId: teammate.id,
+                threadId: sessionId, title: job.name,
+                data: { messageId: message.id, agentName: teammate.name, output: message.body } });
+            }
+            transport.send({ type: "cron_fired", jobId: job.id, jobName: job.name,
+              sessionId: currentTeammate ? sessionId : target.sessionId,
+              content: text, ...(via ? { silent: true } : {}) });
+          },
           // "Send it to me on WhatsApp": asked for, so not held back because the
           // window has focus (14 Nov, live test: it rang on the desktop instead).
           phoneAsked: target.phone === true,
@@ -2025,6 +2037,7 @@ export async function boot(transportOverride?: Transport) {
     // Called only while a teammate's turn is running, long after boot has
     // declared the runtime below.
     threadOf: (agentId) => coworkRuntime.threadOf(agentId),
+    scheduledOwner: (sessionId) => cronOwners.get(sessionId),
     log,
   });
   hooks.on("before_tool_call", coworkApprovalService.gate);
@@ -2053,40 +2066,8 @@ export async function boot(transportOverride?: Transport) {
     handoffs: new CoworkHandoffService(db.raw),
     emitEvent: (event) => transport.send(event),
     runTurn: async (agentRec, prompt, sessionId) => {
-      // Each teammate runs under its OWN operating profile: its standing
-      // instructions as the system prompt, and only the tools it was created
-      // with. This reuses the connector-profile seam rather than inventing a
-      // second scoping mechanism — same restricted prompt + tool set, same
-      // enforcement in the exec loop.
-      //
-      // It is also the speed fix. Unscoped, every teammate advertised the
-      // whole registry, so each completion re-sent ~16.5k tokens of schema to
-      // produce ~600 and spent 13-55 seconds in prefill before the first
-      // token. A teammate created with four tools carries four tools.
-      //
-      // Registered per turn, not once: the roster is editable at runtime, and
-      // a profile compiled at boot would pin an agent to whatever it was when
-      // the app started. registerProfile only stores the allow-list, so this
-      // is cheap and always current.
-      const profileId = `cowork:${agentRec.id}`;
-      agent.registerProfile(profileId, {
-        systemPrompt: [
-          `You are ${agentRec.name}${agentRec.role ? `, ${agentRec.role}` : ""}.`,
-          agentRec.instructions,
-          "You are a teammate inside someone's Cinderpaw install. You answer " +
-            "the message you were sent and stop; you do not invent follow-up work.",
-        ]
-          .filter(Boolean)
-          .join("\n\n"),
-        // undefined ⇒ the owner's full toolset, which is the pre-scoping
-        // behaviour and stays the fallback for teammates created before the
-        // column existed.
-        allowedTools: agentRec.tools,
-        // Made by the owner, so the team shares one memory: what you tell a
-        // teammate, the main agent and the others know too.
-        owner: true,
-      });
-      agent.setSessionProfile(sessionId, profileId);
+      // Re-read the profile on each turn so edits take effect.
+      applyCoworkProfile(agent, agentRec, sessionId);
       // `handleTurn()` never throws — it emits `error` events instead
       // (same contract cron relies on). Capture and rethrow so the worker
       // loop records a rejection rather than delivering an error string

@@ -1030,6 +1030,14 @@ function migrate(db: Database): void {
   // answer, and the wait to the first token ran 13-55 seconds. A coordinator
   // needs a handful of tools, not thirty-nine.
   addColumnIfMissing(db, "cowork_agents", "tools", "TEXT");
+  addColumnIfMissing(db, "cron_jobs", "owner_agent_id", "TEXT");
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS cron_reassign_deleted_teammate
+    AFTER DELETE ON cowork_agents
+    BEGIN
+      UPDATE cron_jobs SET owner_agent_id = NULL WHERE owner_agent_id = OLD.id;
+    END;
+  `);
 
   // cowork_mailbox (S2) — A2A asynchronous messages. One row per message;
   // `from_agent_id` / `to_agent_id` hold agent ids or the literal "human".

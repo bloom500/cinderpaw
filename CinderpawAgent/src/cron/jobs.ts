@@ -46,6 +46,7 @@ interface CronRow {
   task: string;
   schedule_json: string;
   delivery_json: string;
+  owner_agent_id: string | null;
   enabled: number;
   last_run_ms: number | null;
   next_run_ms: number | null;
@@ -74,11 +75,11 @@ export class CronJobsRepo {
     db.exec("CREATE INDEX IF NOT EXISTS watch_prices_job ON watch_prices(job_id, at)");
     this.#insert = db.query(`
       INSERT INTO cron_jobs (
-        id, name, task, schedule_json, delivery_json,
+        id, name, task, schedule_json, delivery_json, owner_agent_id,
         enabled, last_run_ms, next_run_ms, history_json,
         done_when_json, max_retries, retry_count, created_at, updated_at, kind, policy_json
       ) VALUES (
-        $id, $name, $task, $scheduleJson, $deliveryJson,
+        $id, $name, $task, $scheduleJson, $deliveryJson, $ownerAgentId,
         $enabled, $lastRunMs, $nextRunMs, $historyJson,
         $doneWhenJson, $maxRetries, 0, $createdAt, $updatedAt, $kind, $policyJson
       )
@@ -87,6 +88,7 @@ export class CronJobsRepo {
         task = excluded.task,
         schedule_json = excluded.schedule_json,
         delivery_json = excluded.delivery_json,
+        owner_agent_id = excluded.owner_agent_id,
         enabled = excluded.enabled,
         -- Carried through the update too, or a reschedule would keep firing on
         -- the OLD schedule's timestamp. upsert() only puts a new value here
@@ -100,14 +102,14 @@ export class CronJobsRepo {
         policy_json = excluded.policy_json
     `);
     this.#list = db.query(`
-      SELECT id, name, task, schedule_json, delivery_json,
+      SELECT id, name, task, schedule_json, delivery_json, owner_agent_id,
              enabled, last_run_ms, next_run_ms, history_json,
              done_when_json, max_retries, retry_count, created_at, updated_at, kind, policy_json
       FROM cron_jobs
       ORDER BY created_at ASC
     `);
     this.#get = db.query(`
-      SELECT id, name, task, schedule_json, delivery_json,
+      SELECT id, name, task, schedule_json, delivery_json, owner_agent_id,
              enabled, last_run_ms, next_run_ms, history_json,
              done_when_json, max_retries, retry_count, created_at, updated_at, kind, policy_json
       FROM cron_jobs
@@ -158,6 +160,13 @@ export class CronJobsRepo {
    */
   upsert(input: CronJobInput): CronJob {
     const existing = input.id ? this.get(input.id) : undefined;
+    const ownerAgentId = input.ownerAgentId === undefined ? existing?.ownerAgentId ?? null : input.ownerAgentId;
+    if (ownerAgentId !== null) {
+      if (typeof ownerAgentId !== "string" || !this.#db.query("SELECT id FROM cowork_agents WHERE id = ?").get(ownerAgentId)) {
+        throw new Error("That teammate is gone. Pick another owner.");
+      }
+      if (input.delivery.kind !== "chat") throw new Error("A teammate's task needs a chat for its results.");
+    }
     const kind = input.kind ?? existing?.kind ?? "agent";
     if (kind !== "agent" && kind !== "reminder" && kind !== "watch") throw new Error("Unknown task kind");
     const watch = input.watch;
@@ -199,6 +208,7 @@ export class CronJobsRepo {
       $task: input.task,
       $scheduleJson: scheduleJson,
       $deliveryJson: deliveryJson,
+      $ownerAgentId: ownerAgentId,
       $enabled: (input.enabled ?? existing?.enabled ?? true) ? 1 : 0,
       $lastRunMs: existing?.lastRunMs ?? null,
       $nextRunMs: nextRunMs,
@@ -330,6 +340,7 @@ function fromRow(r: CronRow): CronJob {
     task: r.task,
     schedule: JSON.parse(r.schedule_json) as Schedule,
     delivery: JSON.parse(r.delivery_json) as DeliveryTarget,
+    ownerAgentId: r.owner_agent_id,
     enabled: r.enabled === 1,
     lastRunMs: r.last_run_ms ?? undefined,
     nextRunMs: r.next_run_ms ?? undefined,

@@ -5,6 +5,7 @@ import {invoke} from '@tauri-apps/api/core';
 import {MemoryRouter} from 'react-router-dom';
 import {TasksPage} from '../TasksPage';
 import {useTasks} from '@/stores/tasks';
+import {useCoworkTeam} from '@/stores/coworkTeam';
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(()=>Promise.resolve())}));
 beforeEach(()=>{vi.mocked(invoke).mockClear();useTasks.setState({loaded:true,error:null,jobs:[{id:'j',name:'Check release',task:'Tell me',kind:'watch',watch:{sourceUrl:'https://example.com',contains:'Available'},expiresAt:Date.now()+86400000,spentUsd:0,enabled:true,schedule:{kind:'every',intervalMs:3600000},history:[{runAt:1,status:'waiting',durationMs:1,result:'Not yet'}]}]});});
 it('keeps history and runtime details behind disclosures, and preserves editing',async()=>{
@@ -14,11 +15,26 @@ it('keeps history and runtime details behind disclosures, and preserves editing'
  expect(screen.getByText('Waiting for condition')).toBeVisible();
  expect(screen.getByText('Waiting for condition')).not.toHaveClass('text-error');
  await userEvent.click(screen.getByRole('button',{name:'Edit task'}));
+ expect(screen.queryByLabelText('Assigned to')).toBeNull();
  await userEvent.clear(screen.getByLabelText('Task name'));await userEvent.type(screen.getByLabelText('Task name'),'Launch watch');
  await userEvent.click(screen.getByRole('button',{name:'Save changes'}));
  expect(invoke).toHaveBeenCalledWith('cinderpaw_cron_op',expect.objectContaining({action:'edit',jobId:'j',name:'Launch watch',kind:'watch'}));
  await userEvent.click(screen.getByRole('button',{name:'Task settings'}));
  expect(screen.getByText(/past agent actions/i)).toBeVisible();
+});
+
+it('can assign a watch to a teammate', async () => {
+ useCoworkTeam.setState({roster:[{id:'atlas',name:'Atlas',role:'Research',instructions:'',tools:[],model:null,createdAt:0}]});
+ try {
+  render(<MemoryRouter><TasksPage/></MemoryRouter>);
+  await userEvent.click(screen.getByRole('button',{name:'Check release'}));
+  await userEvent.click(screen.getByRole('button',{name:'Edit task'}));
+  await userEvent.selectOptions(screen.getByLabelText('Assigned to'),'atlas');
+  await userEvent.click(screen.getByRole('button',{name:'Save changes'}));
+  expect(invoke).toHaveBeenCalledWith('cinderpaw_cron_op',expect.objectContaining({action:'edit',schedule:expect.objectContaining({
+   taskOptions:expect.objectContaining({ownerAgentId:'atlas'}),
+  })}));
+ } finally { useCoworkTeam.setState({roster:[]}); }
 });
 
 it('keeps custom cron expressions in the editor instead of the task row',async()=>{

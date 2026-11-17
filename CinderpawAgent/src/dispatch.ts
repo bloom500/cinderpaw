@@ -172,8 +172,9 @@ export function cronListResult(id: string, jobs: CronJob[], error?: string, task
     ok: error === undefined,
     ...(error ? { error } : {}),
     ...(taskLimit ? { taskLimit } : {}),
-    jobs: jobs.map(({ id, name, task, schedule, enabled, nextRunMs, lastRunMs, kind, history, watch, expiresAt, budgetUsd, spentUsd, prices }) => ({
+    jobs: jobs.map(({ id, name, task, schedule, enabled, nextRunMs, lastRunMs, kind, history, watch, expiresAt, budgetUsd, spentUsd, prices, ownerAgentId }) => ({
       id, name, task, schedule, enabled, nextRunMs, lastRunMs, kind,
+      ...(ownerAgentId ? { ownerAgentId } : {}),
       ...(watch ? {watch} : {}), ...(prices ? {prices} : {}), ...(expiresAt !== undefined ? {expiresAt} : {}), ...(budgetUsd !== undefined ? {budgetUsd} : {}), ...(spentUsd !== undefined ? {spentUsd} : {}),
       // The last few results, for the Tasks page; the full 50 stay on disk.
       // This list also answers every follow-up check after a chat reply, so

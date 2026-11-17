@@ -874,6 +874,7 @@ export interface ScheduledTask {
   schedule: TaskSchedule;
   enabled: boolean;
   kind: 'agent' | 'reminder' | 'watch';
+  ownerAgentId?: string | null;
   watch?: TaskWatch;
   expiresAt?: number;
   budgetUsd?: number;
@@ -1196,6 +1197,7 @@ const raw = {
   /** Scheduled tasks: list, add, remove, toggle. Answered by a `cron_list_result` event. */
   cinderpawCronOp: (requestId: string, action: 'list' | 'followups' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit' | 'test_notify' | 'nudge_opened' | 'nudge_dismissed' | 'learned_undo' | 'numbers_send' | 'page_remove' | 'page_answer' | 'presence' | 'followups_setting' | 'welcome', opts: {
     jobId?: string; name?: string; task?: string; schedule?: TaskSchedule; kind?: 'agent' | 'reminder' | 'watch'; sessionId?: string; enabled?: boolean; watch?: ScheduledTask['watch']; expiryDays?: number;
+    ownerAgentId?: string | null;
     /** 'add' only: the person asked for it on their phone. */
     toPhone?: boolean;
     /** 'limit' only: the weekly limit for all scheduled tasks, or null for none. */
@@ -1209,7 +1211,7 @@ const raw = {
       task: opts.task ?? null,
       // The weekly limit rides in taskOptions too: the command is at Specta's argument limit.
       schedule: action === 'limit' ? { taskOptions: { weeklyLimitUsd: opts.weeklyLimitUsd ?? null } }
-        : opts.schedule ? { ...opts.schedule, taskOptions: { ...(opts.watch ? {watch:opts.watch} : {}), ...(opts.expiryDays !== undefined ? {expiryDays:opts.expiryDays} : {}), ...(opts.toPhone ? {toPhone:true} : {}) } } : null,
+        : opts.schedule ? { ...opts.schedule, taskOptions: { ...(opts.watch ? {watch:opts.watch} : {}), ...(opts.expiryDays !== undefined ? {expiryDays:opts.expiryDays} : {}), ...(opts.toPhone ? {toPhone:true} : {}), ownerAgentId: opts.ownerAgentId } } : null,
       kind: opts.kind ?? null,
       sessionId: opts.sessionId ?? null,
       enabled: opts.enabled ?? null,

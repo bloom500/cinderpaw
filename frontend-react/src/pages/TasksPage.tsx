@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import type { ScheduledTask, TaskSchedule } from '@/lib/tauri';
 import { useTasks } from '@/stores/tasks';
 import { useFollowUps } from '@/stores/followUps';
+import { useCoworkTeam } from '@/stores/coworkTeam';
+import { useOnboarding } from '@/stores/onboarding';
 import { cn } from '@/lib/utils';
 
 /** A price watch's reads over 7 or 30 days, with the person's limit as a
@@ -87,6 +89,9 @@ const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 6
 
 function TaskEditor({job,close}: {job:ScheduledTask;close:()=>void}) {
   const edit = useTasks(s => s.edit);
+  const roster = useCoworkTeam(s => s.roster);
+  const agentName = useOnboarding(s => s.agentName.trim() || 'Cinderpaw');
+  const [ownerAgentId, setOwnerAgentId] = useState(job.ownerAgentId ?? '');
   const [name,setName] = useState(job.name);
   const [task,setTask] = useState(job.task);
   const [kind,setKind] = useState(job.schedule.kind);
@@ -109,12 +114,16 @@ function TaskEditor({job,close}: {job:ScheduledTask;close:()=>void}) {
       if (job.kind === 'watch' && !price && !contains.trim()) throw Error('Add the exact text to look for.');
       if (price && !(Number(below) > 0)) throw Error('Use a price above zero.');
       const watch = price ? {...job.watch,sourceUrl:source,priceBelow:Number(below)} : {...job.watch,sourceUrl:source,contains};
-      edit(job,{name:name.trim(),task:task.trim(),schedule:next,...(job.kind === 'watch' ? {watch,...(renew ? {expiryDays:Number(expiry)} : {})} : {})});
+      edit(job,{name:name.trim(),task:task.trim(),schedule:next,...(roster.length ? {ownerAgentId:ownerAgentId || null} : {}),...(job.kind === 'watch' ? {watch,...(renew ? {expiryDays:Number(expiry)} : {})} : {})});
       close();
     } catch(e) { setError(e instanceof Error ? e.message : String(e)); }
   }}>
     <label className="block">Task name<input aria-label="Task name" value={name} onChange={e=>setName(e.target.value)} className={field}/></label>
     <label className="block">Instruction<textarea aria-label="Instruction" value={task} onChange={e=>setTask(e.target.value)} className={field}/></label>
+    {roster.length > 0 && <label className="block">Assigned to<select value={ownerAgentId} onChange={e=>setOwnerAgentId(e.target.value)} className={field}>
+      <option value="">{agentName}</option>
+      {roster.map((teammate) => <option key={teammate.id} value={teammate.id}>{teammate.name}</option>)}
+    </select></label>}
     <label className="block">Schedule<select aria-label="Schedule type" value={kind} onChange={e=>{const value=e.target.value as TaskSchedule['kind'];setKind(value);setSchedule(value==='every'?'60':value==='cron'?'0 9 * * *':localInput(new Date(Date.now()+3600000)));}} className={field}>
       <option value="every">Every N minutes</option><option value="cron">Cron expression</option>{job.kind !== 'watch' && <option value="at">Once</option>}
     </select></label>
@@ -136,6 +145,7 @@ function TaskEditor({job,close}: {job:ScheduledTask;close:()=>void}) {
 function TaskRow({ job }: { job: ScheduledTask }) {
   const remove = useTasks((s) => s.remove);
   const toggle = useTasks((s) => s.toggle);
+  const ownerName = useCoworkTeam((s) => s.roster.find((agent) => agent.id === job.ownerAgentId)?.name);
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [editing,setEditing] = useState(false);
@@ -158,6 +168,7 @@ function TaskRow({ job }: { job: ScheduledTask }) {
             <span className={cn('hidden text-xs sm:inline', state === 'Active' ? 'text-brand' : 'text-text-muted')}>{state}</span>
           </div>
           <p className="mt-1 text-sm text-text-secondary">{scheduleWords(job.schedule)}</p>
+          {ownerName && <p className="mt-1 text-xs text-text-muted">Assigned to {ownerName}</p>}
           <p className="mt-1.5 text-xs text-text-muted"><span className="sm:hidden">{state} · </span>{job.kind === 'reminder' ? 'Reminder · Free' : job.kind === 'watch' ? (job.prices?.length ? `Price watch · Free · last read ${job.prices.at(-1)!.amount}${job.watch?.currency ? ` ${job.watch.currency}` : ''}` : 'Source watch · Free') : <><span className="hidden sm:inline">Uses your model · </span><span className="tabular-nums">${(job.spentUsd ?? 0).toFixed(2)} used</span></>}</p>
         </div>
         <ChevronDown size={16} aria-hidden className={cn('mt-1 shrink-0 text-text-muted transition-transform', open && 'rotate-180')} />

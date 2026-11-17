@@ -1228,6 +1228,7 @@ export interface CronJob {
   task: string;
   schedule: Schedule;
   delivery: DeliveryTarget;
+  ownerAgentId?: string | null;
   enabled: boolean;
   lastRunMs?: number;
   nextRunMs?: number;
@@ -1262,6 +1263,8 @@ export interface CronJobInput {
   task: string;
   schedule: Schedule;
   delivery: DeliveryTarget;
+  /** Omitted keeps the existing owner. Null assigns it to the main agent. */
+  ownerAgentId?: string | null;
   enabled?: boolean;
   doneWhen?: DoneWhen | null;
   maxRetries?: number;
@@ -2349,7 +2352,7 @@ export type OutboundEvent =
       id: string;
       ok: boolean;
       error?: string;
-      jobs: Array<Pick<CronJob, "id" | "name" | "task" | "schedule" | "enabled" | "nextRunMs" | "lastRunMs" | "kind" | "history" | "watch" | "expiresAt" | "budgetUsd" | "spentUsd" | "prices">>;
+      jobs: Array<Pick<CronJob, "id" | "name" | "task" | "schedule" | "enabled" | "nextRunMs" | "lastRunMs" | "kind" | "history" | "watch" | "expiresAt" | "budgetUsd" | "spentUsd" | "prices" | "ownerAgentId">>;
       taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number };
       /** After adding a price watch: the price read on accept, said on the card (spec 4.10). */
       note?: string;

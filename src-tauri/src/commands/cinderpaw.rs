@@ -923,6 +923,12 @@ pub(crate) async fn cinderpaw_cron_op(
             payload["expiryDays"] = days.clone();
         }
         if let Some(watch) = options.get("watch") { payload["watch"] = watch.clone(); }
+        if let Some(owner) = options.get("ownerAgentId") {
+            if !owner.is_null() && !owner.is_string() {
+                return Err("Pick a teammate for this task.".into());
+            }
+            payload["ownerAgentId"] = owner.clone();
+        }
         // "Send it to me on WhatsApp": the result goes to the phone even while the
         // window has focus. Only on a new task, which is the one with a delivery.
         if options.get("toPhone").and_then(|v| v.as_bool()) == Some(true) && payload["delivery"].is_object() {

@@ -45,7 +45,7 @@ interface TasksStore {
   refresh: () => void;
   remove: (jobId: string) => void;
   toggle: (jobId: string, enabled: boolean) => void;
-  edit: (job: ScheduledTask, changes: {name:string;task:string;schedule:ScheduledTask["schedule"];watch?:ScheduledTask["watch"];expiryDays?:number}) => void;
+  edit: (job: ScheduledTask, changes: {name:string;task:string;schedule:ScheduledTask["schedule"];watch?:ScheduledTask["watch"];expiryDays?:number;ownerAgentId?:string|null}) => void;
   create: (card: TaskCard, sessionId: string) => void;
   dismiss: (cardId: string) => void;
   receive: (e: { id: string; ok: boolean; error?: string; note?: string; jobs: ScheduledTask[]; taskLimit?: TasksStore['limit']; phone?: TasksStore['phone']; week?: TasksStore['week']; learned?: TasksStore['learned']; pages?: PageView[] }) => void;

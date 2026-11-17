@@ -32,3 +32,7 @@ test("a failed change says why and still shows the list", () => {
   expect(r.error).toBe("No task with that id.");
   expect(r.jobs).toHaveLength(1);
 });
+
+test("the task list carries a teammate assignment", () => {
+  expect(cronListResult("q3", [{ ...job, ownerAgentId: "atlas" }]).jobs[0]?.ownerAgentId).toBe("atlas");
+});
