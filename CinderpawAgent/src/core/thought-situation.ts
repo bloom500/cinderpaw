@@ -9,6 +9,7 @@ import type { Database } from "bun:sqlite";
 import type { CronJob } from "../types.ts";
 
 export interface Situation {
+  owner?: { id: string; name: string; role: string };
   items: Array<{ id: string; line: string }>;
   /** Background, not something to talk about. */
   notes: string[];
@@ -22,9 +23,10 @@ export function thoughtSituation(
   db: Database,
   week: () => { wroteFirst: number; answered: number },
   now = Date.now(),
+  owner?: Situation["owner"],
 ): Situation {
   const items: Situation["items"] = [];
-  const all = jobs().filter((j) => j.enabled);
+  const all = jobs().filter((j) => j.enabled && (j.ownerAgentId ?? null) === (owner?.id ?? null));
   all.filter((j) => j.kind === "watch").slice(0, 5).forEach((j, i) => {
     const last = j.history.at(-1)?.result?.split("\n")[0];
     items.push({ id: `W${i + 1}`, line: `Watch "${short(j.name, 80)}"${last ? `, last check: ${short(last)}` : ", not checked yet"}` });
@@ -33,13 +35,38 @@ export function thoughtSituation(
     items.push({ id: `T${i + 1}`, line: `Task "${short(j.name, 80)}" runs ${new Date(j.nextRunMs!).toString().replace(/:\d\d GMT.*$/, "")}` });
   });
   try {
-    const runs = db.query(`SELECT mission FROM runs WHERE status IN ('unfinished', 'needs_attention') AND updated_at >= ?
-      ORDER BY updated_at DESC LIMIT 3`).all(now - 7 * DAY) as Array<{ mission: string }>;
+    const runs = db.query(`SELECT mission FROM runs r WHERE status IN ('unfinished', 'needs_attention') AND updated_at >= ?
+      AND stopped_because != 'user_stopped'
+      AND ((? IS NULL AND session_id NOT LIKE 'cowork:%') OR session_id = ?)
+      AND NOT EXISTS (SELECT 1 FROM runs later WHERE later.session_id = r.session_id
+        AND (later.updated_at > r.updated_at OR (later.updated_at = r.updated_at AND later.rowid > r.rowid)))
+      ORDER BY updated_at DESC LIMIT 3`).all(now - 7 * DAY, owner?.id ?? null, owner ? `cowork:${owner.id}` : null) as Array<{ mission: string }>;
     runs.filter((r) => r.mission?.trim()).forEach((r, i) => items.push({ id: `U${i + 1}`, line: `Unfinished: "${short(r.mission.trim())}"` }));
   } catch { /* no runs table yet */ }
   const w = week();
   const notes = [`Last 7 days: you wrote first ${w.wroteFirst} times; the person opened, answered or acted on ${w.answered}.`];
-  return { items, notes };
+  return { items, notes, ...(owner ? { owner } : {}) };
+}
+
+/** One eligible speaker per tick. Teammates share the existing inference and interruption limits. */
+export function teamThoughtSituation(
+  roster: () => NonNullable<Situation["owner"]>[],
+  read: (owner?: Situation["owner"]) => Situation,
+): () => Situation {
+  let last: string | undefined;
+  return () => {
+    const speakers = [undefined, ...roster()];
+    const start = last === undefined ? 0 : (speakers.findIndex((s) => (s?.id ?? '') === last) + 1) % speakers.length;
+    for (let offset = 0; offset < speakers.length; offset++) {
+      const owner = speakers[(start + offset) % speakers.length];
+      const situation = read(owner);
+      if (situation.items.length) {
+        last = owner?.id ?? '';
+        return situation;
+      }
+    }
+    return { items: [], notes: [] };
+  };
 }
 
 /**

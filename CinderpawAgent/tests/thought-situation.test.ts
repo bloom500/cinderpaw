@@ -7,7 +7,7 @@ import { InferenceRouter } from "../src/egress/inference-router.ts";
 import { EpisodicMemory } from "../src/memory/episodic.ts";
 import { MoodEngine } from "../src/core/mood.ts";
 import { InnerThoughtsLoop } from "../src/core/inner-thoughts.ts";
-import { namedThought, thoughtSituation, type Situation } from "../src/core/thought-situation.ts";
+import { namedThought, teamThoughtSituation, thoughtSituation, type Situation } from "../src/core/thought-situation.ts";
 import type { CronJob, OutboundEvent } from "../src/types.ts";
 
 const now = new Date(2026, 10, 16, 14, 0).getTime();
@@ -60,6 +60,23 @@ function loop(reply: string, situation: () => Situation) {
 }
 
 const one: Situation = { items: [{ id: "W1", line: 'Watch "Headphones under 500", last check: Read 529 RON.' }], notes: [] };
+
+test("one shared reflection tick picks one eligible teammate and reads their own work", async () => {
+  const db = openDatabase(":memory:");
+  const roster = ["Atlas", "Bolt", "Scout"].map((name) => ({ id: name.toLowerCase(), name, role: "Research" }));
+  const jobs = roster.slice(0, 2).map((agent) => job({ name: agent.name + " watch", ownerAgentId: agent.id, kind: "watch" }));
+  const next = teamThoughtSituation(() => roster, (owner) => thoughtSituation(() => jobs, db.raw, () => ({ wroteFirst: 0, answered: 0 }), now, owner));
+  const atlas = loop("[W1] I checked the price.", next);
+  await atlas.l.tickNow();
+  expect(atlas.events).toEqual([{ type: "proactive", ownerAgentId: "atlas", content: "I checked the price." }]);
+  expect(atlas.calls).toHaveLength(1);
+  expect(atlas.calls[0]).toContain("Atlas watch");
+  expect(atlas.calls[0]).not.toContain("Bolt watch");
+  expect(next().owner?.id).toBe("bolt");
+  expect(next().owner?.id).toBe("atlas");
+  atlas.close();
+  db.close();
+});
 
 test("named: sent without the tag, and the model saw the list", async () => {
   const t = loop("[W1] The headphones dropped to 529, close to your 500.", () => one);

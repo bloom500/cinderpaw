@@ -21,6 +21,7 @@ import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
 import { pathWithin } from "./egress/tool-permissions.ts";
 import { InferenceRouter } from "./egress/inference-router.ts";
+import { ChatSpendRepo, chatSessionOf } from "./egress/chat-spend.ts";
 import { startUsageSender } from "./telemetry/usage-sender.ts";
 import { InferenceSpendAuthority } from "./egress/inference-spend-authority.ts";
 import { EpisodicMemory } from "./memory/episodic.ts";
@@ -129,7 +130,7 @@ import { createRecallTool } from "./tools/builtin/recall.ts";
 import { createRememberTool, NOTE_PREFIX, POSITION_KEY } from "./tools/builtin/remember.ts";
 import { forgetMirrors } from "./memory/forget.ts";
 import { createSelfTools } from "./tools/builtin/self.ts";
-import { registerCoworkRosterTools } from "./tools/builtin/cowork.ts";
+import { ownerTeamBrief, registerCoworkRosterTools } from "./tools/builtin/cowork.ts";
 import { createCoworkCreateTool } from "./tools/builtin/cowork-create.ts";
 import { createTokenUsageTool } from "./tools/builtin/token-usage.ts";
 import { createConnectorsManageTool } from "./tools/builtin/connectors-manage.ts";
@@ -146,7 +147,7 @@ import { CoworkAgentRepo } from "./cowork/agent-store.ts";
 import { applyCoworkProfile, withCronOwner } from "./cron/owner.ts";
 import { CoworkMailboxRepo } from "./cowork/mailbox.ts";
 import { CoworkHandoffService } from "./cowork/handoff.ts";
-import { CoworkRuntime } from "./cowork/runtime.ts";
+import { CoworkRuntime, coworkPayload } from "./cowork/runtime.ts";
 import {
   CoworkApprovalRepo,
   CoworkApprovalService,
@@ -174,7 +175,8 @@ import { ActivityMonitor } from "./rsi/l1-config/activity-monitor.ts";
 import { resolveDreamConfig, autonomousInferenceGate } from "./rsi/l1-config/dream-config.ts";
 import { priceResolverFromJson } from "./rsi/infra/rsi-cost.ts";
 import { FollowUpLedger, offerFollowUp, recordInteractiveTurn } from "./core/proactive-followups.ts";
-import { Nudges } from "./core/nudges.ts";
+import { Nudges, quietHour } from "./core/nudges.ts";
+import { addressedTeammate, signedTeamMessage } from "./cowork/owner-chat.ts";
 import { PhoneOffers } from "./core/phone-offers.ts";
 import { episodeStartOptions, episodeBudgetCaps } from "./rsi/l1-config/episode-options.ts";
 import { MetaEvolution } from "./rsi/l6-meta/meta-evolution.ts";
@@ -198,7 +200,7 @@ import { createSuggestTaskTool } from "./tools/builtin/suggest-task.ts";
 import { createTasksListTool } from "./tools/builtin/tasks-list.ts";
 import { createTaskLimitTool } from "./tools/builtin/task-limit.ts";
 import { createQuietNudgesTool } from "./tools/builtin/quiet-nudges.ts";
-import { thoughtSituation } from "./core/thought-situation.ts";
+import { teamThoughtSituation, thoughtSituation } from "./core/thought-situation.ts";
 import { Pages } from "./core/pages.ts";
 import { createComposePageTool } from "./tools/builtin/compose-page.ts";
 import { TaskLimit } from "./cron/limit.ts";
@@ -486,7 +488,9 @@ export async function boot(transportOverride?: Transport) {
   function offerUnfinishedWork(from: "window" | "tick" = "window"): void {
     if (!cfgBool("CINDERPAW_FOLLOWUPS_ENABLED")) return;
     void offerFollowUp({
-      from, ledger: followUps, nudges, phone: notifyOwner,
+      from, ledger: followUps, nudges, phone: cfgBool("CINDERPAW_TASKS_TO_PHONE") ? notifyOwner : null,
+      teammate: (id) => coworkAgents.get(id),
+      keepForTeammate: keepTeamNote,
       card: (followUp) => transport.send({ type: "proactive", content: "You left something unfinished", followUp }),
     }).catch((e) => log(`follow-up: send failed: ${String(e)}`));
   }
@@ -1177,9 +1181,9 @@ export async function boot(transportOverride?: Transport) {
   // a child still gets its own working memory, filtered registry and budget —
   // read-only by default, exactly like delegate_task, so code that spawns
   // workers cannot quietly acquire write access the parent never granted.
+  // Shared by the notebook, child reporting, and Stop after a turn ends.
+  const childRegistries: ChildRegistries = new Map();
   if (cfgBool("CINDERPAW_ENABLE_NOTEBOOK")) {
-    // Shared so a child can find the parent that admitted it.
-    const childRegistries: ChildRegistries = new Map();
     // Registered BEFORE the Subagent below: `registry.list()` is a copy, and a
     // worker can only be granted a tool that is in it. Registered after, every
     // worker lost notify_parent silently while its allow-list still named it.
@@ -1302,7 +1306,11 @@ export async function boot(transportOverride?: Transport) {
       dailyCap: Number(readEnv("CINDERPAW_THOUGHTS_DAILY_CAP") ?? 3),
       moodGateThreshold: Number(readEnv("CINDERPAW_THOUGHTS_MOOD_THRESHOLD") ?? 0.5),
       // Spec slice 9: talk only about real things (watches, tasks due, unfinished work).
-      situation: () => thoughtSituation(() => cronRepo.list(), db.raw, () => nudges.week()),
+      situation: teamThoughtSituation(
+        () => coworkAgents.list().filter((teammate) => !coworkRuntime.isWorking(teammate.id)),
+        (owner) => quietHour(Date.now()) ? { items: [], notes: [] }
+          : thoughtSituation(() => cronRepo.list(), db.raw, () => nudges.week(), Date.now(), owner),
+      ),
     });
     log("inner-thoughts loop enabled (opt-in via CINDERPAW_PROACTIVE_ENABLED)");
   }
@@ -1364,9 +1372,10 @@ export async function boot(transportOverride?: Transport) {
   // reset what we have learned about which endpoints are unwell.
   const brainBreaker = new CircuitBreaker();
   const brain = brainCfg ? new BrainStack(brainCfg, brainBreaker, log) : null;
+  const coworkAgents = new CoworkAgentRepo(db.raw);
   const agent = new AgentLoop(
     router, registry, episodic,
-    { onBudgetExhausted: config.inference.tokenBudget.onExhausted },
+    { onBudgetExhausted: config.inference.tokenBudget.onExhausted, teamBrief: () => ownerTeamBrief(coworkAgents) },
     // The per-turn injection is how almost every memory reaches the model,
     // and until 27 Sep the utility ledger heard only from the `recall` tool.
     // Recorded like the tool: which leaves this session was shown.
@@ -1957,18 +1966,14 @@ export async function boot(transportOverride?: Transport) {
         const sessionId = teammate ? `cowork:${teammate.id}` : target.sessionId;
         return nudges.route({ kind, sourceId: job.id, sessionId, userRequested: true }, {
           phone: notifyOwner && readEnv("CINDERPAW_TASKS_TO_PHONE") !== "false"
-            ? () => notifyOwner!(`⏰ ${job.name}\n\n${content.length > 1500 ? `${content.slice(0, 1500)}…` : content}`)
+            ? () => notifyOwner!(teammate ? teamMessage(teammate, `${job.name}\n\n${content}`)
+              : `⏰ ${job.name}\n\n${content.length > 1500 ? `${content.slice(0, 1500)}…` : content}`)
             : null,
           desktop: (via) => {
             const text = via ? `${content}\n\nAlso sent to your ${connectorName(via)}.` : content;
             const currentTeammate = teammate && cronRepo.get(job.id)?.ownerAgentId === teammate.id && coworkAgents.get(teammate.id);
             if (currentTeammate) {
-              const message = coworkMailbox.send({ fromAgentId: teammate.id, toAgentId: "human", threadId: sessionId,
-                body: `${job.name}\n\n${text}` });
-              coworkMailbox.updateStatus(message.id, "processed");
-              transport.send({ type: "cowork_event", eventType: "message_processed", agentId: teammate.id,
-                threadId: sessionId, title: job.name,
-                data: { messageId: message.id, agentName: teammate.name, output: message.body } });
+              keepTeamNote(currentTeammate, `${job.name}\n\n${text}`);
             }
             transport.send({ type: "cron_fired", jobId: job.id, jobName: job.name,
               sessionId: currentTeammate ? sessionId : target.sessionId,
@@ -2023,7 +2028,6 @@ export async function boot(transportOverride?: Transport) {
   // roster ⇒ zero behavior (fresh-install contract). The turn seam mirrors
   // cron's unattended-run shape minus durability extras: cowork threads are
   // conversational, one persistent session per agent so context compounds.
-  const coworkAgents = new CoworkAgentRepo(db.raw);
   const coworkMailbox = new CoworkMailboxRepo(db.raw);
   // S4 — deterministic approval gate on the tool-call path. Registered on
   // the shared hook registry: it passes every non-cowork session through
@@ -2064,28 +2068,93 @@ export async function boot(transportOverride?: Transport) {
     agents: coworkAgents,
     mailbox: coworkMailbox,
     handoffs: new CoworkHandoffService(db.raw),
-    emitEvent: (event) => transport.send(event),
-    runTurn: async (agentRec, prompt, sessionId) => {
+    emitEvent: (event) => {
+      transport.send(event);
+      if (event.type !== "cowork_event" || !event.threadId || typeof event.data?.messageId !== "string" ||
+          (event.eventType !== "message_processed" && event.eventType !== "message_rejected")) return;
+      const row = coworkMailbox.get(event.data.messageId);
+      if (row?.fromAgentId !== "human" || event.data.stopped) return;
+      const speaker = coworkAgents.get(event.agentId);
+      if (!speaker) return;
+      const body = event.eventType === "message_processed" && typeof event.data.output === "string" && event.data.output.trim()
+        ? event.data.output : "I couldn't finish this request. Open my chat in Cinderpaw for details.";
+      if (coworkPayload(row).ownerMessenger) {
+        if (connectors.isOwnerSession(event.threadId)) {
+          void connectors.askRouter.notify(event.threadId, teamMessage(speaker, body))
+            .then((result) => { if (result !== "sent") log(`cowork: messenger reply kept in teammate chat (${result})`); });
+        }
+      } else if (/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(event.threadId) && !quietHour(Date.now())) {
+        // A desktop delegation finished while the owner was away. Its answer already lives
+        // in the mailbox. Use the same one-channel delivery as a requested scheduled task.
+        void nudges.route({ kind: "task", sourceId: row.id, sessionId: `cowork:${speaker.id}`, userRequested: true }, {
+          phone: cfgBool("CINDERPAW_TASKS_TO_PHONE") ? () => connectors.notifyOwner(teamMessage(speaker, body)) : null,
+          desktop: (rang) => { if (!rang) transport.send({ type: "proactive", ownerAgentId: speaker.id, content: body }); },
+        }).catch((err) => log(`cowork: delivery failed: ${String(err)}`));
+      }
+    },
+    runTurn: async (agentRec, prompt, sessionId, { exchangeId, desktop, mission, recordEvent, signal }) => {
       // Re-read the profile on each turn so edits take effect.
-      applyCoworkProfile(agent, agentRec, sessionId);
+      const tools = agentRec.tools;
+      applyCoworkProfile(agent, tools && coworkAgents.list().length > 1 ? {
+        ...agentRec,
+        tools: [...new Set([...tools, "cowork_team", "cowork_send"])],
+      } : agentRec, sessionId);
       // `handleTurn()` never throws — it emits `error` events instead
       // (same contract cron relies on). Capture and rethrow so the worker
       // loop records a rejection rather than delivering an error string
       // as if it were the agent's answer.
       let runError: string | null = null;
+      let stopped = false;
+      const relay = (event: import("./types.ts").OutboundEvent) => {
+        recordEvent(event);
+        if (event.type === "done" && event.stopped) stopped = true;
+        if (event.type === "error") runError = event.message;
+        const scoped = { ...event, sessionId, coworkExchangeId: exchangeId };
+        transport.send(scoped);
+      };
+      if (desktop) {
+        if (desktop.replaceFrom) agent.resetSession(sessionId);
+        const spoken = desktop.surface === "voice";
+        agent.setSessionSurface(sessionId, spoken ? "Answer briefly in the user's language. Your answer will be read aloud." : "", { spoken });
+        await mcpManager.ready();
+        if (signal.aborted) return { text: "", finished: false, stopped: true };
+        const result = await agent.handleTurn(sessionId, prompt, desktop.id ?? exchangeId, relay,
+          desktop.skillsContext, desktop.images, desktop.inferParams);
+        if (runError) throw new Error(runError);
+        recordInteractiveTurn(runStore, sessionId, mission, result.outcome, result.text, db.raw);
+        return { text: result.text, finished: result.outcome === "completed", stopped: result.outcome === "stopped" };
+      }
+      agent.setSessionSurface(sessionId, "");
       const run = await runUnattended(
-        (text, messageId) =>
-          agent.handleTurn(sessionId, text, messageId, (event) => {
-            if (event.type === "error") runError = event.message;
-          }),
+        (text, messageId) => signal.aborted
+          ? Promise.resolve({ text: "", outcome: "stopped" as const, toolCallCount: 0, incomplete: false })
+          : agent.handleTurn(sessionId, text, messageId, relay),
         prompt,
         `${sessionId}-${Date.now()}`,
         { deadlineMs: Number(readEnv("CINDERPAW_CRON_JOB_TIMEOUT_MS") ?? 5 * 60_000) },
       );
       if (runError) throw new Error(runError);
-      return { text: run.text, finished: run.finished };
+      recordInteractiveTurn(runStore, sessionId, mission, stopped ? "stopped" : run.finished ? "completed" : run.outcome, run.text, db.raw);
+      return { text: run.text, finished: run.finished && !stopped, stopped: stopped || run.outcome === "stopped" };
     },
     log,
+  });
+  function keepTeamNote(teammate: { id: string; name: string }, body: string) {
+    const threadId = `cowork:${teammate.id}`;
+    const message = coworkMailbox.send({ fromAgentId: teammate.id, toAgentId: "human", threadId, body });
+    coworkMailbox.updateStatus(message.id, "processed");
+    transport.send({ type: "cowork_event", eventType: "message_processed", agentId: teammate.id, threadId,
+      title: teammate.name, data: { messageId: message.id, agentName: teammate.name, toAgentId: "human", body, output: body } });
+  }
+  function teamMessage(teammate: { id: string; name: string }, body: string) {
+    const byName = addressedTeammate(teammate.name + ": reply", coworkAgents.list());
+    return signedTeamMessage(teammate.name, body, byName?.agent.id === teammate.id ? teammate.name : teammate.id);
+  }
+  const chatSpend = new ChatSpendRepo(db.raw);
+  router.configureChatSpend({
+    repo: chatSpend,
+    localBaseUrl: localBaseUrl ?? undefined,
+    sessionOf: (id) => chatSessionOf(id, (teammateId) => coworkRuntime.threadOf(teammateId)),
   });
 
   // --- RSI sidecar (Faza 1) ---
@@ -2721,14 +2790,30 @@ export async function boot(transportOverride?: Transport) {
   setReplyTail((sessionId) => offers.tail(sessionId));
   connectors.askRouter.setAnswers((sessionId, text) => {
     const confirm = offers.answer(sessionId, text);
-    if (confirm) void Promise.resolve(confirm).then((reply) => connectors.askRouter.notify(sessionId, reply));
-    return confirm !== null;
+    if (confirm !== null) {
+      void Promise.resolve(confirm).then((reply) => connectors.askRouter.notify(sessionId, reply));
+      return true;
+    }
+    return false;
+  });
+  connectors.askRouter.setAddressed((sessionId, text) => {
+    if (!connectors.isOwnerSession(sessionId)) return false;
+    const addressed = addressedTeammate(text, coworkAgents.list());
+    if (!addressed) return false;
+    if (connectors.askRouter.answerPending(`cowork:${addressed.agent.id}`, sessionId, addressed.body)) return true;
+    nudges.continued(`cowork:${addressed.agent.id}`);
+    coworkMailbox.send({ fromAgentId: "human", toAgentId: addressed.agent.id, threadId: sessionId,
+      body: addressed.body, payloadJson: JSON.stringify({ ownerMessenger: true }) });
+    return true;
   });
   connectors.askRouter.observe((sessionId, direction) => {
     if (direction === "out") offers.said(sessionId);
     if (!connectors.isOwnerSession(sessionId)) return;
     const channel = sessionId.split(":", 1)[0]!;
-    if (direction === "in") nudges.inbound(channel);
+    if (direction === "in") {
+      nudges.inbound(channel);
+      innerThoughts?.noteUserActivity();
+    }
     else nudges.outbound(channel);
   });
   // The one person on a Discord or Slack allowlist is the owner, so what they
@@ -2744,7 +2829,20 @@ export async function boot(transportOverride?: Transport) {
   // ask_user for connector sessions is asked IN the channel (Discord/Slack/
   // WhatsApp text message; the next reply answers it) instead of emitting a
   // desktop card the chat user can never see.
-  askUser.setDelegate(connectors.askRouter);
+  function teammateQuestionDestination(sessionId: string) {
+    if (!sessionId.startsWith("cowork:")) return;
+    const id = sessionId.slice("cowork:".length);
+    const destination = coworkRuntime.ownerMessengerOf(id);
+    const teammate = coworkAgents.get(id);
+    if (!destination || !teammate || !connectors.isOwnerSession(destination)) return;
+    const byName = addressedTeammate(teammate.name + ": reply", coworkAgents.list());
+    return { destination, name: teammate.name, address: byName?.agent.id === id ? teammate.name : id };
+  }
+  askUser.setDelegate({
+    canHandle: (id) => connectors.askRouter.canHandle(id) || !!teammateQuestionDestination(id),
+    ask: (questions, id) => connectors.askRouter.ask(questions, id, teammateQuestionDestination(id)),
+    cancelSession: (id, reason) => connectors.askRouter.cancelSession(id, reason),
+  });
 
   // connectors_manage — the agent's self-service door for connecting itself
   // to Discord/Slack/WhatsApp on user request. Writes ~/.cinderpaw/connectors.json
@@ -2997,6 +3095,8 @@ export async function boot(transportOverride?: Transport) {
     // a whole model turn to retype it, and lets it be paraphrased on the way.
     coworkMailbox,
     coworkAgents,
+    chatSpend,
+    childRegistries,
     // The workspace panel reads through dispatch, not through the filesystem:
     // the artifact root lives under ~/.cinderpaw, which `deny_cinderpaw_private`
     // keeps the webview out of on purpose (the api token and the BYOK metadata
@@ -3064,9 +3164,20 @@ export async function boot(transportOverride?: Transport) {
     // X1 fix: inner-thoughts is opt-in via CINDERPAW_PROACTIVE_ENABLED.
     if (innerThoughts) {
       innerThoughts.setEmit((event) => {
-        void nudges.send({ kind: "thought" }, () => {
-          transport.send(event);
-          return "desktop";
+        if (event.type !== "proactive" || quietHour(Date.now())) return;
+        const speaker = event.ownerAgentId ? coworkAgents.get(event.ownerAgentId) : undefined;
+        if (event.ownerAgentId && !speaker) return;
+        const body = event.content;
+        void nudges.route({ kind: "thought", sessionId: speaker ? `cowork:${speaker.id}` : undefined }, {
+          phone: readEnv("CINDERPAW_TASKS_TO_PHONE") !== "false"
+            ? () => connectors.notifyOwner(speaker ? teamMessage(speaker, body) : body) : null,
+          desktop: (rang) => {
+            if (speaker) {
+              if (!coworkAgents.get(speaker.id)) return;
+              keepTeamNote(speaker, body);
+            }
+            if (!rang) transport.send(event);
+          },
         }).catch((e) => log(`thoughts: send failed: ${String(e)}`));
       });
       innerThoughts.start();

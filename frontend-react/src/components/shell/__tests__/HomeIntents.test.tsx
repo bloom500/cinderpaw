@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { HomeIntents } from '../HomeIntents';
+import { HomeIntents, TeamSetup } from '../HomeIntents';
 import { tauri } from '@/lib/tauri';
+import { useCoworkTeam } from '@/stores/coworkTeam';
 
 /**
  * Four, fixed, in this order. The rail grew from four items to nine one
@@ -55,4 +56,21 @@ describe('HomeIntents', () => {
     expect(screen.queryByText('Research')).toBeNull();
     vi.restoreAllMocks();
   });
+});
+
+it('turns a plain description of the work into a team setup draft for review', async () => {
+  const user = userEvent.setup();
+  const onPick = vi.fn();
+  const previous = useCoworkTeam.getState();
+  useCoworkTeam.setState({ loaded: true, roster: [] });
+  try {
+    render(<TeamSetup onPick={onPick} />);
+    await user.click(screen.getByRole('button', { name: 'Set up my team' }));
+    expect(onPick).not.toHaveBeenCalled();
+    await user.type(screen.getByRole('textbox', { name: 'What should your team help with?' }), 'Reply to customers');
+    await user.click(screen.getByRole('button', { name: 'Use in chat' }));
+    expect(onPick).toHaveBeenCalledWith('I want to use Cinderpaw for this work: Reply to customers\nSuggest teammates who could help.');
+  } finally {
+    useCoworkTeam.setState(previous);
+  }
 });

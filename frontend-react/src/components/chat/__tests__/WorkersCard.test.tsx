@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { WorkersCard } from '../WorkersCard';
 import { useRlmWorkers } from '@/stores/rlmWorkers';
 import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
+import { stopActiveStream } from '@/lib/streamControl';
 
 vi.mock('@/lib/clipboard', () => ({ copyText: vi.fn().mockResolvedValue(true) }));
+vi.mock('@/lib/streamControl', () => ({ stopActiveStream: vi.fn().mockResolvedValue(undefined) }));
 
 describe('WorkersCard', () => {
   beforeEach(() => {
@@ -37,6 +39,18 @@ describe('WorkersCard', () => {
     useRlmWorkers.getState().upsert({ sessionId: 's2', childId: 'sa-9', name: 'elsewhere', status: 'running' });
     const { container } = render(<WorkersCard />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  test('can stop detached workers even after the main reply is done', async () => {
+    useChat.setState({ streamStatus: 'done' });
+    useRlmWorkers.getState().upsert({ sessionId: 's1', childId: 'sa-1', name: 'researcher', status: 'running' });
+    render(<WorkersCard />);
+    await userEvent.click(screen.getByRole('button', { name: 'Stop work' }));
+    expect(stopActiveStream).toHaveBeenCalledWith('s1');
+    expect(screen.getByText('1 working')).toBeInTheDocument();
+    act(() => useRlmWorkers.getState().upsert({ sessionId: 's1', childId: 'sa-1', name: 'researcher', status: 'cancelled' }));
+    expect(screen.getByText(/^stopped/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Stop work' })).not.toBeInTheDocument();
   });
 
   test("opens a finished worker's answer, the part the reply may never show", async () => {

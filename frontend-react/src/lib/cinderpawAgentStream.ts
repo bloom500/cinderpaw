@@ -20,13 +20,14 @@ import type { CinderpawAgentEvent } from '@/lib/tauri';
 import { tauri } from '@/lib/tauri';
 import { useChat, type MemoryUsedItem } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
-import { useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
+import { askUserFor, cancelTeammateAsk, useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
 import { useHeadsUp } from '@/stores/headsUp';
 import { useTasks } from '@/stores/tasks';
 import { announceWhenLive, isLive, useConnected } from '@/stores/connected';
 import { useRlmWorkers } from '@/stores/rlmWorkers';
 import { useCoworkTeam } from '@/stores/coworkTeam';
+import { getCoworkChat, ingestCoworkChat } from '@/stores/coworkChat';
 import { notifyIfBackground, preview } from '@/lib/systemNotify';
 
 export interface CinderpawStreamHandlers {
@@ -123,6 +124,7 @@ export function ensureCinderpawListener(): Promise<void> {
       return;
     }
 
+    ingestCoworkChat(parsed);
     switch (parsed.type) {
       case 'chunk':
         if (parsed.id) {
@@ -225,7 +227,7 @@ _${parsed.diagnostic}_`
         // #18: retry/backoff/fallback notes from long-running tools. These
         // carry a sessionId (not a message id), so route straight to the
         // chat store's most recent running bubble — previously dropped.
-        if (parsed.message) useChat.getState().noteToolProgress(parsed.message);
+        if (parsed.message && parsed.sessionId === useChat.getState().sessionId) useChat.getState().noteToolProgress(parsed.message);
         break;
       case 'rlm_child':
         // A background worker from the notebook's `rlm()`. Like tool_progress
@@ -302,7 +304,8 @@ _${parsed.diagnostic}_`
           title: parsed.title,
           data: parsed.data,
         });
-        useChat.getState().upsertCoworkEvent({
+        if (parsed.eventType === 'message_queued') break;
+        const bubble: Parameters<ReturnType<typeof useChat.getState>['upsertCoworkEvent']>[0] = {
           key,
           title: parsed.title,
           status,
@@ -317,7 +320,9 @@ _${parsed.diagnostic}_`
                     typeof parsed.data.description === 'string' ? parsed.data.description : parsed.title,
                 }
               : undefined,
-        });
+        };
+        if (!parsed.threadId || parsed.threadId === useChat.getState().sessionId) useChat.getState().upsertCoworkEvent(bubble);
+        if (parsed.agentId !== 'human') getCoworkChat('cowork:' + parsed.agentId).store.getState().upsertCoworkEvent(bubble);
         // A teammate is blocked on the person. With the window hidden, the
         // in-app card alone would expire unseen.
         if (parsed.eventType === 'approval_requested') {
@@ -346,6 +351,7 @@ _${parsed.diagnostic}_`
         // matching routeAskUser .catch advances the card. Only fall back to
         // cancelling everything if the event somehow lacks an id.
         if (parsed.id) {
+          cancelTeammateAsk(parsed.id, parsed.reason ?? 'sidecar cancelled');
           useAskUser.getState().cancelById(parsed.id, parsed.reason ?? 'sidecar cancelled');
         } else {
           cancelAskUserOnAllInflight(parsed.reason ?? 'sidecar cancelled');
@@ -370,9 +376,9 @@ _${parsed.diagnostic}_`
  * the agent loop is blocked on the user's answer, so there is exactly one
  * active stream in the typical case.
  */
-function activeChatMessageId(): string | undefined {
+function activeChatMessageId(sessionId: string): string | undefined {
   for (const h of inflight.values()) {
-    if (!h.stopped && h.chatMessageId) return h.chatMessageId;
+    if (!h.stopped && h.chatMessageId && (!h.sessionId || h.sessionId === sessionId)) return h.chatMessageId;
   }
   return undefined;
 }
@@ -393,13 +399,13 @@ function routeAskUser(
   sessionId: string,
   questions: AskUserQuestion[],
 ): void {
-  const targetMessageId = activeChatMessageId();
+  const targetMessageId = sessionId.startsWith('cowork:') ? undefined : activeChatMessageId(sessionId);
 
   // The promise returned by useAskUser.request() resolves when the user
   // clicks Submit. We then forward the answers to the sidecar. If another
   // request is already pending, this one is QUEUED — it won't become the
   // visible head until the earlier ones are answered.
-  const promise = useAskUser.getState().request(requestId, sessionId, questions);
+  const promise = askUserFor(sessionId).getState().request(requestId, sessionId, questions);
 
   // Only paint the card when THIS request is the current head. A request
   // queued behind an unanswered one must not steal the card (that was the
@@ -414,6 +420,7 @@ function routeAskUser(
   // attach a "thinking" indicator on the streaming message). This is a
   // fire-and-forget; the actual user response is handled by the store.
   for (const [, h] of inflight) {
+    if (sessionId.startsWith('cowork:') || (h.sessionId && h.sessionId !== sessionId)) continue;
     try {
       h.onAskUser?.(requestId, sessionId, questions);
     } catch {

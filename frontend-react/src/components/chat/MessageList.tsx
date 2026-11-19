@@ -3,13 +3,15 @@ import {
   MessageScroller,
   useMessageScrollerScrollable,
 } from '@shadcn/react/message-scroller';
-import { useChat } from '@/stores/chat';
+import { useChatApi, useChatScope, useChatView as useChat } from '@/stores/chatScope';
 import { cn } from '@/lib/utils';
 import { MessageItem } from './MessageItem';
 import { ChapterRail } from './ChapterRail';
 import { useResendTurn } from '@/hooks/useResendTurn';
 import { StreamingIndicator } from './StreamingIndicator';
 import { ApprovalCard } from './ApprovalCard';
+import { AskUserCard } from './AskUserCard';
+import { askUserFor } from '@/stores/askUser';
 import { MetaProposalCard } from './MetaProposalCard';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
 import { SYSTEM_FONT, useUI, type ChatTextSize } from '@/stores/ui';
@@ -43,6 +45,10 @@ export function MessageList({ onFollowUp, onAnswer }: {
   /** A next-step card was answered: send the answer. */
   onAnswer?: (text: string) => void;
 } = {}) {
+  const chat = useChatApi();
+  const scope = useChatScope();
+  const questions = askUserFor(chat.getState().sessionId);
+  const pending = questions((s) => s.pending);
   const messages = useChat((s) => s.messages);
   // Rows that arrive together (a chat opened, history loaded) are already
   // there; only the one or two a turn adds should arrive. Animating fifty rows
@@ -68,9 +74,17 @@ export function MessageList({ onFollowUp, onAnswer }: {
     let pair = actions.current.get(id);
     if (!pair) {
       // -1 while a reply is arriving: both drop everything below, that reply too.
-      const at = () => (useChat.getState().streamStatus === 'streaming' ? -1 : latest.current.messages.findIndex((m) => m.id === id));
+      const at = () => (chat.getState().streamStatus === 'streaming' ? -1 : latest.current.messages.findIndex((m) => m.id === id));
       pair = {
-        retry: () => { const i = at(); if (i > 0) void latest.current.resend(i - 1); },
+        retry: () => {
+          const i = at();
+          if (i < 1) return;
+          const rows = latest.current.messages;
+          const request = scope
+            ? rows.findIndex((row) => row.role === 'user' && row.coworkRequestId === rows[i].coworkRequestId)
+            : i - 1;
+          if (request >= 0) void latest.current.resend(request);
+        },
         edit: (text) => { const i = at(); if (i >= 0) void latest.current.resend(i, text); },
       };
       actions.current.set(id, pair);
@@ -83,14 +97,17 @@ export function MessageList({ onFollowUp, onAnswer }: {
   // Settings > Appearance > Chat font. Code keeps its own monospace face.
   const chatFont = useUI((s) => s.chatFont);
   const chatTextSize = useUI((s) => s.chatTextSize);
-  const dockH = useChatDockHeight();
+  const measuredDock = useChatDockHeight();
+  const dockH = scope ? 0 : measuredDock;
 
   // Approval requests belong to the chat they were raised in, as cards in its
   // transcript (spec 7.5). Other chats' requests reach the person through the
   // app-wide CoworkApprovalDock, which leaves this chat's to this list.
   const exchanges = useCoworkTranscript((s) => s.exchanges);
   const activeThreadId = useCoworkTranscript((s) => s.activeThreadId);
-  const approvals = exchanges.filter((e) => e.kind === 'approval' && !!activeThreadId && e.threadId === activeThreadId);
+  const approvals = exchanges.filter((e) => e.kind === 'approval' && (scope
+    ? e.fromAgentId === chat.getState().sessionId.slice('cowork:'.length) && e.status === 'running'
+    : !!activeThreadId && e.threadId === activeThreadId));
   const last = messages[messages.length - 1];
   const hasActiveThinking = Boolean(last?.thinking && !last.thinkingComplete);
   const waitingForFirstToken = status === 'streaming' && last?.content === '' && !hasActiveThinking;
@@ -157,13 +174,16 @@ export function MessageList({ onFollowUp, onAnswer }: {
                 // below, which is why they are off while a reply is arriving:
                 // hidden by `data-replying` below and refused in actionsFor.
                 // Not taken away: that drew every row twice per reply (26 Oct).
-                onRetry={m.role !== 'assistant' || i === 0 ? undefined : actionsFor(m.id).retry}
-                onEdit={m.role !== 'user' ? undefined : actionsFor(m.id).edit}
+                onRetry={m.role !== 'assistant' || i === 0 || (scope && !m.coworkRequestId) ? undefined : actionsFor(m.id).retry}
+                onEdit={m.role !== 'user' || (scope && !m.coworkRequestId) ? undefined : actionsFor(m.id).edit}
               />
             ))}
             {approvals.map((e) => <ApprovalCard key={e.id} e={e} />)}
+            {scope && pending && <AskUserCard key={pending.id} requestId={pending.id} questions={pending.questions}
+              onSubmit={(answers) => questions.getState().submit(answers)}
+              onCancel={() => questions.getState().cancelById(pending.id)} />}
             {/* L6 asks here before it changes how Cinderpaw practices. */}
-            <MetaProposalCard />
+            {!scope && <MetaProposalCard />}
             {waitingForFirstToken && (
               <StreamingIndicator phase={agentPhase ?? 'thinking'} tool={agentTool} />
             )}
@@ -229,7 +249,8 @@ function JumpToBottom({ count }: { count: number }) {
   const { end: below } = useMessageScrollerScrollable();
   const seen = useRef(count);
   const [unread, setUnread] = useState(0);
-  const dockH = useChatDockHeight();
+  const measuredDock = useChatDockHeight();
+  const dockH = useChatScope() ? 0 : measuredDock;
 
   useEffect(() => {
     if (!below) {

@@ -21,12 +21,13 @@
  * reading a teammate's replies only exist once there is a teammate.
  */
 
+import { setTimeout as delay } from "node:timers/promises";
 import type { Tool, ToolManifest } from "../../types.ts";
 import type { CoworkAgent, CoworkAgentRepo } from "../../cowork/agent-store.ts";
 import type { CoworkMailboxRepo } from "../../cowork/mailbox.ts";
 import type { ToolRegistry } from "../registry.ts";
 import { rootSessionId } from "../../cowork/approval.ts";
-import { HUMAN, type HumanReplyPayload } from "../../cowork/runtime.ts";
+import { coworkPayload, HUMAN, runtimeForRoster, type HumanReplyPayload } from "../../cowork/runtime.ts";
 
 /**
  * Register every roster tool the registry does not have yet, and return the
@@ -79,6 +80,16 @@ function findTeammate(repo: CoworkAgentRepo, q: string): CoworkAgent | null {
   );
 }
 
+export function ownerTeamBrief(agents: CoworkAgentRepo): string {
+  const roster = agents.list();
+  if (!roster.length) return "";
+  const roles = roster.slice(0, 12).map(({ name, role }) => [name.slice(0, 80), role.slice(0, 160)]);
+  return `Your current team (name, role): ${JSON.stringify(roles)}. See cowork_team for full capabilities and availability. ` +
+    "For a comparison with a recommendation, a plan based on research, or another multi-part deliverable, " +
+    "send a distinct part to a matching colleague now and own the synthesis. The person need only give you the goal. " +
+    "Handle simple requests yourself and honor any request to work alone.";
+}
+
 export function createCoworkTeamTool(agents: CoworkAgentRepo): Tool {
   const manifest: ToolManifest = {
     name: "cowork_team",
@@ -96,10 +107,12 @@ export function createCoworkTeamTool(agents: CoworkAgentRepo): Tool {
       if (roster.length === 0) {
         return { ok: true, content: "No teammates are configured.", data: { teammates: [] } };
       }
+      const runtime = runtimeForRoster(agents);
       const out = roster.map((a) => ({
         id: a.id,
         name: a.name,
         role: a.role || undefined,
+        presence: runtime?.isWorking(a.id) ? "working" : "available",
         instructions: a.instructions || undefined,
         // What they can touch and which model they run on: the two things a
         // person asks before handing a teammate anything consequential.
@@ -108,7 +121,7 @@ export function createCoworkTeamTool(agents: CoworkAgentRepo): Tool {
       }));
       return {
         ok: true,
-        content: `Teammates: ${roster.map((a) => `"${a.name}"${a.role ? ` (${a.role})` : ""}`).join(", ")}`,
+        content: `Teammates: ${out.map((a) => `"${a.name}"${a.role ? ` (${a.role})` : ""} — ${a.presence}`).join(", ")}`,
         data: { teammates: out },
       };
     },
@@ -121,8 +134,8 @@ export function createCoworkSendTool(agents: CoworkAgentRepo, mailbox: CoworkMai
     description:
       "Hand a task or question to a named teammate (persistent cowork agent). " +
       "They start on it at once, but a turn can take minutes, and the exchange " +
-      "appears live in the Agent Cowork panel. Do not wait on the answer here; " +
-      "read it later with cowork_replies when you need to use it.",
+      "appears in the teammate's chat. The owner can collect the result in " +
+      "the same turn with cowork_replies(wait_for: messageId).",
     permissions: [],
     networkAccess: false,
   };
@@ -158,7 +171,7 @@ export function createCoworkSendTool(agents: CoworkAgentRepo, mailbox: CoworkMai
         typeof ctx.sessionId === "string" && !rootSessionId(ctx.sessionId).startsWith("cowork:")
           ? ctx.sessionId
           : null;
-      const threadId = typeof args.thread_id === "string" && args.thread_id.trim()
+      const requestedThread = typeof args.thread_id === "string" && args.thread_id.trim()
         ? args.thread_id.trim()
         : fromChat;
       if (!to || !body) {
@@ -185,11 +198,17 @@ export function createCoworkSendTool(agents: CoworkAgentRepo, mailbox: CoworkMai
       const root =
         typeof ctx.sessionId === "string" ? rootSessionId(ctx.sessionId) : "";
       const sender = root.startsWith("cowork:") ? root.slice("cowork:".length) : "human";
-      // Carry the thread's hop count forward. Without this the automatic reply
-      // path was capped but this tool was not: a message sent here had no
-      // payload, so the next reader saw hop 0 and two teammates could
-      // ping-pong for as long as the budget lasted.
-      const hops = mailbox.lastHopsInThread(threadId) + 1;
+      if (sender === target.id) {
+        return { ok: false, content: "Choose another teammate.", error: "self_message" };
+      }
+      const outgoing = runtimeForRoster(agents)?.outgoing(sender, target.id);
+      if (outgoing && !outgoing.allowed) {
+        return { ok: false, content: "This exchange has reached its delegation limit.", error: "cowork_limit" };
+      }
+      // A peer send continues the active task. A new human request starts its
+      // own chain even when it shares a chat with earlier completed tasks.
+      const threadId = outgoing?.threadId ?? requestedThread;
+      const hops = outgoing?.hops ?? (sender === HUMAN ? 1 : mailbox.lastHopsInThread(threadId) + 1);
       const msg = mailbox.send({
         fromAgentId: sender,
         toAgentId: target.id,
@@ -197,12 +216,15 @@ export function createCoworkSendTool(agents: CoworkAgentRepo, mailbox: CoworkMai
         body,
         payloadJson: JSON.stringify({ coworkHops: hops }),
       });
+      outgoing?.record();
       return {
         ok: true,
         content:
           `Delivered to "${target.name}" (from: ${sender}). Their reply will appear ` +
-          `in the Agent Cowork panel. Tell the user so rather than waiting here; ` +
-          `when you need the answer yourself, call cowork_replies.`,
+          `in ${target.name}'s chat in Team activity. ` +
+          (sender === HUMAN && msg.threadId === ctx.sessionId
+            ? `Continue your part, then call cowork_replies with wait_for="${msg.id}" to use their answer in yours.`
+            : "Continue your part of the task."),
         data: {
           messageId: msg.id,
           to: target.id,
@@ -223,15 +245,16 @@ const REPLY_MAX = 6000;
  * them, and who is still working. Unread answers are marked read here, so one
  * answer is not acted on twice whichever road it reached the agent by.
  */
-function takeReplies(threadId: string, agents: CoworkAgentRepo, mailbox: CoworkMailboxRepo, all: boolean) {
+function takeReplies(threadId: string, agents: CoworkAgentRepo, mailbox: CoworkMailboxRepo, all: boolean, requestId?: string) {
   const rows = mailbox.byThread(threadId);
   const nameOf = (id: string) => agents.get(id)?.name ?? id;
-  const replies = rows.filter((r) => r.toAgentId === HUMAN && (all || r.status === "pending"));
+  const replies = rows.filter((r) => r.toAgentId === HUMAN && (all || r.status === "pending") &&
+    (!requestId || coworkPayload(r).replyTo === requestId));
   // A message from the person stays `pending` until its teammate has
   // finished with it, so this is also who is still working.
   const working = [
     ...new Set(
-      rows.filter((r) => r.fromAgentId === HUMAN && r.status === "pending").map((r) => nameOf(r.toAgentId)),
+      rows.filter((r) => r.fromAgentId === HUMAN && r.status === "pending" && (!requestId || r.id === requestId)).map((r) => nameOf(r.toAgentId)),
     ),
   ];
 
@@ -295,6 +318,11 @@ export function createCoworkRepliesTool(agents: CoworkAgentRepo, mailbox: Cowork
   return {
     manifest,
     parameters: {
+      wait_for: {
+        type: "string",
+        description: "A cowork_send message ID from this owner chat. Wait up to 45 seconds for that exact result. Repeat with the same ID if still working.",
+        required: false,
+      },
       thread_id: {
         type: "string",
         description: "Conversation thread id. Omit to use this conversation.",
@@ -317,8 +345,33 @@ export function createCoworkRepliesTool(agents: CoworkAgentRepo, mailbox: Cowork
       if (!threadId) {
         return { ok: false, content: "cowork_replies needs a thread_id here.", error: "bad_args" };
       }
-      const all = args.all === true;
-      const { replies, working, lines, nameOf } = takeReplies(threadId, agents, mailbox, all);
+      const requestId = typeof args.wait_for === "string" ? args.wait_for.trim() : undefined;
+      if (args.wait_for !== undefined) {
+        const request = requestId && mailbox.get(requestId);
+        if (!request || request.fromAgentId !== HUMAN || request.threadId !== ctx.sessionId ||
+            threadId !== ctx.sessionId || root.startsWith("cowork:")) {
+          return { ok: false, error: "bad_args", content: "Use the cowork_send message ID from this owner chat." };
+        }
+        const deadline = Date.now() + 45_000;
+        let current = request;
+        while (current.status === "pending" && Date.now() < deadline) {
+          await delay(400, undefined, { signal: ctx.signal });
+          const updated = mailbox.get(request.id);
+          if (!updated) return { ok: false, error: "missing_request", content: "The delegated request is no longer available." };
+          current = updated;
+        }
+      }
+      const all = args.all === true || !!requestId;
+      const { replies, working, lines, nameOf } = takeReplies(threadId, agents, mailbox, all, requestId);
+      if (requestId && !working.length) {
+        const request = mailbox.get(requestId);
+        if (request && coworkPayload(request).result?.stopped) {
+          return { ok: false, error: "stopped", content: "The delegated request was stopped." };
+        }
+        if (request?.status === "rejected" || !replies.length) {
+          return { ok: false, error: "no_reply", content: lines.join("\n\n") || "The delegated request ended without a reply." };
+        }
+      }
 
       const tail = working.length > 0 ? `Still working: ${working.join(", ")}.` : "";
       const content =

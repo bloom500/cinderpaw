@@ -5,7 +5,7 @@ import {
   useMessageScroller,
   useMessageScrollerVisibility,
 } from '@shadcn/react/message-scroller';
-import { useChat } from '@/stores/chat';
+import { useChatScope, useChatView as useChat } from '@/stores/chatScope';
 import { useChatDockHeight } from '@/lib/chatDock';
 import { cn } from '@/lib/utils';
 
@@ -122,7 +122,8 @@ export const ChapterRail = memo(function ChapterRail() {
   const messageCount = useChat((s) => s.messages.length);
   const { scrollToMessage } = useMessageScroller();
   const { currentAnchorId, visibleMessageIds } = useMessageScrollerVisibility();
-  const dockH = useChatDockHeight();
+  const measuredDock = useChatDockHeight();
+  const dockH = useChatScope() ? 0 : measuredDock;
   // While a reply streams, every chunk grows scrollHeight and would remeasure
   // every row. Chapters never move mid-stream (new text only extends the
   // end, and the offset math is scroll-invariant), so the pass is skipped

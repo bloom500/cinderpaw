@@ -1,10 +1,6 @@
-import { useSyncExternalStore } from 'react';
-import { useChat } from '@/stores/chat';
+import { useMemo, useSyncExternalStore } from 'react';
+import { useChatApi, type ChatApi } from '@/stores/chatScope';
 import { createChatContextReader, type ChatContext } from '@/lib/chatContext';
-
-let cache: { messages: readonly unknown[]; ctx: ChatContext; key: string } | null = null;
-const readContext = createChatContextReader();
-
 /**
  * The context of the chat on screen, as one snapshot that keeps its identity
  * until what it lists changes.
@@ -15,15 +11,21 @@ const readContext = createChatContextReader();
  * reply that added no file, link or memory. The derived value is compared as
  * data instead, and a subscriber only hears about a real change.
  */
-function snapshot(): ChatContext {
-  const messages = useChat.getState().messages;
-  if (cache?.messages === messages) return cache.ctx;
-  const ctx = readContext(messages);
-  const key = JSON.stringify(ctx);
-  cache = { messages, ctx: cache?.key === key ? cache.ctx : ctx, key };
-  return cache.ctx;
+function contextSnapshot(chat: ChatApi) {
+  let cache: { messages: readonly unknown[]; ctx: ChatContext; key: string } | null = null;
+  const readContext = createChatContextReader();
+  return (): ChatContext => {
+    const messages = chat.getState().messages;
+    if (cache?.messages === messages) return cache.ctx;
+    const ctx = readContext(messages);
+    const key = JSON.stringify(ctx);
+    cache = { messages, ctx: cache?.key === key ? cache.ctx : ctx, key };
+    return cache.ctx;
+  };
 }
 
 export function useChatContext(): ChatContext {
-  return useSyncExternalStore(useChat.subscribe, snapshot);
+  const chat = useChatApi();
+  const snapshot = useMemo(() => contextSnapshot(chat), [chat]);
+  return useSyncExternalStore(chat.subscribe, snapshot);
 }

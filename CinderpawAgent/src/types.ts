@@ -715,6 +715,8 @@ export interface InferenceRequest {
    * `provider: { only, allow_fallbacks }`; ignored by gateways without it.
    */
   providerOnly?: string[];
+  /** Provider-side rates, in USD per million tokens, for capped OpenRouter chat calls. */
+  openRouterPriceCeiling?: { prompt: number; completion: number };
   temperature?: number;
   /**
    * Optional abort signal. When aborted, the in-flight fetch / streaming
@@ -1395,6 +1397,7 @@ export interface InboundMessage {
     // teammates, "remove" deletes the one named by `toAgentId` first. Both
     // reply with one `cowork_team_result`.
     | "cowork_team_op"
+    | "chat_spend"
     // Faza 6 (L6) Meta Evolution — the host queries/drives the MetaGenome
     // engine; the sidecar replies with one `meta_result` paired by `id`.
     | "meta_status" | "meta_evolve" | "meta_rollback" | "meta_history"
@@ -1531,6 +1534,9 @@ export interface InboundMessage {
   /** Cowork approval payload (type === "cowork_approval_resolve"); the
    *  request id rides the plain `id` field. */
   approvalAction?: "approve" | "reject";
+  /** Chat model spending limit. A null amount removes it. */
+  chatSpendAction?: "get" | "set";
+  chatSpendLimitUsd?: number | null;
   /** Roster payload (type === "cowork_team_op"); "remove" names `toAgentId`. */
   teamAction?: "list" | "remove";
   /** LoRA gate payloads. `loraAction` rides "rsi_lora_review_resolve" (the
@@ -1565,6 +1571,10 @@ export interface InboundMessage {
    * this session only — the summarizer and memory extractor keep their own
    * fixed params. Values are validated and clamped by the agent loop.
    */
+  /** Desktop mailbox turn being retried or edited in this teammate's direct conversation. */
+  replaceFrom?: string;
+  stopRequestId?: string;
+  voice?: { audioPath: string; durationMs: number; transcript: string; peaks: number[] };
   inferParams?: { temperature?: number; max_tokens?: number; effort?: string };
   /** Dev-only: answer with the model alone, no Cinderpaw (core/bare-turn.ts). */
   bare?: boolean;
@@ -1781,7 +1791,7 @@ export type OutboundEvent =
     }
   /** The first message after a model is connected (core/welcome.ts). */
   | { type: "welcome_ready"; id: string; sessionId: string; content: string }
-  | { type: "proactive"; content: string; followUp?: { id: string; sessionId: string; mission: string }; traceId?: string }
+  | { type: "proactive"; content: string; ownerAgentId?: string; followUp?: { id: string; sessionId: string; mission: string }; traceId?: string }
   | { type: "model_set"; provider: string; model: string; automatic?: boolean; choices?: number }
   /** Steering: what the person added mid-turn reached the model (`id` = the reply). */
   | { type: "steer_applied"; sessionId: string; id: string; texts: string[] }
@@ -1854,7 +1864,8 @@ export type OutboundEvent =
   | {
       type: "cowork_history_result";
       threadId: string;
-      messages: {
+      messages: ({
+        threadId?: string | null;
         id: string;
         fromAgentId: string;
         toAgentId: string;
@@ -1868,8 +1879,11 @@ export type OutboundEvent =
         /** True when `reply` is the reason the teammate could not answer. */
         replyFailed?: boolean;
         replyAt?: number;
-      }[];
+      } & import("./cowork/runtime.ts").CoworkHistoryDetails)[];
     }
+  | ({ type: "chat_spend_result"; id: string } & (
+    import("./egress/chat-spend.ts").ChatSpendView | { error: string }
+  ))
   /** Answers a `cowork_team_op`: the roster as it stands after the action. */
   | {
       type: "cowork_team_result";
@@ -1904,6 +1918,7 @@ export type OutboundEvent =
   | {
       type: "cowork_event";
       eventType:
+        | "message_queued"
         | "message_received"
         | "message_processed"
         | "message_rejected"

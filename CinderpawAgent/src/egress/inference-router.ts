@@ -50,7 +50,9 @@ import {
   parseRetryAfter,
   type ThrottleWait,
 } from "./rate-limiter.ts";
-import { AutonomousSpendDeniedError, type InferenceSpendAuthority } from "./inference-spend-authority.ts";
+import { AutonomousSpendDeniedError, InferenceSpendAuthority } from "./inference-spend-authority.ts";
+import { type ChatSpendRepo, isOpenRouterChatTarget } from "./chat-spend.ts";
+import { chatModelPrice, refreshModelPrices } from "./model-prices.ts";
 
 /**
  * How many times a transient failure is retried before it surfaces.
@@ -200,6 +202,12 @@ function asInferenceError(err: unknown): Error {
   return err instanceof Error ? err : new InferenceError(String(err));
 }
 
+interface ChatSpendConfig {
+  repo: ChatSpendRepo;
+  sessionOf: (id: string) => string;
+  localBaseUrl?: string;
+}
+
 export class InferenceRouter {
   // Mutable so reconfigure() can hot-swap the active model at runtime.
   #primary: ModelTarget;
@@ -244,6 +252,11 @@ export class InferenceRouter {
    */
   readonly #conversationTokens = new Map<string, number>();
   readonly #sessionSpend = new Map<string, InferenceSpendAuthority>();
+  #chatSpend?: ChatSpendConfig;
+
+  configureChatSpend(config: ChatSpendConfig): void {
+    this.#chatSpend = config;
+  }
 
   /**
    * Bind every inference of this task to its allowance: the task's own session
@@ -1152,12 +1165,36 @@ export class InferenceRouter {
         this.#throttleListener?.({ ...info, sessionId: req.sessionId }),
       );
 
-      const spendReservation = req.spendAuthority?.reserve({
+      let targetRequest = req;
+      let authority = req.spendAuthority;
+      const chat = this.#chatSpend;
+      if (chat && !authority) {
+        const sessionId = chat.sessionOf(req.sessionId);
+        const { limitUsd } = chat.repo.get(sessionId);
+        if (limitUsd !== null) {
+          const local = !!chat.localBaseUrl && target.baseUrl.replace(/\/$/, "") === chat.localBaseUrl.replace(/\/$/, "");
+          if (!local) {
+            if (!isOpenRouterChatTarget(target.baseUrl) || req.messages.some((m) => m.images?.length)) {
+              throw new AutonomousSpendDeniedError("unknown_price", "This chat’s spending limit supports OpenRouter text calls and the built-in local model.");
+            }
+            await refreshModelPrices();
+            req.signal?.throwIfAborted();
+          }
+          const price = local ? { inputPerMillionUsd: 0, outputPerMillionUsd: 0 } : chatModelPrice(target);
+          authority = new InferenceSpendAuthority({ maxCostUsd: limitUsd, allowCloud: true, price: () => price, account: chat.repo.account(sessionId) });
+          if (!local && price) targetRequest = {
+            ...req,
+            maxTokens: spendCeiling.maxCompletionTokens,
+            openRouterPriceCeiling: { prompt: price.inputPerMillionUsd, completion: price.outputPerMillionUsd },
+          };
+        }
+      }
+      const spendReservation = authority?.reserve({
         targets: [target],
         ...spendCeiling,
       });
       try {
-        const res = await provider.complete(target, req, isFallback);
+        const res = await provider.complete(target, targetRequest, isFallback);
         spendReservation?.settle({ target, usage: res });
         return attempt > 0 ? { ...res, retries: attempt } : res;
       } catch (err) {

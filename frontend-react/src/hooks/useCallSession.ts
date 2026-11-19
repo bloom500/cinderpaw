@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useChat } from '@/stores/chat';
+import { useChatApi, useChatView, type ChatApi } from '@/stores/chatScope';
+import { useCoworkTranscript } from '@/stores/coworkTranscript';
+import { invoke } from '@tauri-apps/api/core';
 import { useUI } from '@/stores/ui';
 import { useNotifications } from '@/stores/notifications';
 import { tauri } from '@/lib/tauri';
@@ -161,7 +163,7 @@ const REPLY_MAX_MS = 5 * 60_000;
  * Resolves with `TIMED_OUT` after `idleMs` of no store activity, or after
  * `maxMs` no matter what. Cancel it when the turn ends so the timers die with it.
  */
-function hangWatchdog(idleMs: number, maxMs: number) {
+function hangWatchdog(chat: ChatApi, idleMs: number, maxMs: number) {
   let idle: number | undefined;
   let hard: number | undefined;
   let unsub: () => void = () => {};
@@ -171,7 +173,7 @@ function hangWatchdog(idleMs: number, maxMs: number) {
       idle = window.setTimeout(() => resolve(TIMED_OUT), idleMs);
     };
     // Any change at all — the point is to detect silence, not to classify events.
-    unsub = useChat.subscribe(arm);
+    unsub = chat.subscribe(arm);
     hard = window.setTimeout(() => resolve(TIMED_OUT), maxMs);
     arm();
   });
@@ -226,16 +228,16 @@ const log = (scope: string, message: string) => {
 };
 
 /** The turn that just finished, or `undefined` before the first one. */
-function lastAssistant() {
-  const messages = useChat.getState().messages;
+function lastAssistant(chat: ChatApi, exchangeId?: string) {
+  const messages = chat.getState().messages;
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === 'assistant') return messages[i];
+    if (messages[i].role === 'assistant' && (!exchangeId || messages[i].id === exchangeId + ':res')) return messages[i];
   }
 }
 
 /** Read the reply text of the turn that just finished. */
-function lastAssistantText(): string {
-  return lastAssistant()?.content ?? '';
+function lastAssistantText(chat: ChatApi, exchangeId?: string): string {
+  return lastAssistant(chat, exchangeId)?.content ?? '';
 }
 
 /**
@@ -247,8 +249,8 @@ function lastAssistantText(): string {
  * pump has nothing to say for the whole of it while the stream is perfectly
  * healthy. The two need opposite fixes, and only this number tells them apart.
  */
-function lastAssistantThinkingChars(): number {
-  return lastAssistant()?.thinking?.length ?? 0;
+function lastAssistantThinkingChars(chat: ChatApi): number {
+  return lastAssistant(chat)?.thinking?.length ?? 0;
 }
 
 /**
@@ -273,22 +275,26 @@ function settled(): Promise<void> {
  * true for both, and it covers a stopped or failed turn too — the loop must keep
  * the line open when a reply fails, not hang waiting for words that never come.
  */
-function replyWhenDone(): { text: Promise<string>; cancel: () => void } {
+function replyWhenDone(chat: ChatApi, scopedDone: (() => string | null) | null): { text: Promise<string>; cancel: () => void } {
   let unsub: () => void = () => {};
   const text = new Promise<string>((resolve) => {
-    unsub = useChat.subscribe((s, prev) => {
-      if (prev.streamStatus === 'streaming' && s.streamStatus !== 'streaming') {
+    unsub = chat.subscribe((s, prev) => {
+      if (scopedDone) {
+        const answer = scopedDone();
+        if (answer !== null) { unsub(); resolve(answer); }
+      } else if (prev.streamStatus === 'streaming' && s.streamStatus !== 'streaming') {
         unsub();
         log('turn', `stream ended with status=${s.streamStatus}`);
-        void settled().then(() => resolve(lastAssistantText()));
+        void settled().then(() => resolve(lastAssistantText(chat)));
       }
     });
   });
   return { text, cancel: () => unsub() };
 }
 
-export function useCallSession(send: (text: string) => Promise<void>) {
-  const sessionId = useChat((s) => s.sessionId);
+export function useCallSession(send: (text: string) => Promise<void | string>) {
+  const chat = useChatApi();
+  const sessionId = useChatView((s) => s.sessionId);
   const [phase, setPhase] = useState<CallPhase>('idle');
   /** The last thing the user said, as transcribed — shown so a wrong
    *  transcription is visible instead of mysterious. */
@@ -742,6 +748,18 @@ export function useCallSession(send: (text: string) => Promise<void>) {
            * so the text can SHRINK — after which any saved offset points into the
            * middle of different words.
            */
+          let requestId: string | undefined;
+          const teammate = sessionId.startsWith('cowork:');
+          const exchange = () => requestId ? useCoworkTranscript.getState().exchanges.find((e) =>
+            e.desktopId === requestId && e.threadId === sessionId) : undefined;
+          const scopedDone = () => {
+            const row = exchange();
+            if (!row || row.status === 'running') return null;
+            return row.receipt?.stopped || row.status === 'error' ? '' : row.responseText ?? '';
+          };
+          const stopTurn = () => teammate
+            ? requestId ? invoke<void>('cinderpaw_stop_generation', { sessionId, stopRequestId: requestId }) : Promise.resolve()
+            : stopActiveStream(sessionId);
           let spoken = '';
           /** Set when the store's text stops being an extension of what we spoke. */
           let desynced = false;
@@ -750,7 +768,9 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           let onSpoke: () => void = () => {};
           const pump = (finished: boolean) => {
             if (desynced) return;
-            const full = forSpeech(lastAssistantText());
+            const row = teammate ? exchange() : undefined;
+            if (teammate && !row) return;
+            const full = forSpeech(lastAssistantText(chat, row?.id));
             if (!full.startsWith(spoken)) {
               // Rewritten or cleared under us. We cannot know what the listener
               // already heard, so stop streaming rather than risk repeating a
@@ -786,7 +806,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           /** Cleared the moment the turn resolves, however it resolves. */
           let filler: number | undefined;
           const clearFiller = () => { if (filler !== undefined) window.clearInterval(filler); };
-          const pending = replyWhenDone();
+          const pending = replyWhenDone(chat, teammate ? scopedDone : null);
 
           // Listen for an interruption across the WHOLE agent turn, not just
           // the tail of it.
@@ -817,9 +837,10 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           const turn = (async (): Promise<string | typeof INTERRUPTED> => {
             log('turn', `sending ${text.length} chars`);
             sentAt = Date.now();
-            await sendRef.current(text);
-            if (!isCurrent()) return INTERRUPTED;
-            const status = useChat.getState().streamStatus;
+            const sent = await sendRef.current(text);
+            requestId = typeof sent === 'string' ? sent : undefined;
+            if (!isCurrent()) { if (teammate) await stopTurn(); return INTERRUPTED; }
+            const status = chat.getState().streamStatus;
             log('turn', `send returned, streamStatus=${status}`);
             // Subscribe only now: `send` has replaced the last assistant message
             // with this turn's (empty) one, so the pump can no longer read the
@@ -827,7 +848,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             // exactly what spoke the last answer a second time.
             setPhase('speaking');
             spoken = '';
-            unpump = useChat.subscribe(() => pump(false));
+            unpump = chat.subscribe(() => pump(false));
             pump(false);
             // Keep the line warm for as long as the turn runs, not once at the
             // start. Measured turns: 25 s before the first word with nothing to
@@ -862,11 +883,11 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             // Anything the pump sends counts as the line being warm, so a reply
             // that is streaming normally never triggers this at all.
             onSpoke = () => { lastOut = Date.now(); };
-            if (status !== 'streaming') {
+            if (teammate ? scopedDone() !== null : status !== 'streaming') {
               pending.cancel();
               await settled();
               if (!isCurrent()) return INTERRUPTED;
-              const direct = lastAssistantText();
+              const direct = teammate ? scopedDone() ?? '' : lastAssistantText(chat);
               log('turn', `read reply directly: ${direct.length} chars`);
               return direct;
             }
@@ -883,10 +904,13 @@ export function useCallSession(send: (text: string) => Promise<void>) {
           // screen explaining the wait. But the watchdog watches for SILENCE, not
           // for elapsed time: a turn that is searching the web is working, and a
           // deadline that cannot tell the difference kills the answer.
-          const watchdog = hangWatchdog(REPLY_IDLE_TIMEOUT_MS, REPLY_MAX_MS);
-          const reply = await Promise.race([turn, watchdog.promise, interrupted]);
-          watchdog.cancel();
-          clearFiller();
+          const watchdog = hangWatchdog(chat, REPLY_IDLE_TIMEOUT_MS, REPLY_MAX_MS);
+          const reply = await Promise.race([turn, watchdog.promise, interrupted]).finally(() => {
+            watchdog.cancel();
+            clearFiller();
+            pending.cancel();
+            unpump();
+          });
 
           if (reply === INTERRUPTED) {
             pending.cancel();
@@ -897,7 +921,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             // lands on the new turn — so walking away from an interrupted reply
             // would poison the reply the user actually wanted.
             log('turn', 'user interrupted, stopping the stream');
-            await stopActiveStream(useChat.getState().sessionId).catch(() => {});
+            await stopTurn().catch(() => {});
             if (callRef.current !== call) return;
             // The outer `finally` awaits the capture, so the interrupting words
             // are already waiting in `bargedRef` when the next turn starts.
@@ -917,7 +941,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             // reply after it, which is how one stuck turn broke every following
             // one until the call was restarted.
             log('turn', `no progress for ${REPLY_IDLE_TIMEOUT_MS}ms, stopping the stream`);
-            await stopActiveStream(useChat.getState().sessionId).catch(() => {});
+            await stopTurn().catch(() => {});
             if (callRef.current !== call) return;
             setNotice(t('call.replyTimeout'));
             continue; // back to listening — the line stays open
@@ -936,7 +960,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             // The turn went through and came back with nothing to say. Naming the
             // reason on screen is the difference between "it is broken" and "no
             // model is selected" — and only the store knows which.
-            const { streamStatus, streamError } = useChat.getState();
+            const { streamStatus, streamError } = chat.getState();
             // The agent's own error text. It reaches the webview but not the
             // terminal — the sidecar's failures travel as protocol events, not as
             // stdout — so this is the only place the reason is readable at all.
@@ -982,7 +1006,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
                 // Thinking against firstWord is the whole diagnosis: a large
                 // number here means the wait was reasoning the pump could not
                 // speak, not a slow provider.
-                `think=${lastAssistantThinkingChars()}chars`,
+                `think=${lastAssistantThinkingChars(chat)}chars`,
             );
           }
         } catch (err) {
@@ -1017,7 +1041,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
         }
       }
     },
-    [listenOnce, beginSpeech, feedSpeech, endSpeech, stopSpeech, watchForBargeIn],
+    [chat, sessionId, listenOnce, beginSpeech, feedSpeech, endSpeech, stopSpeech, watchForBargeIn],
   );
 
   /** Open the overlay. No microphone yet — see `ready` above. */
@@ -1033,12 +1057,14 @@ export function useCallSession(send: (text: string) => Promise<void>) {
 
   /** Accept the call: take the microphone and start the loop. */
   const begin = useCallback(async () => {
+    if (streamRef.current) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       useNotifications.getState().push('error', t('voice.unsupported'));
       setPhase('idle');
       return;
     }
     const generation = ++turnGenerationRef.current;
+    setPhase('connecting');
     let stream: MediaStream;
     try {
       // Echo cancellation is not cosmetic here: the loop reopens the mic right
@@ -1058,15 +1084,21 @@ export function useCallSession(send: (text: string) => Promise<void>) {
       return;
     }
     streamRef.current = stream;
-    const AC: typeof AudioContext =
-      window.AudioContext ??
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const audio = new AC();
-    ctxRef.current = audio;
-    const analyser = audio.createAnalyser();
-    analyser.fftSize = 1024;
-    audio.createMediaStreamSource(streamRef.current).connect(analyser);
-    analyserRef.current = analyser;
+    try {
+      const AC = window.AudioContext ??
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const audio = new AC();
+      ctxRef.current = audio;
+      const analyser = audio.createAnalyser();
+      analyser.fftSize = 1024;
+      audio.createMediaStreamSource(stream).connect(analyser);
+      analyserRef.current = analyser;
+    } catch {
+      releaseMic();
+      useNotifications.getState().push('error', t('voice.unsupported'));
+      setPhase('idle');
+      return;
+    }
 
     // Start fetching the local STT model now rather than discovering it is
     // missing after the first sentence someone speaks. Idempotent and
@@ -1078,7 +1110,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
 
     const call = (callRef.current += 1);
     void runTurns(call);
-  }, [runTurns]);
+  }, [releaseMic, runTurns]);
 
   const hangUp = useCallback(() => {
     abandonTurnRef.current();
@@ -1124,8 +1156,6 @@ export function useCallSession(send: (text: string) => Promise<void>) {
     releaseMic();
   }, [releaseMic]);
 
-  // `stage` is part of the shape all three engines share so the overlay has no
-  // branch on which one is running. These two are retired and never enter
-  // `connecting`, so the honest value is none rather than an invented stage.
-  return { phase, stage: null as CallStage, heard, level, notice, open, begin, hangUp, interrupt, say };
+  const stage: CallStage = phase === 'connecting' ? 'mic' : null;
+  return { phase, stage, heard, level, notice, open, begin, hangUp, interrupt, say };
 }

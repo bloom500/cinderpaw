@@ -798,7 +798,8 @@ export class DiscordConnector {
    *  same `(sessionId, text)` shape. */
   async send(sessionId: string, text: string): Promise<void> {
     const ch = await this.#discordTarget(sessionId);
-    if (ch && "send" in ch) await ch.send(text);
+    if (!ch) throw new Error("Discord could not open that conversation.");
+    await ch.send(text);
   }
 
   /** A file into the same channel `send` would use. */
@@ -1448,7 +1449,9 @@ export class WhatsAppConnector {
   /** Reads `#sock` at call time so a reconnect never sends over a stale one. */
   async send(sessionId: string, text: string): Promise<void> {
     const jid = sessionId.slice("whatsapp:".length);
-    const sent = await this.#sock?.sendMessage(jid, { text });
+    if (!this.#sock) throw new Error("WhatsApp is not linked.");
+    const sent = await this.#sock.sendMessage(jid, { text });
+    if (!sent) throw new Error("WhatsApp did not accept this message.");
     // A notice in the owner's own chat comes back as fromMe in the self chat,
     // which reads as the owner talking to the agent: it would answer its own
     // notification. Marked as ours, like the replies there already are.
@@ -1962,7 +1965,8 @@ registerTransport("discord", (): LiveConnector => {
     },
     health: () => inner?.health() ?? { live: false },
     async send(sessionId, text) {
-      await inner?.send(sessionId, text);
+      if (!inner) throw new Error("Discord is disconnected.");
+      await inner.send(sessionId, text);
     },
     async sendFile(sessionId, file) {
       if (!inner) throw new Error("Discord is not connected.");
@@ -1998,7 +2002,8 @@ registerTransport("slack", (): LiveConnector => {
     },
     health: () => inner?.health() ?? { live: false },
     async send(sessionId, text) {
-      await inner?.send(sessionId, text);
+      if (!inner) throw new Error("Slack is disconnected.");
+      await inner.send(sessionId, text);
     },
     async sendFile(sessionId, file) {
       if (!inner) throw new Error("Slack is not connected.");
@@ -2044,7 +2049,8 @@ registerTransport("whatsapp", (): LiveConnector => {
     },
     health: () => inner?.health() ?? { live: false },
     async send(sessionId, text) {
-      await inner?.send(sessionId, text);
+      if (!inner) throw new Error("WhatsApp is disconnected.");
+      await inner.send(sessionId, text);
     },
     ownerSession: () => inner?.ownerSession() ?? null,
     // The self chat often arrives under the account's LID, not its phone
@@ -2449,7 +2455,9 @@ export class ConnectorManager {
   /** Say something in the channel behind `sessionId` (prefix = connector id). */
   async send(sessionId: string, text: string): Promise<void> {
     const id = sessionId.split(":", 1)[0] ?? "";
-    await this.#live.get(id)?.send(sessionId, text);
+    const channel = this.#live.get(id);
+    if (!channel) throw new Error(`Channel ${id} is disconnected.`);
+    await channel.send(sessionId, text);
   }
 
   /**

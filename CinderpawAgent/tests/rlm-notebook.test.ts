@@ -29,6 +29,8 @@ import {
 } from "../src/tools/builtin/notebook.ts";
 import type { ToolRegistry } from "../src/tools/registry.ts";
 import type { Tool, ToolResult } from "../src/types.ts";
+import { dispatchMessage } from "../src/dispatch.ts";
+import type { BootContext } from "../src/boot.ts";
 
 /** Minimal registry stand-in: only `list()` and `call()` are used. */
 function fakeRegistry(calls: Array<{ name: string; args: unknown }> = []): ToolRegistry {
@@ -237,6 +239,41 @@ describe("recursion — the R in RLM", () => {
       // registry drainable after a stop.
       await reg.drain();
       expect(reg.list()[0]!.status).toBe("error");
+    });
+
+    it("Stop cancels detached workers for the requested chat, then global Stop cancels the rest", async () => {
+      const seen: AbortSignal[] = [];
+      const first = new ChildRegistry(hangingRunner(seen));
+      const second = new ChildRegistry(hangingRunner(seen));
+      first.admit("first");
+      second.admit("second");
+      const stopped: string[] = [];
+      const ctx = {
+        childRegistries: new Map([["chat-a", first], ["chat-b", second]]),
+        agent: { stop: (id: string) => stopped.push(id), stopAll: () => stopped.push("all") },
+      } as unknown as BootContext;
+
+      await dispatchMessage(ctx, { type: "stop", sessionId: "chat-a" });
+      await first.drain();
+      expect(first.list()[0]?.error).toBe("cancelled");
+      expect(seen[1]?.aborted).toBe(false);
+      await dispatchMessage(ctx, { type: "stop" });
+      await second.drain();
+      expect(second.list()[0]?.error).toBe("cancelled");
+      expect(stopped).toEqual(["chat-a", "all"]);
+    });
+
+    it("a later notebook call can stop one worker without stopping its sibling", async () => {
+      const seen: AbortSignal[] = [];
+      const children = new ChildRegistry(hangingRunner(seen));
+      const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", children });
+      await nb.run(`await rlm('first', { name: 'first' }); await rlm('second', { name: 'second' });`);
+      const stopped = await nb.run(`await rlm.cancel('first'); (await rlm.wait('first')).subagents[0].error`);
+      expect(stopped.value).toBe("cancelled");
+      expect(seen[1]?.aborted).toBe(false);
+      await nb.run(`await rlm.cancel()`);
+      await children.drain();
+      expect(seen[1]?.aborted).toBe(true);
     });
 
     it("hands an already-stopped parent's child a dead signal, not a live one", async () => {

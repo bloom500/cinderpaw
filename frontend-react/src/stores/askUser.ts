@@ -123,7 +123,7 @@ interface AskUserStore {
   isPending: () => boolean;
 }
 
-export const useAskUser = create<AskUserStore>((set, get) => ({
+const makeAskStore = () => create<AskUserStore>((set, get) => ({
   pending: null,
   waiting: [],
   history: [],
@@ -199,6 +199,19 @@ export const useAskUser = create<AskUserStore>((set, get) => ({
 
   isPending: () => get().pending !== null,
 }));
+
+export const useAskUser = makeAskStore();
+const teammateAsks = new Map<string, typeof useAskUser>();
+export function askUserFor(sessionId: string) {
+  if (!sessionId.startsWith('cowork:')) return useAskUser;
+  let store = teammateAsks.get(sessionId);
+  if (!store) { store = makeAskStore(); teammateAsks.set(sessionId, store); }
+  return store;
+}
+
+export function cancelTeammateAsk(requestId: string, reason: string) {
+  for (const store of teammateAsks.values()) store.getState().cancelById(requestId, reason);
+}
 
 /**
  * Turn what the person said into the card's answer.

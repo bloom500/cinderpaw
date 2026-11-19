@@ -25,4 +25,11 @@ describe('writtenFiles', () => {
     const activity = [wrote(asked, { scratch: true }), wrote('C:\\Users\\d\\.cinderpaw\\workspace\\notes.md', { scratch: true })];
     expect(writtenFiles(activity, 'Am facut orase.csv cu 10 orase.')).toEqual([asked]);
   });
+
+  it('lists all real outputs a tool reports', () => {
+    const first = wrote('C:\\Users\\d\\Documents\\summary.md');
+    const second = wrote('C:\\Users\\d\\Documents\\data.csv');
+    expect(writtenFiles([{ ...first, files: [...first.files, ...second.files] }]))
+      .toEqual([first.files[0].path, second.files[0].path]);
+  });
 });

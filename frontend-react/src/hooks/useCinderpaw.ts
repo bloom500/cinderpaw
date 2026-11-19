@@ -17,6 +17,7 @@ import { useCinderpawStore } from '@/stores/cinderpaw';
 import { isLocalBaseUrl } from '@/lib/contextWindow';
 import { useNotifications } from '@/stores/notifications';
 import { useFollowUps } from '@/stores/followUps';
+import { useCoworkTeam } from '@/stores/coworkTeam';
 import { receiveWelcome } from '@/lib/welcome';
 import { notifyIfBackground, preview } from '@/lib/systemNotify';
 import { failArtifactRequests, useArtifacts, type DraftEvent } from '@/stores/artifacts';
@@ -855,6 +856,14 @@ export function useCinderpawGlobal() {
           receiveWelcome(parsed.sessionId, parsed.content);
         } else if (parsed.type === 'proactive' && parsed.followUp) {
           useFollowUps.getState().receive(parsed.followUp);
+        } else if (parsed.type === 'proactive') {
+          const id = parsed.ownerAgentId;
+          const speaker = id ? useCoworkTeam.getState().roster.find((a) => a.id === id)?.name ?? 'Your teammate' : 'Cinderpaw';
+          const body = id ? preview(parsed.content, 160, true) || 'Open the chat to read the message.' : toastText(parsed.content, 2000);
+          useNotifications.getState().push('info', speaker, body, id ? {
+            label: 'Open chat', run: () => { void import('@/router').then(({ router }) => router.navigate('/teammates/' + encodeURIComponent(id))); },
+          } : undefined);
+          void notifyIfBackground(speaker, id ? body : preview(parsed.content));
         } else if (parsed.type === 'cron_fired') {
           // X3: scheduled-job results were previously dropped on the floor.
           // Capped. Both strings are model output — a cron job's answer and the
@@ -865,7 +874,9 @@ export function useCinderpawGlobal() {
             'success',
             `Scheduled task: ${toastText(parsed.jobName, 80)}`,
             toastText(parsed.content, 2000),
-            undefined,
+            parsed.sessionId?.startsWith('cowork:') ? { label: 'Open chat', run: () => {
+              void import('@/router').then(({ router }) => router.navigate('/teammates/' + encodeURIComponent(parsed.sessionId.slice(7))));
+            } } : undefined,
             { sticky: true },
           );
           // A reminder is for the moment it fires, which is rarely a moment the

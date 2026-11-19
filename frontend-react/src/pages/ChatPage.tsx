@@ -12,7 +12,7 @@ import { useUI } from '@/stores/ui';
 import { useAgent } from '@/stores/agent';
 import { ChatHeader } from '@/components/chat/ChatHeader';
 import { HomeGreeting } from '@/components/shell/HomeGreeting';
-import { HomeIntents } from '@/components/shell/HomeIntents';
+import { HomeIntents, TeamSetup } from '@/components/shell/HomeIntents';
 import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput';
 import { ArtifactsPanel } from '@/components/artifacts/ArtifactsPanel';
@@ -29,8 +29,8 @@ import { WorkersCard } from '@/components/chat/WorkersCard';
 import { ComposerTip, TEACH_PROMPT } from '@/components/chat/ComposerTip';
 import { AgentsOnboarding } from '@/components/agents/onboarding/AgentsOnboarding';
 import { useOnboarding } from '@/stores/onboarding';
-import { CoworkTranscriptPanel } from '@/components/chat/CoworkTranscriptPanel';
 import { CoworkerStrip } from '@/components/chat/CoworkerStrip';
+import { useCoworkTranscript } from '@/stores/coworkTranscript';
 import { useCinderpawSendMessage } from '@/hooks/useCinderpaw';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { setChatDockHeight } from '@/lib/chatDock';
@@ -44,10 +44,17 @@ export function ChatPage() {
   // Only whether there is a transcript: the page does not re-render on every
   // streamed token (the transcript itself subscribes in MessageList).
   const isEmpty     = useChat((s) => s.messages.length === 0);
+  const hasOnlyGreeting = useChat((s) => s.messages.length === 1 && s.messages[0]?.role === 'assistant');
+  const isWelcomeChat = useConversations((s) => s.list.some((chat) => chat.id === s.currentId && chat.title === 'Welcome'));
   const loadingConversation = useConversations((s) => s.loadingConversation);
 
   const sessionId    = useChat((s) => s.sessionId);
   const cinderpawSend    = useCinderpawSendMessage(sessionId);
+  const conversationId = useConversations((s) => s.currentId);
+  const coworkThreadId = conversationId ?? sessionId ?? null;
+  useEffect(() => {
+    useCoworkTranscript.getState().setThread(coworkThreadId);
+  }, [coworkThreadId]);
 
   // The composer is always live. Cinderpaw used to gate the whole screen on
   // `hasModel`, which meant a fresh install — the one machine that has no
@@ -413,11 +420,6 @@ export function ChatPage() {
             wrapper below, under the intent cards. */}
         {!isEmpty && <MessageList onFollowUp={handleFollowUp} onAnswer={handleAnswer} />}
 
-        {/* Live agent-to-agent transcript (Agent Cowork). Self-hiding: with
-            zero cowork traffic it renders nothing, so a fresh install sees
-            no new surface. */}
-        <CoworkTranscriptPanel />
-
         {/* Input — always visible so the toggle is accessible even without a
             model. ChatInput handles the disabled state internally. */}
         <div
@@ -487,6 +489,7 @@ export function ChatPage() {
               guessed a second time, and would drift the first time the field
               grew a line. */}
           {isEmpty && !showAgentOnboarding && <HomeIntents onPick={handleSuggestion} />}
+          {hasOnlyGreeting && isWelcomeChat && !showAgentOnboarding && <TeamSetup onPick={handleSuggestion} />}
           </div>
         </div>
       </div>
@@ -503,6 +506,7 @@ export function ChatPage() {
     <div
       ref={workspaceRef}
       className="relative flex h-full"
+      data-chat-drop-target=""
       onDragOver={(e) => {
         if (!Array.from(e.dataTransfer.types).includes('Files')) return;
         e.preventDefault();

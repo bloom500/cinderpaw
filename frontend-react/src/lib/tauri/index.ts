@@ -754,7 +754,7 @@ export type CinderpawAgentEvent =
       /** The worker's final answer (bounded), on the settling event only. */
       answer?: string;
     }
-  | { type: 'proactive';   content: string; followUp?: { id: string; sessionId: string; mission: string } }
+  | { type: 'proactive';   content: string; ownerAgentId?: string; followUp?: { id: string; sessionId: string; mission: string } }
   | { type: 'model_set';   provider: string; model: string }
   // Which model answered this turn, and why that one. Emitted on the
   // success AND the failure path: automatic model selection used to fail
@@ -827,6 +827,7 @@ export type CinderpawAgentEvent =
   | {
       type: 'cowork_event';
       eventType:
+        | 'message_queued'
         | 'message_received'
         | 'message_processed'
         | 'message_rejected'
@@ -1038,6 +1039,10 @@ const raw = {
   cinderpawSendMessage:         (content: string, sessionId: string, images?: string[], inferParams?: { temperature?: number; max_tokens?: number }) =>
     invoke<string>('cinderpaw_send_message', { content, sessionId, images: images ?? null, inferParams: inferParams ?? null }),
   cinderpawAgentStatus:         () => invoke<boolean>('cinderpaw_agent_status'),
+  chatSpend: (sessionId: string, limitUsd?: number | null) =>
+    invoke<{ limitUsd: number | null; usedUsd: number }>('cinderpaw_chat_spend', {
+      sessionId, setLimit: limitUsd !== undefined, limitUsd: limitUsd ?? null,
+    }),
   cinderpawStopGeneration:      (sessionId?: string | null) =>
     invoke<void>('cinderpaw_stop_generation', { sessionId: sessionId ?? null }),
   cinderpawSubmitFeedback:      (sessionId: string, messageId: string, value: 'up' | 'down') =>
@@ -1485,6 +1490,7 @@ export const tauri = {
   },
 
   cinderpawAgent: {
+    chatSpend: raw.chatSpend,
     sendMessage: async (content: string, sessionId: string, images?: string[], inferParams?: { temperature?: number; max_tokens?: number }) =>
       raw.cinderpawSendMessage(content, sessionId, images, inferParams),
     status:      async () => raw.cinderpawAgentStatus(),

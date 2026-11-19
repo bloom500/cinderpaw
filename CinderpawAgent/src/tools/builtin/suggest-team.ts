@@ -12,7 +12,20 @@ interface SuggestTeamDeps {
 }
 
 export function statesTeamNeed(text: string): boolean {
-  return /\b(?:i (?:use|plan to use|want to use|would use|mostly need|mainly need)|my (?:daily|weekly) work|folosesc|vreau să folosesc|vreau sa folosesc)\b/iu.test(text);
+  const normalized = text.trim().toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
+  if (/\b(?:i (?:use|plan to use|want to use|would use|mostly need|mainly need)|my (?:daily|weekly) work|folosesc)\b/u.test(normalized)) return true;
+
+  // Recognize a request to investigate a topic, rather than a mention of research.
+  const task = normalized.replace(/^(?:please|te rog)[, ]+/u, "")
+    .replace(/^(?:can you|could you|i want(?: you to)?|i'd like(?: you to)?|poti sa|vreau(?: sa)?|sa)\s+/u, "");
+  const request = task.match(/^(?:(?:do|conduct|run|make|faci|fa)\s+)?(?:(?:some|a|an|un|o)\s+)?(?:in-depth\s+|detailed\s+)?(?:research|investigate|investigation|cerceteaza|cercetare|analiza detaliata)\s+(.+)$/su);
+  if (request?.[1] && !/^(?:is|was|shows|means|says|suggests|papers?\b|studies\b)/u.test(request[1])) {
+    return request[1].split(/\s+/u).length >= 4;
+  }
+  // A comparison with explicit evidence or criteria also gives a colleague a concrete job.
+  return /^(?:compare|compara|find|gaseste)\s+/u.test(task)
+    && /\b(?:sources?|citations?|evidence|surse|dovezi|pricing|reviews?|revenue|venituri|preturi)\b/u.test(normalized)
+    && normalized.split(/\s+/u).length >= 8;
 }
 
 function readTeammate(value: unknown): ProposedTeammate | null {
@@ -32,13 +45,13 @@ export function createSuggestTeamTool(deps: SuggestTeamDeps): Tool {
   return {
     manifest: {
       name: "suggest_team",
-      description: "Offer one or two teammates when the person explicitly says what they use Cinderpaw for and a small team would help. Quote their stated need from their latest message exactly. Never use this for a greeting, a one-off request, or a guess. Wait for the person's Yes. If they say Not now, keep helping them yourself.",
+      description: "Offer a named colleague for a concrete research job, or one or two teammates for the person's stated ongoing work, when the roster is empty. Give each a role tied to the task and quote the person's latest request exactly. Ask through this tool before creating anyone. If they choose Not now, continue the task yourself.",
       permissions: [],
       networkAccess: false,
       timeoutMs: 10 * 60_000,
     },
     parameters: {
-      need: { type: "string", required: true, description: "Exact quote from the latest user message stating what they use Cinderpaw for." },
+      need: { type: "string", required: true, description: "Exact quote from the latest user message requesting the research or describing ongoing work." },
       teammates: { type: "array", required: true, description: "One or two teammates. Each has name, role, instructions, and tools (up to four read-only tool names, or [] to just answer).", schema: {
         type: "array", minItems: 1, maxItems: 2, items: {
           type: "object", required: ["name", "role", "instructions", "tools"], additionalProperties: false,
@@ -54,7 +67,7 @@ export function createSuggestTeamTool(deps: SuggestTeamDeps): Tool {
       const source = deps.latestUserText(sessionId);
       const need = typeof args.need === "string" ? args.need.trim() : "";
       if (!deps.isOwner(sessionId) || !ctx.askUser || !source?.includes(need) || !statesTeamNeed(need) || need.split(/\s+/).length < 4) {
-        return { ok: false, content: "Wait until the person tells you what they use Cinderpaw for." };
+        return { ok: false, content: "Offer teammates only for research the person requested or ongoing work they described." };
       }
       if (pending || offered.has(sessionId) || deps.hasTeammates()) {
         return { ok: false, content: "No team offer is needed here." };

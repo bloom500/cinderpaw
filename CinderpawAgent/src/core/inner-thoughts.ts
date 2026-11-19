@@ -204,7 +204,7 @@ export class InnerThoughtsLoop {
     }
 
     let situation: Situation | undefined;
-    try { situation = this.#config.situation?.(); } catch { situation = undefined; }
+    try { situation = this.#config.situation?.(); } catch { return; }
     if (situation && situation.items.length === 0) {
       this.#persistThought("[nothing to talk about]", false);
       return;
@@ -224,7 +224,7 @@ export class InnerThoughtsLoop {
     this.#persistThought(thought, !suppressed);
 
     if (!suppressed && this.#emit) {
-      this.#emit({ type: "proactive", content: named! });
+      this.#emit({ type: "proactive", content: named!, ...(situation?.owner ? { ownerAgentId: situation.owner.id } : {}) });
       this.#mood.applyEvent("message_answered");
       this.#config.lastSurfacedMs = Date.now();
       this.#config.surfacedToday++;
@@ -301,11 +301,11 @@ export class InnerThoughtsLoop {
 
   async #generateThought(situation?: Situation): Promise<string> {
     const recentEvents = this.#episodic.recent(
-      this.#config.sessionId,
+      situation?.owner ? `cowork:${situation.owner.id}` : this.#config.sessionId,
       10,
     );
     // Also pull recent events from the default session.
-    const defaultEvents = this.#episodic.recent("default", 6);
+    const defaultEvents = situation?.owner ? [] : this.#episodic.recent("default", 6);
     const allEvents = [...defaultEvents, ...recentEvents]
       .sort((a, b) => a.timestamp - b.timestamp)
       .slice(-10);
@@ -340,6 +340,7 @@ export class InnerThoughtsLoop {
           role: "system",
           content: [
             "You are Cinderpaw, a proactive local AI agent running a background reflection loop.",
+            ...(situation?.owner ? [`Write as teammate ${JSON.stringify(situation.owner.name)}. Your role is ${JSON.stringify(situation.owner.role)}. Speak about your own work.`] : []),
             `Your current mood: ${moodDesc}.`,
             "",
             "Review the recent activity and decide if there is something genuinely worth",

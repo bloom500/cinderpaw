@@ -7,6 +7,7 @@ import { useBrowser } from '@/stores/browser';
 import { useUI } from '@/stores/ui';
 import { useContextVisible } from '@/components/artifacts/ContextColumn';
 import { ConversationActions, RenameDialog } from '@/components/items/ItemActions';
+import { ChatSpendControl } from './ChatSpendControl';
 
 export function ChatHeader() {
   const currentId = useConversations((s) => s.currentId);
@@ -59,6 +60,7 @@ export function ChatHeader() {
         </span>
       )}
       <div data-tauri-drag-region className="flex-1 self-stretch" />
+      <ChatSpendControl key={current.id} sessionId={current.id} />
       <button
         type="button"
         aria-label="Chat context"

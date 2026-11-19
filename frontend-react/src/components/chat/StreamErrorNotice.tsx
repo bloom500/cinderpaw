@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, ChevronDown, Hourglass } from 'lucide-react';
-import { useChat } from '@/stores/chat';
+import { useChatApi, useChatView as useChat } from '@/stores/chatScope';
 import { useConversations } from '@/stores/conversations';
 import { humanizeError } from '@/lib/humanizeError';
 import { useResendTurn } from '@/hooks/useResendTurn';
@@ -17,6 +17,7 @@ const PRIMARY = 'h-8 rounded-lg bg-brand px-3.5 text-sm font-medium text-brand-f
 const SECONDARY = 'h-8 rounded-lg border border-border-default px-3 text-sm text-text-primary hover:bg-text-primary/5';
 
 export function StreamErrorNotice() {
+  const chat = useChatApi();
   const status = useChat((s) => s.streamStatus);
   const live = useChat((s) => s.streamError);
   // The failure saved with the last reply: a chat reopened after an error, or
@@ -37,7 +38,7 @@ export function StreamErrorNotice() {
   // One resend for the whole app (`useResendTurn`). This used to be its own
   // copy of the logic and it only ever called the chat path, so pressing Retry
   // in agent mode sent the turn past the agent to the local model.
-  const retry = () => void resend(useChat.getState().messages.length - 1);
+  const retry = () => void resend(chat.getState().messages.length - 1);
 
   return (
     <div role="alert" className="mx-auto w-full max-w-2xl px-4 pb-2">

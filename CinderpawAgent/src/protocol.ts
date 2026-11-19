@@ -44,7 +44,7 @@ export const INBOUND_TYPES = [
   "mcp_reload", "mcp_status", "mcp_list_tools", "mcp_call_tool",
   "cowork_approval_resolve", "cowork_user_message",
   "admin_response", "capability_response", "provider_conformance",
-  "cowork_history", "cowork_team_op",
+  "cowork_history", "cowork_team_op", "chat_spend",
   // Everything the workspace panel does — see `artifact_op` in types.ts.
   "artifact_op",
 ] as const;
@@ -56,7 +56,7 @@ export const OUTBOUND_TYPES = [
   "heartbeat", "stream_progress", "memory_used", "artifact", "artifact_result", "cron_fired", "cron_error",
   "desktop_control_request", "rsi_engine_event", "rsi_request",
   "meta_result", "meta_proposal", "governance_result", "modules_result", "mcp_result",
-  "cowork_history_result", "cowork_team_result",
+  "cowork_history_result", "cowork_team_result", "chat_spend_result",
   "resume_get_result", "compact_result", "fractal_bench_progress", "fractal_bench_result",
   "code_patches", "code_patch_resolved", "lora_reviews",
   "lora_review_resolved", "lora_train_result", "fractal_activity", "rlm_child",

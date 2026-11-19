@@ -738,6 +738,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             cinderpaw_cowork_send_message,
             cinderpaw_cowork_history,
             cinderpaw_cowork_team,
+            cinderpaw_chat_spend,
             cinderpaw_artifact_op,
             cinderpaw_lora_reviews_list,
             cinderpaw_lora_review_resolve,

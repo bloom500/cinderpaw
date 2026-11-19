@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create, createStore, type StateCreator } from 'zustand';
 import { tauri } from '@/lib/tauri';
 import type { ToolActivity } from '@/hooks/useLiveToolActivity';
 import type { Steer } from '@/lib/timeline';
@@ -50,6 +50,7 @@ export interface MemoryUsedItem {
 }
 
 export interface ChatMessage {
+  coworkRequestId?: string;
   id: string;
   role: 'user' | 'assistant';
   content: string;
@@ -334,7 +335,7 @@ function clearLingerTimers(): void {
   lingerTimers.clear();
 }
 
-export const useChat = create<ChatStore>((set, get) => ({
+const chatState: StateCreator<ChatStore> = (set, get) => ({
   sessionId: crypto.randomUUID(),
   messages: [],
   streamStatus: 'idle',
@@ -651,4 +652,7 @@ export const useChat = create<ChatStore>((set, get) => ({
   // and this wipe cannot reach them.
   clearToolCallStream: () => set({ toolCallStream: [] }),
 
-}));
+});
+
+export const useChat = create(chatState);
+export const createChatStore = () => createStore(chatState);

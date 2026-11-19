@@ -1,6 +1,12 @@
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
+import { ArrowUpRight, Users } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { CoworkAvatar } from '@/components/chat/CoworkTranscriptPanel';
 import { useArtifacts } from '@/stores/artifacts';
 import { useBrowser } from '@/stores/browser';
+import { useCinderpawStore } from '@/stores/cinderpaw';
+import { useCoworkTeam } from '@/stores/coworkTeam';
+import { useCoworkTranscript } from '@/stores/coworkTranscript';
 import { useUI } from '@/stores/ui';
 import { cn } from '@/lib/utils';
 import { ContextTab } from './ContextTab';
@@ -46,19 +52,77 @@ export function useContextVisible(): boolean {
   return open && !covered && !browsing;
 }
 
+function TeamActivity({ teammateId }: { teammateId?: string }) {
+  const roster = useCoworkTeam((s) => s.roster);
+  const exchanges = useCoworkTranscript((s) => s.exchanges);
+  const connected = useCinderpawStore((s) => s.isReady);
+  const still = useReducedMotion();
+  const teammates = roster.filter((a) => a.id !== teammateId).map((agent) => {
+    const approval = exchanges.findLast((e) => e.kind === 'approval' && e.fromAgentId === agent.id && e.status === 'running');
+    const related = exchanges.filter((e) => e.kind !== 'approval' && e.toAgentId === agent.id);
+    const working = related.findLast((e) => e.status === 'running' && e.startedAt != null);
+    const queued = related.findLast((e) => e.status === 'running');
+    const recent = related.findLast((e) => e.status !== 'running');
+    const status = !connected ? 'Disconnected' : approval ? 'Needs approval' :
+      working ? 'Working' : queued ? 'Queued' : recent ? recent.status === 'error' ? 'Failed' : 'Done' : 'Available';
+    const detail = (approval ?? working ?? queued)?.requestText ?? recent?.responseText ?? agent.role;
+    return { agent, status, detail, priority: approval ? 4 : working ? 3 : queued ? 2 : recent ? 1 : 0 };
+  }).sort((a, b) => b.priority - a.priority);
+  if (teammates.length === 0) return null;
+
+  return (
+    <section aria-label="Team activity" className="rounded-[18px] bg-bg-elevated px-3.5 py-3">
+      <h3 className="mb-2 flex items-center gap-2.5 text-sm font-medium text-text-primary">
+        <Users size={16} className="text-text-secondary" aria-hidden /> Team activity
+      </h3>
+      <ul className="flex flex-col gap-0.5">
+        {teammates.map(({ agent, status, detail }) => (
+          <li key={agent.id}>
+            <Link to={`/teammates/${encodeURIComponent(agent.id)}`} viewTransition={!still}
+              state={{ focusTeammateComposer: true }}
+              aria-label={`Open chat with ${agent.name}`}
+              className="group flex min-w-0 items-center gap-2.5 rounded-xl px-1.5 py-2 hover:bg-bg-hover focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-brand">
+              <CoworkAvatar id={agent.id} name={agent.name} className="size-8" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="truncate text-sm font-medium text-text-primary">{agent.name}</span>
+                  <span className={cn('shrink-0 text-2xs',
+                    status === 'Working' || status === 'Needs approval' ? 'text-brand' :
+                    status === 'Done' ? 'text-success' : 'text-text-muted')}>{status}</span>
+                </div>
+                {detail && <p className="truncate text-xs text-text-muted" title={detail}>{detail}</p>}
+              </div>
+              <ArrowUpRight size={14} aria-hidden className="shrink-0 text-text-muted group-hover:text-text-primary" />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /**
  * The Context cards as their own column beside the chat, like Claude's side
  * panel (his ask, 29 Oct): there by default, closable, and separate from
  * Artifacts. It floats over the right edge under the chat header, which never
  * moves; the conversation steps aside only as far as `contextShove` says.
  */
-export function ContextColumn({ covered = false, onCompose, onAttach }: {
+export function ContextColumn({ covered = false, onCompose, onAttach, teammateId }: {
   /** Under an open artifact: it stays in place, and is hidden once the panel has
    *  slid over it (MOTION.base), so it never fades out over the arriving panel. */
   covered?: boolean;
   onCompose?: (text: string) => void;
   onAttach?: () => void;
+  teammateId?: string;
 }) {
+  const team = <TeamActivity teammateId={teammateId} />;
+  if (teammateId !== undefined) {
+    return (
+      <aside aria-label="Context" className="hidden w-80 shrink-0 flex-col border-l border-border-default pt-3 lg:flex">
+        <ContextTab onCompose={onCompose} onAttach={onAttach}>{team}</ContextTab>
+      </aside>
+    );
+  }
   return (
     <motion.aside
       aria-label="Context"
@@ -82,7 +146,7 @@ export function ContextColumn({ covered = false, onCompose, onAttach }: {
     >
       {/* No title and no X of its own: the header's Context button above opens
           and closes it, and a second close two inches away was a duplicate (Darius, 29 Oct). */}
-      <ContextTab onCompose={onCompose} onAttach={onAttach} />
+      <ContextTab onCompose={onCompose} onAttach={onAttach}>{team}</ContextTab>
     </motion.aside>
   );
 }

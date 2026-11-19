@@ -14,15 +14,15 @@ import { tauri } from '@/lib/tauri';
  * the person who asked for it got no Open (smoke test, 7 Nov).
  */
 export function writtenFiles(activity: ToolActivity[], reply = ''): string[] {
-  const out: string[] = [];
+  const out = new Set<string>();
   for (const a of activity) {
     if ((a.tool !== 'write_file' && a.tool !== 'edit_file') || a.status !== 'done' || a.error) continue;
-    const f = a.files[0];
-    if (!f || out.includes(f.path)) continue;
-    const name = f.path.split(/[\\/]/).pop() ?? '';
-    if (!f.scratch || (name && reply.includes(name))) out.push(f.path);
+    for (const f of a.files) {
+      const name = f.path.split(/[\\/]/).pop() ?? '';
+      if (!f.scratch || (name && reply.includes(name))) out.add(f.path);
+    }
   }
-  return out;
+  return [...out];
 }
 
 export function WrittenFiles({ paths }: { paths: string[] }) {
@@ -40,19 +40,22 @@ function FileRow({ path }: { path: string }) {
   const Icon = iconFor(name);
   const go = (reveal: boolean) => {
     setError(null);
-    tauri.raw.openLocalFile(path, reveal).catch((e: unknown) => setError(String(e)));
+    void tauri.raw.openLocalFile(path, reveal).catch(() =>
+      setError(reveal ? "Couldn't show this file in its folder." : "Couldn't open this file."),
+    );
   };
   return (
     <div className="flex flex-col gap-1 rounded-xl border border-border-subtle bg-bg-surface px-3 py-2">
-      <div className="flex items-center gap-2.5">
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
         <Icon size={16} className="shrink-0 text-text-muted" />
-        <div className="min-w-0 flex-1" title={path}>
+        <div className="min-w-0 flex-1 basis-28" title={path}>
           <div className="truncate text-sm text-text-primary">{name}</div>
           <div className="truncate text-2xs text-text-muted">{folderOf(path)}</div>
         </div>
         <button
           type="button"
           onClick={() => go(false)}
+          aria-label={`Open ${name}`}
           className="shrink-0 rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
         >
           Open
@@ -60,13 +63,14 @@ function FileRow({ path }: { path: string }) {
         <button
           type="button"
           onClick={() => go(true)}
+          aria-label={`Show ${name} in folder`}
           className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
         >
           <FolderOpen size={16} />
           Show in folder
         </button>
       </div>
-      {error && <p className="text-2xs text-error-text">{error}</p>}
+      {error && <p role="alert" className="text-xs text-error">{error}</p>}
     </div>
   );
 }

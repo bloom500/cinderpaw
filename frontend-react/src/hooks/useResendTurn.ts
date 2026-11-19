@@ -1,7 +1,8 @@
 import { useCallback } from 'react';
-import { useChat } from '@/stores/chat';
+import { useChatApi, useChatScope, useChatView } from '@/stores/chatScope';
 import { useCinderpawSendMessage } from '@/hooks/useCinderpaw';
 import { useNotifications } from '@/stores/notifications';
+import { useCoworkTranscript } from '@/stores/coworkTranscript';
 
 /** `[Image attached: name]` note lines, which the send path regenerates itself. */
 const IMAGE_NOTE_RE = /^\[Image attached: ([^\]]*)\]\s*$/gm;
@@ -16,12 +17,14 @@ const IMAGE_NOTE_RE = /^\[Image attached: ([^\]]*)\]\s*$/gm;
  * one per button.
  */
 export function useResendTurn() {
-  const sessionId = useChat((s) => s.sessionId);
+  const chat = useChatApi();
+  const scope = useChatScope();
+  const sessionId = useChatView((s) => s.sessionId);
   const sendAgent = useCinderpawSendMessage(sessionId);
 
   const resend = useCallback(
     async (fromIndex: number, newText?: string, confirmed = false) => {
-      const { messages } = useChat.getState();
+      const { messages } = chat.getState();
       // Retry sits under a reply and passes the row above it, which is usually
       // the question but not always: a tool-only turn, or an ask_user card, can
       // sit between. Walk up to the last thing the user actually said.
@@ -51,10 +54,21 @@ export function useResendTurn() {
         return;
       }
 
+      if (scope) {
+        const match = /^msg:(.+):req$/.exec(user.id);
+        const exchange = useCoworkTranscript.getState().exchanges.find((e) => e.id === `msg:${match?.[1]}`);
+        const replaceFrom = exchange?.threadId === sessionId && exchange.fromAgentId === 'human' ? match?.[1] : undefined;
+        try {
+          await scope.send(text, images.length ? images : undefined, { replaceFrom, voice: newText === undefined ? user.voice : undefined });
+        } catch (err) {
+          useNotifications.getState().push('error', 'Could not resend this message', err instanceof Error ? err.message : String(err));
+        }
+        return;
+      }
       // Everything from this turn down goes, including the turn itself: the
       // send path writes the user message again, and a half-kept history is
       // what makes a retry produce two copies of the question.
-      useChat.setState({
+      chat.setState({
         messages: messages.slice(0, userIndex),
         streamStatus: 'idle',
         streamError: null,
@@ -62,7 +76,7 @@ export function useResendTurn() {
 
       await sendAgent(text, images.length > 0 ? images : undefined);
     },
-    [sendAgent],
+    [chat, scope, sendAgent],
   );
   return useCallback((fromIndex: number, newText?: string) => resend(fromIndex, newText), [resend]);
 }

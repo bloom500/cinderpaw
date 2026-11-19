@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { useChat, type AgentPhase } from '@/stores/chat';
+import type { AgentPhase } from '@/stores/chat';
+import { useChatScope, useChatView } from '@/stores/chatScope';
 import { useModel } from '@/stores/model';
 import { onCloudModel, useCinderpawStore } from '@/stores/cinderpaw';
 import { events, type StreamProgressEvent } from '@/lib/tauri';
 import { MessageLoading } from '@/components/ui/message-loading';
 import { kindOf } from '@/hooks/useLiveToolActivity';
-import { stepTitle } from './MessageChain';
+import { elapsedLabel, stepTitle } from './MessageChain';
 
 interface StreamingIndicatorProps {
   phase?: AgentPhase;
   tool?: string | null;
+  sessionId?: string;
+  startedAt?: number;
 }
 
 /** #16: after this long with zero tokens, explain WHY nothing is happening. */
@@ -55,8 +58,9 @@ function progressLabel(p: StreamProgressEvent): string {
   return 'Writing…';
 }
 
-export function StreamingIndicator({ phase = 'thinking', tool }: StreamingIndicatorProps) {
-  const sessionId = useChat((s) => s.sessionId);
+export function StreamingIndicator({ phase = 'thinking', tool, sessionId: scopedSessionId, startedAt }: StreamingIndicatorProps) {
+  const sessionId = useChatView((s) => scopedSessionId ?? s.sessionId);
+  const scope = useChatScope();
   const [visible, setVisible] = useState(true);
   // `baseLabel` comes from phase transitions (model load, calling, processing) — faded.
   // `progress` overrides it during 'thinking' phase with live heartbeat data — no fade.
@@ -67,11 +71,18 @@ export function StreamingIndicator({ phase = 'thinking', tool }: StreamingIndica
   // long prompt prefill — minutes of silence on CPU-only machines, which
   // looks exactly like a hang. Surface the load progress while the model
   // loads, and an explanatory line when no token has arrived for a while.
-  const isModelLoading = useModel((s) => s.isLoading);
+  const isModelLoading = useModel((s) => !scope && !scopedSessionId && s.isLoading);
   const loadProgress = useModel((s) => s.loadProgress);
   // A cloud model is never "loaded": on Claude the hint blamed a load that
   // did not happen. Unknown config keeps the hint (a fresh local install).
-  const isCloud = useCinderpawStore(onCloudModel);
+  const showLocalLoadHint = useCinderpawStore((s) => !scope && !scopedSessionId && !onCloudModel(s));
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (startedAt === undefined) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [startedAt]);
 
   // Which wait line is showing: a random start, then one step every few seconds.
   const [waitLine, setWaitLine] = useState(0);
@@ -101,7 +112,7 @@ export function StreamingIndicator({ phase = 'thinking', tool }: StreamingIndica
     const set = (e: StreamProgressEvent) => {
       if (!cancelled && phase === 'thinking' && e.sessionId === sessionId) setProgress(e);
     };
-    events.onStreamProgress.listen(set).then(keep);
+    void events.onStreamProgress.listen(set).then(keep).catch(() => {});
     return () => { cancelled = true; unlistens.forEach((u) => u()); };
   }, [sessionId, phase]);
 
@@ -115,7 +126,7 @@ export function StreamingIndicator({ phase = 'thinking', tool }: StreamingIndica
       } else if (slowStart && phase === 'thinking') {
         // A local model may really be loading: say so first, then the lines.
         // A cloud model is never "loaded", so it goes straight to the lines.
-        const firstLoad = !isCloud && !waitStarted.current;
+        const firstLoad = showLocalLoadHint && !waitStarted.current;
         waitStarted.current = true;
         setBaseLabel(firstLoad ? LOAD_HINT : WAIT_LINES[waitLine % WAIT_LINES.length]);
       } else {
@@ -124,7 +135,7 @@ export function StreamingIndicator({ phase = 'thinking', tool }: StreamingIndica
       setVisible(true);
     }, 120);
     return () => clearTimeout(swap);
-  }, [phase, tool, isModelLoading, loadProgress, slowStart, isCloud, waitLine]);
+  }, [phase, tool, isModelLoading, loadProgress, slowStart, showLocalLoadHint, waitLine]);
 
   // Live label: progress wins during thinking; otherwise base label.
   const label = progress && progress.sessionId === sessionId && phase === 'thinking' && !isModelLoading
@@ -132,7 +143,7 @@ export function StreamingIndicator({ phase = 'thinking', tool }: StreamingIndica
     : baseLabel;
 
   return (
-    <div role="status" className="flex items-center gap-2 px-4 py-2 text-text-muted text-xs">
+    <div role="status" aria-label="Generation progress" className="flex items-center gap-2 px-4 py-2 text-text-muted text-xs">
       {/* Hopping dots rather than three that pulse in place: movement reads as
           "working" at a glance, a pulse reads as "waiting for something". */}
       <MessageLoading className="shrink-0" />
@@ -142,6 +153,7 @@ export function StreamingIndicator({ phase = 'thinking', tool }: StreamingIndica
       >
         {label}
       </span>
+      {startedAt !== undefined && <span aria-hidden className="tabular-nums">{elapsedLabel(Math.max(0, now - startedAt))}</span>}
     </div>
   );
 }

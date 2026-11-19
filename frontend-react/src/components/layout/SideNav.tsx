@@ -23,9 +23,7 @@ import { useArtifacts } from '@/stores/artifacts';
 import { useBrowser } from '@/stores/browser';
 import { useCoworkTeam } from '@/stores/coworkTeam';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
-import { useCinderpawStore } from '@/stores/cinderpaw';
 import { useOnboarding } from '@/stores/onboarding';
-import { ensureCinderpawListener } from '@/lib/cinderpawAgentStream';
 import { CoworkAvatar } from '@/components/chat/CoworkTranscriptPanel';
 import { cn } from '@/lib/utils';
 import { Kbd, MOD } from '@/components/ui/kbd';
@@ -422,19 +420,9 @@ function Library({ collapsed }: { collapsed: boolean }) {
 }
 
 function TeamContacts() {
-  const ready = useCinderpawStore((s) => s.isReady);
   const roster = useCoworkTeam((s) => s.roster);
   const mainName = useOnboarding((s) => s.agentName.trim() || APP_NAME);
   const exchanges = useCoworkTranscript((s) => s.exchanges);
-
-  useEffect(() => {
-    if (!ready) return;
-    let current = true;
-    void ensureCinderpawListener().then(() => {
-      if (current) void useCoworkTeam.getState().refresh();
-    }).catch(() => {});
-    return () => { current = false; };
-  }, [ready]);
 
   if (!roster.length) return null;
   const rowClass = ({ isActive }: { isActive: boolean }) => cn(
@@ -462,11 +450,16 @@ function TeamContacts() {
             <span className="min-w-0 flex-1">
               <span className="flex items-baseline justify-between gap-1.5">
                 <span className="truncate font-medium">{teammate.name}</span>
+                {teammate.role.trim() && <span title={teammate.role} className="min-w-0 max-w-[65%] truncate text-right text-2xs text-text-muted">
+                  {teammate.role}
+                </span>}
+              </span>
+              {latest && <span className="flex items-baseline justify-between gap-1.5">
+                <span className="truncate text-xs text-text-muted">{latest.text}</span>
                 {at && <time dateTime={at.toISOString()} className="shrink-0 text-2xs text-text-muted">
                   {at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                 </time>}
-              </span>
-              {latest && <span className="block truncate text-xs text-text-muted">{latest.text}</span>}
+              </span>}
             </span>
           </NavLink>
         );

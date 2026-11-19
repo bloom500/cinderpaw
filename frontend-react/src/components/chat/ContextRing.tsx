@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useChat } from '@/stores/chat';
+import { useChatView as useChat } from '@/stores/chatScope';
 import { useModel } from '@/stores/model';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { activeContextWindow, estimateTokens, estimateRemaining } from '@/lib/contextWindow';

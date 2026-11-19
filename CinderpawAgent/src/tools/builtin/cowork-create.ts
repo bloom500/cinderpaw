@@ -229,7 +229,7 @@ export function createCoworkCreateTool(deps: CoworkCreateDeps): Tool & {
           `Created "${agent.name}" — ${agent.role}. Tools: ${scope}` +
           (requested ? ". " : " (the read-only default: they cannot write, send or run commands). ") +
           (gained.length > 0 ? `${gained.join(", ")} are now available. ` : "") +
-          `Hand them work with cowork_send; their replies appear in the Agent Cowork panel ` +
+          `Hand them work with cowork_send; their replies appear in their chat, which opens from the sidebar, ` +
           `and you can read them with cowork_replies. Tell the user what they can and cannot ` +
           `do; widen it with cowork_update_teammate if the user asks.`,
         data: {

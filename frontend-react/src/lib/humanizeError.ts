@@ -31,6 +31,19 @@ interface Rule {
 
 const RULES: Rule[] = [
   {
+    test: /would exceed this chat[’']s spending limit/i,
+    title: 'This call would go over your limit',
+    message: 'Change the spending limit at the top of the chat, or choose a cheaper model.',
+    action: null,
+  },
+  {
+    test: /cannot use a chat spending limit|this chat[’']s spending limit supports/i,
+    title: 'This call needs a supported model',
+    message: 'Chat spending limits support OpenRouter text calls and the built-in local model.',
+    action: 'models',
+    actionLabel: 'Choose a model',
+  },
+  {
     test: /\b401\b|unauthorized|invalid[_ ]api[_ ]key|incorrect api key|authentication/i,
     title: 'Your API key was not accepted',
     message: 'Your API key was rejected by the provider. Check that the key is correct and active.',

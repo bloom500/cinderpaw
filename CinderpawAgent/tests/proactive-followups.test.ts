@@ -9,6 +9,7 @@ const NOW = Date.UTC(2026, 9, 24, 16);
 function database() {
   const db = new Database(":memory:");
   db.exec(`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
+    CREATE TABLE cowork_agents (id TEXT PRIMARY KEY);
     CREATE TABLE runs (id TEXT PRIMARY KEY, session_id TEXT, mission TEXT, status TEXT,
       stopped_because TEXT, updated_at INTEGER, delivery TEXT);`);
   return db;
@@ -21,6 +22,27 @@ function run(db: Database, id = "run-1", session = "chat-1", status = "unfinishe
 }
 
 describe("event-driven unfinished-work follow-ups", () => {
+  test("a teammate with unfinished work reaches the private messenger once and keeps the same note in their chat", async () => {
+    const db = database();
+    const at = new Date(2026, 9, 24, 14).getTime();
+    db.exec("INSERT INTO cowork_agents VALUES ('atlas')");
+    run(db, "old", "cowork:removed", "unfinished", at - 600_001);
+    run(db, "task", "cowork:atlas", "unfinished", at - 900_000);
+    const ledger = new FollowUpLedger(db);
+    ledger.setEnabled(true);
+    const sent: string[] = [];
+    const notes: string[] = [];
+    const offer = () => offerFollowUp({ from: "tick", ledger, nudges: new Nudges(db), now: at,
+      teammate: (id) => ({ id, name: "Atlas" }), phone: async (s) => { sent.push(s); return "discord"; },
+      keepForTeammate: (a, content) => notes.push(a.id + " " + content),
+      card: () => { throw new Error("Only one channel should ring."); } });
+    expect(await offer()).toBe("discord");
+    expect(await offer()).toBeNull();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toStartWith("Atlas\n");
+    expect(notes[0]).toContain("atlas I have unfinished work");
+    db.close();
+  });
   test("ordinary interactive chat supplies evidence without leaving resumable work", () => {
     const db = openDatabase(":memory:");
     const store = new RunStore(db.raw);

@@ -1086,7 +1086,7 @@ const FIRST_TASKS: { icon: LucideIcon; team: string; task: string }[] = [
   { icon: Megaphone, team: 'Marketing', task: "Make a poster and a short post for my shop's weekend sale" },
   { icon: Search, team: 'Research', task: 'Find the five best-reviewed coffee machines and put them in a table' },
   { icon: MessageCircle, team: 'Customers', task: 'A customer wrote, “My parcel was due yesterday. Can you check where it is?” Draft a short reply.' },
-  { icon: CalendarCheck, team: 'Personal', task: 'Plan a weekend trip for two: where to go, how to get there and what it costs' },
+  { icon: CalendarCheck, team: 'Personal', task: 'Remind me in two minutes to take a stretch break' },
 ];
 
 const NAME_INPUT =
@@ -1121,7 +1121,7 @@ function DoneStep() {
           <StepIntro
             title={<>Almost<br />ready</>}
             lead="Pick a model so I can answer you."
-            body="A model is the brain that writes the answers. Without one, I cannot reply yet. It takes a minute."
+            body="You can connect a model now or finish setup and choose one later."
           />
           <button type="button" onClick={() => useOnboarding.setState({ step: STEP_IDS.indexOf('provider') })} className={cn(PRIMARY_BUTTON, 'mt-5')}>
             Choose a model <ArrowRight size={16} />
@@ -1157,7 +1157,7 @@ function DoneStep() {
               aria-pressed={picked}
               onClick={() => pick(task)}
               whileTap={{ scale: 0.97 }}
-              animate={picked ? { scale: [1, 1.03, 1] } : { scale: 1 }}
+              animate={{ scale: picked ? 1.02 : 1 }}
               transition={BASE}
               className={cn(
                 'relative flex items-start gap-3 rounded-xl border-2 bg-bg-surface p-4 text-left transition-colors hover:bg-bg-hover',

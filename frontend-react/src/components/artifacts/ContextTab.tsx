@@ -15,7 +15,8 @@ import { isLocalEngineUrl } from '@/lib/localApi';
 import { ModelLogo, modelDisplayName } from '@/lib/modelLogos';
 import { MODES } from '@/components/chat/PermissionPill';
 import { cn } from '@/lib/utils';
-import { useChat, type ContextLane, type MemoryUsedItem } from '@/stores/chat';
+import type { ContextLane, MemoryUsedItem } from '@/stores/chat';
+import { useChatView as useChat } from '@/stores/chatScope';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
 import { useConversations } from '@/stores/conversations';
 import { useProjects } from '@/stores/projects';
@@ -316,11 +317,12 @@ function Line({ label, children }: { label: string; children: ReactNode }) {
  * store; nothing is drawn that did not happen, and an empty card says "None"
  * rather than inventing a row. Tools are left to the chat's own widgets.
  */
-export function ContextTab({ onCompose, onAttach }: {
+export function ContextTab({ onCompose, onAttach, children }: {
   /** Fill the composer and stop (Links and Memory "Add"). */
   onCompose?: (text: string) => void;
   /** Open the composer's file picker (Files "Add"). */
   onAttach?: () => void;
+  children?: ReactNode;
 }) {
   // Selectors that return strings or numbers, so a streamed word does not
   // re-render the panel (c5f6cc5): context use is read in steps of 500
@@ -345,8 +347,9 @@ export function ContextTab({ onCompose, onAttach }: {
   const still = useReducedMotion();
   const exchanges = useCoworkTranscript((s) => s.exchanges);
   const threadId = useCoworkTranscript((s) => s.activeThreadId);
-  const approvals = exchanges.filter((e) => e.kind === 'approval' && e.status === 'running' && !!threadId && e.threadId === threadId);
-  const currentId = useConversations((s) => s.currentId);
+  const approvals = exchanges.filter((e) => e.kind === 'approval' && e.status === 'running' && (sessionId.startsWith('cowork:')
+    ? e.fromAgentId === sessionId.slice(7) : !!threadId && e.threadId === threadId));
+  const currentId = useConversations((s) => sessionId.startsWith('cowork:') ? null : s.currentId);
   const project = useProjects((s) => (currentId ? s.list.find((p) => p.conversation_ids.includes(currentId)) : undefined));
   const madeHere = useArtifacts((s) => s.rows.filter((r) => ctx.artifactIds.includes(r.id)).map((r) => r.title).join('\n'));
   // The agent answers with its own pinned model (useCinderpawStore); reading
@@ -403,6 +406,8 @@ export function ContextTab({ onCompose, onAttach }: {
             {approvals.map((e) => <ApprovalCard key={e.id} e={e} />)}
           </Fold>
         )}
+
+        {children}
 
         <section aria-label="This chat" className={cn('flex flex-col px-3.5 py-2.5', SQUIRCLE)}>
           <Line label="Model">

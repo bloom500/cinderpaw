@@ -47,7 +47,7 @@ const RECURSION = [
   "",
   "Workers can talk back before they finish: one that finds something worth acting on early sends it with its `notify_parent` tool. Read what has arrived with `const { messages } = await rlm.messages()` — reading clears the inbox, so bind it if you need it twice. `await rlm.pending()` counts without consuming.",
   "",
-  "Drop a child you no longer need with `await rlm.delete_subagent(nameOrId)`. A child that is still running is kept, not killed, and comes back with `outcome: 'skipped_running'`.",
+  "To stop a running worker, use `await rlm.cancel(nameOrId)`, or `await rlm.cancel()` for all your workers. It returns how many stop requests were sent. Use `rlm.wait()` or `rlm.observe(nameOrId)` to confirm they have stopped before you say so. Use `rlm.delete_subagent(nameOrId)` to clear a finished worker.",
   "",
   "A worker starts with no memory of this conversation, so its task string must be self-contained. It gets its own budget and a read-only tool set; widen it deliberately with `{ allowedTools: ['read_file', 'write_file'] }`.",
   "",

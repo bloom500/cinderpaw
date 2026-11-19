@@ -11,6 +11,8 @@ pub const INBOUND_TYPES: &[&str] = &[
     // `tool_response`. See CinderpawAgent/src/core/host-tool-bridge.ts.
     "tool_response",
     "cron_add", "cron_remove", "cron_toggle", "cron_list",
+    "nudge_reaction", "learned_undo", "numbers_send", "page_remove", "page_answer",
+    "presence", "followups_setting", "welcome",
     "desktop_control_response", "connectors_reload",
     "fractal_benchmark", "fractal_cluster_leaves",
     "rsi_start", "rsi_stop", "rsi_set_concurrency", "rsi_dream_now",
@@ -35,11 +37,9 @@ pub const INBOUND_TYPES: &[&str] = &[
     // duplicated inside transports/tauri.ts and only that copy was
     // compile-checked, so the canonical list could fall behind in silence.
     "admin_response", "capability_response", "provider_conformance",
-    "cowork_history", "cowork_team_op",
+    "cowork_history", "cowork_team_op", "chat_spend",
     // Everything the workspace panel does — see `artifact_op` in types.ts.
     "artifact_op",
-    // The Desktop's "Forget" on a memory (src-tauri commands/cinderpaw.rs).
-    "memory_forget",
     // `cinderpaw memory search` and `cinderpaw message send`.
     "memory_search", "message_send",
     // The Leaderboard tab and the consent screens (usage telemetry, 8 Oct 2026).
@@ -53,7 +53,7 @@ pub const OUTBOUND_TYPES: &[&str] = &[
     "heartbeat", "stream_progress", "memory_used", "artifact", "artifact_result", "cron_fired", "cron_error",
     "desktop_control_request", "rsi_engine_event", "rsi_request",
     "meta_result", "meta_proposal", "governance_result", "modules_result", "mcp_result",
-    "cowork_history_result", "cowork_team_result",
+    "cowork_history_result", "cowork_team_result", "chat_spend_result",
     "resume_get_result", "compact_result", "fractal_bench_progress", "fractal_bench_result",
     "code_patches", "code_patch_resolved", "lora_reviews",
     "lora_review_resolved", "lora_train_result", "fractal_activity", "rlm_child",

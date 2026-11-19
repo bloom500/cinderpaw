@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const speech = vi.hoisted(() => ({
@@ -27,7 +28,9 @@ vi.mock('@/lib/tauri', () => ({
 }));
 
 import { useCallSession } from '../useCallSession';
-import { useChat } from '@/stores/chat';
+import { createChatStore, useChat } from '@/stores/chat';
+import { ChatScopeProvider } from '@/stores/chatScope';
+import { useCoworkTranscript, type CoworkExchange } from '@/stores/coworkTranscript';
 
 class FakeRecorder {
   static instances: FakeRecorder[] = [];
@@ -121,6 +124,53 @@ beforeEach(() => {
 });
 
 describe('useCallSession turn generation', () => {
+  it('releases the granted microphone when audio setup fails', async () => {
+    const mic = mediaStream();
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockResolvedValue(mic.stream);
+    Object.defineProperty(globalThis, 'AudioContext', { configurable: true, value: class {
+      constructor() { throw new Error('No audio device'); }
+    } });
+    const { result } = renderHook(() => useCallSession(async () => {}));
+    act(() => result.current.open());
+    await act(async () => { await result.current.begin(); });
+    expect(mic.stop).toHaveBeenCalledOnce();
+    expect(result.current.phase).toBe('idle');
+  });
+
+  it('speaks only the matching voice request when Atlas has other work queued', async () => {
+    const store = createChatStore();
+    store.setState({ sessionId: 'cowork:atlas' });
+    const send = vi.fn(async () => 'call-request');
+    const scope = { store, name: 'Atlas', mascot: null, send };
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(ChatScopeProvider, { value: scope }, children);
+    const mic = mediaStream();
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockResolvedValue(mic.stream);
+    const { result, unmount } = renderHook(() => useCallSession(send), { wrapper });
+    try {
+      act(() => result.current.open());
+      await act(async () => { await result.current.begin(); });
+      await waitFor(() => expect(result.current.phase).toBe('listening'));
+      act(() => result.current.say('What did you find?'));
+      await waitFor(() => expect(send).toHaveBeenCalledOnce());
+      const row: CoworkExchange = { id: 'msg:other', kind: 'message', at: 1, fromAgentId: 'human', toAgentId: 'atlas',
+        threadId: 'cowork:atlas', requestText: 'Earlier task', desktopId: 'other', status: 'done', responseText: 'Unrelated answer.' };
+      const publish = (exchange: CoworkExchange) => {
+        useCoworkTranscript.setState({ exchanges: [exchange] });
+        store.setState({ streamStatus: 'done', messages: [{ id: exchange.id + ':res', role: 'assistant',
+          content: exchange.responseText!, createdAt: 1 }] });
+      };
+      act(() => publish(row));
+      expect(speech.feedSpeech).not.toHaveBeenCalledWith('Unrelated answer.');
+      act(() => publish({ ...row, id: 'msg:mine', desktopId: 'call-request', responseText: 'Your requested result.' }));
+      await waitFor(() => expect(speech.feedSpeech).toHaveBeenCalledWith('Your requested result.'));
+      expect(speech.feedSpeech.mock.calls.flat()).not.toContain('Unrelated answer.');
+    } finally {
+      act(() => result.current.hangUp());
+      unmount();
+      useCoworkTranscript.getState().clear();
+    }
+  });
+
   it('closes a getUserMedia result superseded by a newer begin', async () => {
     const first = deferred<MediaStream>();
     const second = deferred<MediaStream>();

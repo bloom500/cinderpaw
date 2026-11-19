@@ -34,7 +34,7 @@ import { ModelLogo } from '@/lib/modelLogos';
 import typesafeMark from '@/assets/brands/typesafe.png';
 import { CallArtifacts } from './CallArtifacts';
 import { AskUserCard } from './AskUserCard';
-import { useAskUser, voiceAnswerFor } from '@/stores/askUser';
+import { askUserFor, voiceAnswerFor } from '@/stores/askUser';
 import { useSettings } from '@/stores/settings';
 export { voiceAnswerFor };
 import { useBrowser } from '@/stores/browser';
@@ -45,7 +45,9 @@ import { subscribeArtifacts, artifactsSnapshot } from '@/lib/callArtifacts';
 import { tauri, type S2sProviderInfo, type TtsProviderInfo, type TtsVoice } from '@/lib/tauri';
 import { events } from '@/lib/tauri/events';
 import { CLOUD_STT, useUI } from '@/stores/ui';
-import { useChat } from '@/stores/chat';
+import { useChatScope, useChatView as useChat } from '@/stores/chatScope';
+
+const TEAM_VOICE = { id: 'pipeline', label: 'Chat voice', voices: [], default_voice: '', pipeline: true, connected: true };
 import { useNotifications } from '@/stores/notifications';
 import { useArtifacts } from '@/stores/artifacts';
 import { ArtifactsPanel } from '@/components/artifacts/ArtifactsPanel';
@@ -337,6 +339,8 @@ export function CallOverlay({
   }, []);
   const ttsProvider = useUI((s) => s.ttsProvider);
   const setTtsProvider = useUI((s) => s.setTtsProvider);
+  const scope = useChatScope();
+  const chatSessionId = useChat((s) => s.sessionId);
   const callEngine = useUI((s) => s.callEngine);
   const s2sProvider = useUI((s) => s.s2sProvider);
   const setS2sProvider = useUI((s) => s.setS2sProvider);
@@ -372,16 +376,16 @@ export function CallOverlay({
       // Not for Jev: its call never touches LiveKit, and Rust read "jev" as an
       // unknown vendor and warmed the first keyed one instead, booting a server
       // and a Node agent on every visit only to reap them three minutes later.
-      if (s2sProvider !== JEV_PROVIDER_ID) warmLiveKit();
+      if (!scope && callEngine === 'livekit' && s2sProvider !== JEV_PROVIDER_ID) warmLiveKit();
     }
   }, [phase, refreshS2s, s2sProvider, ttsProvider, sttProvider]);
   // What will ACTUALLY run. Rust falls back to the first provider with a key
   // when nothing is picked, so the screen has to resolve it the same way or it
   // describes a call that is not the one about to happen.
-  const effectiveS2s = s2sProvider ?? s2sList.find((p) => p.connected)?.id ?? null;
+  const effectiveS2s = scope ? 'pipeline' : s2sProvider ?? s2sList.find((p) => p.connected)?.id ?? null;
   // Jev is not in the host list; falling to `list[0]` there would dress the
   // screen as a Gemini call (model row, Gemini key) while Jev is the pick.
-  const currentS2s = effectiveS2s === JEV_PROVIDER_ID ? null : shownS2sProvider(s2sList, effectiveS2s);
+  const currentS2s = scope ? TEAM_VOICE : effectiveS2s === JEV_PROVIDER_ID ? null : shownS2sProvider(s2sList, effectiveS2s);
   // Jev: the third provider, beside the two realtime vendors. It is not in the
   // host's S2S table because it does not speak: a Jev call is STT -> Jev ->
   // action. The row lives here until the host can run that call; until then
@@ -392,24 +396,26 @@ export function CallOverlay({
   // A Jev call cannot be made without its key or without a transcriber (a
   // fresh install has neither); the blocker text below says which.
   const jevBlocked = jevSelected && (!jevStored || (sttProvider === null && localSttName === null));
+  const teamMicUnset = !!scope && !sttProvider && !localSttName;
   const jevRow: S2sProviderInfo = { id: JEV_PROVIDER_ID, label: 'Jev', voices: [], default_voice: '', pipeline: false, connected: jevStored };
   useEffect(() => {
     // Write the resolved default back once it is known. Without this the voice
     // picker below has no provider to file a choice under, and the choice is
     // silently dropped — which is exactly the dead control this replaced.
-    if (!s2sProvider && effectiveS2s) setS2sProvider(effectiveS2s);
+    if (!scope && !s2sProvider && effectiveS2s) setS2sProvider(effectiveS2s);
   }, [s2sProvider, effectiveS2s, setS2sProvider]);
   // True for BOTH speech-to-speech engines: every branch reading this asks
   // "does one model do the whole call", not "which one". LiveKit and the
   // previous engine differ in machinery, not in that answer.
-  const live = callEngine === 'live' || callEngine === 'livekit';
+  const live = !scope && (callEngine === 'live' || callEngine === 'livekit');
   // Named on the pre-call card. Asked only while that screen is open: the
   // overlay is mounted all the time, and the vendor's model list is a request.
   const modelLabel = useS2sModelLabel(
     phase === 'ready' && live && currentS2s && !currentS2s.pipeline ? currentS2s.id : null,
   );
   // The pending question, if the agent asked one while this call is up.
-  const ask = useAskUser((s) => s.pending);
+  const questions = askUserFor(chatSessionId);
+  const ask = questions((s) => s.pending?.sessionId === chatSessionId ? s.pending : null);
   // The page the agent opened, framed beside the call rather than floating
   // over it: see CallBrowserPanel.
   const browserOpen = useBrowser((s) => s.panelOpen);
@@ -445,10 +451,10 @@ export function CallOverlay({
     const pending = events.liveKitEvent.listen((e) => {
       if (e.kind !== 'heard' || e.partial || !e.text) return;
       if (spokenAsk.current !== askId || Date.now() - askSpokenAt.current < 500) return;
-      if (useAskUser.getState().pending?.id !== askId) return;
+      if (questions.getState().pending?.id !== askId) return;
       const answer = voiceAnswerFor(question, e.text);
       console.info(`[call] ask ${askId} answered by voice: ${answer.selected.length ? 'option' : 'free text'}`);
-      useAskUser.getState().submit([answer]);
+      questions.getState().submit([answer]);
     });
     return () => { void pending.then((un) => un()); };
   }, [ask, phase]);
@@ -458,7 +464,6 @@ export function CallOverlay({
   // whatever the user is doing in the chat behind the overlay.
   // Filtered to the conversation the call works in, so a cron job or a
   // connector's tool does not show up as this call's activity.
-  const chatSessionId = useChat((s) => s.sessionId);
   const toolActivity = useLiveToolActivity(phase !== 'idle' && phase !== 'ready', chatSessionId);
   /** A tool is running right now. Its own signal rather than a sixth phase,
    *  because it is orthogonal: Cinderpaw can be answering out loud WHILE a search
@@ -650,7 +655,7 @@ export function CallOverlay({
       : stage === 'mic' ? t('call.stage.mic')
       : t('call.stage.starting')
     : phase === 'reconnecting' ? t('call.reconnecting')
-    : t('call.title');
+    : scope ? `Call with ${scope.name}` : t('call.title');
 
   return createPortal(
     // `z-40`, deliberately BELOW the app's z-50 layer.
@@ -881,8 +886,8 @@ export function CallOverlay({
                 key={ask.id}
                 requestId={ask.id}
                 questions={ask.questions}
-                onSubmit={(answers) => useAskUser.getState().submit(answers)}
-                onCancel={() => useAskUser.getState().cancel('answered by hanging up the question')}
+                onSubmit={(answers) => questions.getState().submit(answers)}
+                onCancel={() => questions.getState().cancelById(ask.id)}
               />
             </div>
           )}
@@ -905,6 +910,7 @@ export function CallOverlay({
             ? (!jevStored ? 'Jev needs a key before it can act. Paste it below, or pick Gemini or OpenAI.'
               : sttProvider === null && localSttName === null ? 'Jev needs a transcriber to hear you. Choose one below.'
               : null)
+            : teamMicUnset ? 'Choose a transcriber so your teammate can hear you.'
             : noEngine
             ? t('call.noEngine')
             : keyMissing
@@ -916,7 +922,7 @@ export function CallOverlay({
                 : null;
           // Open when asked, and by itself only when the call cannot be made —
           // there the settings are the way out, not decoration.
-          const expanded = settingsOpen || noEngine || keyMissing || ready === false || jevBlocked;
+          const expanded = settingsOpen || noEngine || keyMissing || ready === false || jevBlocked || teamMicUnset;
           const shown = jevSelected ? jevRow : currentS2s;
           const languageLabel = (CALL_LANGUAGES.find((l) => l.value === callLanguage) ?? CALL_LANGUAGES[0]!).label;
           // Where the audio goes, as a sentence under the card (it was a 10px
@@ -942,7 +948,7 @@ export function CallOverlay({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm font-medium text-text-primary">
-                    {shown?.label ?? t('call.providerNoneShort')}
+                    {scope?.name ?? shown?.label ?? t('call.providerNoneShort')}
                   </span>
                   {shown && <VendorTag id={shown.id} t={t} />}
                 </div>
@@ -1016,12 +1022,12 @@ export function CallOverlay({
                     each. The selected card is the one this screen describes,
                     so on a fresh install (nothing picked, no key) the first
                     vendor is selected and its key field is open below. */}
-                <ProviderCards
+                {!scope && <ProviderCards
                   providers={[...s2sList, jevRow]}
                   selected={jevSelected ? JEV_PROVIDER_ID : (currentS2s?.id ?? null)}
                   onChange={setS2sProvider}
                   t={t}
-                />
+                />}
 
                 {/* The key for the selected vendor, under the cards rather than
                     inside one: three cards in a row leave no room for a field
@@ -1193,7 +1199,7 @@ export function CallOverlay({
               // words someone already said. `null` (the check failed) still allows
               // it: refusing on an unknown is worse than letting the engine report
               // the truth.
-              disabled={ready === false || jevBlocked}
+              disabled={ready === false || jevBlocked || teamMicUnset}
             >
               <Phone size={20} />
             </RoundButton>

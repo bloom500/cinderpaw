@@ -155,6 +155,22 @@ describe('MessageChain (the Activity Strip)', () => {
     expect(screen.queryByText('+2')).not.toBeInTheDocument();
   });
 
+  it('shows the first screenshot as a thumbnail while the answer is still running', () => {
+    const image = 'data:image/png;base64,QUJD';
+    const capture = startActivity('browser', { action: 'screenshot' });
+    const props = { thinking: null, thinkingComplete: true, durationSec: undefined };
+    const { rerender } = render(<MessageChain {...props} steps={[capture]} streaming />);
+    expect(screen.queryByTestId('step-thumbs')).toBeNull();
+
+    const finished = finishActivity(capture, { ok: true, content: '', images: [image] });
+    rerender(<MessageChain {...props} steps={[finished]} streaming />);
+    expect(screen.getByTestId('step-thumbs').querySelector('img')?.getAttribute('src')).toBe(image);
+    expect(screen.queryByAltText('What the agent saw when it got there')).toBeNull();
+
+    rerender(<MessageChain {...props} steps={[finished]} streaming={false} />);
+    expect(screen.getByAltText('What the agent saw when it got there').getAttribute('src')).toBe(image);
+  });
+
   it('shows a picture on the line bigger while the pointer rests on it', () => {
     const png = 'data:image/png;base64,QUJD';
     const shot = finishActivity(startActivity('read_file', { path: 'a.png' }), { ok: true, content: '', images: ['data:image/png;base64,Rk9P', png] });

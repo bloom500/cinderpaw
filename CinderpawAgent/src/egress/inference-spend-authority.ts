@@ -41,10 +41,16 @@ export interface SpendReservation {
   release(): void;
 }
 
+export interface SpendAccount {
+  hold(usd: number): boolean;
+  settle(heldUsd: number, actualUsd: number): void;
+}
+
 export class InferenceSpendAuthority {
   readonly #maxCostUsd: number;
   readonly #allowCloud: boolean;
   readonly #price: (target: SpendTarget) => InferencePrice | null;
+  readonly #account?: SpendAccount;
   readonly #abort = new AbortController();
   #spentUsd = 0;
   #reservedUsd = 0;
@@ -53,10 +59,12 @@ export class InferenceSpendAuthority {
     maxCostUsd: number;
     allowCloud: boolean;
     price: (target: SpendTarget) => InferencePrice | null;
+    account?: SpendAccount;
   }) {
     this.#maxCostUsd = options.maxCostUsd;
     this.#allowCloud = options.allowCloud;
     this.#price = options.price;
+    this.#account = options.account;
   }
 
   get spentUsd(): number {
@@ -96,7 +104,8 @@ export class InferenceSpendAuthority {
       if (price === null) {
         throw new AutonomousSpendDeniedError(
           "unknown_price",
-          `autonomous inference price is unknown for ${target.provider}/${target.model}`,
+          this.#account ? "This model cannot use a chat spending limit. Choose a supported model or change the limit."
+            : `autonomous inference price is unknown for ${target.provider}/${target.model}`,
         );
       }
       // Prompt caching cannot be predicted before the request. Reserve every
@@ -115,10 +124,11 @@ export class InferenceSpendAuthority {
       );
     }
 
-    if (this.#spentUsd + this.#reservedUsd + reserved > this.#maxCostUsd) {
+    if (this.#account ? !this.#account.hold(reserved) : this.#spentUsd + this.#reservedUsd + reserved > this.#maxCostUsd) {
       throw new AutonomousSpendDeniedError(
         "budget",
-        `autonomous inference would exceed the $${this.#maxCostUsd} scope`,
+        this.#account ? "The next model call would exceed this chat’s spending limit. Change the limit or choose a cheaper model."
+          : `autonomous inference would exceed the $${this.#maxCostUsd} scope`,
       );
     }
 
@@ -131,10 +141,15 @@ export class InferenceSpendAuthority {
     };
 
     return {
-      release,
+      release: () => {
+        if (!open) return;
+        release();
+        this.#account?.settle(reserved, 0);
+      },
       commitMaximum: () => {
         if (!open) return;
         release();
+        if (this.#account) return; // Already charged at hold time.
         this.#spentUsd += reserved;
         if (reserved > 0 && this.#spentUsd >= this.#maxCostUsd) {
           this.stop("autonomous inference cost cap exhausted");
@@ -142,14 +157,22 @@ export class InferenceSpendAuthority {
       },
       settle: ({ target, usage }) => {
         if (!open) return;
-        const actualPrice = this.#priceFor(target);
         release();
+        const billed = usage.costUsd;
+        if (this.#account) {
+          // Missing usage leaves the durable hold in place. An estimate could
+          // refund money the upstream actually charged.
+          if (typeof billed === "number" && Number.isFinite(billed) && billed >= 0) {
+            this.#account.settle(reserved, billed);
+          }
+          return;
+        }
+        const actualPrice = this.#priceFor(target);
         if (actualPrice === null) {
           this.stop(`autonomous inference settled against unknown price for ${target.model}`);
           return;
         }
         // The provider's own bill is the truth; 0 or missing means it sent none.
-        const billed = usage.costUsd;
         this.#spentUsd += typeof billed === "number" && Number.isFinite(billed) && billed > 0
           ? billed
           : costOfUsage(usage, actualPrice);
@@ -161,7 +184,7 @@ export class InferenceSpendAuthority {
   }
 
   #priceFor(target: SpendTarget): InferencePrice | null {
-    if (isLoopback(target.baseUrl)) {
+    if (!this.#account && isLoopback(target.baseUrl)) {
       return { inputPerMillionUsd: 0, outputPerMillionUsd: 0 };
     }
     const price = this.#price(target);

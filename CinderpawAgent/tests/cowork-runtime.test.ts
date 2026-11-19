@@ -15,21 +15,20 @@ import { describe, expect, test } from "bun:test";
 import { openDatabase } from "../src/db.ts";
 import { CoworkAgentRepo } from "../src/cowork/agent-store.ts";
 import { CoworkMailboxRepo } from "../src/cowork/mailbox.ts";
+import { addressedTeammate } from "../src/cowork/owner-chat.ts";
 import { CoworkHandoffService } from "../src/cowork/handoff.ts";
 import {
   CoworkRuntime,
   DEFAULT_MAX_REPLY_HOPS,
   HUMAN,
   withHumanReplies,
+  type CoworkTurnRunner,
+  coworkPayload,
 } from "../src/cowork/runtime.ts";
 import type { OutboundEvent } from "../src/types.ts";
 
 function makeRuntime(opts?: {
-  runTurn?: (
-    agent: { name: string },
-    prompt: string,
-    sessionId: string,
-  ) => Promise<{ text: string; finished: boolean }>;
+  runTurn?: CoworkTurnRunner;
 }) {
   const { raw, close } = openDatabase(":memory:");
   const agents = new CoworkAgentRepo(raw);
@@ -53,6 +52,40 @@ function makeRuntime(opts?: {
 }
 
 describe("CoworkRuntime", () => {
+  test("a shared bot accepts an unambiguous name or the selected teammate's stable ID", () => {
+    const h = makeRuntime();
+    try {
+      h.agents.upsert({ id: "research", name: "Atlas" });
+      expect(addressedTeammate("@Atlas: Find the sources", h.agents.list())?.body).toBe("Find the sources");
+      h.agents.upsert({ id: "sales", name: "Atlas" });
+      expect(addressedTeammate("Atlas: Report", h.agents.list())).toBeUndefined();
+      expect(addressedTeammate("sales: Report", h.agents.list())?.agent.id).toBe("sales");
+      expect(addressedTeammate("sales: ", h.agents.list())).toBeUndefined();
+    } finally { h.close(); }
+  });
+  test("cancelling one queued voice turn preserves the other work in that chat", async () => {
+    let finish!: () => void;
+    const held = new Promise<void>((resolve) => { finish = resolve; });
+    const ran: string[] = [];
+    const h = makeRuntime({ runTurn: async (_agent, _prompt, _sid, turn) => {
+      ran.push(turn.mission);
+      await held;
+      expect(turn.signal.aborted).toBe(false);
+      return { finished: true, text: "Done" };
+    } });
+    const { id } = h.agents.upsert({ id: "atlas", name: "Atlas" });
+    const send = (body: string) => h.mailbox.send({ fromAgentId: HUMAN, toAgentId: id,
+      threadId: "cowork:atlas", body, payloadJson: JSON.stringify({ desktop: { id: body } }) });
+    send("first");
+    const voice = send("second");
+    const tick = h.runtime.tick();
+    expect(h.runtime.cancel("cowork:atlas", "second")).toEqual([]);
+    finish();
+    await tick;
+    expect(ran).toEqual(["first"]);
+    expect(coworkPayload(h.mailbox.get(voice.id)!).result?.stopped).toBe(true);
+    h.close();
+  });
   test("zero agents ⇒ silent no-op tick", async () => {
     const { runtime, events, close } = makeRuntime();
     try {

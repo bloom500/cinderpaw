@@ -50,8 +50,11 @@ pub(crate) async fn cinderpaw_send_message(
     infer_params: Option<CinderpawInferParams>,
     surface: Option<String>,
     bare: Option<bool>,
+    request_id: Option<String>,
+    replace_from: Option<String>,
+    voice: Option<serde_json::Value>,
 ) -> Result<String, String> {
-    let id = uuid::Uuid::new_v4().to_string();
+    let id = request_id.and_then(|value| uuid::Uuid::parse_str(&value).ok()).unwrap_or_else(uuid::Uuid::new_v4).to_string();
 
     // Send a metadata-only roster of installed skills (id, name, description,
     // version, tags) on every message. The agent sidecar renders this as a
@@ -74,6 +77,14 @@ pub(crate) async fn cinderpaw_send_message(
         "content": content,
         "sessionId": session_id,
     });
+    if session_id.starts_with("cowork:") {
+        if let Some(target) = replace_from {
+            payload["replaceFrom"] = serde_json::Value::String(target);
+        }
+        if let Some(recording) = voice {
+            payload["voice"] = recording;
+        }
+    }
     // Image attachments (data URLs) ride along so the sidecar can hand
     // real pixels to vision-capable models.
     if let Some(imgs) = images.filter(|v| !v.is_empty()) {
@@ -142,8 +153,12 @@ pub(crate) fn cinderpaw_agent_status(state: State<'_, AppState>) -> bool {
 pub(crate) async fn cinderpaw_stop_generation(
     state: State<'_, AppState>,
     session_id: Option<String>,
+    stop_request_id: Option<String>,
 ) -> Result<(), String> {
     let mut payload = serde_json::json!({ "type": "stop" });
+    if let Some(id) = stop_request_id {
+        payload["stopRequestId"] = serde_json::Value::String(id);
+    }
     if let Some(sid) = session_id {
         payload["sessionId"] = serde_json::Value::String(sid);
     }
@@ -594,6 +609,52 @@ pub(crate) async fn cinderpaw_cowork_team(
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[derive(Debug, Deserialize, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ChatSpendView {
+    limit_usd: Option<f64>,
+    used_usd: f64,
+}
+
+/// Read or change a chat's model spending limit. SQLite stays owned by the sidecar.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cinderpaw_chat_spend(
+    state: State<'_, AppState>,
+    session_id: String,
+    set_limit: bool,
+    limit_usd: Option<f64>,
+) -> Result<ChatSpendView, String> {
+    let unavailable = "Cinderpaw is still starting up. Try again in a moment.";
+    let sender = state.cinderpaw_agent_tx.lock().as_ref().cloned()
+        .ok_or_else(|| unavailable.to_string())?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let mut receiver = state.runtime.events_tx.subscribe();
+    let request = serde_json::json!({
+        "type": "chat_spend",
+        "id": id,
+        "sessionId": session_id,
+        "chatSpendAction": if set_limit { "set" } else { "get" },
+        "chatSpendLimitUsd": limit_usd,
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(8), async {
+        sender.send(request.to_string()).await.map_err(|_| unavailable.to_string())?;
+        loop {
+            let event = match receiver.recv().await {
+                Ok(event) => event,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(_) => return Err(unavailable.to_string()),
+            };
+            if event.event != "cinderpaw://agent-output" { continue; }
+            let Some(line) = event.payload.get("data").and_then(|value| value.as_str()) else { continue; };
+            let Ok(reply) = serde_json::from_str::<serde_json::Value>(line) else { continue; };
+            if reply["type"] != "chat_spend_result" || reply["id"].as_str() != Some(id.as_str()) { continue; }
+            if let Some(error) = reply["error"].as_str() { return Err(error.to_string()); }
+            return serde_json::from_value(reply).map_err(|_| "Could not read the chat spending limit.".to_string());
+        }
+    }).await.map_err(|_| "The spending limit took too long to load. Try again.".to_string())?
 }
 
 /// The workspace panel's one door to the artifact store.

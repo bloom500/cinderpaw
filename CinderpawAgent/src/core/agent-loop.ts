@@ -99,6 +99,8 @@ import {
 } from "../vendor/tool-call-repair/payload.ts";
 
 export interface AgentLoopConfig {
+  /** Current roster for the owner's interactive turn. Omitted on installs without Cowork. */
+  teamBrief?: () => string;
   /** Soft token cap passed to each completion. */
   maxTokensPerCall: number;
   /** Behavior when a budget is exhausted (mirrors InferenceConfig). */
@@ -1286,6 +1288,10 @@ export class AgentLoop {
       } catch {
         // A memory-store failure must never cost the user their turn.
       }
+    }
+    if (this.#config.teamBrief && isReplayableSession(sessionId) && !this.#profileFor(sessionId) && !isRestrictedSession(sessionId)) {
+      const team = this.#config.teamBrief();
+      if (team) here += "\n\n" + team;
     }
     memory.setSituation(here);
 
@@ -2585,6 +2591,11 @@ export class AgentLoop {
       if (profile && isOwnerOnlyTool(name)) return false;
       if (profile?.allowed) return profile.allowed.has(name);
       if (name === "suggest_team") return isReplayableSession(sessionId) && !!latestUserText && statesTeamNeed(latestUserText);
+      // Boot registers these only when a team exists. The first message's
+      // tool selection must not hide a teammate on a later turn in this chat.
+      if (name === "cowork_team" || name === "cowork_send" || name === "cowork_replies") {
+        return !profile && !isRestrictedSession(sessionId) && isReplayableSession(sessionId);
+      }
       // Drawer escape hatch: a tool the model explicitly pulled in is always
       // advertised, even if intent selection would have withheld it. Without
       // this the drawer and the intent router would fight, and the drawer —

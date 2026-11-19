@@ -46,6 +46,7 @@ const DEFAULT_CONFIG: AskUserBridgeConfig = {
 };
 
 interface Pending {
+  sessionId: string;
   resolve: (answers: AskUserAnswer[]) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout> | null;
@@ -58,6 +59,7 @@ interface Pending {
  * entry point — `ask()` consults the delegate first per sessionId.
  */
 export interface AskDelegate {
+  cancelSession?(sessionId: string, reason: string): void;
   canHandle(sessionId: string): boolean;
   ask(questions: AskUserQuestion[], sessionId: string): Promise<AskUserAnswer[]>;
 }
@@ -102,7 +104,7 @@ export class AskUserBridgeImpl implements AskUserBridge {
         reject(new AskUserTimeoutError(id, limit));
       }, limit);
 
-      this.#pending.set(id, { resolve, reject, timer, questions });
+      this.#pending.set(id, { resolve, reject, timer, questions, sessionId });
 
       this.#emit({ type: "ask_user", id, sessionId, questions });
     });
@@ -140,6 +142,15 @@ export class AskUserBridgeImpl implements AskUserBridge {
   cancelAll(reason: string = "agent shutdown"): void {
     for (const [id] of this.#pending) {
       this.cancel(id, reason);
+    }
+  }
+
+  cancelSession(sessionId: string, reason: string): void {
+    this.#delegate?.cancelSession?.(sessionId, reason);
+    for (const [id, request] of this.#pending) {
+      if (request.sessionId !== sessionId) continue;
+      this.cancel(id, reason);
+      this.#emit({ type: "ask_user_cancelled", sessionId, id, reason });
     }
   }
 

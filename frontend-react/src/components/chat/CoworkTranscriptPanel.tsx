@@ -29,6 +29,8 @@ import { cn } from '@/lib/utils';
 import { BubbleTail } from './BubbleTail';
 import { Markdown } from '@/lib/markdown';
 import { tauri } from '@/lib/tauri';
+import avatarAtlas from '@/assets/cowork-avatars.webp';
+import { useCoworkTeam } from '@/stores/coworkTeam';
 import {
   useCoworkTranscript,
   threadExchanges,
@@ -48,10 +50,23 @@ const AVATAR_COLORS = [
   'bg-cyan-500',
 ] as const;
 
-function avatarColor(id: string): string {
+// Left-to-right order in the avatar atlas.
+const AVATAR_CHARACTERS = ['scout', 'tally', 'pip', 'moss', 'rook', 'loom', 'quill', 'echo'];
+
+function avatarHash(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
-  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+  return Math.abs(h);
+}
+
+export function coworkCharacterSprite(id: string, imageUrl: string) {
+  const namedCharacter = AVATAR_CHARACTERS.indexOf(id.toLowerCase());
+  const slot = namedCharacter >= 0 ? namedCharacter : avatarHash(id) % AVATAR_CHARACTERS.length;
+  return {
+    backgroundImage: `url("${imageUrl}")`,
+    backgroundSize: `${AVATAR_CHARACTERS.length * 100}% 100%`,
+    backgroundPosition: `${slot * 100 / (AVATAR_CHARACTERS.length - 1)}% 0`,
+  };
 }
 
 /**
@@ -105,20 +120,24 @@ function Avatar({
   className?: string;
 }) {
   const label = displayName(id, name);
+  const teammate = useCoworkTeam((s) => s.roster.some((agent) => agent.id === id));
+  const hash = avatarHash(id);
   return (
     <span
       className={cn(
         'inline-flex shrink-0 items-center justify-center rounded-full',
         'font-semibold text-white select-none',
         size === 'head' ? 'size-full text-lg' : 'size-6 text-2xs',
-        avatarColor(id),
+        teammate ? 'bg-no-repeat' : AVATAR_COLORS[hash % AVATAR_COLORS.length],
         className,
       )}
+      style={teammate ? coworkCharacterSprite(id, avatarAtlas) : undefined}
+      aria-hidden={teammate || undefined}
       // The id stays reachable on hover: the name is for the person, the id is
       // what they would quote in a bug report.
       title={name ? `${name} (${id})` : id}
     >
-      {(label[0] ?? '?').toUpperCase()}
+      {!teammate && (label[0] ?? '?').toUpperCase()}
     </span>
   );
 }

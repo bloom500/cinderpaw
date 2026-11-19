@@ -94,6 +94,7 @@ export function firstLooks(steps: ToolActivity[]): Set<string> {
 
 /** No Streamdown plugins, for the same bundle reason as reasoning.tsx. */
 const NO_PLUGINS = {};
+const NO_FIRST_LOOKS: ReadonlySet<string> = new Set();
 
 function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
@@ -503,7 +504,7 @@ export function MessageChain({
     detail = count;
   }
   const failed = !streaming && steps.some((a) => a.status === 'failed');
-  const looks = given ?? firstLooks(steps);
+  const looks = streaming ? NO_FIRST_LOOKS : given ?? firstLooks(steps);
   // Folded, a first look stays in view at full width under the line, and the
   // other pictures ride on the line: the newest three, and how many more.
   const firstPictures = steps.flatMap((a) => (looks.has(a.id) && a.images?.length ? [a.images[0]!] : []));

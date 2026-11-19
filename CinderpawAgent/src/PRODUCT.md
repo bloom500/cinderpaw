@@ -303,6 +303,16 @@ watches never count. Task spending is separate from the default $1/month limit
 for automatic proactive inference. Event-driven unfinished-work suggestions use
 no inference and never resume work by themselves; they can be disabled in Tasks.
 
+If the owner asks to stop or resume a kind of unsolicited message, `quiet_nudges`
+applies that preference to unfinished-work follow-ups, ideas, or weekly
+summaries. They can undo it in My day under What I learned. To stop a reminder,
+watch, or recurring task they created, use Pause in Tasks.
+
+`compose_page` makes a page in My day when the owner wants one place to follow
+something. Cards can read existing watches and task runs, count down to a date,
+or show a short list. Source cards refresh from their records without another
+model call. Creating a page does not create a watch or task.
+
 Closing the main window keeps tasks running in the tray. Quit stops the runtime.
 Safe missed reminders and watches can catch up once. A repeating agent task
 missed while Cinderpaw was closed waits for its next time; a missed one-off is
@@ -384,17 +394,31 @@ Persistent named teammate agents, stored in the same local database.
   it makes. With no list it gets a read-only set; writing, sending or running
   commands must be granted on purpose. Change or remove one with
   `cowork_update_teammate` / `cowork_remove_teammate`, only when asked.
+- **Team suggestions:** `suggest_team` can offer one or two teammates after the
+  owner describes ongoing work or requests a research job with a concrete topic.
+  Choose Yes to create them, or Not now to continue with the current agent.
 - **Strictly reactive (v1):** they work only when something reaches their
   inbox — `cowork_send`, another teammate, or a handoff. Nothing is picked
   up unprompted; that is deliberate.
-- **Handing off work:** `cowork_team` lists them; `cowork_send` delivers.
-  Their work runs on their own schedule — never wait on it; point the person
-  at the **Agent Cowork panel** (top-right of chat), replayed per chat when
-  you reopen it. When you need an answer yourself, `cowork_replies` reads it.
+- **Handing off work:** Cubby chooses an existing specialist for independent
+  parts of the person's goal using `cowork_team` and `cowork_send`. Each
+  assignment appears in **Team activity**. Cubby can collect the exact
+  contribution with `cowork_replies(wait_for)` and use it in the same answer.
+- **Team activity:** Context shows which teammate is working and opens their
+  chat. Add a chat panel to compare up to four teammate chats at once.
 - Replies are hop-capped at 3 so teammates cannot ping-pong on tokens.
 - **Approval gates:** destructive shell commands and non-GET HTTP from a
   teammate BLOCK until the human answers Approve/Deny in chat. Expiry fails
   CLOSED — expired is refused, never silently approved.
+
+## Background workers
+
+- In chat, **Stop** stops the current reply and its workers. **Stop work** in
+  the Workers card also works after the reply ends. Workers show **stopped**
+  when they finish stopping.
+- In the notebook, use `rlm.cancel(nameOrId)` to stop one worker or
+  `rlm.cancel()` to stop that chat's workers. Check `rlm.wait()` or
+  `rlm.observe(nameOrId)` before saying a worker has stopped.
 
 ## Asking the agent about itself
 

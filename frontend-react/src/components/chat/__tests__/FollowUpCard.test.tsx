@@ -14,6 +14,13 @@ beforeEach(() => {
 });
 function Location() { return <output aria-label="Location">{useLocation().pathname}</output>; }
 
+it('opens the teammate who owns the unfinished work', () => {
+  useFollowUps.getState().receive({ id: 'run-a', sessionId: 'cowork:atlas', mission: 'Review suppliers' });
+  render(<MemoryRouter><FollowUpCard /><Location /></MemoryRouter>);
+  fireEvent.click(screen.getByRole('button', { name: /Open conversation/ }));
+  expect(screen.getByLabelText('Location')).toHaveTextContent('/teammates/atlas');
+});
+
 it('opens the original conversation without sending or scheduling work', () => {
   useFollowUps.getState().receive({ id: 'run-1', sessionId: 'chat-1', mission: 'Finish the launch checklist' });
   render(<MemoryRouter><FollowUpCard /><Location /></MemoryRouter>);

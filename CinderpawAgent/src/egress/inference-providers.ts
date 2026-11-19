@@ -456,7 +456,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       // `InferenceRequest.providerOnly` for the measurements that make this
       // mandatory rather than tidy. `allow_fallbacks: false` is the point: a
       // fallback is exactly the unpinned behaviour we are removing.
-      ...(req.providerOnly && req.providerOnly.length > 0
+      ...withChatPriceCeiling(req, req.providerOnly && req.providerOnly.length > 0
         ? { provider: { only: req.providerOnly, allow_fallbacks: false } }
         : {}),
       ...openAIReasoning(target, req),
@@ -605,7 +605,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       // rides in the same usage block, so a provider that caches perfectly
       // looked identical to one that does not cache at all.
       stream_options: { include_usage: true },
-      ...openRouterProviderPin(target),
+      ...withChatPriceCeiling(req, openRouterProviderPin(target)),
       ...openRouterUsageAccounting(target),
     };
     if (useNativeTools) {
@@ -1944,6 +1944,18 @@ function anthropicCacheControl(req: InferenceRequest): Record<string, unknown> {
  *  unknown ones, and none would honour it. */
 export function openRouterUsageAccounting(target: ModelTarget): Record<string, unknown> {
   return /openrouter\.ai/i.test(target.baseUrl ?? "") ? { usage: { include: true } } : {};
+}
+
+function withChatPriceCeiling(req: InferenceRequest, options: Record<string, unknown>): Record<string, unknown> {
+  if (!req.openRouterPriceCeiling) return options;
+  return {
+    provider: {
+      ...(options.provider as Record<string, unknown> | undefined),
+      require_parameters: true,
+      allow_fallbacks: false,
+      max_price: { ...req.openRouterPriceCeiling, request: 0, image: 0 },
+    },
+  };
 }
 
 export function openRouterProviderPin(target: ModelTarget): Record<string, unknown> {

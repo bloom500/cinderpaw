@@ -178,10 +178,10 @@ describe('the last card', () => {
   it('Start closes the wizard and the picked job waits in the chat box, unsent', () => {
     useModel.setState({ cloudModel: OPENAI });
     renderWizard();
-    fireEvent.click(screen.getByRole('button', { name: /coffee machines/ }));
+    fireEvent.click(screen.getByRole('button', { name: /take a stretch break/ }));
     fireEvent.click(screen.getByRole('button', { name: /Start with this job/ }));
     expect(useOnboarding.getState().active).toBe(false);
-    expect(useOnboarding.getState().firstTask).toBe('Find the five best-reviewed coffee machines and put them in a table');
+    expect(useOnboarding.getState().firstTask).toBe('Remind me in two minutes to take a stretch break');
   });
 });
 

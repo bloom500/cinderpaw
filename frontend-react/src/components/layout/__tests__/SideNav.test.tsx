@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { SideNav } from '../SideNav';
@@ -8,10 +8,29 @@ import { useConversations } from '@/stores/conversations';
 import { useAskUser } from '@/stores/askUser';
 import { useCoworkTeam } from '@/stores/coworkTeam';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
+import { useCinderpawStore } from '@/stores/cinderpaw';
 import { TeammateChatPage } from '@/pages/TeammateChatPage';
+import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
 import { tauri } from '@/lib/tauri';
+import { invoke } from '@tauri-apps/api/core';
+import { getCoworkChat, ingestCoworkChat } from '@/stores/coworkChat';
 
 const navigate = vi.fn();
+vi.mock('@tauri-apps/api/webview', () => ({
+  getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }),
+}));
+vi.mock('@tauri-apps/api/core', async (original) => {
+  const core = await original<typeof import('@tauri-apps/api/core')>();
+  return { ...core, invoke: vi.fn(core.invoke) };
+});
+vi.mock('@tauri-apps/api/event', async (original) => ({
+  ...await original<typeof import('@tauri-apps/api/event')>(),
+  listen: vi.fn().mockResolvedValue(() => {}),
+}));
+vi.mock('@/hooks/useCinderpaw', async (original) => ({
+  ...await original<typeof import('@/hooks/useCinderpaw')>(),
+  useCinderpawGlobal: vi.fn(),
+}));
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
   return { ...actual, useNavigate: () => navigate };
@@ -41,7 +60,6 @@ describe('SideNav', () => {
       id: 'one', fromAgentId: 'human', toAgentId: 'atlas', body: 'Find the report',
       reply: 'I found the report.', status: 'processed', createdAt: 1000, replyAt: 2000,
     }]);
-    const send = vi.spyOn(tauri.cinderpawAgent, 'coworkSendMessage').mockResolvedValue(undefined);
     render(<MemoryRouter initialEntries={['/chat']}><SideNav /><Routes>
       <Route path="/chat" element={null} />
       <Route path="/teammates/:id" element={<TeammateChatPage />} />
@@ -49,20 +67,164 @@ describe('SideNav', () => {
     const contacts = screen.getByRole('group', { name: 'Team' });
     const links = contacts.querySelectorAll('a');
     expect(links[0].textContent).toContain('Cinderpaw');
+    expect(within(links[1]).getByText('Research')).toBeTruthy();
     expect(links[1].textContent).toContain('I found the report.');
     expect(links[1].querySelector('time')?.dateTime).toBe(new Date(2000).toISOString());
     const user = userEvent.setup();
     await user.click(links[1]);
-    expect(screen.getByRole('heading', { name: 'Atlas' })).toBeTruthy();
-    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Thanks!');
+    const chat = within(screen.getByRole('region', { name: 'Chat with Atlas' }));
+    expect(chat.getByRole('heading', { name: 'Atlas' })).toBeTruthy();
+    expect(chat.getByText('Research')).toBeTruthy();
+    await user.type(chat.getByRole('textbox', { name: 'Message Atlas' }), 'Thanks!');
+    vi.mocked(invoke).mockImplementationOnce(async (_cmd, args) => {
+      const desktopId = (args as { requestId: string }).requestId;
+      ingestCoworkChat({ type: 'cowork_event', eventType: 'message_queued', agentId: 'atlas', title: 'Atlas',
+        threadId: 'cowork:atlas', data: { messageId: 'accepted', desktopId } });
+      return desktopId;
+    });
     await user.click(screen.getByRole('button', { name: 'Send' }));
-    expect(send).toHaveBeenCalledWith('atlas', 'Thanks!', 'cowork:atlas');
-    send.mockRestore();
+    expect(invoke).toHaveBeenCalledWith('cinderpaw_send_message', expect.objectContaining({ content: 'Thanks!', sessionId: 'cowork:atlas' }));
   });
 
   it('shows no team section with an empty roster', () => {
     mount();
     expect(screen.queryByRole('group', { name: 'Team' })).toBeNull();
+  });
+
+  it('restores the tool outcome, its timing and context from a delegated turn', () => {
+    const session = 'cowork:archivist';
+    const history = [{ id: 'delegated', threadId: 'original-chat', fromAgentId: 'human', toAgentId: 'archivist',
+      body: 'Check the page', status: 'processed', createdAt: 10, reply: 'The page was unavailable.',
+      receipt: { tools: [{ name: 'web_fetch', done: true, failed: true, startedAt: 12, endedAt: 18 }],
+        tokens: 12, contextLanes: [{ label: 'Tools', tokens: 48 }], memoryUsed: [{ kind: 'fact' as const, text: 'Preference' }] } }];
+    useCoworkTranscript.getState().hydrate(session, history);
+    const assistant = getCoworkChat(session).store.getState().messages.at(-1);
+    expect(assistant).toMatchObject({ content: 'The page was unavailable.', tokenCount: 12, contextLanes: history[0]!.receipt.contextLanes,
+      memoryUsed: history[0]!.receipt.memoryUsed, toolActivity: [{ tool: 'web_fetch', status: 'failed', startedAt: 12, endedAt: 18 }] });
+  });
+
+  it('restores a teammate draft in a new session and puts focus back in the composer', async () => {
+    const key = 'cinderpaw.draft.cowork:scout';
+    window.localStorage.removeItem(key);
+    window.sessionStorage.setItem(key, 'Draft from the previous build');
+    useCoworkTeam.setState({ roster: [{
+      id: 'scout', name: 'Scout', role: 'Research', instructions: '', tools: [], model: null, createdAt: 0,
+    }] });
+    const start = () => render(<MemoryRouter initialEntries={[{
+      pathname: '/teammates/scout', state: { focusTeammateComposer: true },
+    }]}><Routes><Route path="/teammates/:id" element={<TeammateChatPage />} /></Routes></MemoryRouter>);
+    try {
+      const first = start();
+      const composer = screen.getByRole('textbox', { name: 'Message Scout' }) as HTMLTextAreaElement;
+      expect(composer.value).toBe('Draft from the previous build');
+      expect(document.activeElement).toBe(composer);
+      await userEvent.type(composer, ' with notes');
+      first.unmount();
+      window.sessionStorage.removeItem(key);
+      start();
+      expect((screen.getByRole('textbox', { name: 'Message Scout' }) as HTMLTextAreaElement).value)
+        .toBe('Draft from the previous build with notes');
+    } finally {
+      window.localStorage.removeItem(key);
+      window.sessionStorage.removeItem(key);
+    }
+  });
+
+  it('leaves the reader on older messages until they choose to jump to the latest', async () => {
+    useCoworkTeam.setState({ roster: [{
+      id: 'reader', name: 'Reader', role: '', instructions: '', tools: [], model: null, createdAt: 0,
+    }] });
+    const row = (id: string) => ({ id, fromAgentId: 'human', toAgentId: 'reader',
+      body: id, status: 'processed', createdAt: 1000 });
+    useCoworkTranscript.getState().hydrate('cowork:reader', [row('first')]);
+    render(<MemoryRouter initialEntries={['/teammates/reader']}>
+      <Routes><Route path="/teammates/:id" element={<TeammateChatPage />} /></Routes>
+    </MemoryRouter>);
+    const transcript = screen.getByRole('region', { name: 'Conversation' });
+    const first = within(transcript).getByText('first').closest<HTMLElement>('[data-message-id]')!;
+    vi.spyOn(first, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 600, 1200));
+    const scrollTo = vi.fn();
+    transcript.scrollTo = scrollTo;
+    Object.defineProperties(transcript, { scrollHeight: { value: 1200 }, clientHeight: { value: 400 } });
+    fireEvent.wheel(transcript, { deltaY: -150 });
+    transcript.scrollTop = 150;
+    fireEvent.scroll(transcript);
+    act(() => useCoworkTranscript.getState().hydrate('cowork:reader', [row('first'), row('second')]));
+    expect(transcript.scrollTop).toBe(150);
+    await userEvent.click(await screen.findByRole('button', { name: /Jump to bottom|new/ }));
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: expect.any(Number) }));
+  });
+
+  it('opens up to four teammate chats and shows work from another thread', async () => {
+    useCoworkTeam.setState({ roster: ['Atlas', 'Bolt', 'Scout', 'Pip', 'Moss'].map((name) => ({
+      id: name.toLowerCase(), name, role: '', instructions: '', tools: [], model: null, createdAt: 0,
+    })) });
+    useCoworkTranscript.getState().ingest({
+      eventType: 'message_received', agentId: 'bolt', threadId: 'shared-task',
+      title: 'Working', data: { messageId: 'shared-message', fromAgentId: 'atlas', body: 'Review the brief' },
+    });
+    const wasReady = useCinderpawStore.getState().isReady;
+    const history = vi.spyOn(tauri.cinderpawAgent, 'coworkHistory').mockResolvedValue(undefined);
+    useCinderpawStore.setState({ isReady: true });
+    try {
+      render(<MemoryRouter initialEntries={['/teammates/atlas']}><Routes>
+        <Route path="/teammates/:id" element={<TeammateChatPage />} />
+      </Routes></MemoryRouter>);
+      const user = userEvent.setup();
+      const picker = () => screen.getByRole('combobox', { name: 'Add a chat panel' });
+      const atlas = within(screen.getByRole('region', { name: 'Chat with Atlas' }));
+      await user.type(atlas.getByRole('textbox'), 'Atlas draft');
+      for (const id of ['bolt', 'scout', 'pip']) await user.selectOptions(picker(), id);
+      expect(screen.getAllByRole('region', { name: /^Chat with / })).toHaveLength(4);
+      expect(screen.queryByRole('combobox', { name: 'Add a chat panel' })).toBeNull();
+      const bolt = within(screen.getByRole('region', { name: 'Chat with Bolt' }));
+      expect(bolt.getByRole('status', { name: 'Availability' }).textContent).toContain('Working · Review the brief');
+      expect(bolt.getByRole('status', { name: 'Generation progress' })).toBeTruthy();
+      expect(atlas.queryByRole('status', { name: 'Generation progress' })).toBeNull();
+      act(() => ingestCoworkChat({
+        type: 'tool_start', sessionId: 'cowork:bolt', coworkExchangeId: 'msg:shared-message',
+        id: 'worker-turn', callId: 'search-1', tool: 'web_search', args: { query: 'brief' },
+      }));
+      expect(bolt.getByTestId('activity-line').textContent).toContain('Searching the web');
+      expect(atlas.queryByTestId('activity-line')).toBeNull();
+      act(() => useCoworkTranscript.getState().ingest({
+        eventType: 'message_processed', agentId: 'bolt', threadId: 'shared-task',
+        title: 'Finished', data: { messageId: 'shared-message', output: 'Brief reviewed.' },
+      }));
+      expect(bolt.getByRole('status', { name: 'Availability' }).textContent).toBe('Available');
+      expect(bolt.queryByRole('status', { name: 'Generation progress' })).toBeNull();
+      expect(bolt.getByText('Review the brief')).toBeTruthy();
+      expect(bolt.getByText('Brief reviewed.')).toBeTruthy();
+      expect((atlas.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Atlas draft');
+      await user.click(bolt.getByRole('button', { name: 'Close Bolt panel' }));
+      expect(screen.queryByRole('region', { name: 'Chat with Bolt' })).toBeNull();
+      expect(picker()).toBeTruthy();
+    } finally {
+      useCinderpawStore.setState({ isReady: wasReady });
+      history.mockRestore();
+    }
+  });
+
+  it('loads saved teammates while the sidebar is collapsed at startup', async () => {
+    const wasReady = useCinderpawStore.getState().isReady;
+    const roster = [{ id: 'atlas', name: 'Atlas', role: 'Research', instructions: '', tools: [], model: null, createdAt: 0 }];
+    const team = vi.spyOn(tauri.cinderpawAgent, 'coworkTeam').mockResolvedValueOnce(undefined).mockImplementation(async () => {
+      useCoworkTeam.getState().receive({ roster });
+    });
+    useUI.setState({ navCollapsed: true });
+    useCoworkTeam.setState({ roster: [], loaded: false });
+    useCinderpawStore.setState({ isReady: true });
+    try {
+      render(<MemoryRouter><SideNav /><CinderpawGlobalMount /></MemoryRouter>);
+      expect(await screen.findByRole('button', { name: 'Expand navigation' })).toBeTruthy();
+      await vi.waitFor(() => expect(useCoworkTeam.getState().roster).toEqual(roster), { timeout: 2000 });
+      expect(team.mock.calls).toEqual([['list', undefined], ['list', undefined]]);
+      act(() => useUI.setState({ navCollapsed: false }));
+      expect(await screen.findByRole('link', { name: /Atlas/ })).toBeTruthy();
+    } finally {
+      useCinderpawStore.setState({ isReady: wasReady });
+      team.mockRestore();
+    }
   });
 
   it('is four rows, and no more', () => {

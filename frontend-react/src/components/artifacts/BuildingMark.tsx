@@ -73,8 +73,8 @@ export function BuildingMark({ size = 132 }: { size?: number }) {
         href={logoUrl}
         x={0} y={0} width={VIEW} height={VIEW}
         initial={false}
-        animate={{ opacity: showLogo ? 1 : 0, scale: showLogo ? [0.92, 1.04, 1] : 0.9 }}
-        transition={SLOW}
+        animate={{ opacity: showLogo ? 1 : 0, scale: showLogo ? 1 : 0.9 }}
+        transition={still ? { duration: 0 } : SLOW}
         style={{ transformOrigin: 'center' }}
       />
       {!still && (

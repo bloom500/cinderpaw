@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Check, Globe, Send, ShieldAlert, ShoppingCart, Trash2, X, type LucideIcon } from 'lucide-react';
 import { useChat } from '@/stores/chat';
 import type { CoworkExchange } from '@/stores/coworkTranscript';
@@ -42,6 +42,7 @@ export function ApprovalCard({ e }: { e: CoworkExchange }) {
   const [sending, setSending] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const [more, setMore] = useState(false);
+  const detailsId = useId();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!pending) return;
@@ -73,7 +74,7 @@ export function ApprovalCard({ e }: { e: CoworkExchange }) {
       <div className="flex items-start gap-3">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-bg-active text-brand"><Icon size={16} /></span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-text-primary">{who} wants your OK</span>
             {cls && (
               // Not through cn(): tailwind-merge takes `text-micro` for a colour
@@ -87,17 +88,18 @@ export function ApprovalCard({ e }: { e: CoworkExchange }) {
             )}
           </div>
           {details && (
-            <p className={cn('mt-1.5 whitespace-pre-wrap wrap-break-word font-mono text-xs text-text-secondary', long && !more && 'line-clamp-3')}>
+            <p id={detailsId} className={cn('mt-1.5 whitespace-pre-wrap wrap-break-word text-sm text-text-secondary', long && !more && 'line-clamp-3')}>
               {details}
             </p>
           )}
           {long && (
-            <button type="button" onClick={() => setMore((v) => !v)} className="mt-1 text-2xs text-text-muted hover:text-text-secondary">
+            <button type="button" onClick={() => setMore((v) => !v)} aria-controls={detailsId} aria-expanded={more}
+              className="mt-1 rounded-md px-1 py-1 text-xs text-text-secondary underline-offset-2 hover:underline">
               {more ? 'Show less' : 'Show more'}
             </button>
           )}
           {pending ? (
-            <div className="mt-3 flex items-center gap-2">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               {sending ? (
                 <span className="text-xs text-text-muted">Sending…</span>
               ) : requestId ? (
@@ -110,7 +112,7 @@ export function ApprovalCard({ e }: { e: CoworkExchange }) {
                     className="rounded-lg bg-brand px-3.5 py-1.5 text-sm font-medium text-brand-foreground hover:opacity-90">
                     Approve
                   </button>
-                  <span className="text-2xs text-text-disabled">No answer in 5 minutes counts as no.</span>
+                  <span className="text-xs text-text-muted">It expires if you don't answer.</span>
                 </>
               ) : null}
             </div>
@@ -120,7 +122,7 @@ export function ApprovalCard({ e }: { e: CoworkExchange }) {
               {outcome}
             </p>
           )}
-          {failed && <p className="mt-1.5 text-xs text-error">Not sent: {failed}</p>}
+          {failed && <p role="alert" className="mt-1.5 text-xs text-error">Not sent: {failed}</p>}
         </div>
       </div>
   );

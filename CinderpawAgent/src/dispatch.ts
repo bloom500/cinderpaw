@@ -18,7 +18,7 @@ import type { BootContext } from "./boot.ts";
 import { forgetEdge } from "./memory/forget.ts";
 import { cfgBool, cfgInt, cfgPath } from "./config.ts";
 import { runUnattended } from "./core/unattended.ts";
-import { withHumanReplies } from "./cowork/runtime.ts";
+import { coworkPayload, runtimeForRoster, visibleCoworkRows, withHumanReplies, type CoworkDesktopTurn } from "./cowork/runtime.ts";
 import { removeTeammate, teammateRepliesBrief } from "./tools/builtin/cowork.ts";
 import { parseDoneWhenFromMessage } from "./cron/done-when.ts";
 import { sha256Canonical } from "./rsi/infra/hash-chain.ts";
@@ -255,6 +255,23 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       case "ping":
         transport.send({ type: "pong" });
         break;
+      case "chat_spend": {
+        const { sessionId, id, chatSpendAction, chatSpendLimitUsd } = msg;
+        if (!id) break;
+        try {
+          if (!sessionId || sessionId.length > 128) throw new Error("Choose a chat first.");
+          if (chatSpendAction === "get") {
+            transport.send({ type: "chat_spend_result", id, ...ctx.chatSpend.get(sessionId) });
+          } else if (chatSpendAction === "set" && (chatSpendLimitUsd === null || typeof chatSpendLimitUsd === "number")) {
+            transport.send({ type: "chat_spend_result", id, ...ctx.chatSpend.setLimit(sessionId, chatSpendLimitUsd) });
+          } else {
+            throw new Error("Choose a valid spending limit.");
+          }
+        } catch (err) {
+          transport.send({ type: "chat_spend_result", id, error: err instanceof Error ? err.message : "Could not save the spending limit." });
+        }
+        break;
+      }
       case "connectors_reload": {
         // The host sends the rows WITH their secrets, read out of the vault.
         // Reading connectors.json ourselves stopped being enough the moment
@@ -1247,34 +1264,44 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         break;
       }
 
-      // Agent Cowork S6 — replay one thread from the mailbox. The panel is
-      // otherwise live-only: it accumulates events in memory and loses them on
-      // restart, so reopening a chat where teammates had worked showed nothing
-      // even though every row was still on disk. The thread id IS the chat's
-      // session id (see cowork_send), which is what ties a conversation in the
-      // sidebar to the teammates who worked in it.
+      // Main chats replay their own thread. A teammate chat also reads the
+      // messages they sent or received in other chats, keeping each origin.
       case "cowork_history": {
         const threadId = (msg.threadId ?? "").trim();
-        const rows = threadId ? coworkMailbox.byThread(threadId) : coworkMailbox.recent(50);
+        let rows;
+        if (threadId.startsWith("cowork:")) {
+          const agentId = threadId.slice("cowork:".length);
+          rows = [
+            ...coworkMailbox.inbox(agentId).reverse(),
+            ...coworkMailbox.outbox(agentId).reverse().filter((m) => m.toAgentId !== agentId),
+          ].sort((a, b) => a.createdAt - b.createdAt);
+        } else {
+          rows = threadId ? coworkMailbox.byThread(threadId) : coworkMailbox.recent(50);
+        }
         transport.send({
           type: "cowork_history_result",
           threadId,
           // A teammate's stored answer rides on the message it answers, so a
           // reopened chat shows the question WITH its answer.
-          messages: withHumanReplies(rows).map((m) => ({
-            ...(m.reply !== undefined ? { reply: m.reply, replyFailed: m.replyFailed, replyAt: m.replyAt } : {}),
-            id: m.id,
-            fromAgentId: m.fromAgentId,
-            toAgentId: m.toAgentId,
-            // Names resolved HERE, where the roster is: the stored row keeps
-            // ids, and a panel that had to guess would be back to rendering
-            // "demo-agent-atlas" at the person.
-            fromAgentName: coworkAgents.get(m.fromAgentId)?.name,
-            toAgentName: coworkAgents.get(m.toAgentId)?.name,
-            body: m.body,
-            status: m.status,
-            createdAt: m.createdAt,
-          })),
+          messages: withHumanReplies(visibleCoworkRows(rows)).map((m) => {
+            const { desktop, result } = coworkPayload(m);
+            return {
+              desktopId: desktop?.id,
+              requestImages: desktop?.images,
+              voice: desktop?.voice,
+              receipt: result,
+              ...(m.reply !== undefined ? { reply: m.reply, replyFailed: m.replyFailed, replyAt: m.replyAt } : {}),
+              id: m.id,
+              threadId: m.threadId,
+              fromAgentId: m.fromAgentId,
+              toAgentId: m.toAgentId,
+              fromAgentName: coworkAgents.get(m.fromAgentId)?.name,
+              toAgentName: coworkAgents.get(m.toAgentId)?.name,
+              body: m.body,
+              status: m.status,
+              createdAt: m.createdAt,
+            };
+          }),
         });
         break;
       }
@@ -1839,6 +1866,12 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       }
 
       case "stop": {
+        for (const sid of runtimeForRoster(coworkAgents)?.cancel(msg.sessionId, msg.stopRequestId) ?? []) {
+          agent.stop(sid);
+          askUser.cancelSession(sid, "Stopped by user");
+          ctx.childRegistries.get(sid)?.cancel();
+        }
+        if (msg.stopRequestId) break;
         // User pressed the Stop button. Abort the in-flight generation for
         // that session (or everything when no sessionId is given). The loop
         // aborts the router fetch + per-session tool signal and emits a
@@ -1847,9 +1880,11 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         if (msg.sessionId) {
           log(`stop requested for session ${msg.sessionId}`);
           agent.stop(msg.sessionId);
+          ctx.childRegistries.get(msg.sessionId)?.cancel();
         } else {
           log(`stop requested for all sessions`);
           agent.stopAll();
+          for (const workers of ctx.childRegistries.values()) workers.cancel();
         }
         break;
       }
@@ -1904,22 +1939,38 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           });
           return;
         }
-        // Writing in a conversation Cubby offered as unfinished = continued it.
         ctx.nudges.continued(sessionId);
-        ctx.nudges.seen(); // and the person is at the computer
-        // X1 fix: mood updates are only emitted when the proactive
-        // subsystem is enabled. Default = off, so the hot message path
-        // does no MoodEngine work.
+        ctx.nudges.seen();
         mood?.applyEvent("message_received");
-        // Inner-thoughts loop watches idle time. Reset the timer on every
-        // user message so the loop knows the user is actively chatting
-        // and waits for a quiet moment before surfacing its own thoughts.
-        // Cheap (single Date.now() write). Only meaningful when the
-        // proactive subsystem is on.
         innerThoughts?.noteUserActivity();
-        // Dream Cycle activity clock: an inbound user message means the
-        // user is here, so the idle trigger resets. Cheap single write.
         activityMonitor.recordActivity(Date.now());
+        if (sessionId.startsWith("cowork:")) {
+          const teammate = coworkAgents.get(sessionId.slice("cowork:".length));
+          if (!teammate) {
+            transport.send({ type: "error", id, message: "That teammate no longer exists." });
+            return;
+          }
+          const desktop: CoworkDesktopTurn = {
+            id, skillsContext: msg.skillsContext, inferParams: msg.inferParams, surface: msg.surface,
+            replaceFrom: msg.replaceFrom, voice: msg.voice,
+            images: msg.images?.filter((image) => typeof image === "string" && image.startsWith("data:image/")),
+          };
+          let replaces: string[] | undefined;
+          if (desktop.replaceFrom) {
+            const rows = visibleCoworkRows(coworkMailbox.byThread(sessionId)).filter((r) => r.fromAgentId === "human" && r.toAgentId === teammate.id);
+            const index = rows.findIndex((r) => r.id === desktop.replaceFrom);
+            if (index < 0 || runtimeForRoster(coworkAgents)?.isWorking(teammate.id) || rows.some((r) => r.status === "pending")) {
+              transport.send({ type: "error", id, message: "This turn can no longer be edited. Reopen the chat and try again." });
+              break;
+            }
+            replaces = rows.slice(index).map((r) => r.id);
+          }
+          const queued = coworkMailbox.send({ fromAgentId: "human", toAgentId: teammate.id, threadId: sessionId,
+            body: content, payloadJson: JSON.stringify({ coworkHops: 0, desktop, replaces }) });
+          transport.send({ type: "cowork_event", eventType: "message_queued", agentId: teammate.id, threadId: sessionId,
+            title: teammate.name, data: { messageId: queued.id, desktopId: id, fromAgentId: "human", body: content, images: desktop.images, replaces, voice: desktop.voice } });
+          break;
+        }
         // Memory Resume (current_task / last_active_at) is written from
         // AgentLoop's user-turn observer, wired in boot — connector surfaces
         // reach the agent without passing through here, and they are the user

@@ -22,15 +22,23 @@ import { useChat } from '@/stores/chat';
 import { useNotifications } from '@/stores/notifications';
 import { useConversations } from '@/stores/conversations';
 import { tauri } from '@/lib/tauri';
+import { saveVoiceBlobToDisk, transcribeVoiceBlob } from '@/hooks/useSendMessage';
 
 // Everything the composer mounts that talks to the OS, the microphone or a
 // call. None of it participates in the send path under test.
 vi.mock('@tauri-apps/api/webview', () => ({
   getCurrentWebview: () => ({ onDragDropEvent: () => Promise.resolve(() => {}) }),
 }));
-vi.mock('@/hooks/useVoiceRecorder', () => ({
-  useVoiceRecorder: () => ({ state: 'idle', blob: null, durationMs: 0, error: null, start: vi.fn(), stop: vi.fn(), reset: vi.fn() }),
+const recorder = vi.hoisted(() => ({
+  state: 'idle' as 'idle' | 'preview',
+  blob: null as Blob | null,
+  durationMs: 0,
+  error: null,
+  start: vi.fn(),
+  stop: vi.fn(),
+  reset: vi.fn(),
 }));
+vi.mock('@/hooks/useVoiceRecorder', () => ({ useVoiceRecorder: () => recorder }));
 // Inlined rather than shared through a const: vi.mock factories are hoisted
 // above every top-level binding in the file.
 const IDLE_CALL = {
@@ -60,6 +68,8 @@ beforeEach(() => {
   useNotifications.setState({ toasts: [] });
   useConversations.setState({ currentId: null });
   window.localStorage.clear();
+  recorder.state = 'idle';
+  recorder.blob = null;
 });
 
 async function type(text: string) {
@@ -69,6 +79,41 @@ async function type(text: string) {
 }
 
 describe('a send that fails', () => {
+  it('keeps unsent attachments with the chat they were added to', async () => {
+    useConversations.setState({ currentId: 'attachments-original' });
+    const view = render(<ChatInput sendFn={vi.fn()} />);
+    const box = screen.getByRole('textbox');
+    fireEvent.paste(box, { clipboardData: { items: [], getData: () => 'a'.repeat(1300) } });
+    await screen.findByText(/Pasted text/);
+    act(() => useConversations.setState({ currentId: 'attachments-other' }));
+    expect(screen.queryByText(/Pasted text/)).toBeNull();
+    view.unmount();
+    useConversations.setState({ currentId: 'attachments-original' });
+    render(<ChatInput sendFn={vi.fn()} />);
+    expect(await screen.findByText(/Pasted text/)).toBeTruthy();
+  });
+
+  it('keeps a recording available to play and retry when transcription fails', async () => {
+    recorder.state = 'preview';
+    recorder.blob = new Blob(['recording'], { type: 'audio/webm' });
+    recorder.durationMs = 1500;
+    vi.mocked(saveVoiceBlobToDisk).mockResolvedValue('recording.webm');
+    vi.mocked(transcribeVoiceBlob).mockRejectedValueOnce(new Error('stt-cloud-failed'));
+    const sendFn = vi.fn().mockResolvedValue(undefined);
+    render(<ChatInput sendFn={sendFn} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(useNotifications.getState().toasts.length).toBeGreaterThan(0));
+    expect(recorder.reset).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy();
+    expect(sendFn).not.toHaveBeenCalled();
+
+    vi.mocked(transcribeVoiceBlob).mockResolvedValueOnce('Ready to send');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(recorder.reset).toHaveBeenCalledOnce());
+    expect(sendFn).toHaveBeenCalledWith('Ready to send', undefined, expect.any(Object));
+  });
+
   it('gives the message back when nothing reached the transcript', async () => {
     const sendFn = vi.fn(async () => { throw new Error('cinderpaw-agent is not running'); });
     render(<ChatInput sendFn={sendFn} />);
@@ -83,6 +128,23 @@ describe('a send that fails', () => {
         useNotifications.getState().toasts.some((t) => t.kind === 'error' && t.title === 'Message not sent'),
       ).toBe(true),
     );
+  });
+
+  it('returns a failed send to its original chat after switching away', async () => {
+    useConversations.setState({ currentId: 'failed-original' });
+    let reject!: (error: Error) => void;
+    const sendFn = vi.fn(() => new Promise<void>((_, fail) => { reject = fail; }));
+    render(<ChatInput sendFn={sendFn} />);
+    await type('original draft');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(sendFn).toHaveBeenCalledOnce();
+
+    act(() => useConversations.setState({ currentId: 'failed-other' }));
+    const box = await type('other draft');
+    await act(async () => reject(new Error('Connection lost')));
+    expect(box.value).toBe('other draft');
+    act(() => useConversations.setState({ currentId: 'failed-original' }));
+    expect(box.value).toBe('original draft');
   });
 
   it('does NOT give it back when a bubble already carries it', async () => {
@@ -318,16 +380,18 @@ describe('a long paste', () => {
     fireEvent.paste(screen.getByRole('textbox'), { clipboardData: { getData: () => text, items: [] } });
 
   it('becomes a card instead of filling the box, and a click shows all of it', async () => {
+    useConversations.setState({ currentId: 'long-paste' });
     render(<ChatInput sendFn={vi.fn(async () => {})} />);
     const log = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join('\n');
     paste(log);
 
     expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('');
-    await userEvent.click(screen.getByRole('button', { name: 'Open Pasted text, 30 lines' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Open Pasted text, 30 lines' }));
     expect(screen.getByText(/line 30/)).toBeTruthy();
   });
 
   it('a short paste stays text', () => {
+    useConversations.setState({ currentId: 'short-paste' });
     render(<ChatInput sendFn={vi.fn(async () => {})} />);
     paste('just a sentence');
     expect(screen.queryByRole('button', { name: /^Open Pasted text/ })).toBeNull();

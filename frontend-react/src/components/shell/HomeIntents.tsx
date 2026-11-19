@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { ArrowUpRight, BarChart3, PenLine, Repeat, Search } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { tauri } from '@/lib/tauri';
@@ -7,6 +7,7 @@ import { signInWithChatGPT } from '@/lib/chatgptSignIn';
 import { useNotifications } from '@/stores/notifications';
 import { useConversations } from '@/stores/conversations';
 import { maybeWelcome } from '@/lib/welcome';
+import { useCoworkTeam } from '@/stores/coworkTeam';
 
 /**
  * The four intents, under the composer.
@@ -202,6 +203,45 @@ export function HomeIntents({ onPick }: { onPick: (text: string) => void }) {
           </button>
         ))}
       </div>
+      )}
+      {hasModel === true && !jobs && <TeamSetup onPick={onPick} />}
+    </div>
+  );
+}
+
+export function TeamSetup({ onPick }: { onPick: (text: string) => void }) {
+  const canSetUp = useCoworkTeam((s) => s.loaded && s.roster.length === 0);
+  const [open, setOpen] = useState(false);
+  const [work, setWork] = useState('');
+  const fieldId = useId();
+
+  if (!canSetUp) return null;
+
+  return (
+    <div className="mx-auto mt-2 max-w-md px-3 pb-2 text-center">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}
+        className="rounded-md px-2 py-1 text-xs text-text-secondary underline-offset-4 hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand">
+        Set up my team
+      </button>
+      {open && (
+        <form className="mt-2 space-y-2 rounded-xl border border-border-default bg-bg-surface p-3 text-left"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const needs = work.trim();
+            if (!needs) return;
+            setOpen(false);
+            setWork('');
+            onPick(`I want to use Cinderpaw for this work: ${needs}\nSuggest teammates who could help.`);
+          }}>
+          <label htmlFor={fieldId} className="block text-sm font-medium text-text-primary">What should your team help with?</label>
+          <div className="flex gap-2">
+            <input id={fieldId} required value={work} onChange={(event) => setWork(event.target.value)}
+              placeholder="e.g. Reply to customers" maxLength={300}
+              className="min-w-0 flex-1 rounded-lg border border-border-default bg-bg-elevated px-2 text-sm text-text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand" />
+            <button type="submit" disabled={!work.trim()} className="rounded-lg bg-brand px-3 py-2 text-xs font-medium text-brand-foreground disabled:opacity-50">Use in chat</button>
+          </div>
+          <p className="text-xs text-text-muted">You can review and send it in chat.</p>
+        </form>
       )}
     </div>
   );

@@ -27,6 +27,8 @@ export interface CoworkTurnOutcome {
   ok: boolean;
   /** The result summary / rejection reason, recorded for audit. */
   output: string;
+  stopped?: boolean;
+  forwardedId?: string;
 }
 
 export interface CoworkWorkerDeps {
@@ -80,7 +82,9 @@ export class CoworkWorkerLoop {
   async #drainMessages(agentId: string): Promise<number> {
     const pending = this.#deps.mailbox.inbox(agentId, "pending");
     let processed = 0;
-    for (const msg of pending) {
+    for (const msg of pending.reverse()) {
+      // Stop can cancel an item while the preceding turn is awaiting the model.
+      if (this.#deps.mailbox.get(msg.id)?.status !== "pending") continue;
       const fromName = msg.fromAgentId === "human" ? "Human" : this.#nameOf(msg.fromAgentId);
       const toName = this.#nameOf(agentId);
       const title = `${fromName} → ${toName}`;
@@ -98,6 +102,8 @@ export class CoworkWorkerLoop {
         this.#emit(msg, agentId, "message_processed", title, {
           messageId: msg.id,
           output: outcome.output,
+          stopped: outcome.stopped,
+          forwardedId: outcome.forwardedId,
         });
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
@@ -120,6 +126,7 @@ export class CoworkWorkerLoop {
       .filter((h) => h.toAgentId === agentId && h.status === "initiated");
     let handled = 0;
     for (const offer of open) {
+      if (this.#deps.handoffs.get(offer.id)?.status !== "initiated") continue;
       const fromName = this.#nameOf(offer.fromAgentId);
       const title = `${fromName} ⇢ ${this.#nameOf(agentId)}: ${offer.summary}`;
       this.#emit(offer, agentId, "handoff_received", title, {

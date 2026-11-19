@@ -3,6 +3,7 @@ import { InferenceSpendAuthority, type InferencePrice, type SpendTarget } from "
 import type { RunStore } from "./run-store.ts";
 import { quietHour, type Nudges } from "./nudges.ts";
 import { redactSecrets, stripPrivate } from "../memory/privacy.ts";
+import { signedTeamMessage } from "../cowork/owner-chat.ts";
 
 export interface FollowUp { id: string; sessionId: string; mission: string }
 const FOLLOWUPS_KEY = "proactive.followups.v1";
@@ -43,6 +44,8 @@ export class FollowUpLedger {
         AND r.stopped_because IN ('deadline', 'not_continuable', 'process_died', 'resume_cap', 'continuation_budget', 'no_progress')
         AND r.updated_at <= ? AND r.updated_at >= ?
         AND json_valid(r.delivery) AND json_extract(r.delivery, '$.kind') = 'desktop'
+        AND (substr(r.session_id, 1, 7) != 'cowork:' OR EXISTS
+             (SELECT 1 FROM cowork_agents a WHERE a.id = substr(r.session_id, 8)))
         AND NOT EXISTS (SELECT 1 FROM runs newer WHERE newer.session_id = r.session_id
           AND (newer.updated_at > r.updated_at OR (newer.updated_at = r.updated_at AND newer.rowid > r.rowid)))
       ORDER BY r.updated_at DESC LIMIT 20`).all(now - 10 * 60_000, now - 7 * 24 * HOUR) as Array<{ id: string; session_id: string; mission: string }>;
@@ -64,6 +67,8 @@ export function offerFollowUp(o: {
   nudges: Nudges;
   card: (followUp: FollowUp) => void;
   phone: ((text: string) => Promise<string | null>) | null;
+  teammate?: (id: string) => { id: string; name: string } | undefined;
+  keepForTeammate?: (teammate: { id: string; name: string }, content: string) => void;
   now?: number;
 }): Promise<string | null> {
   const now = o.now ?? Date.now();
@@ -71,11 +76,18 @@ export function offerFollowUp(o: {
   const followUp = o.ledger.take(now);
   if (!followUp) return Promise.resolve(null);
   const info = { kind: "followup", sourceId: followUp.id, sessionId: followUp.sessionId } as const;
-  if (o.from === "window") return o.nudges.send(info, () => { o.card(followUp); return "desktop"; }, now);
+  const teammate = followUp.sessionId.startsWith("cowork:") ? o.teammate?.(followUp.sessionId.slice(7)) : undefined;
+  const note = `I have unfinished work on “${followUp.mission.slice(0, 200)}”. Would you like me to continue?`;
+  const desktop = (rang: string | null) => {
+    if (teammate) o.keepForTeammate?.(teammate, note);
+    if (!rang) o.card(followUp);
+  };
+  if (o.from === "window") return o.nudges.send(info, () => { desktop(null); return "desktop"; }, now);
   const phone = o.phone;
   return o.nudges.route(info, {
-    phone: phone ? () => phone(`You left something unfinished: “${followUp.mission.slice(0, 200)}”\n\nOpen Cinderpaw to pick it up.`) : null,
-    desktop: (rang) => { if (!rang) o.card(followUp); },
+    phone: phone ? () => phone(teammate ? signedTeamMessage(teammate.name, note, teammate.id)
+      : `You left something unfinished: “${followUp.mission.slice(0, 200)}”\n\nOpen Cinderpaw to pick it up.`) : null,
+    desktop,
   }, now);
 }
 

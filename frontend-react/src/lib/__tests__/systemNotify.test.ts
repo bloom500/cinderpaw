@@ -34,4 +34,11 @@ describe('system notifications', () => {
     expect(preview('```ts\nx\n```\n\n## **Done**: three _files_ written\nmore')).toBe('Done: three files written');
     expect(preview('a'.repeat(200)).length).toBe(120);
   });
+
+  it('formats a teammate’s heading, list and source as a compact notification', () => {
+    const reply = '**Avantaje WAL:**\n\n- Cititorii pot continua.\n- Vezi [SQLite](https://sqlite.org/wal.html) și `SQLITE_BUSY`.';
+    expect(preview(reply, 160, true)).toBe('Avantaje WAL: Cititorii pot continua. Vezi SQLite și SQLITE_BUSY.');
+    expect(preview('~~~ts\nconst hidden = true;\n~~~', 160, true)).toBe('');
+    expect(preview(reply.repeat(12), 160, true)).toHaveLength(160);
+  });
 });

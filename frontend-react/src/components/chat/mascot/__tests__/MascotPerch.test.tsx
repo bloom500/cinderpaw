@@ -114,7 +114,7 @@ describe('MascotPerch', () => {
   it('can be picked up and carried, and that is not a poke', () => {
     render(<MascotPerch baseState="idle" />);
     const perch = creature().parentElement!;
-    fireEvent.pointerDown(creature(), { pointerId: 1, clientX: 0, clientY: 0 });
+    expect(fireEvent.pointerDown(creature(), { pointerId: 1, clientX: 0, clientY: 0, cancelable: true })).toBe(false);
     fireEvent.pointerMove(creature(), { pointerId: 1, clientX: 30, clientY: -40 });
     // Held by the scruff, which outranks every other state including a turn in
     // flight, and the perch has actually moved with the pointer.

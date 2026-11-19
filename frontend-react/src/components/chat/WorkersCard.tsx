@@ -15,10 +15,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Ban, Check, ChevronDown, ChevronRight, Copy, Loader2, Network, X } from 'lucide-react';
-import { useChat } from '@/stores/chat';
+import { useChatView as useChat } from '@/stores/chatScope';
 import { displayName, useRlmWorkers, workersFor, type RlmWorker } from '@/stores/rlmWorkers';
 import { useContextVisible } from '@/components/artifacts/ContextColumn';
 import { copyText } from '@/lib/clipboard';
+import { stopActiveStream } from '@/lib/streamControl';
 
 function elapsed(w: RlmWorker, now: number): string {
   const s = Math.max(0, Math.round(((w.endedAt ?? now) - w.startedAt) / 1000));
@@ -166,6 +167,12 @@ export function WorkersCard({ inPanel = false }: { inPanel?: boolean } = {}) {
             </span>
           </button>
           <span className="flex-1" />
+          {running > 0 && (
+            <button type="button" onClick={() => void stopActiveStream(sessionId)}
+              className="shrink-0 rounded px-1 py-0.5 text-xs text-text-secondary hover:text-text-primary focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-brand">
+              Stop work
+            </button>
+          )}
           {settled > 0 && (
             <button
               type="button"

@@ -314,25 +314,26 @@ export class ChildRegistry {
     let settled = false;
     const p = this.run(task, opts.allowedTools, push, id, ac.signal)
       .then((r) => {
-        entry.status = r.status === "completed" ? "completed" : "error";
+        const status = ac.signal.aborted ? "cancelled" : r.status;
+        entry.status = status === "completed" ? "completed" : "error";
         entry.answer = r.answer;
         entry.toolCalls = r.toolCalls;
         entry.durationMs = r.durationMs;
-        if (r.status !== "completed") entry.error = r.status;
+        if (status !== "completed") entry.error = status;
         // `cancelled` is reported as itself rather than folded into `error`:
         // a worker the user stopped is not a worker that broke, and a UI that
         // paints the two the same teaches people to ignore red.
         emit(
-          r.status === "completed" ? "completed" : r.status === "cancelled" ? "cancelled" : "error",
-          r.status === "completed" ? `${r.toolCalls} tool call(s)` : r.status,
+          status === "completed" ? "completed" : status === "cancelled" ? "cancelled" : "error",
+          status === "completed" ? `${r.toolCalls} tool call(s)` : status,
           r.durationMs,
           r.answer,
         );
       })
       .catch((e) => {
         entry.status = "error";
-        entry.error = e instanceof Error ? e.message : String(e);
-        emit("error", entry.error, Date.now() - startedAt);
+        entry.error = ac.signal.aborted ? "cancelled" : e instanceof Error ? e.message : String(e);
+        emit(ac.signal.aborted ? "cancelled" : "error", entry.error, Date.now() - startedAt);
       })
       .finally(() => {
         // The parent's signal outlives this child; leaving the listener on it
@@ -459,6 +460,19 @@ export class ChildRegistry {
     // Each trail row copied too: `[...arr]` is a new array of the SAME row
     // objects, so a caller could still edit the registry's own records.
     return { ...entry, trail: (entry.trail ?? []).map((t) => ({ ...t })) };
+  }
+
+  /** Request cancellation while retaining the worker and its final status. */
+  cancel(target?: string): number {
+    const ids = target === undefined ? this.#aborts.keys() : [this.observe(target).rlm_child_id];
+    let count = 0;
+    for (const id of ids) {
+      const controller = this.#aborts.get(id);
+      if (!controller || controller.signal.aborted || this.#entries.get(id)?.status !== "running") continue;
+      controller.abort("worker stopped");
+      count++;
+    }
+    return count;
   }
 
   /** Accepts either an id or a name, as upstream's `delete_subagent` does. */

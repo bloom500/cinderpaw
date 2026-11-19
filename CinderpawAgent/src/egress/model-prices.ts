@@ -13,6 +13,7 @@
  * charges the dear price, so a limit still holds.
  */
 import type { InferencePrice, SpendTarget } from "./inference-spend-authority.ts";
+import { isOpenRouterChatTarget } from "./chat-spend.ts";
 
 const CATALOG_URL = "https://openrouter.ai/api/v1/models";
 const MAX_AGE_MS = 24 * 3_600_000;
@@ -29,7 +30,9 @@ const VENDOR_BY_HOST: Record<string, string> = {
 };
 
 let prices = new Map<string, InferencePrice>();
+let exactChatPrices = new Map<string, InferencePrice>();
 let fetchedAt = 0;
+let pendingRefresh: Promise<void> | undefined;
 
 const clean = (id: string) => id.trim().toLowerCase().replace(/[._]/g, "-").replace(/-\d{8}$/, "");
 
@@ -46,29 +49,48 @@ export function loadModelPrices(body: unknown, at = Date.now()): number {
   const rows = (body as { data?: unknown })?.data;
   if (!Array.isArray(rows)) return 0;
   const next = new Map<string, InferencePrice>();
+  const exact = new Map<string, InferencePrice>();
   for (const row of rows as Array<{ id?: unknown; pricing?: Record<string, unknown> }>) {
     const p = row?.pricing;
     const input = Number(p?.prompt), output = Number(p?.completion);
     if (typeof row?.id !== "string" || !(input >= 0) || !(output >= 0)) continue;
     const read = Number(p?.input_cache_read), write = Number(p?.input_cache_write);
-    next.set(clean(row.id), {
+    const price = {
       inputPerMillionUsd: input * 1e6,
       outputPerMillionUsd: output * 1e6,
       ...(read >= 0 ? { cacheReadPerMillionUsd: read * 1e6 } : {}),
       ...(write >= 0 ? { cacheWritePerMillionUsd: write * 1e6 } : {}),
-    });
+    };
+    next.set(clean(row.id), price);
+    if (p?.prompt != null && p.prompt !== "" && p?.completion != null && p.completion !== "" &&
+      Number.isFinite(input) && Number.isFinite(output) && Number(p?.request ?? 0) === 0 &&
+      !row.id.startsWith("openrouter/")) {
+      exact.set(row.id, {
+        ...price,
+        // Reserve up to the longest provider cache-write tier (2× input).
+        cacheWritePerMillionUsd: Math.max(price.cacheWritePerMillionUsd ?? 0, price.inputPerMillionUsd * 2),
+      });
+    }
   }
-  if (next.size) { prices = next; fetchedAt = at; }
+  if (next.size) { prices = next; exactChatPrices = exact; fetchedAt = at; }
   return next.size;
 }
 
-/** At most once a day, and only when a scheduled agent task is about to run. */
+/** The catalog is shared by scheduled tasks and chats with spending limits. */
 export async function refreshModelPrices(fetchImpl: typeof fetch = fetch): Promise<void> {
   if (Date.now() - fetchedAt < MAX_AGE_MS) return;
-  try {
-    const res = await fetchImpl(CATALOG_URL, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
-    if (res.ok) loadModelPrices(await res.json());
-  } catch { /* offline: the base resolver's dear price still holds the limit */ }
+  pendingRefresh ??= (async () => {
+    try {
+      const res = await fetchImpl(CATALOG_URL, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+      if (res.ok) loadModelPrices(await res.json());
+    } catch { /* An unavailable catalog must never make a capped chat spend. */ }
+  })().finally(() => { pendingRefresh = undefined; });
+  await pendingRefresh;
+}
+
+export function chatModelPrice(target: SpendTarget): InferencePrice | null {
+  if (!isOpenRouterChatTarget(target.baseUrl) || Date.now() - fetchedAt >= MAX_AGE_MS) return null;
+  return exactChatPrices.get(target.model) ?? null;
 }
 
 export function withModelPrices(base: (t: SpendTarget) => InferencePrice | null): (t: SpendTarget) => InferencePrice | null {
