@@ -141,9 +141,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
   const queuedRef = useRef(queued);
   queuedRef.current = queued;
   const liveDraft = useRef<{ id: string; sessionId: string } | null>(null);
-  // The live text, readable from a cleanup that must not re-run on every
-  // keystroke. Assigned during render on purpose: a ref is not state, and this
-  // one only ever mirrors what was just rendered.
+  // Keep the latest draft available to the cleanup between renders.
   const textRef = useRef(text);
   textRef.current = text;
   // Text a caller typed in for the person (Teach, an artifact question). Those
@@ -166,7 +164,9 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     const typed = prefill.current;
     prefill.current = null;
     setQueued(null);
-    setText(typed ?? readDraft(id));
+    const restored = typed ?? readDraft(id);
+    textRef.current = restored;
+    setText(restored);
     return () => {
       writeDraft(id, [queuedRef.current, textRef.current].filter(Boolean).join('\n'));
       queuedRef.current = null;

@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createRef } from 'react';
+import { createRef, StrictMode } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChatInput, DRAFT_KEY } from '../ChatInput';
@@ -353,6 +353,12 @@ describe('a pasted link', () => {
 });
 
 describe('a draft', () => {
+  it('keeps the saved draft when the composer is remounted before its first edit', async () => {
+    useConversations.setState({ currentId: 'reopened' });
+    localStorage.setItem(DRAFT_KEY('reopened'), 'Still writing');
+    render(<StrictMode><ChatInput sendFn={vi.fn()} /></StrictMode>);
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('Still writing'));
+  });
   it('stays with its conversation across a switch', async () => {
     useConversations.setState({ currentId: 'c1' });
     render(<ChatInput sendFn={vi.fn()} />);
