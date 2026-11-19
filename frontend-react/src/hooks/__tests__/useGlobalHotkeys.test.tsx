@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { useGlobalHotkeys } from '../useGlobalHotkeys';
+import { useOnboarding } from '@/stores/onboarding';
 import { useConversations } from '@/stores/conversations';
 import { useArtifacts } from '@/stores/artifacts';
 import { useBrowser } from '@/stores/browser';
@@ -13,6 +14,18 @@ function Harness() {
 }
 
 describe('useGlobalHotkeys', () => {
+  it('holds the new-chat shortcut while setup owns the window', () => {
+    const newChat = vi.spyOn(useConversations.getState(), 'newChat').mockImplementation(() => {});
+    try {
+      const { getByLabelText } = render(<MemoryRouter><Harness /></MemoryRouter>);
+      useOnboarding.setState({ active: true });
+      fireEvent.keyDown(getByLabelText('composer'), { key: 'n', ctrlKey: true });
+      expect(newChat).not.toHaveBeenCalled();
+    } finally {
+      useOnboarding.setState({ active: false });
+      newChat.mockRestore();
+    }
+  });
   // The composer has the focus nearly all the time; a new-chat shortcut that
   // only works outside it does not work.
   it('starts a new chat on Ctrl+N even while typing in the composer', () => {

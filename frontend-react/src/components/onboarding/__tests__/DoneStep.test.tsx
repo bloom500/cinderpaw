@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
 import { OnboardingWizard } from '../OnboardingWizard';
 import { tauri } from '@/lib/tauri';
 import { useOnboarding } from '@/stores/onboarding';
@@ -37,6 +38,23 @@ beforeEach(() => {
 const renderWizard = () => render(<MemoryRouter><OnboardingWizard /></MemoryRouter>);
 
 describe('the welcome card', () => {
+  it('keeps keyboard focus on setup and returns it to the film button after fullscreen', async () => {
+    const user = userEvent.setup();
+    useOnboarding.setState({ step: 0 });
+    render(<MemoryRouter><button>Behind setup</button><OnboardingWizard /></MemoryRouter>);
+    const welcome = screen.getByRole('dialog');
+    expect(welcome).toContainElement(document.activeElement as HTMLElement);
+    const full = within(welcome).getByRole('button', { name: /Full screen/ });
+    await user.click(full);
+    const film = screen.getByRole('dialog', { name: 'Your AI team, full screen' });
+    await user.tab();
+    expect(film).toContainElement(document.activeElement as HTMLElement);
+    await user.keyboard('{Escape}');
+    await vi.waitFor(() => expect(full).toHaveFocus());
+    screen.getByRole('button', { name: 'Skip onboarding' }).focus();
+    await user.tab();
+    expect(welcome).toContainElement(document.activeElement as HTMLElement);
+  });
   it('plays the film without sound, and one button turns the music on', () => {
     useOnboarding.setState({ step: 0 });
     const { container } = renderWizard();
@@ -60,6 +78,15 @@ describe('the welcome card', () => {
     expect(big.querySelector('video')).toHaveAttribute('controls');
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: 'Your AI team, full screen' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the film paused across fullscreen and Escape', () => {
+    useOnboarding.setState({ step: 0 });
+    renderWizard();
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+    fireEvent.click(screen.getByRole('button', { name: /Full screen/ }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(play).not.toHaveBeenCalled();
   });
 
   // His report, 31 Oct: pressing the player's full-screen button again did not get him out.
@@ -139,6 +166,7 @@ describe('the last card', () => {
     renderWizard();
     expect(screen.getByText('Pick a model so I can answer you.')).toBeInTheDocument();
     expect(screen.queryByText(/What should/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /My parcel was due yesterday/ })).not.toBeInTheDocument();
     // Alpha is said once, here, with where to report a problem.
     expect(screen.getByText(/still in alpha/)).toHaveTextContent('Report a bug');
     fireEvent.click(screen.getByRole('button', { name: /Choose a model/ }));

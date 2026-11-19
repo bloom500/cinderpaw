@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { runCommand } from '@/lib/commands';
+import { useOnboarding } from '@/stores/onboarding';
 import { setUiZoom, uiZoom, zoomKey } from '@/lib/uiZoom';
 
 /** Close the browser panel if it is open, else the artifacts panel. True if one closed. */
@@ -45,6 +46,7 @@ export function useGlobalHotkeys() {
       // From anywhere, the composer included: making the text bigger is never
       // something a text field means by Ctrl +.
       if (zoomKey(e)) { e.preventDefault(); return; }
+      if (useOnboarding.getState().active) return;
 
       const target = e.target as HTMLElement | null;
       const inEditable =

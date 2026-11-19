@@ -17,6 +17,7 @@
 
 import { useEffect, useRef, useState, Fragment, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { FocusScope } from '@radix-ui/react-focus-scope';
 import { useNavigate } from 'react-router-dom';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -99,9 +100,10 @@ export function OnboardingWizard() {
   return (
     <AnimatePresence>
     {active && (
+    <FocusScope key="onboarding" asChild trapped loop>
     <motion.div
-      key="onboarding"
       ref={scroller}
+      tabIndex={-1}
       className="fixed inset-0 z-50 overflow-y-auto bg-bg-primary"
       role="dialog"
       aria-modal="true"
@@ -158,7 +160,9 @@ export function OnboardingWizard() {
                   // route behind the overlay — the provider step can leave the router
                   // elsewhere (e.g. a deep-link to /models). Finish closes the wizard.
                   onClick={() => {
-                    if (useOnboarding.getState().firstTask) {
+                    if (!brainReady) {
+                      useOnboarding.getState().setFirstTask(null);
+                    } else if (firstTask) {
                       useNotifications.getState().push('info', "Your job is in the chat box. Press Enter when you're ready.");
                     }
                     navigate('/chat');
@@ -167,7 +171,7 @@ export function OnboardingWizard() {
                   // With nothing to answer, "Choose a model" is the one orange action on the card.
                   className={brainReady ? PRIMARY_BUTTON : cn(SECONDARY_BUTTON, 'inline-flex items-center gap-2 rounded-2xl px-5 py-3 text-base')}
                 >
-                  {firstTask ? 'Start with this job' : 'Start exploring'} <ArrowRight size={16} />
+                  {brainReady && firstTask ? 'Start with this job' : 'Start exploring'} <ArrowRight size={16} />
                 </button>
               ) : (
                 <button type="button" onClick={next} disabled={onBrain && !brainReady} className={PRIMARY_BUTTON}>
@@ -211,6 +215,7 @@ export function OnboardingWizard() {
         </div>
       </div>
     </motion.div>
+    </FocusScope>
     )}
     </AnimatePresence>
   );
@@ -289,30 +294,36 @@ function WelcomeStep() {
  * and the poster stays if neither can play. Full screen opens it over the
  * whole screen (Darius, 31 Oct), from where it was.
  */
+type FilmPlayback = { at: number; paused: boolean; muted: boolean };
+
 function TeamFilm() {
   const still = usePrefersReducedMotion();
   const ref = useRef<HTMLVideoElement>(null);
   const [sound, setSound] = useState(false);
   // A film you cannot pause is one you have to sit through (Darius, 14 Nov).
-  const [paused, setPaused] = useState(false);
+  const [paused, setPaused] = useState(true);
   const togglePause = () => {
     const v = ref.current;
     if (!v) return;
     if (v.paused) void v.play()?.catch(() => {});
     else v.pause();
   };
-  const [big, setBig] = useState<number | null>(null);
+  const [big, setBig] = useState<FilmPlayback | null>(null);
   const openBig = () => {
     const v = ref.current;
-    v?.pause();
-    setBig(v?.currentTime ?? 0);
+    if (!v) return;
+    setBig({ at: v.currentTime, paused: v.paused, muted: v.muted });
+    v.pause();
   };
-  const closeBig = (at: number) => {
+  const closeBig = ({ at, paused, muted }: FilmPlayback) => {
     setBig(null);
     const v = ref.current;
     if (!v) return;
     v.currentTime = at;
-    if (!still) void v.play()?.catch(() => {});
+    v.muted = muted;
+    setSound(!muted);
+    setPaused(paused);
+    if (!paused) void v.play()?.catch(() => {});
   };
   useEffect(() => {
     const v = ref.current;
@@ -380,7 +391,7 @@ function TeamFilm() {
       >
         <Maximize2 size={16} /> Full screen
       </button>
-      {big !== null && <FilmFullScreen from={big} sound={sound} onClose={closeBig} />}
+      {big && <FilmFullScreen playback={big} onClose={closeBig} />}
     </div>
   );
 }
@@ -396,15 +407,18 @@ function TeamFilm() {
  *  what it took. Module-wide: React's dev double-mount must not lose it. */
 let filmMadeWindowFull = false;
 
-function FilmFullScreen({ from, sound, onClose }: { from: number; sound: boolean; onClose: (at: number) => void }) {
+function FilmFullScreen({ playback, onClose }: { playback: FilmPlayback; onClose: (state: FilmPlayback) => void }) {
   const ref = useRef<HTMLVideoElement>(null);
-  const close = () => onClose(ref.current?.currentTime ?? from);
+  const close = () => {
+    const v = ref.current;
+    onClose(v ? { at: v.currentTime, paused: v.paused, muted: v.muted } : playback);
+  };
   useEffect(() => {
     const v = ref.current;
     if (v) {
-      v.currentTime = from;
-      v.muted = !sound;
-      void v.play()?.catch(() => {});
+      v.currentTime = playback.at;
+      v.muted = playback.muted;
+      if (!playback.paused) void v.play()?.catch(() => {});
     }
     void (async () => {
       try {
@@ -435,7 +449,8 @@ function FilmFullScreen({ from, sound, onClose }: { from: number; sound: boolean
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return createPortal(
-    <div role="dialog" aria-label="Your AI team, full screen" className="fixed inset-0 z-[300] flex items-center justify-center bg-black">
+    <FocusScope asChild trapped loop>
+    <div role="dialog" aria-modal="true" aria-label="Your AI team, full screen" className="fixed inset-0 z-[300] flex items-center justify-center bg-black">
       <video ref={ref} className="h-full w-full object-contain" poster={filmPoster} controls playsInline loop>
         <source src={filmWebm} type="video/webm" />
         <source src={filmMp4} type="video/mp4" />
@@ -447,7 +462,8 @@ function FilmFullScreen({ from, sound, onClose }: { from: number; sound: boolean
       >
         <Minimize2 size={16} /> Exit full screen
       </button>
-    </div>,
+    </div>
+    </FocusScope>,
     document.body,
   );
 }
@@ -1147,7 +1163,7 @@ function DoneStep() {
         </label>
       </div>
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+      {ready && <div className="mt-6 grid gap-3 sm:grid-cols-2">
         {FIRST_TASKS.map(({ icon: Icon, team, task }) => {
           const picked = firstTask === task;
           return (
@@ -1186,7 +1202,7 @@ function DoneStep() {
             </motion.button>
           );
         })}
-      </div>
+      </div>}
 
       {/* Alpha, said once, here: it used to be a card that came back every
           week over whatever the person was doing (Darius, 20 Oct). One quiet
