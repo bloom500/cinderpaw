@@ -61,18 +61,16 @@ const PRIMARY_BUTTON =
 
 /**
  * Something will answer the first message: a model picked or loaded, a key
- * saved, a download done or on its way, or a brain found on this machine that
+ * saved, or a brain found on this machine that
  * passed a real completion. The brain card's Continue waits for this, so a
  * stranger cannot click through to a chat that answers "no model".
  */
 function useBrainReady(): boolean {
   const cloudModel = useModel((s) => s.cloudModel);
   const loaded = useModel((s) => s.loaded);
-  const downloading = useDownload((s) => !!s.active);
-  const downloaded = useDownload((s) => s.done);
   const byok = useSettings((s) => s.byok);
   const verified = useOnboarding((s) => s.brainVerified);
-  return !!cloudModel || !!loaded || downloaded || downloading || verified || byok.some((p) => p.enabled && p.has_api_key);
+  return !!cloudModel || !!loaded || verified || byok.some((p) => p.enabled && p.has_api_key);
 }
 
 export function OnboardingWizard() {
@@ -194,7 +192,7 @@ export function OnboardingWizard() {
                       read as if the click had not counted (4 Nov tour). */}
                   {/* The key box appears only after a provider is picked (7 Nov). */}
                   {brainWay === 'key' ? 'Pick your provider above, then paste your key, or'
-                    : brainWay === 'local' ? 'Press Download above, or'
+                    : brainWay === 'local' ? 'Download and start a local model above, or'
                     : 'Pick one way above so I can answer you, or'}{' '}
                   <button type="button" onClick={next} className="underline underline-offset-4 hover:text-text-primary">skip for now</button>.
                 </span>
@@ -782,23 +780,42 @@ function LocalBranch() {
   const model = (rec && TIER_MODELS[rec.sizeClass]) ?? TIER_MODELS['3–4B'];
 
   const active = useDownload((s) => s.active);
-  const done = useDownload((s) => s.done);
+  const completed = useDownload((s) => s.completedFile);
   const error = useDownload((s) => s.error);
   const start = useDownload((s) => s.start);
-  const isThisDownloading = active?.repoId === model.repoId;
+  const localModel = useModel((s) => s.loaded);
+  const isLoading = useModel((s) => s.isLoading);
+  const [loadError, setLoadError] = useState('');
+  // Detection can finish after the download starts and change the recommendation.
+  // Offer the actual curated file the person fetched, using the host's path.
+  const downloadedModel = completed && Object.values(TIER_MODELS).find(
+    (tier) => tier.repoId === completed.repoId && tier.filename === completed.filename,
+  );
+  const startLocal = async (path: string) => {
+    setLoadError('');
+    try {
+      await useModel.getState().load(path);
+    } catch (err) {
+      setLoadError(String(err));
+    }
+  };
 
   return (
     <div className="rounded-lg border border-border-subtle bg-bg-primary/40 p-4 space-y-3">
       {rec && <p className="text-sm text-text-secondary leading-relaxed">{rec.rationale}</p>}
 
-      {done ? (
+      {completed && downloadedModel && localModel?.path === completed.path ? (
         <p className="flex items-center gap-2 text-sm text-success">
-          <Check size={16} /> {model.label} is ready, I'll use it automatically.
+          <Check size={16} /> {downloadedModel.label} is ready to answer.
         </p>
-      ) : isThisDownloading ? (
+      ) : completed && downloadedModel ? (
+        <button type="button" disabled={isLoading} onClick={() => void startLocal(completed.path)} className={PRIMARY_BUTTON}>
+          {isLoading ? 'Starting local model…' : `Start local model · ${downloadedModel.label}`}
+        </button>
+      ) : active ? (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs text-text-muted">
-            <span className="flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Downloading {model.label}…</span>
+            <span className="flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Downloading {active.filename}…</span>
             <span>{Math.round((active?.progress ?? 0) * 100)}%</span>
           </div>
           <div className="h-1.5 rounded-full bg-bg-hover overflow-hidden">
@@ -817,6 +834,7 @@ function LocalBranch() {
       )}
 
       {error && <p className="text-xs text-error">Download failed: {error}</p>}
+      {loadError && <p role="alert" className="text-xs text-error">The model could not start. {loadError}</p>}
 
       {/*
         Audit M-R2 fix (2026-07-07): was `finish()` then `navigate()`, which
@@ -1067,7 +1085,7 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
 const FIRST_TASKS: { icon: LucideIcon; team: string; task: string }[] = [
   { icon: Megaphone, team: 'Marketing', task: "Make a poster and a short post for my shop's weekend sale" },
   { icon: Search, team: 'Research', task: 'Find the five best-reviewed coffee machines and put them in a table' },
-  { icon: MessageCircle, team: 'Customers', task: "Help me answer my shop's customers on WhatsApp" },
+  { icon: MessageCircle, team: 'Customers', task: 'A customer wrote, “My parcel was due yesterday. Can you check where it is?” Draft a short reply.' },
   { icon: CalendarCheck, team: 'Personal', task: 'Plan a weekend trip for two: where to go, how to get there and what it costs' },
 ];
 
@@ -1112,7 +1130,7 @@ function DoneStep() {
       )}
       {downloading && (
         <p className="mt-3 flex items-center gap-2 text-sm text-text-muted">
-          <Loader2 size={14} className="animate-spin" /> Your model is still downloading. I can answer as soon as it is done.
+          <Loader2 size={14} className="animate-spin" /> Your model is downloading. When the download finishes, start it to chat locally.
         </p>
       )}
 

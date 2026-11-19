@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { OnboardingWizard } from '../OnboardingWizard';
 import { tauri } from '@/lib/tauri';
@@ -7,8 +7,17 @@ import { useOnboarding } from '@/stores/onboarding';
 import { useModel } from '@/stores/model';
 import { useDownload } from '@/stores/download';
 import { useSettings } from '@/stores/settings';
+import type { DownloadCompleteEvent } from '@/lib/tauri/events';
 
-vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
+const downloadEvents = vi.hoisted(() => ({
+  complete: undefined as ((event: { payload: DownloadCompleteEvent }) => void) | undefined,
+}));
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: async (name: string, callback: typeof downloadEvents.complete) => {
+    if (name === 'cinderpaw://download-complete') downloadEvents.complete = callback;
+    return () => {};
+  },
+}));
 
 const OPENAI = { providerId: 'openai', providerName: 'OpenAI', modelId: 'gpt-4o' };
 
@@ -20,7 +29,7 @@ beforeEach(() => {
   vi.spyOn(tauri.system, 'countInstall').mockResolvedValue(undefined as never);
   vi.spyOn(tauri.system, 'setUsageSharing').mockResolvedValue(undefined as never);
   useModel.setState({ cloudModel: null, loaded: null });
-  useDownload.setState({ active: null, done: false });
+  useDownload.setState({ active: null, done: false, completedFile: null });
   useSettings.setState({ byok: [] });
   useOnboarding.setState({ active: true, step: 2, brainVerified: false, brainWay: null, firstTask: null, userName: '', agentName: 'Cinderpaw' });
 });
@@ -89,7 +98,7 @@ describe('the brain card', () => {
     expect(screen.queryByText(/Pick one way above/)).not.toBeInTheDocument();
     expect(screen.getByText(/Pick your provider above, then paste your key/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^This computer/ }));
-    expect(screen.getByText(/Press Download above/)).toBeInTheDocument();
+    expect(screen.getByText(/Download and start a local model above/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^This computer/ }));
     expect(screen.getByText(/Pick one way above/)).toBeInTheDocument();
   });
@@ -102,11 +111,26 @@ describe('the brain card', () => {
     expect(screen.queryByText(/Pick one way above/)).not.toBeInTheDocument();
   });
 
-  it('counts a download on its way, it will answer when it lands', () => {
-    useOnboarding.setState({ step: 1 });
-    useDownload.setState({ active: { repoId: 'r', filename: 'f', progress: 0.2 } as never });
+  it('waits for the downloaded model to load and allows retry without downloading again', async () => {
+    useOnboarding.setState({ step: 1, brainWay: 'local' });
+    const file = { repoId: 'bartowski/Qwen_Qwen3.5-4B-GGUF', filename: 'Qwen_Qwen3.5-4B-Q4_K_M.gguf', path: 'C:/models/first.gguf' };
+    useDownload.setState({ active: { ...file, key: file.repoId + '::' + file.filename, progress: 0.2 } });
+    const model = { path: file.path, name: 'First model', ctx_len: 4096, n_ctx_train: 4096, backend: 'CPU', gpu_layers: 0, gpu_layers_total: 0 };
+    const load = vi.spyOn(tauri.models, 'startLoad').mockRejectedValueOnce(new Error('Out of memory')).mockResolvedValue(model);
     renderWizard();
-    expect(screen.getByRole('button', { name: /^Continue$/ })).toBeEnabled();
+    const next = screen.getByRole('button', { name: /^Continue$/ });
+    expect(next).toBeDisabled();
+    act(() => downloadEvents.complete!({ payload: { ...file, filename: 'another.gguf' } }));
+    expect(screen.queryByRole('button', { name: /Start local model/ })).not.toBeInTheDocument();
+    act(() => downloadEvents.complete!({ payload: file }));
+    expect(next).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /Start local model/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Out of memory');
+    expect(next).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /Start local model/ }));
+    expect(await screen.findByText(/is ready to answer/)).toBeInTheDocument();
+    expect(next).toBeEnabled();
+    expect(load).toHaveBeenCalledWith(file.path, undefined);
   });
 });
 
@@ -127,6 +151,14 @@ describe('the last card', () => {
     expect(screen.getByText('Pick a job, or ask me anything.')).toBeInTheDocument();
     expect(screen.getByLabelText(/Your name/)).toHaveValue('');
     expect(screen.getByRole('button', { name: /Start exploring/ })).toBeEnabled();
+  });
+
+  it('offers a customer message to try before connecting a messaging account', () => {
+    useModel.setState({ cloudModel: OPENAI });
+    renderWizard();
+    fireEvent.click(screen.getByRole('button', { name: /Draft a short reply/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Start with this job/ }));
+    expect(useOnboarding.getState().firstTask).toContain('My parcel was due yesterday.');
   });
 
   it('a job is picked, not started: the wizard stays until Start, and a second press unpicks it', () => {
