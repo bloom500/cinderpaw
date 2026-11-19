@@ -5,6 +5,13 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
+## 2026.11.19
+
+- **Give Cubby a goal.** When part of a request fits a teammate, Cubby can assign it and use the reply in your conversation. Open the teammate from Team activity to see the request, tools and result.
+- **Talk to a teammate directly.** Each teammate has a chat history. A call follows the question you asked that teammate, even when another job is in their queue.
+- **Set a spending limit for a chat.** When using a supported OpenRouter route, you can set a dollar budget for that conversation and see how much has been used.
+- **Try a task during setup.** A sample customer message lets you draft a reply before connecting a messaging account. For a local model, setup shows when the download finishes and lets you start the model or retry if loading fails.
+
 ## 2026.11.06
 
 > Cinderpaw picks the right AI model for each message, shows you its work, and
