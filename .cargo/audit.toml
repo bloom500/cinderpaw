@@ -74,10 +74,20 @@
 #  The waiver is by advisory ID, so it would also hide a NEW zip < 9 that calls
 #  `extract` on outside input. Check `cargo tree -i zip@<v>` before adding one.
 #
+#  ── RUSTSEC-2026-0548 — zip 0.5.13 (added 2026-11-20) ───────────────────────
+#
+#  Advisory: `ZipStreamReader` extracts entries under local-header names that
+#  can differ from the central directory. Only the streaming reader is affected.
+#  ndarray-npy 0.5.0 never uses it: src/npz.rs opens the bundled `model.npz`
+#  with `ZipArchive::new` (central directory) and reads entries `by_name`.
+#  Checked 2026-11-20: no `ZipStreamReader`, `read_zipfile_from_stream` or
+#  `extract` anywhere in ndarray-npy 0.5.0; `cargo tree -i zip@0.5.13` ->
+#  ndarray-npy -> grapheme_to_phoneme -> cinderpaw-core (kokoro feature) only.
+#
 #  Delete these when: tauri-plugin-updater 2.x ships on zip >= 9 (then
 #  `cargo update -p tauri-plugin-updater`), AND grapheme_to_phoneme drops
 #  an ndarray-npy on zip >= 9, or the kokoro feature drops grapheme_to_phoneme.
 #  Recheck by 2026-12-01.
 
 [advisories]
-ignore = ["RUSTSEC-2026-0235", "RUSTSEC-2026-0367", "RUSTSEC-2026-0368", "RUSTSEC-2026-0369", "RUSTSEC-2026-0429"]
+ignore = ["RUSTSEC-2026-0235", "RUSTSEC-2026-0367", "RUSTSEC-2026-0368", "RUSTSEC-2026-0369", "RUSTSEC-2026-0429", "RUSTSEC-2026-0548"]
