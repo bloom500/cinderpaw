@@ -28,6 +28,18 @@ import userEvent from '@testing-library/user-event';
 import { AskUserCard } from '../AskUserCard';
 import type { AskUserQuestion } from '@/stores/askUser';
 
+it('shows just Yes and Not now for a team proposal', async () => {
+  const question = 'Make these teammates?';
+  const submit = vi.fn();
+  render(<AskUserCard requestId="team" questions={[{
+    question, multiSelect: false, fixedOptions: true, options: [{ label: 'Yes' }, { label: 'Not now' }],
+  }]} onSubmit={submit} onCancel={vi.fn()} />);
+  expect(screen.queryByText('Other…')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Skip' })).toBeNull();
+  await userEvent.click(screen.getByRole('radio', { name: /Not now/ }));
+  expect(submit).toHaveBeenCalledWith([{ question, selected: ['Not now'] }]);
+});
+
 const SINGLE_Q: AskUserQuestion[] = [
   {
     question: 'Pick a database',
@@ -396,5 +408,46 @@ describe('AskUserCard preview', () => {
       />,
     );
     expect(screen.getByText(/Use qpdf\./)).toBeTruthy();
+  });
+});
+
+// 31 Oct + 1 Nov, Darius: the WhatsApp number on a card, with its country; a
+// number of the wrong length for that country cannot be sent.
+describe('AskUserCard phone field', () => {
+  const PHONE_Q = (value?: string): AskUserQuestion[] => [
+    { question: 'Which WhatsApp number should I link?', input: 'phone', ...(value ? { value } : {}), options: [{ label: 'Use a QR code' }, { label: 'Not now' }], multiSelect: false },
+  ];
+
+  it('keeps Continue locked until the number fits the country, then sends it with its prefix', async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    render(<AskUserCard requestId="req-tel" questions={PHONE_Q()} onSubmit={onSubmit} />);
+    const country = screen.getByRole('combobox', { name: 'Country' }) as HTMLSelectElement;
+    const field = screen.getByRole('textbox', { name: 'Phone number' });
+    const go = screen.getByRole('button', { name: 'Continue' });
+    // The prefix is picked by the person, never guessed from the computer's language.
+    expect(country.value).toBe('');
+    await user.type(field, '0712 345 678');
+    expect((go as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/Choose the country first/)).toBeTruthy();
+    await user.clear(field);
+    await user.selectOptions(country, 'RO');
+    // 11 digits where Romania has 9 (after the 0): locked, and it says why.
+    await user.type(field, '07123456789');
+    expect((go as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/Too long for a Romania number/)).toBeTruthy();
+    await user.clear(field);
+    // Digits typed into the field are the number, not quick picks of option 1 or 2.
+    await user.type(field, '0712 345 678');
+    expect((go as HTMLButtonElement).disabled).toBe(false);
+    await user.click(go);
+    expect(onSubmit).toHaveBeenCalledWith([{ question: 'Which WhatsApp number should I link?', selected: ['+40712345678'] }]);
+    expect(screen.queryByText('Other…')).toBeNull();
+  });
+
+  it('starts from the number saved last time, so a wrong one can be fixed', () => {
+    render(<AskUserCard requestId="req-tel2" questions={PHONE_Q('+40712345678')} onSubmit={vi.fn()} />);
+    expect((screen.getByRole('combobox', { name: 'Country' }) as HTMLSelectElement).value).toBe('RO');
+    expect((screen.getByRole('textbox', { name: 'Phone number' }) as HTMLInputElement).value).toBe('0712 345 678');
   });
 });

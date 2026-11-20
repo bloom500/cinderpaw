@@ -761,6 +761,26 @@ function migrate(db: Database): void {
     );
   `);
 
+  // Nudges: one row per message Cubby sent first (core/nudges.ts). Counts and
+  // times only; the message text is never stored.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS nudges (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      source_id TEXT,
+      channel TEXT NOT NULL,
+      session_id TEXT,
+      created_at INTEGER NOT NULL,
+      sent_at INTEGER,
+      local_hour INTEGER NOT NULL,
+      arm TEXT NOT NULL,
+      decision TEXT NOT NULL,
+      user_requested INTEGER NOT NULL DEFAULT 0,
+      outcome TEXT,
+      outcome_at INTEGER
+    );
+  `);
+
   // Cron jobs (P0-3). One row per user-schedulable job. Schedule + delivery
   // are JSON-serialised blobs so the schedule/delivery unions can evolve
   // without an ALTER TABLE.
@@ -1010,6 +1030,14 @@ function migrate(db: Database): void {
   // answer, and the wait to the first token ran 13-55 seconds. A coordinator
   // needs a handful of tools, not thirty-nine.
   addColumnIfMissing(db, "cowork_agents", "tools", "TEXT");
+  addColumnIfMissing(db, "cron_jobs", "owner_agent_id", "TEXT");
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS cron_reassign_deleted_teammate
+    AFTER DELETE ON cowork_agents
+    BEGIN
+      UPDATE cron_jobs SET owner_agent_id = NULL WHERE owner_agent_id = OLD.id;
+    END;
+  `);
 
   // cowork_mailbox (S2) — A2A asynchronous messages. One row per message;
   // `from_agent_id` / `to_agent_id` hold agent ids or the literal "human".

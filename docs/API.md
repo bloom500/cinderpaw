@@ -48,6 +48,8 @@ the comment tags next to each `.route(` line.
 | GET | `/system_info` | unstable | read | Hardware probe (GPU/VRAM/RAM/disk) for the Setup Wizard. |
 | POST | `/providers/test` | unstable | read | Provider key validation; real status text per provider. |
 | GET | `/events` | unstable | read | SSE stream of `HostEvent`s; first vertical of the runtime API. |
+| GET | `/chatgpt/v1/models` | unstable | read | Models the signed-in ChatGPT plan may use. The ChatGPT token stays in this process. |
+| POST | `/chatgpt/v1/chat/completions` | unstable | read | OpenAI-compatible chat paid by the ChatGPT plan, translated to OpenAI's Responses API and back. |
 
 ### Runtime (`/runtime/*`)
 
@@ -191,6 +193,8 @@ POST /api/generate
 POST /api/show
 GET /v1/models
 POST /v1/chat/completions
+GET /chatgpt/v1/models
+POST /chatgpt/v1/chat/completions
 GET /events
 GET /governance/history
 GET /governance/policy

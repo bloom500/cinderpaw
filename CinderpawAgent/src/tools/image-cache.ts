@@ -16,13 +16,16 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cinderpawHome } from "../config.ts";
 import type { CinderpawFetch } from "../types.ts";
 
 /** One image, at most. A card thumbnail never needs more. */
 export const IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+/** A picture on this computer the agent hands over (a chart it drew): bigger
+ *  than a card thumbnail, since it is shown full size. */
+export const LOCAL_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 /** The whole cache; past it the oldest files go first. */
 export const CACHE_MAX_BYTES = 200 * 1024 * 1024;
 /** A page read only for its preview image: its head is enough. */
@@ -90,6 +93,31 @@ export async function cacheImage(
     const file = join(dir, `${key}.${ext}`);
     writeFileSync(file, bytes);
     prune(dir, cap);
+    return file;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A picture already on this computer (one the agent made or found), copied into
+ * the cache under the hash of its bytes, so the app shows it like a fetched one
+ * and a saved chat still shows it after the original moves. Raster images only,
+ * read from the file's first bytes. Null for anything else. Never throws.
+ */
+export function keepLocalImage(path: string, dir = imageCacheDir(), cap = CACHE_MAX_BYTES): string | null {
+  try {
+    if (statSync(path).size > LOCAL_IMAGE_MAX_BYTES) return null;
+    const bytes = readFileSync(path);
+    const ext = sniffImage(bytes);
+    if (!ext) return null;
+    const key = createHash("sha256").update(bytes).digest("hex").slice(0, 40);
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `${key}.${ext}`);
+    if (!existsSync(file)) {
+      writeFileSync(file, bytes);
+      prune(dir, cap);
+    }
     return file;
   } catch {
     return null;

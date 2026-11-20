@@ -171,18 +171,39 @@ export function isLocalTarget(baseUrl: string): boolean {
  * served by a cloud provider is not a local model, and a proxy in front of
  * Claude on loopback is.
  */
+const FAST_TIER = /haiku|mini\b|-mini|flash|nano|lite|small|:free/;
+const TOP_TIER = /opus|\bpro\b|-pro\b|ultra|\bsol\b|-sol\b|\bmax\b/;
+
 export function profileFor(target: ModelTarget): ModelProfile {
   const name = (target.model ?? "").toLowerCase();
-  const local = isLocalTarget(target.baseUrl ?? "");
+  // The ChatGPT plan answers through this host's own API, on loopback, but
+  // from the cloud: not local, not offline-safe (4 Nov).
+  const local = isLocalTarget(target.baseUrl ?? "") && target.provider !== "chatgpt";
 
   const family = FAMILIES.find((f) => f.pattern.test(name));
   const caps = normalizeCapabilities(family ? family.caps : UNKNOWN_CAPS);
 
   if (VISION_MARKERS.test(name)) caps.vision = Math.max(caps.vision, 7);
 
+  // Tiers inside a family. Every Claude scored alike, so Haiku and Opus tied
+  // and Automatic always picked whichever came first (4 Nov). The small fast
+  // tier is quicker and cheaper and weaker at hard work; the top tier is the
+  // reverse. ponytail: name words; a published price/latency table is better.
+  let tierCost: 1 | 2 | 3 | undefined;
+  if (FAST_TIER.test(name)) {
+    caps.speed = Math.min(10, caps.speed + 3);
+    caps.reasoning = Math.max(0, caps.reasoning - 2);
+    caps.coding = Math.max(0, caps.coding - 2);
+    tierCost = 1;
+  } else if (TOP_TIER.test(name)) {
+    caps.reasoning = Math.min(10, caps.reasoning + 1);
+    caps.coding = Math.min(10, caps.coding + 1);
+    caps.speed = Math.max(0, caps.speed - 2);
+  }
+
   // A local target is cheap by definition — it costs electricity, not
   // dollars — even when the family table was written for its cloud twin.
-  const cost: 1 | 2 | 3 = local ? 1 : (family?.cost ?? 2);
+  const cost: 1 | 2 | 3 = local ? 1 : (tierCost ?? family?.cost ?? 2);
 
   return { capabilities: caps, cost, local };
 }

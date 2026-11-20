@@ -9,6 +9,7 @@
  * who a long task is for.
  */
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
+import { forSpeech } from './speechText';
 
 let permission: Promise<boolean> | null = null;
 
@@ -37,13 +38,9 @@ export function inBackground(): boolean {
 }
 
 /** One line of the answer for the notification body: no markdown, short. */
-export function preview(text: string, max = 120): string {
-  const line = text
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/[*_`#>]/g, '')
-    .split('\n')
-    .map((l) => l.trim())
-    .find((l) => l.length > 0) ?? '';
+export function preview(text: string, max = 120, joinLines = false): string {
+  const plain = forSpeech(text.replace(/(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\1|$)/g, ''));
+  const line = joinLines ? plain.replace(/\s+/g, ' ') : plain.split('\n')[0];
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 

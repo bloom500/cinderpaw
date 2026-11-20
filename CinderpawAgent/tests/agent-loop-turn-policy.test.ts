@@ -48,6 +48,10 @@ function fixture(script: string[]) {
     primary: { provider: "ollama", model: "m", baseUrl: "http://localhost:11434" },
     tokenBudget: { perConversation: 500_000, perDay: 5_000_000, onExhausted: "stop" },
   }, audit.logger, db.raw);
+  // These tests are about the turn policy, not compaction: at the default 8K the
+  // second turn compacted, the summary call took the script's next reply, and a
+  // longer system prompt was enough to fail a policy check (31 Oct).
+  router.setContextWindow(64_000);
   const agent = new AgentLoop(router, registry, new EpisodicMemory(db.raw, audit.logger));
   agent.setMemorySnapshot(() => "Utilizatorul scrie în română. Răspunde în română.");
   const events: OutboundEvent[] = [];

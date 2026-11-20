@@ -13,7 +13,7 @@ import { afterAll, expect, test } from "bun:test";
 import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { createConnectorsManageTool } from "../src/tools/builtin/connectors-manage.ts";
-import { configPath } from "../src/transports/connectors.ts";
+import { configPath, linkNumber } from "../src/transports/connectors.ts";
 
 const file = configPath();
 const hadFile = existsSync(file);
@@ -269,7 +269,44 @@ test("turning WhatsApp on starts pairing when no phone is linked, and says where
     const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true }, ctx);
     expect(pairs).toBe(linked ? 0 : 1);
     if (!linked) expect(res.content).toContain("Linked devices");
+    // The desktop chat draws the live code only while one is coming.
+    expect((res.data as { whatsappPairing?: boolean }).whatsappPairing).toBe(linked ? undefined : true);
   }
+});
+
+// 31 Oct, Darius: like ChatGPT's Dot, a number and a code to type, not a QR to aim at.
+test("a WhatsApp number to link is kept, and the person is told to type the code", async () => {
+  writeFileSync(file, JSON.stringify({ connectors: [] }), "utf8");
+  const tool = createConnectorsManageTool(
+    { reload: async () => {}, pairWhatsApp: async () => true },
+    { isLinked: () => false, hasWhatsApp: () => true },
+  );
+  const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true, link_number: "+40 712 345 678" }, ctx);
+  expect(res.ok).toBe(true);
+  expect(res.content).toContain("Link with phone number instead");
+  const saved = JSON.parse(readFileSync(file, "utf8")).connectors.find((r: { id: string }) => r.id === "whatsapp");
+  expect(saved.secrets.WHATSAPP_LINK_NUMBER).toBe("+40 712 345 678");
+});
+
+test("a WhatsApp number with no country code is refused, not saved", async () => {
+  writeFileSync(file, JSON.stringify({ connectors: [] }), "utf8");
+  let pairs = 0;
+  const tool = createConnectorsManageTool(
+    { reload: async () => {}, pairWhatsApp: async () => (++pairs, true) },
+    { isLinked: () => false, hasWhatsApp: () => true },
+  );
+  const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true, link_number: "0712 345 678" }, ctx);
+  expect(res.ok).toBe(false);
+  expect(res.content).toContain("country code");
+  expect(pairs).toBe(0);
+  expect(JSON.parse(readFileSync(file, "utf8")).connectors).toEqual([]);
+});
+
+test("linkNumber keeps international numbers and refuses local ones", () => {
+  expect(linkNumber("+40 712 345 678")).toBe("40712345678");
+  expect(linkNumber("0040712345678")).toBe("40712345678");
+  expect(linkNumber("0712 345 678")).toBeNull();
+  expect(linkNumber("")).toBeNull();
 });
 
 function asking(answer: string, asked: string[] = []) {
@@ -341,4 +378,53 @@ test("unlink takes the phone off and turns WhatsApp off; a pause says it is stil
 
   const discord = await paused.execute({ action: "unlink", id: "discord" }, ctx);
   expect(discord.ok).toBe(false);
+});
+
+test("a linked WhatsApp sends its owner to their own chat, not to connectors_pair", async () => {
+  // 1 Nov, Darius: told "answers NOBODY", the agent ran connectors_pair, which
+  // cannot hear the owner's chat with themselves and waited ten minutes while
+  // he was already talking to Cinderpaw there.
+  writeFileSync(file, JSON.stringify({ connectors: [{ id: "whatsapp", enabled: true }] }), "utf8");
+  const tool = createConnectorsManageTool({ reload: async () => {} }, { isLinked: () => true, hasWhatsApp: () => true });
+  const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true }, ctx);
+  expect(res.content).toContain("Message yourself");
+  expect(res.content).not.toContain("answers NOBODY");
+  expect(res.content).toContain("Do NOT call connectors_pair");
+});
+
+// 31 Oct + 1 Nov, Darius: in the app the number comes from a card with a phone
+// field, and it comes back holding the saved number so a wrong digit can be fixed.
+test("turning WhatsApp on in the app asks for the number on a phone card", async () => {
+  const { markCardSurface } = await import("../src/core/card-surface.ts");
+  markCardSurface("tel", "text");
+  const cases = [
+    { before: undefined, typed: "+40712345678", saved: "+40712345678", pairs: 1 },
+    // The wrong number saved last time is on the card, and the fix replaces it.
+    { before: "+40712345679", typed: "+40712345678", saved: "+40712345678", pairs: 1 },
+    // A QR instead: the old number must not keep asking for a code.
+    { before: "+40712345679", typed: "Use a QR code", saved: undefined, pairs: 1 },
+    { before: undefined, typed: "Not now", saved: undefined, pairs: 0 },
+  ];
+  for (const c of cases) {
+    const rows = c.before ? [{ id: "whatsapp", enabled: true, secrets: { WHATSAPP_LINK_NUMBER: c.before } }] : [];
+    writeFileSync(file, JSON.stringify({ connectors: rows }), "utf8");
+    let paired = 0;
+    let asked: { input?: string; value?: string } | undefined;
+    const tool = createConnectorsManageTool(
+      { reload: async () => {}, pairWhatsApp: async () => (++paired, true) },
+      { isLinked: () => false, hasWhatsApp: () => true },
+    );
+    const askUser = {
+      ask: async (qs: { input?: string; value?: string; question: string }[]) => ((asked = qs[0]), [{ question: qs[0]!.question, selected: [c.typed] }]),
+      cancel() {},
+    };
+    const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true }, { sessionId: "tel", askUser } as never);
+    expect(asked?.input).toBe("phone");
+    expect(asked?.value).toBe(c.before);
+    expect(paired).toBe(c.pairs);
+    const row = JSON.parse(readFileSync(file, "utf8")).connectors.find((r: { id: string }) => r.id === "whatsapp");
+    expect(row?.secrets?.WHATSAPP_LINK_NUMBER).toBe(c.saved);
+    if (c.saved) expect(res.content).toContain("Link with phone number instead");
+  }
+  markCardSurface("tel", undefined);
 });

@@ -224,9 +224,11 @@ export function rebuildDerivedBrain(
   wasDerived: boolean,
   primary: ModelTarget,
   fallback: ModelTarget | undefined,
+  /** Automatic: every other model the person has, for the brain to choose from. */
+  extra: ReadonlyArray<ModelTarget> = [],
 ): BrainConfig | null {
   if (!wasDerived) return null;
-  return deriveDefaultConfig([primary, fallback]);
+  return deriveDefaultConfig([primary, fallback, ...extra]);
 }
 
 /**

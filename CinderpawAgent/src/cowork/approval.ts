@@ -268,6 +268,7 @@ export interface CoworkApprovalServiceDeps {
    * unseen and the teammate's work silently did not happen.
    */
   threadOf?: (agentId: string) => string | null | undefined;
+  scheduledOwner?: (sessionId: string) => string | undefined;
 }
 
 /**
@@ -299,11 +300,12 @@ export class CoworkApprovalService {
     // The ROOT session, so a subagent spawned by a teammate is still that
     // teammate as far as the gate is concerned. See rootSessionId.
     const root = rootSessionId(payload.sessionId);
-    if (!root.startsWith(COWORK_SESSION_PREFIX)) return { block: false };
+    const scheduledOwner = this.#deps.scheduledOwner?.(root);
+    const agentId = scheduledOwner ?? (root.startsWith(COWORK_SESSION_PREFIX) ? root.slice(COWORK_SESSION_PREFIX.length) : null);
+    if (!agentId) return { block: false };
     const cls = classifyToolCall(payload.tool, payload.args);
     if (!cls) return { block: false };
 
-    const agentId = root.slice(COWORK_SESSION_PREFIX.length);
     const agentName = this.#deps.agents.get(agentId)?.name ?? agentId;
     const approval = this.#deps.approvals.create({
       agentId,
@@ -312,7 +314,7 @@ export class CoworkApprovalService {
       description: cls.description,
       tool: payload.tool,
     });
-    const threadId = this.#deps.threadOf?.(agentId);
+    const threadId = scheduledOwner ? `cowork:${scheduledOwner}` : this.#deps.threadOf?.(agentId);
     if (threadId) this.#threads.set(approval.id, threadId);
 
     this.#emit("approval_requested", approval, agentName, undefined);

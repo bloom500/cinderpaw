@@ -8,13 +8,17 @@
 import { useEffect, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import { useChat, type ChatMessage, type MemoryUsedItem, type TurnEnd, TOOL_CALL_LINGER_MS } from '@/stores/chat';
+import { useChat, type ChatMessage, type ContextLane, type MemoryUsedItem, type TurnEnd, TOOL_CALL_LINGER_MS } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
 import { useAgent } from '@/stores/agent';
 import { useModel } from '@/stores/model';
+import { modelDisplayName } from '@/lib/modelLogos';
 import { useCinderpawStore } from '@/stores/cinderpaw';
+import { isLocalBaseUrl } from '@/lib/contextWindow';
 import { useNotifications } from '@/stores/notifications';
 import { useFollowUps } from '@/stores/followUps';
+import { useCoworkTeam } from '@/stores/coworkTeam';
+import { receiveWelcome } from '@/lib/welcome';
 import { notifyIfBackground, preview } from '@/lib/systemNotify';
 import { failArtifactRequests, useArtifacts, type DraftEvent } from '@/stores/artifacts';
 import { t } from '@/lib/i18n';
@@ -40,6 +44,7 @@ import {
 } from '@/lib/cinderpawLiveSession';
 import { extractMainArg } from '@/components/chat/mascot/extractMainArg';
 import { startActivity, finishActivity, type ToolActivity } from '@/hooks/useLiveToolActivity';
+import type { Steer } from '@/lib/timeline';
 import { emojiForTool } from '@/components/chat/mascot/emojiForTool';
 import type { MascotState } from '@/components/chat/mascot/frames';
 
@@ -51,7 +56,8 @@ interface StreamCallbacks {
   onTruncated?: (reason: string) => void;
   onToolStart?: (callId: string, tool: string, args: Record<string, unknown>) => void;
   onToolDone?:  (callId: string, tool: string, result: unknown) => void;
-  onUsage?:     (promptTokens: number, completionTokens: number) => void;
+  onSteer?:     (texts: string[]) => void;
+  onUsage?:     (promptTokens: number, completionTokens: number, lanes?: { label: string; tokens: number }[]) => void;
   onMemoryUsed?: (items: MemoryUsedItem[]) => void;
   /**
    * React-side id of the assistant message that this stream will populate.
@@ -89,6 +95,16 @@ export { type MascotStateSink };
  * after the LAST tool call survived (the rest was wiped on tool_start).
  */
 const joinSegments = (a: string, b: string): string => (a && b ? a + '\n\n' + b : a + b);
+
+/**
+ * True when the model says, before its next tool, exactly what it said before
+ * the last one: a 27 Oct reply read "Am înțeles - pregătesc postarea cu
+ * videoul." twice in a row. The repeat is kept once.
+ */
+export function repeatsLastSegment(committed: string, segment: string): boolean {
+  const s = segment.trim();
+  return s.length > 0 && committed.trimEnd().endsWith(s);
+}
 
 /**
  * `JSON.stringify` that cannot throw.
@@ -136,12 +152,16 @@ export function useCinderpawStream(chatSessionId: string) {
         // reply, and a long document written in one tool call was cut off and
         // shown as "The model returned an empty response" (25 Oct). Without it
         // the sidecar picks its own ceiling per provider.
-        const { temperature } = useModel.getState().inferParams;
+        // A local model gets the Temperature slider; a cloud model gets Effort
+        // instead (28 Oct): new Claude models refuse any temperature, and the
+        // provider's own default suits the rest.
+        const { inferParams: { temperature }, effort } = useModel.getState();
+        const local = isLocalBaseUrl(useCinderpawStore.getState().modelConfig?.base_url);
         messageId = await invoke<string>('cinderpaw_send_message', {
           content,
           sessionId: chatSessionId,
           images: images && images.length > 0 ? images : null,
-          inferParams: { temperature },
+          inferParams: local ? { temperature } : { effort },
           // Declared per message, not per session: the same conversation is
           // spoken to and typed in alternately, and the format brief has to follow
           // whichever is happening right now. Typed is 'text': it also tells the
@@ -162,6 +182,7 @@ export function useCinderpawStream(chatSessionId: string) {
         onStopped: () => callbacks.onStopped(),
         onToolStart: callbacks.onToolStart ? (cid, t, a) => callbacks.onToolStart!(cid, t, a) : undefined,
         onToolDone: callbacks.onToolDone ? (cid, t, r) => callbacks.onToolDone!(cid, t, r) : undefined,
+        onSteer: callbacks.onSteer,
         onUsage: callbacks.onUsage ? (p, c) => callbacks.onUsage!(p, c) : undefined,
         onMemoryUsed: callbacks.onMemoryUsed,
         // Ask_user events carry the sidecar's requestId, not a stream
@@ -269,11 +290,15 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         // Built here, next to the mascot's bubbles, because this is the one
         // place that knows which reply a tool event belongs to.
         tools: [] as ToolActivity[],
+        // What the person added mid-turn, placed where the model read it.
+        steers: [] as Steer[],
         // Set when the person stops the turn or it fails; saved with the reply.
         ended: undefined as TurnEnd | undefined,
         // The memories this turn was given, kept here so a reply that finishes
         // while another chat is on screen still saves them.
         memoryUsed: undefined as MemoryUsedItem[] | undefined,
+        // What the prompt was made of, saved with the reply for the Context card.
+        contextLanes: undefined as ContextLane[] | undefined,
       };
       /**
        * A turn that ends with a tool still open never gets that tool's result.
@@ -327,6 +352,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           created_at: m.createdAt,
           ended: m.id === asstId ? state.ended : m.ended,
           memory_used: mem?.length ? mem : undefined,
+          context_lanes: m.id === asstId ? state.contextLanes : m.contextLanes,
           }; });
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted, agentId);
@@ -400,7 +426,9 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           // Commit the prose emitted before this tool call so it survives the
           // buffer reset; otherwise only the segment after the LAST tool call
           // reached the bubble (the "only the last sentence" bug).
-          if (state.answer.trim()) state.committed = joinSegments(state.committed, state.answer);
+          if (state.answer.trim() && !repeatsLastSegment(state.committed, state.answer)) {
+            state.committed = joinSegments(state.committed, state.answer);
+          }
           // Everything said so far is `committed` now, so its length is where
           // this call sits in the reply: the timeline draws the tool there.
           state.tools.push({ ...startActivity(tool, args), at: state.committed.length });
@@ -436,6 +464,15 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
             useChat.getState().setAgentPhase('calling', tool);
             syncToolStrip();
           }
+        },
+        // The addition becomes the person's own bubble inside the reply, where the
+        // model read it, and the reply goes on under it (his design, 4 Nov).
+        // ponytail: live only, like answeredBy; a reopened chat shows the reply whole.
+        onSteer: (texts) => {
+          flushTokens();
+          const at = joinSegments(state.committed, state.answer).length;
+          state.steers.push(...texts.map((text) => ({ text, at, afterTools: state.tools.length })));
+          if (isActive()) useChat.getState().updateLastAssistantMessage({ steered: [...state.steers], steerPending: [] });
         },
         onToolDone: (_callId, tool, result) => {
           flushTokens();
@@ -502,13 +539,15 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           state.memoryUsed = items;
           if (isActive()) useChat.getState().updateLastAssistantMessage({ memoryUsed: items });
         },
-        onUsage: (promptTokens, completionTokens) => {
+        onUsage: (promptTokens, completionTokens, lanes) => {
           // Real per-completion token counts from the sidecar router. Mirror
           // them so the context ring rehydrates correctly after a tab switch,
           // and push to the store live when this session is on screen.
           updateLiveSession(sessionId, { promptTokens, completionTokens });
+          if (lanes?.length) state.contextLanes = lanes;
           if (isActive()) {
             useChat.getState().setLiveTokens(promptTokens, completionTokens);
+            if (lanes?.length) useChat.getState().updateLastAssistantMessage({ contextLanes: lanes });
           }
         },
         onDone: async (finalContent?: string, stopped = false) => {
@@ -636,10 +675,20 @@ export function useCinderpawGlobal() {
       if (!outputSubscribed || !useFollowUps.getState().enabled) return;
       void tauri.raw.cinderpawCronOp(crypto.randomUUID(), 'followups').catch(() => {});
     };
+    // The engine keeps the switch too: while the person is away it may offer
+    // unfinished work on their phone, and must know if they said no.
+    const reportFollowUps = (enabled: boolean) => {
+      void tauri.raw.cinderpawCronOp(crypto.randomUUID(), 'followups_setting', { enabled }).catch(() => {});
+    };
     const offFollowUps = useFollowUps.subscribe((state, previous) => {
+      if (state.enabled !== previous.enabled) reportFollowUps(state.enabled);
       if (state.enabled && !previous.enabled) requestFollowUp();
     });
     unlisteners.push(offFollowUps);
+    // Focus = at the computer: a nudge rings here, not on the phone.
+    const reportPresence = () => { void tauri.raw.cinderpawCronOp(crypto.randomUUID(), 'presence').catch(() => {}); };
+    window.addEventListener('focus', reportPresence);
+    unlisteners.push(() => window.removeEventListener('focus', reportPresence));
     const setup = async () => {
       const offWait = await events.onRateLimited.listen(({ sessionId, waitMs }) => {
         useConversations.getState().setProviderWait(sessionId, waitMs);
@@ -752,6 +801,24 @@ export function useCinderpawGlobal() {
               .getState()
               .push('info', t('chat.routed.fallback'), parsed.detail);
           }
+          // Automatic: the reply says which model answered it, so the person
+          // always knows where the message went and who is paying.
+          // ponytail: shown live on the chat in front, not saved with the chat.
+          if (useCinderpawStore.getState().automatic && parsed.sessionId === useChat.getState().sessionId) {
+            useChat.getState().updateLastAssistantMessage({ answeredBy: modelDisplayName(parsed.model) });
+          }
+        } else if (parsed.type === 'steer_ack') {
+          // Taken: on screen now, though the model reads it only after its current
+          // step. A step can think for a minute, and the text had left the
+          // composer with nothing in its place (his test, 4 Nov).
+          if (parsed.accepted && parsed.text.trim() && parsed.sessionId === useChat.getState().sessionId) {
+            const last = useChat.getState().messages.findLast((m) => m.role === 'assistant');
+            useChat.getState().updateLastAssistantMessage({ steerPending: [...(last?.steerPending ?? []), parsed.text.trim()] });
+          }
+          // The turn ended before it arrived: the composer sends it as a message.
+          if (!parsed.accepted && parsed.text) {
+            window.dispatchEvent(new CustomEvent('cinderpaw:steer-refused', { detail: { sessionId: parsed.sessionId, text: parsed.text } }));
+          }
         } else if (parsed.type === 'model_error') {
           setModelError(parsed.message);
         } else if (parsed.type === 'artifact') {
@@ -785,8 +852,18 @@ export function useCinderpawGlobal() {
           // still being written then was never saved, and says so.
           useArtifacts.getState().endDraft(parsed.id, { reason: 'Cinderpaw stopped before saving this.' });
           if (parsed.type === 'done') requestFollowUp();
+        } else if (parsed.type === 'welcome_ready') {
+          receiveWelcome(parsed.sessionId, parsed.content);
         } else if (parsed.type === 'proactive' && parsed.followUp) {
           useFollowUps.getState().receive(parsed.followUp);
+        } else if (parsed.type === 'proactive') {
+          const id = parsed.ownerAgentId;
+          const speaker = id ? useCoworkTeam.getState().roster.find((a) => a.id === id)?.name ?? 'Your teammate' : 'Cinderpaw';
+          const body = id ? preview(parsed.content, 160, true) || 'Open the chat to read the message.' : toastText(parsed.content, 2000);
+          useNotifications.getState().push('info', speaker, body, id ? {
+            label: 'Open chat', run: () => { void import('@/router').then(({ router }) => router.navigate('/teammates/' + encodeURIComponent(id))); },
+          } : undefined);
+          void notifyIfBackground(speaker, id ? body : preview(parsed.content));
         } else if (parsed.type === 'cron_fired') {
           // X3: scheduled-job results were previously dropped on the floor.
           // Capped. Both strings are model output — a cron job's answer and the
@@ -797,13 +874,16 @@ export function useCinderpawGlobal() {
             'success',
             `Scheduled task: ${toastText(parsed.jobName, 80)}`,
             toastText(parsed.content, 2000),
-            undefined,
+            parsed.sessionId?.startsWith('cowork:') ? { label: 'Open chat', run: () => {
+              void import('@/router').then(({ router }) => router.navigate('/teammates/' + encodeURIComponent(parsed.sessionId.slice(7))));
+            } } : undefined,
             { sticky: true },
           );
           // A reminder is for the moment it fires, which is rarely a moment the
           // person is looking at this window: the toast alone lasted 5 s inside
-          // a window behind others (24 Oct). The OS shows it where they are.
-          void notifyIfBackground(toastText(parsed.jobName, 80), preview(parsed.content));
+          // a window behind others (24 Oct). The OS shows it where they are,
+          // unless their phone already rang for it (one ringer).
+          if (!parsed.silent) void notifyIfBackground(toastText(parsed.jobName, 80), preview(parsed.content));
         } else if (parsed.type === 'cron_error') {
           useNotifications.getState().push(
             'error',
@@ -819,6 +899,9 @@ export function useCinderpawGlobal() {
       outputSubscribed = true;
       if (!disposed) {
         void fetchConfig();
+        // Every start, so a "no" chosen before this version reached the engine.
+        reportFollowUps(useFollowUps.getState().enabled);
+        if (document.hasFocus()) reportPresence();
         requestFollowUp();
       }
     };

@@ -18,7 +18,7 @@ import type { BootContext } from "./boot.ts";
 import { forgetEdge } from "./memory/forget.ts";
 import { cfgBool, cfgInt, cfgPath } from "./config.ts";
 import { runUnattended } from "./core/unattended.ts";
-import { withHumanReplies } from "./cowork/runtime.ts";
+import { coworkPayload, runtimeForRoster, visibleCoworkRows, withHumanReplies, type CoworkDesktopTurn } from "./cowork/runtime.ts";
 import { removeTeammate, teammateRepliesBrief } from "./tools/builtin/cowork.ts";
 import { parseDoneWhenFromMessage } from "./cron/done-when.ts";
 import { sha256Canonical } from "./rsi/infra/hash-chain.ts";
@@ -56,6 +56,9 @@ import { docxPreviewHtml, isDocx } from "./artifacts/docx.ts";
 import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { describeScope } from "./memory/fractal/bench/runner.ts";
 import { routerInfer } from "./memory/fractal/summarize.ts";
+import { runBareTurn } from "./core/bare-turn.ts";
+import { writeWelcome } from "./core/welcome.ts";
+import { loadUserConfig } from "./core/user-loader.ts";
 import { parseResponse } from "./core/agent-loop.ts";
 import { BrainStack } from "./brain/brain-stack.ts";
 import { rebuildDerivedBrain } from "./brain/brain-config.ts";
@@ -169,9 +172,10 @@ export function cronListResult(id: string, jobs: CronJob[], error?: string, task
     ok: error === undefined,
     ...(error ? { error } : {}),
     ...(taskLimit ? { taskLimit } : {}),
-    jobs: jobs.map(({ id, name, task, schedule, enabled, nextRunMs, lastRunMs, kind, history, watch, expiresAt, budgetUsd, spentUsd }) => ({
+    jobs: jobs.map(({ id, name, task, schedule, enabled, nextRunMs, lastRunMs, kind, history, watch, expiresAt, budgetUsd, spentUsd, prices, ownerAgentId }) => ({
       id, name, task, schedule, enabled, nextRunMs, lastRunMs, kind,
-      ...(watch ? {watch} : {}), ...(expiresAt !== undefined ? {expiresAt} : {}), ...(budgetUsd !== undefined ? {budgetUsd} : {}), ...(spentUsd !== undefined ? {spentUsd} : {}),
+      ...(ownerAgentId ? { ownerAgentId } : {}),
+      ...(watch ? {watch} : {}), ...(prices ? {prices} : {}), ...(expiresAt !== undefined ? {expiresAt} : {}), ...(budgetUsd !== undefined ? {budgetUsd} : {}), ...(spentUsd !== undefined ? {spentUsd} : {}),
       // The last few results, for the Tasks page; the full 50 stay on disk.
       // This list also answers every follow-up check after a chat reply, so
       // all 50 (up to 2 KB each) per task went out each time (24 Oct review).
@@ -241,7 +245,7 @@ export function memoryNotesReply(
 
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
-    db, audit, router, localFallbackTarget, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents, artifacts, artifactExporter,
+    db, audit, router, localFallbackTarget, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents, artifacts, artifactExporter, artifactPreview,
     runHooks,
     brainDerived, brainBreaker,
     memoryGraph, semantic, notesStore, reflector,
@@ -251,6 +255,23 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       case "ping":
         transport.send({ type: "pong" });
         break;
+      case "chat_spend": {
+        const { sessionId, id, chatSpendAction, chatSpendLimitUsd } = msg;
+        if (!id) break;
+        try {
+          if (!sessionId || sessionId.length > 128) throw new Error("Choose a chat first.");
+          if (chatSpendAction === "get") {
+            transport.send({ type: "chat_spend_result", id, ...ctx.chatSpend.get(sessionId) });
+          } else if (chatSpendAction === "set" && (chatSpendLimitUsd === null || typeof chatSpendLimitUsd === "number")) {
+            transport.send({ type: "chat_spend_result", id, ...ctx.chatSpend.setLimit(sessionId, chatSpendLimitUsd) });
+          } else {
+            throw new Error("Choose a valid spending limit.");
+          }
+        } catch (err) {
+          transport.send({ type: "chat_spend_result", id, error: err instanceof Error ? err.message : "Could not save the spending limit." });
+        }
+        break;
+      }
       case "connectors_reload": {
         // The host sends the rows WITH their secrets, read out of the vault.
         // Reading connectors.json ourselves stopped being enough the moment
@@ -1231,7 +1252,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         const threadId = msg.threadId?.trim() || null;
         // Same hop accounting as cowork_send, so a human reply inside a thread
         // advances the chain instead of resetting the cap.
-        const hops = coworkMailbox.lastHopsInThread(threadId) + 1;
+        const hops = threadId === `cowork:${target.id}` ? 0 : coworkMailbox.lastHopsInThread(threadId) + 1;
         coworkMailbox.send({
           fromAgentId: "human",
           toAgentId: target.id,
@@ -1243,34 +1264,44 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         break;
       }
 
-      // Agent Cowork S6 — replay one thread from the mailbox. The panel is
-      // otherwise live-only: it accumulates events in memory and loses them on
-      // restart, so reopening a chat where teammates had worked showed nothing
-      // even though every row was still on disk. The thread id IS the chat's
-      // session id (see cowork_send), which is what ties a conversation in the
-      // sidebar to the teammates who worked in it.
+      // Main chats replay their own thread. A teammate chat also reads the
+      // messages they sent or received in other chats, keeping each origin.
       case "cowork_history": {
         const threadId = (msg.threadId ?? "").trim();
-        const rows = threadId ? coworkMailbox.byThread(threadId) : coworkMailbox.recent(50);
+        let rows;
+        if (threadId.startsWith("cowork:")) {
+          const agentId = threadId.slice("cowork:".length);
+          rows = [
+            ...coworkMailbox.inbox(agentId).reverse(),
+            ...coworkMailbox.outbox(agentId).reverse().filter((m) => m.toAgentId !== agentId),
+          ].sort((a, b) => a.createdAt - b.createdAt);
+        } else {
+          rows = threadId ? coworkMailbox.byThread(threadId) : coworkMailbox.recent(50);
+        }
         transport.send({
           type: "cowork_history_result",
           threadId,
           // A teammate's stored answer rides on the message it answers, so a
           // reopened chat shows the question WITH its answer.
-          messages: withHumanReplies(rows).map((m) => ({
-            ...(m.reply !== undefined ? { reply: m.reply, replyFailed: m.replyFailed } : {}),
-            id: m.id,
-            fromAgentId: m.fromAgentId,
-            toAgentId: m.toAgentId,
-            // Names resolved HERE, where the roster is: the stored row keeps
-            // ids, and a panel that had to guess would be back to rendering
-            // "demo-agent-atlas" at the person.
-            fromAgentName: coworkAgents.get(m.fromAgentId)?.name,
-            toAgentName: coworkAgents.get(m.toAgentId)?.name,
-            body: m.body,
-            status: m.status,
-            createdAt: m.createdAt,
-          })),
+          messages: withHumanReplies(visibleCoworkRows(rows)).map((m) => {
+            const { desktop, result } = coworkPayload(m);
+            return {
+              desktopId: desktop?.id,
+              requestImages: desktop?.images,
+              voice: desktop?.voice,
+              receipt: result,
+              ...(m.reply !== undefined ? { reply: m.reply, replyFailed: m.replyFailed, replyAt: m.replyAt } : {}),
+              id: m.id,
+              threadId: m.threadId,
+              fromAgentId: m.fromAgentId,
+              toAgentId: m.toAgentId,
+              fromAgentName: coworkAgents.get(m.fromAgentId)?.name,
+              toAgentName: coworkAgents.get(m.toAgentId)?.name,
+              body: m.body,
+              status: m.status,
+              createdAt: m.createdAt,
+            };
+          }),
         });
         break;
       }
@@ -1291,15 +1322,19 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         }
         transport.send({
           type: "cowork_team_result",
-          roster: coworkAgents.list().map((a) => ({
-            id: a.id,
-            name: a.name,
-            role: a.role,
-            instructions: a.instructions,
-            tools: a.tools ?? null,
-            model: a.modelPin ?? null,
-            createdAt: a.createdAt,
-          })),
+          roster: coworkAgents.list().map((a) => {
+            const last = coworkMailbox.latestInThread(`cowork:${a.id}`);
+            return {
+              id: a.id,
+              name: a.name,
+              role: a.role,
+              instructions: a.instructions,
+              tools: a.tools ?? null,
+              model: a.modelPin ?? null,
+              createdAt: a.createdAt,
+              ...(last ? { lastMessage: { text: last.body, at: last.createdAt } } : {}),
+            };
+          }),
           ...(removed ? { removed } : {}),
           ...(error ? { error } : {}),
           pendingApprovals: coworkApprovals.pending(),
@@ -1779,23 +1814,39 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             ? undefined
             : (cloudFallback ??
                (msg.localFallbackAvailable === false ? undefined : localFallbackTarget));
-          router.reconfigure(primary, fallback);
+          // Automatic (the model menu's "Let Cinderpaw choose"): the host sends
+          // every other model the person has, and the brain picks one per turn.
+          // The local engine joins when it has a model resident. Empty = the
+          // person picked one model, and only it (and its fallback) answers.
+          const toTarget = (c: { provider?: unknown; model?: unknown; baseUrl?: unknown; apiKey?: unknown }): ModelTarget | null =>
+            typeof c?.provider === "string" && typeof c.model === "string" && typeof c.baseUrl === "string"
+              ? { provider: c.provider, model: c.model, baseUrl: c.baseUrl, apiKey: typeof c.apiKey === "string" ? c.apiKey : undefined }
+              : null;
+          const automatic = Array.isArray(msg.candidates);
+          const candidates: ModelTarget[] = automatic
+            ? msg.candidates!.map(toTarget).filter((t): t is ModelTarget => t !== null)
+            : [];
+          if (automatic && msg.localFallbackAvailable !== false && localFallbackTarget && !isLoopbackUrl(baseUrl)) {
+            candidates.push(localFallbackTarget);
+          }
+          const extra = router.reconfigure(primary, fallback, undefined, candidates);
           // The router now trusts only the new targets. A brain still holding
           // the old ones would route the next turn to an endpoint the router
           // refuses — which is how a model switch used to end every turn with
           // "refusing to contact untrusted inference endpoint", naming the
           // provider the user had just left. Refusing was right; routing there
           // at all was the fault.
-          const nextBrain = rebuildDerivedBrain(brainDerived, primary, fallback);
+          const nextBrain = rebuildDerivedBrain(brainDerived, primary, fallback, extra);
           if (nextBrain) agent.setBrain(new BrainStack(nextBrain, brainBreaker, log));
           // Local models forward their active context window so the agent loop
           // compacts to the real KV-cache size (Hardware can raise it well past
           // the old 8192); cloud models send none and use the cloud budget.
           router.setContextWindow(msg.contextWindow);
-          transport.send({ type: "model_set", provider, model });
+          transport.send({ type: "model_set", provider, model, automatic, choices: extra.length + 1 });
           log(
             `model hot-swapped → ${provider}/${model} @ ${baseUrl}` +
-              (fallback ? ` (fallback → ${fallback.baseUrl})` : ""),
+              (fallback ? ` (fallback → ${fallback.baseUrl})` : "") +
+              (automatic ? ` (automatic over ${extra.length + 1} models)` : ""),
           );
         } catch (err) {
           transport.send({
@@ -1806,7 +1857,21 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         break;
       }
 
+      // The person typed while their turn was running: it joins that turn at
+      // its next step. Not running any more: the host sends it as a message.
+      case "steer": {
+        const accepted = !!msg.sessionId && typeof msg.content === "string" && agent.steer(msg.sessionId, msg.content);
+        transport.send({ type: "steer_ack", sessionId: msg.sessionId ?? "", accepted, text: typeof msg.content === "string" ? msg.content : "" });
+        break;
+      }
+
       case "stop": {
+        for (const sid of runtimeForRoster(coworkAgents)?.cancel(msg.sessionId, msg.stopRequestId) ?? []) {
+          agent.stop(sid);
+          askUser.cancelSession(sid, "Stopped by user");
+          ctx.childRegistries.get(sid)?.cancel();
+        }
+        if (msg.stopRequestId) break;
         // User pressed the Stop button. Abort the in-flight generation for
         // that session (or everything when no sessionId is given). The loop
         // aborts the router fetch + per-session tool signal and emits a
@@ -1815,9 +1880,11 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         if (msg.sessionId) {
           log(`stop requested for session ${msg.sessionId}`);
           agent.stop(msg.sessionId);
+          ctx.childRegistries.get(msg.sessionId)?.cancel();
         } else {
           log(`stop requested for all sessions`);
           agent.stopAll();
+          for (const workers of ctx.childRegistries.values()) workers.cancel();
         }
         break;
       }
@@ -1825,6 +1892,32 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       // A call that Gemini conducted, filed after the fact. No reply is
       // generated and no event is emitted beyond the ack: the user already
       // heard the answer, live, and the only thing missing was the record.
+      // The first message after a model is connected: the model writes it from
+      // the app names the window sent, it is filed as the agent's turn, and the
+      // window shows it. Always answered, with the fixed welcome if the model fails.
+      case "welcome": {
+        // In the background: a model call takes seconds, and the person may
+        // already be typing their first message.
+        const sessionId = msg.sessionId ?? "default";
+        const user = loadUserConfig();
+        void writeWelcome({
+          agentName: user.agentName,
+          userName: user.userName,
+          apps: (msg.content ?? "").split("\n").map((a) => a.trim()).filter(Boolean),
+          local: router.isPrimaryLocal,
+          complete: async (system, prompt) => (await router.complete({
+            sessionId,
+            messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
+            maxTokens: 600,
+            cachePrompt: false,
+          })).content,
+        }).then(async (content) => {
+          await agent.recordTurn(sessionId, "", content);
+          transport.send({ type: "welcome_ready", id: msg.id ?? "", sessionId, content });
+        }).catch((err) => log(`welcome failed: ${String(err)}`));
+        break;
+      }
+
       case "record_turn": {
         await agent.recordTurn(
           msg.sessionId ?? "default",
@@ -1846,19 +1939,38 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           });
           return;
         }
-        // X1 fix: mood updates are only emitted when the proactive
-        // subsystem is enabled. Default = off, so the hot message path
-        // does no MoodEngine work.
+        ctx.nudges.continued(sessionId);
+        ctx.nudges.seen();
         mood?.applyEvent("message_received");
-        // Inner-thoughts loop watches idle time. Reset the timer on every
-        // user message so the loop knows the user is actively chatting
-        // and waits for a quiet moment before surfacing its own thoughts.
-        // Cheap (single Date.now() write). Only meaningful when the
-        // proactive subsystem is on.
         innerThoughts?.noteUserActivity();
-        // Dream Cycle activity clock: an inbound user message means the
-        // user is here, so the idle trigger resets. Cheap single write.
         activityMonitor.recordActivity(Date.now());
+        if (sessionId.startsWith("cowork:")) {
+          const teammate = coworkAgents.get(sessionId.slice("cowork:".length));
+          if (!teammate) {
+            transport.send({ type: "error", id, message: "That teammate no longer exists." });
+            return;
+          }
+          const desktop: CoworkDesktopTurn = {
+            id, skillsContext: msg.skillsContext, inferParams: msg.inferParams, surface: msg.surface,
+            replaceFrom: msg.replaceFrom, voice: msg.voice,
+            images: msg.images?.filter((image) => typeof image === "string" && image.startsWith("data:image/")),
+          };
+          let replaces: string[] | undefined;
+          if (desktop.replaceFrom) {
+            const rows = visibleCoworkRows(coworkMailbox.byThread(sessionId)).filter((r) => r.fromAgentId === "human" && r.toAgentId === teammate.id);
+            const index = rows.findIndex((r) => r.id === desktop.replaceFrom);
+            if (index < 0 || runtimeForRoster(coworkAgents)?.isWorking(teammate.id) || rows.some((r) => r.status === "pending")) {
+              transport.send({ type: "error", id, message: "This turn can no longer be edited. Reopen the chat and try again." });
+              break;
+            }
+            replaces = rows.slice(index).map((r) => r.id);
+          }
+          const queued = coworkMailbox.send({ fromAgentId: "human", toAgentId: teammate.id, threadId: sessionId,
+            body: content, payloadJson: JSON.stringify({ coworkHops: 0, desktop, replaces }) });
+          transport.send({ type: "cowork_event", eventType: "message_queued", agentId: teammate.id, threadId: sessionId,
+            title: teammate.name, data: { messageId: queued.id, desktopId: id, fromAgentId: "human", body: content, images: desktop.images, replaces, voice: desktop.voice } });
+          break;
+        }
         // Memory Resume (current_task / last_active_at) is written from
         // AgentLoop's user-turn observer, wired in boot — connector surfaces
         // reach the agent without passing through here, and they are the user
@@ -1908,6 +2020,22 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           msg.inferParams && typeof msg.inferParams === "object"
             ? msg.inferParams
             : undefined;
+        // Dev-only "Bare model" switch (core/bare-turn.ts): the chosen model with
+        // none of Cinderpaw around it, for filming the harness against no harness.
+        // Straight to the transport, so no part of the harness (mood, Dreams,
+        // memory) learns from a turn it took no part in.
+        if (msg.bare === true) {
+          // The model's page, saved and linked by Cinderpaw AFTER it answered,
+          // so the person can see it; the model never learns this happened.
+          const afterword = async (answer: string) => {
+            const page = /```html\s*\n([\s\S]*?)```/i.exec(answer)?.[1];
+            if (!page) return undefined;
+            const a = artifacts.create({ kind: "app", title: "Bare model page", content: page, workspaceId: activeWorkspaceId(db.raw), sessionId });
+            return `Open the page it wrote: ${await artifactPreview.url(a)} (saved by Cinderpaw for viewing; the model did not see this line)`;
+          };
+          await runBareTurn(router, { sessionId, messageId: id, text: content, emit: (e) => transport.send(e), images, inferParams, afterword });
+          break;
+        }
         // The boot MCP reconcile is fire-and-forget, so the very first message
         // could be planned against a registry that had no MCP tools in it yet —
         // the agent answered "I have no tool for that" for a server the user
@@ -2037,6 +2165,50 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       // transport layer (the InboundMessage union doesn't carry the
       // detail fields yet — V1 reads them off `msg as any` and
       // validates inside the handler).
+      // The window's unfinished-work card was opened or closed (core/nudges.ts).
+      case "nudge_reaction": {
+        if (typeof msg.sourceId === "string" && (msg.outcome === "opened" || msg.outcome === "dismissed")) {
+          ctx.nudges.react(msg.sourceId, msg.outcome);
+        }
+        break;
+      }
+      // "Send my numbers" (spec 4.12): pressed by the person; counts only, logged before they leave.
+      case "numbers_send": {
+        const { sendNumbers } = await import("./telemetry/usage-sender.ts");
+        const r = await sendNumbers(ctx.nudges.numbers());
+        transport.send({ ...cronListResult(msg.id ?? "", cronRepo.forPeople(), r.ok ? undefined : r.error), ...(r.ok ? { note: "numbers-sent" } : {}) });
+        break;
+      }
+      // Undo on a line of "What I learned" (spec 4.7): `sourceId` is the bucket, e.g. "followup:evening".
+      case "learned_undo": {
+        if (typeof msg.sourceId === "string") ctx.nudges.undo(msg.sourceId);
+        transport.send({ ...cronListResult(msg.id ?? "", cronRepo.forPeople()), week: ctx.nudges.week(), learned: ctx.nudges.learned() });
+        break;
+      }
+      // Remove on a composed page (spec 4.14): `sourceId` is the page id.
+      case "page_remove":
+      // Yes / Not now on a question card: `sourceId` is "pageId:cardIndex", `enabled` is yes.
+      case "page_answer": {
+        if (typeof msg.sourceId === "string" && msg.type === "page_remove") ctx.pages.remove(msg.sourceId);
+        if (typeof msg.sourceId === "string" && msg.type === "page_answer") {
+          const [pageId, index] = msg.sourceId.split(":");
+          ctx.pages.answer(pageId ?? "", Number(index), msg.enabled === true);
+        }
+        const jobs = cronRepo.forPeople();
+        transport.send({ ...cronListResult(msg.id ?? "", jobs), week: ctx.nudges.week(), learned: ctx.nudges.learned(), pages: ctx.pages.views(jobs, () => ctx.nudges.week()) });
+        break;
+      }
+      // The window was focused: the person is at the computer (spec 4.4).
+      case "presence": {
+        ctx.nudges.seen();
+        break;
+      }
+      // "Follow-up suggestions" on the Tasks page, sent on start and on change,
+      // so a person who said no is never written to on the phone.
+      case "followups_setting": {
+        if (typeof msg.enabled === "boolean") ctx.followUps.setEnabled(msg.enabled);
+        break;
+      }
       case "cron_list": {
           if (msg.followUps) ctx.offerUnfinishedWork();
         // Used to answer with a `model_set` carrying only the count, so no
@@ -2046,8 +2218,13 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         if (msg.taskLimit) {
           try { limit.set(msg.taskLimit.weeklyUsd); } catch (error) { limitError = error instanceof Error ? error.message : String(error); }
         }
-        const jobs = cronRepo.list();
-        transport.send(cronListResult(msg.id ?? "", jobs, limitError, limit.view()));
+        const jobs = cronRepo.forPeople();
+        // Where a fired task would reach the person, and on request a real
+        // test, so "will I hear about it?" is answered on the Tasks page.
+        const phone = msg.testNotify
+          ? { via: await connectors.notifyOwner("✅ Cinderpaw can reach you here. Tasks you set up will tell you in this chat."), tested: true }
+          : { via: connectors.ownerChannel(), tested: false };
+        transport.send({ ...cronListResult(msg.id ?? "", jobs, limitError, limit.view()), phone, week: ctx.nudges.week(), learned: ctx.nudges.learned(), pages: ctx.pages.views(jobs, () => ctx.nudges.week()) });
         log(`cron_list → ${jobs.length} job(s)`);
         break;
       }
@@ -2062,12 +2239,16 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             agent.stop(`cron:${m.id}`);
             router.setSessionSpendAuthority(`cron:${m.id}`, null);
           }
+          // A new or changed price watch reads the page once first; a failed
+          // read, or a price already under the limit, creates nothing (spec 4.10).
+          const before = m.id ? cronRepo.get(m.id)?.watch : undefined;
+          const note = JSON.stringify(before) === JSON.stringify(m.watch) ? null : await ctx.priceFirstRead(m.watch);
           const job = cronRepo.upsert(m);
           log(`cron_add → ${job.id} (${job.name})`);
-          if (m.requestId) transport.send(cronListResult(m.requestId, cronRepo.list()));
+          if (m.requestId) transport.send({ ...cronListResult(m.requestId, cronRepo.forPeople()), ...(note ? { note } : {}) });
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
-          if (m.requestId) transport.send(cronListResult(m.requestId, cronRepo.list(), detail));
+          if (m.requestId) transport.send(cronListResult(m.requestId, cronRepo.forPeople(), detail));
           else transport.send({type:"model_error",message:detail});
         }
         break;
@@ -2086,7 +2267,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         const removed = cronRepo.remove(m.id);
         log(`cron_remove → ${m.id} (${removed ? "ok" : "not found"})`);
         const req = (msg as { requestId?: string }).requestId;
-        if (req) transport.send(cronListResult(req, cronRepo.list(), removed ? undefined : "No task with that id."));
+        if (req) transport.send(cronListResult(req, cronRepo.forPeople(), removed ? undefined : "No task with that id."));
         break;
       }
       case "cron_toggle": {
@@ -2105,7 +2286,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         cronRepo.setEnabled(m.id, m.enabled);
         log(`cron_toggle → ${m.id} enabled=${m.enabled}`);
         const req = (msg as { requestId?: string }).requestId;
-        if (req) transport.send(cronListResult(req, cronRepo.list()));
+        if (req) transport.send(cronListResult(req, cronRepo.forPeople()));
         break;
       }
 

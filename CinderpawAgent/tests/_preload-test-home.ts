@@ -66,6 +66,13 @@ if (!process.env.CINDERPAW_HOME && !process.env.FERAL_HOME) {
 // though something upstream is now red.
 const TEST_HOME = process.env.CINDERPAW_HOME;
 
+// The real fetch, kept before any test file can swap it. Many files fake the
+// global fetch for a model's replies, and one that forgets to put it back hands
+// every later file in the same run a fake answer: artifact-preview, which talks
+// to a real local server, failed that way in CI on 5 Nov ("done.", then "ok").
+// A test that needs the network for real uses this instead of the global.
+(globalThis as { realFetch?: typeof fetch }).realFetch = globalThis.fetch;
+
 afterEach(() => {
   if (process.env.CINDERPAW_HOME === undefined && TEST_HOME !== undefined) {
     process.env.CINDERPAW_HOME = TEST_HOME;

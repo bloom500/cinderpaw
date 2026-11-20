@@ -57,10 +57,12 @@ export function AgentOfflineBanner() {
             which is accurate and reads like a fault report on a product they
             have owned for four seconds. Same information, said the way you
             would say it to someone standing next to you. */}
+        {/* "a few seconds" and "a large workspace" were not true on a new
+            install: an empty profile, and minutes, not seconds (smoke test, 7 Nov). */}
         <span>
           <ShimmeringText text="Cinderpaw is waking up" />
-          {'. It reads its memory first, which takes a moment on a large '}
-          {'workspace. Send in a few seconds and it will be listening.'}
+          {'. The very first start can take a minute or two; later ones take a few '}
+          {'seconds. You can send when this note goes away.'}
         </span>
       </div>
     );

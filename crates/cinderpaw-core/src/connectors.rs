@@ -238,10 +238,18 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "whatsapp".into(),
             device_flow: None,
             name: "WhatsApp".into(),
-            description: "Reach your assistant on WhatsApp. Needs a one-time WhatsApp library install you do yourself, because its licence cannot ship inside Cinderpaw — see CinderpawAgent/README.md. After that, turn it on and scan the QR code with WhatsApp → Linked devices. Use a SECONDARY number — automation can get a number banned.".into(),
+            description: "Reach your assistant on WhatsApp. Ask Cinderpaw in the chat to connect WhatsApp: the first time it downloads WhatsApp support (it asks you first). Give the number to link and you get a code to type in WhatsApp, Settings, Linked devices; or leave it empty and scan a square code. A second number is safest: WhatsApp can ban a number it sees as automated.".into(),
             icon: "💚".into(),
             logo_url: Some("https://cdn.simpleicons.org/whatsapp".into()),
-            pairing_fields: Vec::new(),
+            // Optional: with it the phone gets a code to type, like ChatGPT's Dot,
+            // instead of a QR that changes every 20 s (Darius, 31 Oct). Not a
+            // secret; it rides in `secrets` because that map is what the sidecar
+            // reads and what a save keeps.
+            pairing_fields: vec![PairingFieldDef {
+                key: "WHATSAPP_LINK_NUMBER".into(),
+                label: "Number to link, country code first (+40 712 345 678)".into(),
+                secret: false,
+            }],
             pairing_method: Qr,
             coming_soon: false,
             console_url: None,
@@ -494,7 +502,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "line".into(),
             device_flow: None,
             name: "LINE".into(),
-            description: "A LINE Messaging API bot, big in Japan, Taiwan and Thailand. Needs a public web address you provide, because LINE delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790 and paste https://<your host>/connectors/line as the webhook URL in the console. Replies are push messages and count against your plan's monthly quota. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
+            description: "A LINE Messaging API bot, big in Japan, Taiwan and Thailand. Needs a public web address you provide, because LINE delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790 and paste https://<your host>/connectors/line as the webhook URL in the console. Replies are push messages and count against your plan's monthly quota.".into(),
             icon: "💚".into(),
             logo_url: Some("https://cdn.simpleicons.org/line".into()),
             pairing_fields: vec![
@@ -561,7 +569,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "googlechat".into(),
             device_flow: None,
             name: "Google Chat".into(),
-            description: "A Google Workspace Chat app. Needs a public web address you provide, because Google delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790, and in the Chat API configuration set the HTTP endpoint URL to https://<your host>/connectors/googlechat with the project number as the authentication audience. Needs a Google Cloud project with the Chat API enabled and a service account key. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
+            description: "A Google Workspace Chat app. Needs a public web address you provide, because Google delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790, and in the Chat API configuration set the HTTP endpoint URL to https://<your host>/connectors/googlechat with the project number as the authentication audience. Needs a Google Cloud project with the Chat API enabled and a service account key.".into(),
             icon: "🔷".into(),
             logo_url: None,
             pairing_fields: vec![
@@ -593,7 +601,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "msteams".into(),
             device_flow: None,
             name: "Microsoft Teams".into(),
-            description: "Microsoft Teams, as a Bot Framework bot. Needs a public web address you provide, and an administrator who can install the app into your tenant: register an Azure Bot, set its messaging endpoint to https://<your host>/connectors/msteams (point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790), enable the Teams channel, and paste the app id and a client secret below. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
+            description: "Microsoft Teams, as a Bot Framework bot. Needs a public web address you provide, and an administrator who can install the app into your tenant: register an Azure Bot, set its messaging endpoint to https://<your host>/connectors/msteams (point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790), enable the Teams channel, and paste the app id and a client secret below.".into(),
             icon: "🟦".into(),
             logo_url: None,
             pairing_fields: vec![
@@ -701,7 +709,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "sms".into(),
             device_flow: None,
             name: "SMS".into(),
-            description: "Plain SMS through Twilio, to any phone, with no app to install. Needs a public web address you provide, because Twilio delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790, paste https://<your host>/connectors/sms as the number's incoming-message webhook, and type that same URL below (Twilio signs each message with it). Every reply is a billed SMS. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
+            description: "Plain SMS through Twilio, to any phone, with no app to install. Needs a public web address you provide, because Twilio delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790, paste https://<your host>/connectors/sms as the number's incoming-message webhook, and type that same URL below (Twilio signs each message with it). Every reply is a billed SMS.".into(),
             icon: "📱".into(),
             logo_url: None,
             pairing_fields: vec![
@@ -743,7 +751,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "synology-chat".into(),
             device_flow: None,
             name: "Synology Chat".into(),
-            description: "Chat on your own Synology NAS, with the full agent behind it. Needs an address your NAS can reach Cinderpaw at, because Chat delivers messages by calling you: on this computer set CINDERPAW_INBOUND_HOST=0.0.0.0, then give the NAS http://<this computer's LAN address>:18790/connectors/synology-chat as the outgoing webhook. Nothing leaves your network. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
+            description: "Chat on your own Synology NAS, with the full agent behind it. Needs an address your NAS can reach Cinderpaw at, because Chat delivers messages by calling you: on this computer set CINDERPAW_INBOUND_HOST=0.0.0.0, then give the NAS http://<this computer's LAN address>:18790/connectors/synology-chat as the outgoing webhook. Nothing leaves your network.".into(),
             icon: "🗄️".into(),
             logo_url: Some("https://cdn.simpleicons.org/synology".into()),
             pairing_fields: vec![

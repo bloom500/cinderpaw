@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { FollowUpLedger, MonthlyProactiveBudget, recordInteractiveTurn } from "../src/core/proactive-followups.ts";
+import { FollowUpLedger, MonthlyProactiveBudget, offerFollowUp, recordInteractiveTurn } from "../src/core/proactive-followups.ts";
+import { Nudges } from "../src/core/nudges.ts";
 import { openDatabase } from "../src/db.ts";
 import { RunStore } from "../src/core/run-store.ts";
 
@@ -8,6 +9,7 @@ const NOW = Date.UTC(2026, 9, 24, 16);
 function database() {
   const db = new Database(":memory:");
   db.exec(`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
+    CREATE TABLE cowork_agents (id TEXT PRIMARY KEY);
     CREATE TABLE runs (id TEXT PRIMARY KEY, session_id TEXT, mission TEXT, status TEXT,
       stopped_because TEXT, updated_at INTEGER, delivery TEXT);`);
   return db;
@@ -20,6 +22,27 @@ function run(db: Database, id = "run-1", session = "chat-1", status = "unfinishe
 }
 
 describe("event-driven unfinished-work follow-ups", () => {
+  test("a teammate with unfinished work reaches the private messenger once and keeps the same note in their chat", async () => {
+    const db = database();
+    const at = new Date(2026, 9, 24, 14).getTime();
+    db.exec("INSERT INTO cowork_agents VALUES ('atlas')");
+    run(db, "old", "cowork:removed", "unfinished", at - 600_001);
+    run(db, "task", "cowork:atlas", "unfinished", at - 900_000);
+    const ledger = new FollowUpLedger(db);
+    ledger.setEnabled(true);
+    const sent: string[] = [];
+    const notes: string[] = [];
+    const offer = () => offerFollowUp({ from: "tick", ledger, nudges: new Nudges(db), now: at,
+      teammate: (id) => ({ id, name: "Atlas" }), phone: async (s) => { sent.push(s); return "discord"; },
+      keepForTeammate: (a, content) => notes.push(a.id + " " + content),
+      card: () => { throw new Error("Only one channel should ring."); } });
+    expect(await offer()).toBe("discord");
+    expect(await offer()).toBeNull();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toStartWith("Atlas\n");
+    expect(notes[0]).toContain("atlas I have unfinished work");
+    db.close();
+  });
   test("ordinary interactive chat supplies evidence without leaving resumable work", () => {
     const db = openDatabase(":memory:");
     const store = new RunStore(db.raw);
@@ -66,6 +89,63 @@ describe("event-driven unfinished-work follow-ups", () => {
     expect(ledger.take(NOW)).not.toBeNull();
     expect(new FollowUpLedger(db).take(NOW + 60_000)).toBeNull();
     expect(new FollowUpLedger(db).take(NOW + 4 * 60 * 60_000)).not.toBeNull();
+    db.close();
+  });
+});
+
+describe("unfinished work while the person is away (spec 4.5a)", () => {
+  const AT = new Date(2026, 9, 24, 16).getTime(); // 16:00 local
+  function setup(enabled: boolean | null = true) {
+    const db = database();
+    run(db, "run-1", "chat-1", "unfinished", AT - 60 * 60_000);
+    const ledger = new FollowUpLedger(db);
+    if (enabled !== null) ledger.setEnabled(enabled, AT);
+    const nudges = new Nudges(db);
+    const cards: string[] = [];
+    const phone: string[] = [];
+    const offer = (from: "window" | "tick", now: number) => offerFollowUp({
+      from, ledger, nudges, now,
+      card: (f) => { cards.push(f.id); },
+      phone: async (text) => { phone.push(text); return "telegram"; },
+    });
+    return { db, ledger, nudges, cards, phone, offer };
+  }
+
+  test("away with a messenger: the phone gets it, with the person's own words, and no card", async () => {
+    const { db, cards, phone, offer } = setup();
+    expect(await offer("tick", AT)).toBe("telegram");
+    expect(phone[0]).toContain("Finish the launch checklist");
+    expect(cards).toEqual([]);
+    db.close();
+  });
+
+  test("a follow-up shown on the desktop and dismissed never reaches the phone", async () => {
+    const { db, nudges, cards, phone, offer } = setup();
+    nudges.seen(AT);
+    expect(await offer("window", AT)).toBe("desktop");
+    expect(cards).toEqual(["run-1"]);
+    nudges.react("run-1", "dismissed", AT + 60_000);
+    // Hours later, away from the computer, past the 4-hour gap:
+    expect(await offer("tick", AT + 5 * 60 * 60_000)).toBeNull();
+    expect(phone).toEqual([]);
+    db.close();
+  });
+
+  test("'Follow-up suggestions' off, or never reported by the window: nothing goes to the phone", async () => {
+    for (const enabled of [false, null]) {
+      const { db, phone, cards, offer } = setup(enabled);
+      expect(await offer("tick", AT)).toBeNull();
+      expect([phone, cards]).toEqual([[], []]);
+      db.close();
+    }
+  });
+
+  test("not at night, and not while the person is at the computer (the window asks then)", async () => {
+    const { db, nudges, phone, offer } = setup();
+    expect(await offer("tick", new Date(2026, 9, 25, 3).getTime())).toBeNull();
+    nudges.seen(AT - 60_000);
+    expect(await offer("tick", AT)).toBeNull();
+    expect(phone).toEqual([]);
     db.close();
   });
 });

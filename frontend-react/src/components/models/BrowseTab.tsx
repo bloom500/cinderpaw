@@ -265,7 +265,7 @@ function DownloadsPanel() {
             <p className="truncate text-2xs text-text-muted" title={active.filename}>{active.filename}</p>
           </div>
           <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-bg-elevated" role="progressbar" aria-valuenow={Math.round(pct)} aria-label={`Downloading ${name}`}>
-            <div className="h-full rounded-full bg-brand transition-all duration-300" style={{ width: `${pct}%` }} />
+            <div className="h-full rounded-full bg-brand transition-all duration-(--motion-slow)" style={{ width: `${pct}%` }} />
           </div>
           <span className="w-10 text-right text-sm tabular-nums text-text-secondary">{pct.toFixed(0)}%</span>
           <button

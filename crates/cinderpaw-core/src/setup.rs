@@ -701,7 +701,7 @@ pub async fn verify_cloud(
 
     let mut req = client
         .post(&endpoint)
-        .header(provider.api_key_header(), format!("{}{}", provider.api_key_prefix(), api_key))
+        .header(provider.api_key_header(), provider.auth_value(api_key))
         .header("Content-Type", "application/json")
         .json(&body);
     for (name, value) in provider.extra_headers() {

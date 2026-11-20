@@ -48,7 +48,11 @@ const PATTERNS: Array<[RegExp, string]> = [
   [/\bnew\s+(system\s+)?(instructions?|prompt|rules)\s*:/i, 'new instructions:'],
   [/\bsystem[_\s]*(prompt|message|instruction)s?\b\s*[:)\]]/i, 'system prompt:'],
   [/\b(if|when)\s+you\s+are\s+(an?\s+)?(ai|llm|language\s+model|assistant|agent|bot)\b/i, 'addressed to an AI'],
-  [/\b(dear|attention|note\s+to|instructions?\s+for|message\s+(to|for))\s+(the\s+)?(ai|llm|assistant|agent|bot|claude|gpt|chatgpt|gemini|cinderpaw|language\s+model)\b/i, 'addressed to the assistant'],
+  [/\b(dear|attention|note\s+to|message\s+(to|for))\s+(the\s+)?(ai|llm|assistant|agent|bot|claude|gpt|chatgpt|gemini|cinderpaw|language\s+model)\b/i, 'addressed to the assistant'],
+  // Only as a heading ("Instructions for the AI: ..."). Bare, it is how people
+  // talk about agents: a Reddit thread on coding agents gated a whole session
+  // over "I keep instructions for the agent in AGENTS.md" (1 Nov).
+  [/\binstructions?\s+for\s+(the\s+)?(ai|llm|assistant|agent|bot|claude|gpt|chatgpt|gemini|cinderpaw|language\s+model)\s*:/i, 'addressed to the assistant'],
   // "This is an important message from me, Emma, to you, Claude." The shape
   // of a letter to the agent, whatever the names are.
   [/\bmessage\s+from\s+me\b[^.]{0,60}\bto\s+you\b/i, 'a message addressed to you'],
@@ -128,13 +132,34 @@ interface Mark {
   reason: string;
   at: number;
   callsLeft: number;
+  /** The page that raised it, when it was a page with an address. */
+  url?: string;
 }
 
 const marks = new Map<string, Mark>();
 
 /** The session read something that addressed the agent. */
-export function taint(sessionId: string, reason: string): void {
-  marks.set(sessionId, { reason, at: Date.now(), callsLeft: TAINT_CALLS });
+export function taint(sessionId: string, reason: string, url?: string): void {
+  marks.set(sessionId, { reason, at: Date.now(), callsLeft: TAINT_CALLS, url });
+}
+
+const samePage = (a: string, b: string): boolean => {
+  try {
+    const norm = (u: string) => { const x = new URL(u); x.hash = ''; return x.href.replace(/\/$/, ''); };
+    return norm(a) === norm(b);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Opening again the very page that raised the alarm sends nothing new out: no
+ * address the page chose with data in it, only a re-read. Asking about it was
+ * the question people learn to click through (1 Nov).
+ */
+export function reopensTaintSource(sessionId: string, tool: string, args: Record<string, unknown>): boolean {
+  const url = marks.get(sessionId)?.url;
+  return !!url && tool === 'browser' && String(args.action ?? '') === 'open' && typeof args.url === 'string' && samePage(args.url, url);
 }
 
 /** Why the session is gated, or null. Each check spends one call. */
@@ -250,6 +275,6 @@ export function guardWebText(text: string, source: string, sessionId: string | u
   const s = scan(text);
   const framed = frame(text, source);
   if (s.hits.length === 0) return framed;
-  if (sessionId) taint(sessionId, `${source} contained instructions aimed at the agent (${s.hits[0]})`);
+  if (sessionId) taint(sessionId, `${source} contained instructions aimed at the agent (${s.hits[0]})`, /https?:\/\/\S+/.exec(source)?.[0]);
   return `${warning(s)}\n\n${framed}`;
 }

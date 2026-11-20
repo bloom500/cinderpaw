@@ -82,6 +82,40 @@ describe("parseChannelAnswers", () => {
 });
 
 describe("ChannelAskRouter", () => {
+  it("keeps two teammate questions and the main question independent on the same private bot", async () => {
+    const router = new ChannelAskRouter();
+    const owner = "discord:owner";
+    const sent: string[] = [];
+    router.registerSender("discord", async (_id, text) => { sent.push(text); });
+    router.setAddressed((chat, text) => {
+      const match = /^(Atlas|Bolt): (.+)$/.exec(text);
+      return !!match && router.answerPending("cowork:" + match[1], chat, match[2]!);
+    });
+    const main = router.ask([DB], owner);
+    const atlas = router.ask([DB], "cowork:Atlas", { destination: owner, name: "Atlas", address: "Atlas" });
+    const bolt = router.ask([DB], "cowork:Bolt", { destination: owner, name: "Bolt", address: "Bolt" });
+    expect(sent[1]).toContain("Atlas:");
+    expect(router.handleInbound("discord:other", "Atlas: 1")).toBe(false);
+    expect(router.handleInbound(owner, "Atlas: 1")).toBe(true);
+    expect((await atlas)[0]!.selected).toEqual(["Postgres"]);
+    expect(router.pendingCount).toBe(2);
+    router.cancelSession("cowork:Bolt", "stopped");
+    await expect(bolt).rejects.toThrow("stopped");
+    expect(router.handleInbound(owner, "1")).toBe(true);
+    expect((await main)[0]!.selected).toEqual(["Postgres"]);
+    expect(router.pendingCount).toBe(0);
+  });
+  it("tells observers of every message in and out, and survives a broken one", async () => {
+    const router = new ChannelAskRouter();
+    router.registerSender("telegram", async () => {});
+    const seen: string[] = [];
+    router.observe(() => { throw new Error("broken observer"); });
+    router.observe((s, d) => seen.push(`${d} ${s}`));
+    expect(router.handleInbound("telegram:1:1", "hi")).toBe(false); // nothing pending: goes to the agent
+    expect(await router.notify("telegram:1:1", "report")).toBe("sent");
+    expect(seen).toEqual(["in telegram:1:1", "out telegram:1:1"]);
+  });
+
   it("sends the question and resolves on the next inbound", async () => {
     const sent: string[] = [];
     const router = new ChannelAskRouter();

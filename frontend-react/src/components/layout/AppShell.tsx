@@ -13,8 +13,10 @@ import { SearchOverlay } from '@/components/chat/SearchOverlay';
 import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
 import { UpdateToast } from '@/components/UpdateToast';
 import { ShareUsageCard } from '@/components/usage/ShareUsageCard';
+import { ConnectPhoneCard } from '@/components/ConnectPhoneCard';
 import { WhatsNew } from '@/components/WhatsNew';
 import { ConnectedDialog } from '@/components/ConnectedDialog';
+import { PageQuestionDialog } from '@/components/browser/PageQuestionDialog';
 import { Toasts } from '@/components/Toasts';
 import { CoworkApprovalDock } from '@/components/CoworkApprovalDock';
 import { SkillHubDrawer } from '@/components/SkillHubDrawer';
@@ -91,16 +93,24 @@ export function AppShell() {
       <CinderpawGlobalMount />
       <WhatsNew />
       <ConnectedDialog />
+      {/* A web page's alert, confirm, prompt or "Leave site?", on every page:
+          a tab's question must be seen even with the browser panel closed. */}
+      <PageQuestionDialog />
       {/* pt-14 on main clears the floating nav. The nav is translucent and sits
           over the page by design, but "over" must not mean "on top of the chat
           title": the page starts below it, so what shows through the glass is
           the page's own background rather than text the nav is covering. */}
       <main
         // Collapsed leaves only room for the button that brings it back. The
-        // padding moves in one step, not over 0.22 s: animating it laid the
-        // whole page out on every frame, and the nav's own slide covers the
-        // step. See SideNav for the rest of that fix.
-        style={{ paddingLeft: navCollapsed ? NAV_COLLAPSED_W + 60 : NAV_W + 24 }}
+        // padding glides with the nav's own slide (MOTION.base, SideNav).
+        // It moved in one step from 17 Sep, when every frame of layout also
+        // re-ran the glass's displacement filter; the nav now drops that for
+        // its slide. The step left the page jumping right before the nav had
+        // arrived (his "loose screws", 29 Oct, recording 02).
+        style={{
+          paddingLeft: navCollapsed ? NAV_COLLAPSED_W + 60 : NAV_W + 24,
+          transition: 'padding-left var(--motion-base) var(--motion-ease)',
+        }}
         className="absolute inset-0 flex flex-col overflow-hidden pt-3 pr-4"
       >
         <Outlet />
@@ -179,6 +189,8 @@ export function AppShell() {
           <CoworkApprovalDock />
           {/* Persistent cards wait until the page stops covering; they are not lost. */}
           {!overPage && <UpdateToast />}
+          {/* Offered once, after a first conversation: the phone (13 Nov). */}
+          {!overPage && <ConnectPhoneCard />}
           {/* The usage question, in the same card and place as the update (21 Oct). */}
           {!overPage && <ShareUsageCard />}
           <Toasts compact={overPage} />

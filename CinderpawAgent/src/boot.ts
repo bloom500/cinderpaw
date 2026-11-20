@@ -21,6 +21,7 @@ import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
 import { pathWithin } from "./egress/tool-permissions.ts";
 import { InferenceRouter } from "./egress/inference-router.ts";
+import { ChatSpendRepo, chatSessionOf } from "./egress/chat-spend.ts";
 import { startUsageSender } from "./telemetry/usage-sender.ts";
 import { InferenceSpendAuthority } from "./egress/inference-spend-authority.ts";
 import { EpisodicMemory } from "./memory/episodic.ts";
@@ -29,6 +30,7 @@ import { SemanticMemory, memoryScope, setChatOwner, speakerScope } from "./memor
 import { RecallEngine } from "./memory/recall.ts";
 import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
 import { ObservationStore, importLegacyNotes } from "./memory/observations.ts";
+import { connectorName } from "./memory/elsewhere.ts";
 import { ingestImports } from "./memory/import-inbox.ts";
 import { buildSnapshot } from "./memory/snapshot.ts";
 import { Reflector, memoryIdleTick } from "./memory/reflector.ts";
@@ -85,6 +87,7 @@ import { createToolForgeTool, registerPersistedCustomTools } from "./tools/built
 import { createTodoWriteTool, TodoStore } from "./tools/builtin/todo-write.ts";
 import { ArtifactStore, type ArtifactChangeEvent } from "./artifacts/store.ts";
 import { ArtifactExporter } from "./artifacts/export.ts";
+import { ArtifactPreviewServer } from "./artifacts/preview.ts";
 import {
   artifactStoreGuard,
   createArtifactCreateTool,
@@ -92,6 +95,7 @@ import {
   createArtifactSendTool,
   createArtifactDownloadTool,
   createArtifactEditTool,
+  createArtifactPreviewTool,
   createArtifactExportTool,
   createArtifactListTool,
   createArtifactReadTool,
@@ -100,6 +104,7 @@ import { CheckpointStore } from "./memory/checkpoint.ts";
 import { createGitStatusTool, createGitDiffTool, createGitLogTool, createGitCommitTool, createGitBranchTool } from "./tools/builtin/git.ts";
 import { createHttpRequestTool } from "./tools/builtin/http-request.ts";
 import { createTimeDateTool } from "./tools/builtin/time-date.ts";
+import { createShowVideoTool } from "./tools/builtin/show-video.ts";
 import { createCalculatorTool } from "./tools/builtin/calculator.ts";
 import { createShowWidgetTool } from "./tools/builtin/show-widget.ts";
 import { createWebSearchTool } from "./tools/builtin/web-search.ts";
@@ -125,7 +130,7 @@ import { createRecallTool } from "./tools/builtin/recall.ts";
 import { createRememberTool, NOTE_PREFIX, POSITION_KEY } from "./tools/builtin/remember.ts";
 import { forgetMirrors } from "./memory/forget.ts";
 import { createSelfTools } from "./tools/builtin/self.ts";
-import { registerCoworkRosterTools } from "./tools/builtin/cowork.ts";
+import { ownerTeamBrief, registerCoworkRosterTools } from "./tools/builtin/cowork.ts";
 import { createCoworkCreateTool } from "./tools/builtin/cowork-create.ts";
 import { createTokenUsageTool } from "./tools/builtin/token-usage.ts";
 import { createConnectorsManageTool } from "./tools/builtin/connectors-manage.ts";
@@ -136,16 +141,19 @@ import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
 import { HookRegistry } from "./core/hook-registry.ts";
 import { CronJobsRepo, CronScheduler, deliverCron } from "./cron/index.ts";
+import { maybeSendDigest, maybeSendReceipt } from "./cron/digest.ts";
+import { firstPriceRead, isPriceWatch } from "./cron/watch.ts";
 import { CoworkAgentRepo } from "./cowork/agent-store.ts";
+import { applyCoworkProfile, withCronOwner } from "./cron/owner.ts";
 import { CoworkMailboxRepo } from "./cowork/mailbox.ts";
 import { CoworkHandoffService } from "./cowork/handoff.ts";
-import { CoworkRuntime } from "./cowork/runtime.ts";
+import { CoworkRuntime, coworkPayload } from "./cowork/runtime.ts";
 import {
   CoworkApprovalRepo,
   CoworkApprovalService,
 } from "./cowork/approval.ts";
 import { TauriTransport } from "./transports/tauri.ts";
-import { ConnectorManager } from "./transports/connectors.ts";
+import { ConnectorManager, setReplyTail } from "./transports/connectors.ts";
 // Imported for the side effect: loading the barrel runs every transport's
 // `registerTransport(...)`. Listing them here instead cost us three shipped
 // connectors nobody could reach — see src/transports/all.ts.
@@ -166,7 +174,10 @@ import { defaultJournalPath } from "./rsi/infra/journal.ts";
 import { ActivityMonitor } from "./rsi/l1-config/activity-monitor.ts";
 import { resolveDreamConfig, autonomousInferenceGate } from "./rsi/l1-config/dream-config.ts";
 import { priceResolverFromJson } from "./rsi/infra/rsi-cost.ts";
-import { FollowUpLedger, recordInteractiveTurn } from "./core/proactive-followups.ts";
+import { FollowUpLedger, offerFollowUp, recordInteractiveTurn } from "./core/proactive-followups.ts";
+import { Nudges, quietHour } from "./core/nudges.ts";
+import { addressedTeammate, signedTeamMessage } from "./cowork/owner-chat.ts";
+import { PhoneOffers } from "./core/phone-offers.ts";
 import { episodeStartOptions, episodeBudgetCaps } from "./rsi/l1-config/episode-options.ts";
 import { MetaEvolution } from "./rsi/l6-meta/meta-evolution.ts";
 import { effectiveGates, layerFrozen, loadPolicy } from "./rsi/l5-gov/governance.ts";
@@ -182,15 +193,23 @@ import { AskUserBridgeImpl } from "./core/ask-user-bridge.ts";
 import { HostToolBridge, loadHostTools } from "./core/host-tool-bridge.ts";
 import { setHostToolNames } from "./tools/tiers.ts";
 import { createAskUserTool } from "./tools/builtin/ask-user.ts";
+import { createSuggestTeamTool, statesTeamNeed } from "./tools/builtin/suggest-team.ts";
 import { createHeadsUpTool } from "./tools/builtin/heads-up.ts";
+import { createSetAppearanceTool } from "./tools/builtin/set-appearance.ts";
 import { createSuggestTaskTool } from "./tools/builtin/suggest-task.ts";
+import { createTasksListTool } from "./tools/builtin/tasks-list.ts";
 import { createTaskLimitTool } from "./tools/builtin/task-limit.ts";
+import { createQuietNudgesTool } from "./tools/builtin/quiet-nudges.ts";
+import { teamThoughtSituation, thoughtSituation } from "./core/thought-situation.ts";
+import { Pages } from "./core/pages.ts";
+import { createComposePageTool } from "./tools/builtin/compose-page.ts";
 import { TaskLimit } from "./cron/limit.ts";
 import { refreshModelPrices, withModelPrices } from "./egress/model-prices.ts";
 import { DesktopControlBridgeImpl } from "./core/desktop-control-bridge.ts";
 import { RequestBridge } from "./core/request-bridge.ts";
 import { createComputerUseTool } from "./tools/builtin/computer-use.ts";
 import { createBrowserTool } from "./tools/builtin/browser.ts";
+import { createWatchVideoTool } from "./tools/builtin/watch-video.ts";
 import { LeadDesk } from "./core/lead-desk.ts";
 import { createCaptureLeadTool } from "./tools/builtin/capture-lead.ts";
 import { createEscalateToHumanTool } from "./tools/builtin/escalate-to-human.ts";
@@ -459,12 +478,21 @@ export async function boot(transportOverride?: Transport) {
   // start a new run.
   const runStore = new RunStore(db.raw);
   const followUps = new FollowUpLedger(db.raw);
+  // Every message Cubby sends first goes through this one door.
+  // With the digest off (CINDERPAW_DIGEST_HOUR=-1) nothing can carry a held
+  // note, so the rule drops instead of holding (spec 4.5b).
+  const nudges = new Nudges(db.raw, { digestOn: () => { const h = Number(readEnv("CINDERPAW_DIGEST_HOUR") ?? 20); return Number.isFinite(h) && h >= 0; } });
+  nudges.expire(); // reactions are settled lazily; boot is one of the moments
   // Lifecycle events, never idle model polling. The card only opens prior work;
   // it does not authorize a resumed task or any external action.
-  function offerUnfinishedWork(): void {
+  function offerUnfinishedWork(from: "window" | "tick" = "window"): void {
     if (!cfgBool("CINDERPAW_FOLLOWUPS_ENABLED")) return;
-    const followUp = followUps.take();
-    if (followUp) transport.send({ type: "proactive", content: "You left something unfinished", followUp });
+    void offerFollowUp({
+      from, ledger: followUps, nudges, phone: cfgBool("CINDERPAW_TASKS_TO_PHONE") ? notifyOwner : null,
+      teammate: (id) => coworkAgents.get(id),
+      keepForTeammate: keepTeamNote,
+      card: (followUp) => transport.send({ type: "proactive", content: "You left something unfinished", followUp }),
+    }).catch((e) => log(`follow-up: send failed: ${String(e)}`));
   }
 
   // --- RSI bootstrap (Faza 0 — Keystone) ---
@@ -886,8 +914,11 @@ export async function boot(transportOverride?: Transport) {
   registry.register(createHttpRequestTool(httpDomains.length > 0 ? httpDomains : ["*"]));
   // time_date + calculator: pure utilities, no permissions
   registry.register(createTimeDateTool());
+  // Advertised, not drawered: the moment to use it is right after a render, and
+  // a drawered tool is one the model never thinks of (tiers.ts).
+  registry.register(createShowVideoTool());
   registry.register(createCalculatorTool());
-  registry.register(createShowWidgetTool());
+  registry.register(createShowWidgetTool(config.workspaceRoots));
   registry.register(createWebSearchTool({ searxngOrigin: searxng }));
   // fetch_url: open egress by default, same posture as http_request above.
   // Set CINDERPAW_FETCH_DOMAINS to RESTRICT.
@@ -979,6 +1010,10 @@ export async function boot(transportOverride?: Transport) {
   registry.register(createArtifactDeleteTool(artifactDeps));
   // Same egress posture as fetch_url, which this is the byte-for-byte sibling of.
   registry.register(createArtifactDownloadTool({ ...artifactDeps, allowedDomains: fetchDomains.length > 0 ? fetchDomains : ["*"] }));
+  // Pages the agent built, at a loopback link it can open and look at. One
+  // server: the bare-model turn (dispatch) links its pages through it too.
+  const artifactPreview = new ArtifactPreviewServer(artifactStore);
+  registry.register(createArtifactPreviewTool({ ...artifactDeps, preview: artifactPreview }));
   registry.register(createCodeQualityTool("run_tests", config.workspaceRoots));
   registry.register(createCodeQualityTool("format_code", config.workspaceRoots));
   registry.register(createCodeQualityTool("lint_code", config.workspaceRoots));
@@ -1000,9 +1035,20 @@ export async function boot(transportOverride?: Transport) {
   // pure event emission through the AskUserBridge in the tool context.
   registry.register(createAskUserTool());
   registry.register(createHeadsUpTool());
-  registry.register(createSuggestTaskTool());
+  registry.register(createSetAppearanceTool());
+  // Set once the connectors exist: which messenger a fired task reaches, for
+  // the card's one-time offer to connect WhatsApp. null = none connected.
+  let phoneChannel: () => string | null = () => "unknown";
+  // Also set with the connectors: a task offered in a chat app is accepted with "yes".
+  let phoneOffers: PhoneOffers | null = null;
+  registry.register(createSuggestTaskTool(undefined, undefined, () => phoneChannel(),
+    (sessionId, card) => phoneOffers?.offer(sessionId, card) ?? false));
   const taskLimit = new TaskLimit(db.raw);
   registry.register(createTaskLimitTool(taskLimit));
+  registry.register(createQuietNudgesTool(nudges));
+  // Spec 4.14: pages of cards the agent composes once; they update by code.
+  const pages = new Pages(db.raw);
+  registry.register(createComposePageTool(pages, () => cronRepo.list()));
 
   // computer_use — OS-level desktop control via the accessibility tree. This
   // is powerful (it can click/type into any non-denylisted app), so it is
@@ -1014,6 +1060,8 @@ export async function boot(transportOverride?: Transport) {
   // drives one web page inside Cinderpaw's own window, not the machine. Outside
   // the desktop app it says it is unavailable.
   registry.register(createBrowserTool());
+  // Videos as pictures + words, for every model; the host does the downloading.
+  registry.register(createWatchVideoTool());
   if (cfgBool("CINDERPAW_ENABLE_DESKTOP_CONTROL")) {
     registry.register(createComputerUseTool());
     log("computer_use enabled (CINDERPAW_ENABLE_DESKTOP_CONTROL=true) — OS desktop control is active");
@@ -1133,9 +1181,9 @@ export async function boot(transportOverride?: Transport) {
   // a child still gets its own working memory, filtered registry and budget —
   // read-only by default, exactly like delegate_task, so code that spawns
   // workers cannot quietly acquire write access the parent never granted.
+  // Shared by the notebook, child reporting, and Stop after a turn ends.
+  const childRegistries: ChildRegistries = new Map();
   if (cfgBool("CINDERPAW_ENABLE_NOTEBOOK")) {
-    // Shared so a child can find the parent that admitted it.
-    const childRegistries: ChildRegistries = new Map();
     // Registered BEFORE the Subagent below: `registry.list()` is a copy, and a
     // worker can only be granted a tool that is in it. Registered after, every
     // worker lost notify_parent silently while its allow-list still named it.
@@ -1257,6 +1305,12 @@ export async function boot(transportOverride?: Transport) {
       // a maximally non-spammy agent when the user opts in.
       dailyCap: Number(readEnv("CINDERPAW_THOUGHTS_DAILY_CAP") ?? 3),
       moodGateThreshold: Number(readEnv("CINDERPAW_THOUGHTS_MOOD_THRESHOLD") ?? 0.5),
+      // Spec slice 9: talk only about real things (watches, tasks due, unfinished work).
+      situation: teamThoughtSituation(
+        () => coworkAgents.list().filter((teammate) => !coworkRuntime.isWorking(teammate.id)),
+        (owner) => quietHour(Date.now()) ? { items: [], notes: [] }
+          : thoughtSituation(() => cronRepo.list(), db.raw, () => nudges.week(), Date.now(), owner),
+      ),
     });
     log("inner-thoughts loop enabled (opt-in via CINDERPAW_PROACTIVE_ENABLED)");
   }
@@ -1318,9 +1372,10 @@ export async function boot(transportOverride?: Transport) {
   // reset what we have learned about which endpoints are unwell.
   const brainBreaker = new CircuitBreaker();
   const brain = brainCfg ? new BrainStack(brainCfg, brainBreaker, log) : null;
+  const coworkAgents = new CoworkAgentRepo(db.raw);
   const agent = new AgentLoop(
     router, registry, episodic,
-    { onBudgetExhausted: config.inference.tokenBudget.onExhausted },
+    { onBudgetExhausted: config.inference.tokenBudget.onExhausted, teamBrief: () => ownerTeamBrief(coworkAgents) },
     // The per-turn injection is how almost every memory reaches the model,
     // and until 27 Sep the utility ledger heard only from the `recall` tool.
     // Recorded like the tool: which leaves this session was shown.
@@ -1404,7 +1459,13 @@ export async function boot(transportOverride?: Transport) {
     log(`checkpoint: ${stranded.length} session(s) left mid-turn by a prior process — will resume on next access`);
   }
 
-  agent.setUserTurnObserver((_sessionId, userText) => {
+  const teamNeedBySession = new Map<string, string>();
+  agent.setUserTurnObserver((sessionId, userText) => {
+    teamNeedBySession.delete(sessionId);
+    if (statesTeamNeed(userText)) {
+      teamNeedBySession.set(sessionId, userText);
+      if (teamNeedBySession.size > 128) teamNeedBySession.delete(teamNeedBySession.keys().next().value!);
+    }
     const now = Date.now();
     touchLastActive(db.raw, now);
     setCurrentTask(db.raw, {
@@ -1734,8 +1795,24 @@ export async function boot(transportOverride?: Transport) {
   }
 
   const cronRepo = new CronJobsRepo(db.raw);
+  const cronOwners = new Map<string, string>();
+  // What exists, for any chat to check (a WhatsApp chat could not, 7 Nov).
+  registry.register(createTasksListTool(() => cronRepo.list()));
   const taskPrice = withModelPrices(priceResolverFromJson(cfgPath("CINDERPAW_AUTONOMOUS_PRICING_JSON")));
   const watchEgress = new EgressProxy(audit.logger, { trustedLocalOrigins: [] });
+  const watchFetchFor = (url: string, session: string) => watchEgress.forTool({name:"task_watch",description:"Verify a user-approved source condition",permissions:["network:outbound"],networkAccess:true,allowedDomains:[new URL(url).hostname]}, session);
+  /**
+   * Spec 4.10: a price watch is turned on only after one read through the same
+   * path as its hourly checks. Returns what to tell the person, or null for any
+   * other task. Throws, with a sentence for them, when the read fails or the
+   * price is already under the limit (then there is nothing to wait for).
+   */
+  const priceFirstRead = async (watch: import("./types.ts").WatchCondition | undefined): Promise<string | null> => {
+    if (!watch || !isPriceWatch(watch)) return null;
+    const read = await firstPriceRead(watch, watchFetchFor(watch.sourceUrl, "task_watch:first-read"));
+    if (read.below) throw new Error(`${read.text} There is nothing to wait for, so I did not turn the watch on.`);
+    return read.text;
+  };
   // What an import left while the agent was not running is filed now, so its
   // tasks show under Tasks before anyone starts a conversation.
   try {
@@ -1744,12 +1821,15 @@ export async function boot(transportOverride?: Transport) {
   } catch (err) {
     log(`import failed (will retry next conversation): ${err instanceof Error ? err.message : String(err)}`);
   }
+  // Set once the connectors exist (below). A missed task can catch up at boot,
+  // before they do; it then stays in the app instead of touching them early.
+  let notifyOwner: ((text: string) => Promise<string | null>) | null = null;
   const cronScheduler = new CronScheduler({
     repo: cronRepo,
     limit: taskLimit,
     catchUpOnStart: true,
     stopJob: job => { agent.stop(`cron:${job.id}`); router.abort(`cron:${job.id}`); router.setSessionSpendAuthority(`cron:${job.id}`, null); },
-    watchFetch: (job) => watchEgress.forTool({name:"task_watch",description:"Verify a user-approved source condition",permissions:["network:outbound"],networkAccess:true,allowedDomains:[new URL(job.watch!.sourceUrl).hostname]}, `cron:${job.id}`),
+    watchFetch: (job) => watchFetchFor(job.watch!.sourceUrl, `cron:${job.id}`),
     runJob: async (job) => {
       // A reminder is its own text, said at the time it was asked for: no
       // model call, no safety point, no cost.
@@ -1792,7 +1872,9 @@ export async function boot(transportOverride?: Transport) {
         if (!runRow) throw new Error("A previous run is still active; this occurrence will not replay it.");
         // runUnattended, not handle(): a scheduled task that hits the turn
         // budget half-way gets continued rather than reported as finished.
-        const run = await runUnattended(
+        const teammate = job.ownerAgentId ? coworkAgents.get(job.ownerAgentId) : undefined;
+        if (job.ownerAgentId && !teammate) throw new Error("The teammate was removed. The main agent will take the next run.");
+        const run = await withCronOwner(agent, cronOwners, teammate, sessionId, () => runUnattended(
           (text, messageId) =>
             agent.handleTurn(sessionId, text, messageId, (event) => {
               // No live chat is attached to a cron run — chunk/tool events
@@ -1811,7 +1893,7 @@ export async function boot(transportOverride?: Transport) {
               : undefined,
             verify: () => verifyIfAsserted(job.doneWhen ?? null, safety),
           },
-        );
+        ));
         if (runError) {
           await concludeRun(runRow, "unfinished", "not_continuable", runError);
           // Only the allowance's own refusal is the weekly limit, and only when
@@ -1873,17 +1955,39 @@ export async function boot(transportOverride?: Transport) {
       // For V1 the default fetch (globalThis.fetch) is fine — the
       // webhook URL is admin-controlled, not user-controlled.
       if (target.kind === "chat") {
-        transport.send({
-          type: "cron_fired",
-          jobId: job.id,
-          jobName: job.name,
-          sessionId: target.sessionId,
-          content,
-        });
-        return;
+        // A task the person made is news they asked for; with the app in the
+        // tray, the chat alone reached nobody. Away from the computer it goes
+        // to their phone when a messenger is connected, and the chat says where
+        // it went. One ringer: when the phone rang, the desktop stays quiet.
+        // CINDERPAW_TASKS_TO_PHONE=false keeps it in the app.
+        const kind = job.kind === "watch" ? "watch" : "task";
+        const ownerId = cronRepo.get(job.id)?.ownerAgentId;
+        const teammate = ownerId ? coworkAgents.get(ownerId) : undefined;
+        const sessionId = teammate ? `cowork:${teammate.id}` : target.sessionId;
+        return nudges.route({ kind, sourceId: job.id, sessionId, userRequested: true }, {
+          phone: notifyOwner && readEnv("CINDERPAW_TASKS_TO_PHONE") !== "false"
+            ? () => notifyOwner!(teammate ? teamMessage(teammate, `${job.name}\n\n${content}`)
+              : `⏰ ${job.name}\n\n${content.length > 1500 ? `${content.slice(0, 1500)}…` : content}`)
+            : null,
+          desktop: (via) => {
+            const text = via ? `${content}\n\nAlso sent to your ${connectorName(via)}.` : content;
+            const currentTeammate = teammate && cronRepo.get(job.id)?.ownerAgentId === teammate.id && coworkAgents.get(teammate.id);
+            if (currentTeammate) {
+              keepTeamNote(currentTeammate, `${job.name}\n\n${text}`);
+            }
+            transport.send({ type: "cron_fired", jobId: job.id, jobName: job.name,
+              sessionId: currentTeammate ? sessionId : target.sessionId,
+              content: text, ...(via ? { silent: true } : {}) });
+          },
+          // "Send it to me on WhatsApp": asked for, so not held back because the
+          // window has focus (14 Nov, live test: it rang on the desktop instead).
+          phoneAsked: target.phone === true,
+        }).then(() => undefined);
       }
       return deliverCron(target, content, job, ctx);
     },
+    // Unfinished work is looked at while the person is away too (spec 4.5a).
+    onTick: () => offerUnfinishedWork("tick"),
     tickIntervalMs: Number(readEnv("CINDERPAW_CRON_TICK_MS") ?? 30_000),
     jobTimeoutMs: Number(readEnv("CINDERPAW_CRON_JOB_TIMEOUT_MS") ?? 5 * 60_000),
   });
@@ -1924,7 +2028,6 @@ export async function boot(transportOverride?: Transport) {
   // roster ⇒ zero behavior (fresh-install contract). The turn seam mirrors
   // cron's unattended-run shape minus durability extras: cowork threads are
   // conversational, one persistent session per agent so context compounds.
-  const coworkAgents = new CoworkAgentRepo(db.raw);
   const coworkMailbox = new CoworkMailboxRepo(db.raw);
   // S4 — deterministic approval gate on the tool-call path. Registered on
   // the shared hook registry: it passes every non-cowork session through
@@ -1938,6 +2041,7 @@ export async function boot(transportOverride?: Transport) {
     // Called only while a teammate's turn is running, long after boot has
     // declared the runtime below.
     threadOf: (agentId) => coworkRuntime.threadOf(agentId),
+    scheduledOwner: (sessionId) => cronOwners.get(sessionId),
     log,
   });
   hooks.on("before_tool_call", coworkApprovalService.gate);
@@ -1946,9 +2050,8 @@ export async function boot(transportOverride?: Transport) {
   // installed Cinderpaw could reach the feature at all. It registers the roster
   // tools below itself once the roster stops being empty, which is what removes the
   // "requires a restart" caveat that used to live in this comment.
-  registry.register(
-    createCoworkCreateTool({ agents: coworkAgents, mailbox: coworkMailbox, registry, log }),
-  );
+  const coworkCreate = createCoworkCreateTool({ agents: coworkAgents, mailbox: coworkMailbox, registry, log });
+  registry.register(coworkCreate);
   // The glass over the cost meter. buildCostReport/renderCostReport and the
   // router method that renders them had existed with no caller anywhere in the
   // product, so neither the person nor the agent could see the bill.
@@ -1965,57 +2068,93 @@ export async function boot(transportOverride?: Transport) {
     agents: coworkAgents,
     mailbox: coworkMailbox,
     handoffs: new CoworkHandoffService(db.raw),
-    emitEvent: (event) => transport.send(event),
-    runTurn: async (agentRec, prompt, sessionId) => {
-      // Each teammate runs under its OWN operating profile: its standing
-      // instructions as the system prompt, and only the tools it was created
-      // with. This reuses the connector-profile seam rather than inventing a
-      // second scoping mechanism — same restricted prompt + tool set, same
-      // enforcement in the exec loop.
-      //
-      // It is also the speed fix. Unscoped, every teammate advertised the
-      // whole registry, so each completion re-sent ~16.5k tokens of schema to
-      // produce ~600 and spent 13-55 seconds in prefill before the first
-      // token. A teammate created with four tools carries four tools.
-      //
-      // Registered per turn, not once: the roster is editable at runtime, and
-      // a profile compiled at boot would pin an agent to whatever it was when
-      // the app started. registerProfile only stores the allow-list, so this
-      // is cheap and always current.
-      const profileId = `cowork:${agentRec.id}`;
-      agent.registerProfile(profileId, {
-        systemPrompt: [
-          `You are ${agentRec.name}${agentRec.role ? `, ${agentRec.role}` : ""}.`,
-          agentRec.instructions,
-          "You are a teammate inside someone's Cinderpaw install. You answer " +
-            "the message you were sent and stop; you do not invent follow-up work.",
-        ]
-          .filter(Boolean)
-          .join("\n\n"),
-        // undefined ⇒ the owner's full toolset, which is the pre-scoping
-        // behaviour and stays the fallback for teammates created before the
-        // column existed.
-        allowedTools: agentRec.tools,
-      });
-      agent.setSessionProfile(sessionId, profileId);
+    emitEvent: (event) => {
+      transport.send(event);
+      if (event.type !== "cowork_event" || !event.threadId || typeof event.data?.messageId !== "string" ||
+          (event.eventType !== "message_processed" && event.eventType !== "message_rejected")) return;
+      const row = coworkMailbox.get(event.data.messageId);
+      if (row?.fromAgentId !== "human" || event.data.stopped) return;
+      const speaker = coworkAgents.get(event.agentId);
+      if (!speaker) return;
+      const body = event.eventType === "message_processed" && typeof event.data.output === "string" && event.data.output.trim()
+        ? event.data.output : "I couldn't finish this request. Open my chat in Cinderpaw for details.";
+      if (coworkPayload(row).ownerMessenger) {
+        if (connectors.isOwnerSession(event.threadId)) {
+          void connectors.askRouter.notify(event.threadId, teamMessage(speaker, body))
+            .then((result) => { if (result !== "sent") log(`cowork: messenger reply kept in teammate chat (${result})`); });
+        }
+      } else if (/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(event.threadId) && !quietHour(Date.now())) {
+        // A desktop delegation finished while the owner was away. Its answer already lives
+        // in the mailbox. Use the same one-channel delivery as a requested scheduled task.
+        void nudges.route({ kind: "task", sourceId: row.id, sessionId: `cowork:${speaker.id}`, userRequested: true }, {
+          phone: cfgBool("CINDERPAW_TASKS_TO_PHONE") ? () => connectors.notifyOwner(teamMessage(speaker, body)) : null,
+          desktop: (rang) => { if (!rang) transport.send({ type: "proactive", ownerAgentId: speaker.id, content: body }); },
+        }).catch((err) => log(`cowork: delivery failed: ${String(err)}`));
+      }
+    },
+    runTurn: async (agentRec, prompt, sessionId, { exchangeId, desktop, mission, recordEvent, signal }) => {
+      // Re-read the profile on each turn so edits take effect.
+      const tools = agentRec.tools;
+      applyCoworkProfile(agent, tools && coworkAgents.list().length > 1 ? {
+        ...agentRec,
+        tools: [...new Set([...tools, "cowork_team", "cowork_send"])],
+      } : agentRec, sessionId);
       // `handleTurn()` never throws — it emits `error` events instead
       // (same contract cron relies on). Capture and rethrow so the worker
       // loop records a rejection rather than delivering an error string
       // as if it were the agent's answer.
       let runError: string | null = null;
+      let stopped = false;
+      const relay = (event: import("./types.ts").OutboundEvent) => {
+        recordEvent(event);
+        if (event.type === "done" && event.stopped) stopped = true;
+        if (event.type === "error") runError = event.message;
+        const scoped = { ...event, sessionId, coworkExchangeId: exchangeId };
+        transport.send(scoped);
+      };
+      if (desktop) {
+        if (desktop.replaceFrom) agent.resetSession(sessionId);
+        const spoken = desktop.surface === "voice";
+        agent.setSessionSurface(sessionId, spoken ? "Answer briefly in the user's language. Your answer will be read aloud." : "", { spoken });
+        await mcpManager.ready();
+        if (signal.aborted) return { text: "", finished: false, stopped: true };
+        const result = await agent.handleTurn(sessionId, prompt, desktop.id ?? exchangeId, relay,
+          desktop.skillsContext, desktop.images, desktop.inferParams);
+        if (runError) throw new Error(runError);
+        recordInteractiveTurn(runStore, sessionId, mission, result.outcome, result.text, db.raw);
+        return { text: result.text, finished: result.outcome === "completed", stopped: result.outcome === "stopped" };
+      }
+      agent.setSessionSurface(sessionId, "");
       const run = await runUnattended(
-        (text, messageId) =>
-          agent.handleTurn(sessionId, text, messageId, (event) => {
-            if (event.type === "error") runError = event.message;
-          }),
+        (text, messageId) => signal.aborted
+          ? Promise.resolve({ text: "", outcome: "stopped" as const, toolCallCount: 0, incomplete: false })
+          : agent.handleTurn(sessionId, text, messageId, relay),
         prompt,
         `${sessionId}-${Date.now()}`,
         { deadlineMs: Number(readEnv("CINDERPAW_CRON_JOB_TIMEOUT_MS") ?? 5 * 60_000) },
       );
       if (runError) throw new Error(runError);
-      return { text: run.text, finished: run.finished };
+      recordInteractiveTurn(runStore, sessionId, mission, stopped ? "stopped" : run.finished ? "completed" : run.outcome, run.text, db.raw);
+      return { text: run.text, finished: run.finished && !stopped, stopped: stopped || run.outcome === "stopped" };
     },
     log,
+  });
+  function keepTeamNote(teammate: { id: string; name: string }, body: string) {
+    const threadId = `cowork:${teammate.id}`;
+    const message = coworkMailbox.send({ fromAgentId: teammate.id, toAgentId: "human", threadId, body });
+    coworkMailbox.updateStatus(message.id, "processed");
+    transport.send({ type: "cowork_event", eventType: "message_processed", agentId: teammate.id, threadId,
+      title: teammate.name, data: { messageId: message.id, agentName: teammate.name, toAgentId: "human", body, output: body } });
+  }
+  function teamMessage(teammate: { id: string; name: string }, body: string) {
+    const byName = addressedTeammate(teammate.name + ": reply", coworkAgents.list());
+    return signedTeamMessage(teammate.name, body, byName?.agent.id === teammate.id ? teammate.name : teammate.id);
+  }
+  const chatSpend = new ChatSpendRepo(db.raw);
+  router.configureChatSpend({
+    repo: chatSpend,
+    localBaseUrl: localBaseUrl ?? undefined,
+    sessionOf: (id) => chatSessionOf(id, (teammateId) => coworkRuntime.threadOf(teammateId)),
   });
 
   // --- RSI sidecar (Faza 1) ---
@@ -2602,6 +2741,81 @@ export async function boot(transportOverride?: Transport) {
   };
 
   const connectors = new ConnectorManager(agent, log, leadDesk, runHooks);
+  registry.register(createSuggestTeamTool({
+    latestUserText: (sessionId) => teamNeedBySession.get(sessionId),
+    isOwner: (sessionId) => !sessionId.includes(":") || connectors.isOwnerSession(sessionId),
+    hasTeammates: () => coworkAgents.list().length > 0,
+    create: (team) => {
+      db.raw.transaction(() => {
+        for (const teammate of team) {
+          const result = coworkCreate.create(teammate, false);
+          if (!result.ok) throw new Error(result.content);
+        }
+      })();
+      registerCoworkRosterTools(registry, coworkAgents, coworkMailbox);
+      transport.send({ type: "cowork_team_result", roster: coworkAgents.list().map((agent) => ({
+        id: agent.id, name: agent.name, role: agent.role, instructions: agent.instructions,
+        tools: agent.tools ?? null, model: agent.modelPin ?? null, createdAt: agent.createdAt,
+      })) });
+    },
+  }));
+  notifyOwner = (text) => connectors.notifyOwner(text);
+  phoneChannel = () => connectors.ownerChannel();
+  // What the owner does after a phone nudge: their next message in their own
+  // chat answers it; Cubby saying something else there first means it didn't.
+  // A task offered in a chat app: the owner's "yes" creates it, like Create on
+  // the desktop card (spec 4.9). Same task the window would send.
+  const offers = new PhoneOffers({
+    isChat: (sessionId) => connectors.askRouter.canHandle(sessionId),
+    isOwner: (sessionId) => connectors.isOwnerSession(sessionId),
+    create: (card, sessionId) => {
+      const make = () => {
+        const job = cronRepo.upsert({
+          name: card.title, task: card.task, kind: card.kind, schedule: card.schedule,
+          // Accepted on the phone, so it answers on the phone.
+          delivery: { kind: "chat", sessionId, phone: true },
+          ...(card.watch ? { watch: card.watch, expiryDays: card.expiryDays } : {}),
+        });
+        log(`cron_add (accepted on the phone) → ${job.id} (${job.name})`);
+      };
+      if (!card.watch || !isPriceWatch(card.watch)) { make(); return; }
+      // A price watch: the page is read first, and the reply says what was read.
+      return priceFirstRead(card.watch).then(
+        (text) => { make(); return `✅ Turned on: "${card.title}". ${text}`; },
+        (err: unknown) => `Not turned on: "${card.title}". ${err instanceof Error ? err.message : String(err)}`,
+      );
+    },
+  });
+  phoneOffers = offers;
+  setReplyTail((sessionId) => offers.tail(sessionId));
+  connectors.askRouter.setAnswers((sessionId, text) => {
+    const confirm = offers.answer(sessionId, text);
+    if (confirm !== null) {
+      void Promise.resolve(confirm).then((reply) => connectors.askRouter.notify(sessionId, reply));
+      return true;
+    }
+    return false;
+  });
+  connectors.askRouter.setAddressed((sessionId, text) => {
+    if (!connectors.isOwnerSession(sessionId)) return false;
+    const addressed = addressedTeammate(text, coworkAgents.list());
+    if (!addressed) return false;
+    if (connectors.askRouter.answerPending(`cowork:${addressed.agent.id}`, sessionId, addressed.body)) return true;
+    nudges.continued(`cowork:${addressed.agent.id}`);
+    coworkMailbox.send({ fromAgentId: "human", toAgentId: addressed.agent.id, threadId: sessionId,
+      body: addressed.body, payloadJson: JSON.stringify({ ownerMessenger: true }) });
+    return true;
+  });
+  connectors.askRouter.observe((sessionId, direction) => {
+    if (direction === "out") offers.said(sessionId);
+    if (!connectors.isOwnerSession(sessionId)) return;
+    const channel = sessionId.split(":", 1)[0]!;
+    if (direction === "in") {
+      nudges.inbound(channel);
+      innerThoughts?.noteUserActivity();
+    }
+    else nudges.outbound(channel);
+  });
   // The one person on a Discord or Slack allowlist is the owner, so what they
   // say there is the owner's memory, the same as on the desktop or a call. The
   // facts they already left under their speaker scope are folded in, newest
@@ -2615,7 +2829,20 @@ export async function boot(transportOverride?: Transport) {
   // ask_user for connector sessions is asked IN the channel (Discord/Slack/
   // WhatsApp text message; the next reply answers it) instead of emitting a
   // desktop card the chat user can never see.
-  askUser.setDelegate(connectors.askRouter);
+  function teammateQuestionDestination(sessionId: string) {
+    if (!sessionId.startsWith("cowork:")) return;
+    const id = sessionId.slice("cowork:".length);
+    const destination = coworkRuntime.ownerMessengerOf(id);
+    const teammate = coworkAgents.get(id);
+    if (!destination || !teammate || !connectors.isOwnerSession(destination)) return;
+    const byName = addressedTeammate(teammate.name + ": reply", coworkAgents.list());
+    return { destination, name: teammate.name, address: byName?.agent.id === id ? teammate.name : id };
+  }
+  askUser.setDelegate({
+    canHandle: (id) => connectors.askRouter.canHandle(id) || !!teammateQuestionDestination(id),
+    ask: (questions, id) => connectors.askRouter.ask(questions, id, teammateQuestionDestination(id)),
+    cancelSession: (id, reason) => connectors.askRouter.cancelSession(id, reason),
+  });
 
   // connectors_manage — the agent's self-service door for connecting itself
   // to Discord/Slack/WhatsApp on user request. Writes ~/.cinderpaw/connectors.json
@@ -2845,7 +3072,11 @@ export async function boot(transportOverride?: Transport) {
   // this shared, mutable `ctx` object rather than being destructured by
   // value on the other side.
   const ctx = {
+    priceFirstRead,
     offerUnfinishedWork,
+    followUps,
+    nudges,
+    pages,
     recordInteractiveTurn: (sessionId: string, mission: string, outcome: string, report: string) => recordInteractiveTurn(runStore, sessionId, mission, outcome, report, db.raw),
     config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     // The semantic graph, for the memory page's Forget (dispatch `memory_forget`),
@@ -2864,6 +3095,8 @@ export async function boot(transportOverride?: Transport) {
     // a whole model turn to retype it, and lets it be paraphrased on the way.
     coworkMailbox,
     coworkAgents,
+    chatSpend,
+    childRegistries,
     // The workspace panel reads through dispatch, not through the filesystem:
     // the artifact root lives under ~/.cinderpaw, which `deny_cinderpaw_private`
     // keeps the webview out of on purpose (the api token and the BYOK metadata
@@ -2872,6 +3105,7 @@ export async function boot(transportOverride?: Transport) {
     // stops being one.
     artifacts: artifactStore,
     artifactExporter,
+    artifactPreview,
     // Not connector-only, despite where they are built: an autonomous turn over
     // the sidecar transport is the same kind of unattended work and needs the
     // same guards. Passed through so `dispatch` stops being the one live path
@@ -2929,7 +3163,23 @@ export async function boot(transportOverride?: Transport) {
     );
     // X1 fix: inner-thoughts is opt-in via CINDERPAW_PROACTIVE_ENABLED.
     if (innerThoughts) {
-      innerThoughts.setEmit((event) => transport.send(event));
+      innerThoughts.setEmit((event) => {
+        if (event.type !== "proactive" || quietHour(Date.now())) return;
+        const speaker = event.ownerAgentId ? coworkAgents.get(event.ownerAgentId) : undefined;
+        if (event.ownerAgentId && !speaker) return;
+        const body = event.content;
+        void nudges.route({ kind: "thought", sessionId: speaker ? `cowork:${speaker.id}` : undefined }, {
+          phone: readEnv("CINDERPAW_TASKS_TO_PHONE") !== "false"
+            ? () => connectors.notifyOwner(speaker ? teamMessage(speaker, body) : body) : null,
+          desktop: (rang) => {
+            if (speaker) {
+              if (!coworkAgents.get(speaker.id)) return;
+              keepTeamNote(speaker, body);
+            }
+            if (!rang) transport.send(event);
+          },
+        }).catch((e) => log(`thoughts: send failed: ${String(e)}`));
+      });
       innerThoughts.start();
     }
     // P2-#1: heartbeat always on — even when the proactive loop is off.
@@ -2942,6 +3192,39 @@ export async function boot(transportOverride?: Transport) {
     // deliver through the transport.
     cronScheduler.start();
     log(`cron scheduler enabled (${cronRepo.list().length} job(s) loaded)`);
+    // One message a day of what the tasks did, from run history (no model):
+    // the phone when the person is away, else a card in the app, so a new
+    // install with no messenger gets it too. CINDERPAW_DIGEST_HOUR is the
+    // local hour (default 20); -1 turns it off. Checked every 10 minutes.
+    const digestHour = Number(readEnv("CINDERPAW_DIGEST_HOUR") ?? 20);
+    if (Number.isFinite(digestHour) && digestHour >= 0) {
+      const digestTimer = setInterval(() => {
+        void maybeSendDigest({
+          hour: digestHour,
+          jobs: () => cronRepo.list(),
+          held: (since) => nudges.heldSince(since),
+          send: (text) => nudges.route({ kind: "digest" }, {
+            phone: notifyOwner ? () => notifyOwner!(text) : null,
+            desktop: (rang) => {
+              if (!rang) transport.send({ type: "cron_fired", jobId: "digest", jobName: "Your day", sessionId: "", content: text });
+            },
+          }),
+        }).then((sent) => { if (sent) log("tasks: daily digest sent"); }).catch((e) => log(`tasks: digest failed: ${String(e)}`));
+        // Sunday's receipt, the same hour; it is something Cubby chose to say, so the rule applies.
+        void maybeSendReceipt({
+          hour: digestHour,
+          jobs: () => cronRepo.list(),
+          week: () => nudges.week(),
+          send: (text) => nudges.route({ kind: "receipt" }, {
+            phone: notifyOwner ? () => notifyOwner!(text) : null,
+            desktop: (rang) => {
+              if (!rang) transport.send({ type: "cron_fired", jobId: "receipt", jobName: "Your week", sessionId: "", content: text });
+            },
+          }),
+        }).then((sent) => { if (sent) log("tasks: weekly receipt sent"); }).catch((e) => log(`tasks: receipt failed: ${String(e)}`));
+      }, 10 * 60_000);
+      digestTimer.unref?.();
+    }
 
     // Agent Cowork (S3.5): start the reactive worker loop after the
     // transport is up, same pattern as cron. Silent when no agents exist.

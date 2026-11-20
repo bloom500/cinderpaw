@@ -76,7 +76,9 @@ pub(crate) async fn save_byok_provider(
     // exist and never will. It only worked on a machine where some record had
     // already been written by hand.
     let mut api_key = api_key.trim().to_string();
-    let keyless = cinderpaw_core::tts::needs_api_key(&provider_id) == Some(false);
+    // A ChatGPT plan has a sign-in, not a key: its card saves only the model.
+    let keyless = cinderpaw_core::tts::needs_api_key(&provider_id) == Some(false)
+        || provider_id == cinderpaw_core::chatgpt_signin::PROVIDER_ID;
     // A voice engine that sends another record's key (OpenRouter's TTS row
     // sends the `openrouter` chat key). A key pasted on that row goes to the
     // keychain entry the engine actually reads, and the row itself keeps only
@@ -147,6 +149,96 @@ pub(crate) async fn openrouter_sign_in(app: tauri::AppHandle) -> Result<String, 
         opened.map_err(|e| format!("Could not open your browser: {e}"))?;
     }
     finish.await
+}
+
+/// Who is signed in with ChatGPT, for the OpenAI Subscription card.
+#[derive(serde::Serialize, specta::Type)]
+pub(crate) struct ChatgptAccount {
+    email: Option<String>,
+    name: Option<String>,
+}
+
+/// A model a provider offers: its id, and the provider's own name for it when
+/// it gives one (the picker shows a readable name either way).
+#[derive(serde::Serialize, specta::Type)]
+pub(crate) struct ProviderModel {
+    id: String,
+    name: Option<String>,
+}
+
+// async: the account is read from the keychain, as in get_byok_settings.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn chatgpt_account() -> Option<ChatgptAccount> {
+    cinderpaw_core::chatgpt_signin::account().map(|a| ChatgptAccount { email: a.email, name: a.name })
+}
+
+/// Sign in with ChatGPT in the browser, so model calls are spent from the
+/// person's ChatGPT plan (`cinderpaw_core::chatgpt_signin`). Then the
+/// account's models are listed and its row is written with one of them, so
+/// the picker offers it at once. Returns the model that will answer.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn chatgpt_sign_in(app: tauri::AppHandle) -> Result<String, String> {
+    use cinderpaw_core::chatgpt_signin::{self as signin, PROVIDER_ID};
+    let (auth_url, finish) = signin::start().await?;
+    {
+        use tauri_plugin_shell::ShellExt;
+        #[allow(deprecated)]
+        let opened = app.shell().open(auth_url.as_str(), None);
+        opened.map_err(|e| format!("Could not open your browser: {e}"))?;
+    }
+    finish.await?;
+    let models = cinderpaw_core::chatgpt_gateway::models(&signin::access_token().await?).await?;
+    // The model chosen before a sign-out comes back, if the account still has it.
+    let kept = byok::load(&settings::load())
+        .get_provider(PROVIDER_ID)
+        .and_then(|c| c.default_model.clone())
+        .filter(|m| models.iter().any(|(id, _)| id == m));
+    let model = kept
+        .or_else(|| models.first().map(|(id, _)| id.clone()))
+        .ok_or("Signed in, but ChatGPT lists no model this account may use in Cinderpaw.")?;
+    let config = byok::ProviderConfig { enabled: true, api_key: String::new(), base_url: None, default_model: Some(model.clone()) };
+    byok::save_provider(PROVIDER_ID, config).map_err(|e| e.to_string())?;
+    Ok(model)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn chatgpt_models() -> Result<Vec<ProviderModel>, String> {
+    let token = cinderpaw_core::chatgpt_signin::access_token().await?;
+    let models = cinderpaw_core::chatgpt_gateway::models(&token).await?;
+    Ok(models.into_iter().map(|(id, name)| ProviderModel { id, name: Some(name) }).collect())
+}
+
+/// Every chat model a connected provider offers, for the model picker's
+/// provider page: pick one by its name, no id typed (1 Nov, Darius). The key
+/// stays here; the page gets ids and names.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn provider_models(provider_id: String) -> Result<Vec<ProviderModel>, String> {
+    if provider_id == cinderpaw_core::chatgpt_signin::PROVIDER_ID {
+        return chatgpt_models().await;
+    }
+    let key = byok::byok_get(&provider_id)
+        .filter(|k| !k.trim().is_empty())
+        .ok_or("No key is saved for this provider. Add it in Models > Cloud.")?;
+    let base = byok::load(&settings::load())
+        .get_all_providers()
+        .into_iter()
+        .find(|p| p.id == provider_id)
+        .and_then(|p| p.base_url);
+    let models = byok::list_models(&provider_id, &key, base.as_deref()).await?;
+    Ok(models.into_iter().map(|(id, name)| ProviderModel { id, name }).collect())
+}
+
+/// Sign out here and ask OpenAI to end the session. `Err` means it is signed
+/// out on this computer but OpenAI could not confirm, and says where to finish.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn chatgpt_sign_out() -> Result<(), String> {
+    let _ = byok::remove_provider(cinderpaw_core::chatgpt_signin::PROVIDER_ID);
+    cinderpaw_core::chatgpt_signin::disconnect().await
 }
 
 /// One System One request to Jev (TypeSafe), with the key from the keychain.

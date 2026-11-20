@@ -279,7 +279,7 @@ function HeadProp({ kind, scene }: { kind: Prop; scene: Scene }) {
 }
 
 function Effect({ kind }: { kind: Fx }) {
-  const font = "'Geist Variable', Geist, system-ui, sans-serif";
+  const font = "'Inter Variable', Inter, system-ui, sans-serif";
   switch (kind) {
     case 'zzz':
       return (

@@ -184,6 +184,25 @@ export function createReadFileTool(allowedPaths: string[]): Tool {
         }
         totalLines = null;
       }
+      // A binary file read as text is garbage the model pays for and cannot
+      // use: a 25 MB video came back as 64 KB of raw bytes with line numbers
+      // (27 Oct). Text never holds a NUL byte, so one in the head is the test.
+      // UTF-16 text starts with a byte-order mark and keeps its old path.
+      const utf16 = (buf[0] === 0xff && buf[1] === 0xfe) || (buf[0] === 0xfe && buf[1] === 0xff);
+      if (!utf16 && buf.subarray(0, 8192).includes(0)) {
+        const ext = dot >= 0 ? safePath.slice(dot + 1).toLowerCase() : "";
+        const how = /^(mp4|mov|webm|mkv|avi|m4v)$/.test(ext)
+          ? " To see a video, extract a few frames with ffmpeg (for example one every 5 seconds into PNG files) and read those pictures; to know what is said, transcribe its audio."
+          : /^(mp3|wav|m4a|ogg|flac|opus)$/.test(ext)
+            ? " To know what is said, transcribe it."
+            : "";
+        return {
+          ok: false,
+          error: "binary_file",
+          content: `${safePath} is a binary file (${size} bytes${ext ? `, .${ext}` : ""}), not text, so it cannot be read as lines.${how}`,
+        };
+      }
+
       const truncated = size > MAX_BYTES;
       const text = buf.toString("utf8", 0, Math.min(buf.byteLength, MAX_BYTES));
 

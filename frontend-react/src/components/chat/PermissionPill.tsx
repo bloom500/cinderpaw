@@ -47,12 +47,16 @@ export function PermissionPill() {
       <DropdownMenuTrigger
         aria-label={`What Cinderpaw may do: ${current.label}`}
         className={cn(
-          'flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-2xs hover:bg-bg-hover transition-colors',
-          mode === 'full_access' ? 'text-warning' : 'text-text-muted',
+          // A bordered pill like the mode pill of the 21st.dev composer Darius
+          // picked (1 Nov): a setting you can change, not a caption.
+          'flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border-default bg-bg-hover px-3 text-sm hover:bg-bg-active transition-colors',
+          mode === 'full_access' ? 'text-warning' : 'text-text-secondary',
         )}
       >
-        <current.icon size={12} aria-hidden />
-        <span className="hidden sm:inline">{current.label}</span>
+        <current.icon size={14} aria-hidden />
+        {/* @lg is the composer's width (ChatInput is the container): below it
+            the icon alone, so the model's name keeps its room. */}
+        <span className="hidden @lg:inline">{current.label}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-72">
         <DropdownMenuRadioGroup value={mode} onValueChange={choose}>

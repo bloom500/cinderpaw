@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AppWindow, ArrowRight, Code, Download, FileBox, FileText, Image as ImageIcon, LayoutDashboard, Share2, Table } from 'lucide-react';
+import { AppWindow, ArrowRight, Code, FileBox, FileText, Image as ImageIcon, LayoutDashboard, Share2, Table } from 'lucide-react';
+import { DownloadIcon } from '@/components/ui/animated-icons/download';
 import { BoardView } from '@/components/board/BoardView';
 import { parseBoard } from '@/lib/board';
 import type { ArtifactFact } from '@/hooks/useLiveToolActivity';
 import { googlePlan, peekArtifact, shownKind, useArtifacts, type ArtifactRow } from '@/stores/artifacts';
+import { useBrowser } from '@/stores/browser';
 import { ArtifactCover } from '@/components/artifacts/ArtifactCover';
 import { LiveFrame } from '@/components/artifacts/LiveFrame';
+import { TablePreview } from '@/components/artifacts/TablePreview';
 import { ExternalLink } from '@/components/chat/ExternalLink';
 import { MIN_SECTIONS, digest, plainText, sectionsOf, statusOf, subtitleOf, summaryOf, type DocSection } from '@/lib/artifactSections';
 import { Markdown } from '@/lib/markdown';
@@ -63,10 +66,22 @@ const BOARD_BREAKOUT = { width: BOARD_WIDTH, marginLeft: `calc(50% - ${BOARD_WID
 /** The boards' chip tints, in order. */
 const TINTS = ['bg-brand/10 text-brand', 'bg-error/10 text-error', 'bg-info/10 text-info', 'bg-success/10 text-success'];
 
-/** Open in the side panel; with a section, straight to it (the deep dive). */
-function openInPanel(id: string, section?: string) {
+/**
+ * Open in the side panel; with a section, straight to it (the deep dive). The
+ * panel slides in with the artifact already in it: opened first, it showed the
+ * list and a spinner, then the artifact, then its versions, four looks in a
+ * third of a second (29 Oct, recording C4). A slow open still gets the panel
+ * after 400 ms, so the click is never left unanswered.
+ */
+async function openInPanel(id: string, section?: string) {
+  const opening = section ? useArtifacts.getState().openArtifact(id, section) : useArtifacts.getState().openArtifact(id);
+  await Promise.race([opening, new Promise((done) => setTimeout(done, 400))]);
+  // The person asked for this one, so it comes in front of the browser, which
+  // keeps its tabs (the same rule as the Artifacts page and the sidebar). Left
+  // open, the browser won the side and the click did nothing until it was
+  // closed (Darius, 1 Nov).
+  useBrowser.getState().setPanel(false);
   useArtifacts.setState({ panelOpen: true, panelTab: 'artifacts' });
-  void (section ? useArtifacts.getState().openArtifact(id, section) : useArtifacts.getState().openArtifact(id));
 }
 
 /** True while the element is near the screen. With no observer (a test) always true. */
@@ -272,7 +287,10 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
   const more = sectioned ? Math.max(0, parts.length - COLUMNS - CHIPS) : 0;
 
   let body: React.ReactNode;
-  if (peek.state === 'loading') {
+  if (f.kind === 'file') {
+    // A file has no visual preview here; its name and actions are sufficient.
+    body = null;
+  } else if (peek.state === 'loading') {
     body = <div className="mx-5 mb-5 h-44 animate-pulse rounded-2xl bg-bg-active" aria-label="Loading" />;
   } else if (sectioned) {
     body = <SectionOverview sections={sections} subtitle={ownSubtitle} onSection={(title) => openInPanel(f.id, title)} />;
@@ -286,6 +304,10 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
     );
   } else if (peek.state === 'ready' && shown === 'markdown') {
     body = <ShortDocument content={content} subtitle={ownSubtitle} />;
+  } else if (peek.state === 'ready' && shown === 'table') {
+    body = <div className="mx-4 mb-4 flex max-h-60 flex-col overflow-hidden rounded-xl border border-border-subtle">
+      <TablePreview title={f.title} content={content} />
+    </div>;
   } else {
     const words = peek.state === 'ready' ? summaryOf(shown, content) : '';
     body = (
@@ -326,7 +348,7 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
                   onClick={() => void useArtifacts.getState().exportArtifact(f.id, { as: 'pdf', row: { title: f.title, kind: f.kind }, version: f.version })}
                   className={iconButton}
                 >
-                  <Download size={16} />
+                  <DownloadIcon size={16} className="flex" />
                 </button>
                 <button
                   type="button"
@@ -346,13 +368,13 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
   }
 
   return (
-    <div ref={ref} className="@container overflow-hidden rounded-3xl border border-border-default bg-bg-surface shadow-[0_10px_30px_-14px_rgba(120,60,20,0.22)]">
-      <div className="flex items-start gap-4 p-5 pb-4">
-        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-brand/10 text-brand">
-          <Icon size={28} />
+    <div ref={ref} className="@container overflow-hidden rounded-2xl border border-border-default bg-bg-surface">
+      <div className="flex items-start gap-3 p-4">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand">
+          <Icon size={20} />
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="line-clamp-2 font-display text-2xl leading-tight text-text-primary" title={f.title}>{f.title}</span>
+          <span className="line-clamp-2 font-display text-xl leading-tight text-text-primary" title={f.title}>{f.title}</span>
           <span className="truncate text-sm text-text-muted">{subtitle}</span>
         </span>
         {peek.state === 'ready' && (
@@ -402,7 +424,7 @@ function DocumentCard({ f }: { f: ArtifactFact }) {
           onClick={() => void useArtifacts.getState().exportArtifact(f.id, { as: asPdf ? 'pdf' : undefined, row: { title: f.title, kind: f.kind }, version: f.version })}
           className={iconButton}
         >
-          <Download size={16} />
+          <DownloadIcon size={16} className="flex" />
         </button>
         {canShare && (
           <button

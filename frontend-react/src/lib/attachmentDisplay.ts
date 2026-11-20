@@ -16,6 +16,8 @@
 export interface DisplayAttachment {
   name: string;
   kind: 'text' | 'binary' | 'image';
+  /** Where a binary file sits on disk, when the note says (a video plays from it). */
+  path?: string;
 }
 
 export interface ParsedUserContent {
@@ -45,9 +47,11 @@ export function parseUserAttachments(content: string): ParsedUserContent {
     // notes carries a sentence AFTER its parenthesis ("(binary file at path:
     // …). If you have file tools…"), and anchoring on `)]` silently stopped
     // matching it, which turns a file chip back into a wall of raw marker text.
-    /\[File attached: ([^\]\n]+?) \([^\]\n]*\]/g,
-    (_m, name: string) => {
-      attachments.push({ name, kind: 'binary' });
+    /\[File attached: ([^\]\n]+?) \(([^\]\n]*)\]/g,
+    (_m, name: string, note: string) => {
+      // Greedy, anchored on the sentence after it: a name like "Night Shift (v2).mp4" has its own ")".
+      const path = /^binary file at path: (.+)\)\. If you have file tools/.exec(note)?.[1];
+      attachments.push(path ? { name, kind: 'binary', path } : { name, kind: 'binary' });
       return '';
     },
   );

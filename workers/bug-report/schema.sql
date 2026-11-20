@@ -13,6 +13,16 @@ CREATE TABLE IF NOT EXISTS usage_day (
 );
 CREATE INDEX IF NOT EXISTS usage_day_month ON usage_day(month);
 
+-- "Send my numbers" (POST /numbers), pressed by the person: counts only, one row per monthly code and month.
+CREATE TABLE IF NOT EXISTS numbers_month (
+  code TEXT NOT NULL,
+  month TEXT NOT NULL,
+  app TEXT NOT NULL,
+  os TEXT NOT NULL,
+  data TEXT NOT NULL,
+  PRIMARY KEY (code, month)
+);
+
 -- Site visits and Download clicks per channel per UTC day (POST /visit).
 -- Counts only: no address, no cookie, no page.
 CREATE TABLE IF NOT EXISTS visit_day (

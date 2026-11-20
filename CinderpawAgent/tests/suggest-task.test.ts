@@ -73,6 +73,20 @@ describe("suggest_task", () => {
     expect((quick.data as { taskSuggestion?: unknown })?.taskSuggestion).toBeUndefined();
   });
 
+  test("with no phone connected, the first card in a chat offers WhatsApp once; a connected phone never hears it", async () => {
+    let t = NOW.getTime();
+    const card = (title: string) => ({ title, task: "x", kind: "reminder", repeat: "daily", time: "09:00" });
+    const offline = createSuggestTaskTool(new SuggestionLedger(), () => new Date(t), () => null);
+    const first = await offline.execute(card("Water the plants"), ctx);
+    expect(first.content).toMatch(/WhatsApp.*connectors_manage/);
+    t += 10 * 60_000;
+    const second = await offline.execute(card("Feed the cat"), ctx);
+    expect(second.ok).toBe(true);
+    expect(second.content).not.toMatch(/WhatsApp/);
+    const online = createSuggestTaskTool(new SuggestionLedger(), () => NOW, () => "telegram");
+    expect((await online.execute(card("Water the plants"), ctx)).content).not.toMatch(/WhatsApp/);
+  });
+
   test("never reaches a stranger on a connector", () => {
     expect(isOwnerOnlyTool("suggest_task")).toBe(true);
   });
@@ -83,5 +97,30 @@ describe("in_minutes", () => {
     const r = buildSchedule({ repeat: "once", in_minutes: 3 }, NOW);
     expect(r).toEqual({ schedule: { kind: "at", isoTimestamp: new Date(NOW.getTime() + 180_000).toISOString() }, when: "Today at 17:03" });
     expect(buildSchedule({ repeat: "once", in_minutes: 0 }, NOW)).toEqual({ error: expect.stringMatching(/in_minutes/) });
+  });
+});
+
+// 14 Nov, live test on WhatsApp: a 30-second reminder failed, a second request
+// within three minutes was refused as spam, and "send it on WhatsApp" was lost.
+describe("suggest_task: what the person asked for", () => {
+  const remind = { title: "Check WhatsApp", task: "Check WhatsApp.", kind: "reminder", repeat: "once" };
+
+  test("a reminder in 30 seconds is allowed; shorter says the limit in plain words", () => {
+    const r = buildSchedule({ repeat: "once", in_minutes: 0.5 }, NOW);
+    expect("schedule" in r && r.schedule.kind === "at" && new Date(r.schedule.isoTimestamp).getTime() - NOW.getTime()).toBe(30_000);
+    expect(buildSchedule({ repeat: "once", in_minutes: 0.2 }, NOW)).toEqual({ error: expect.stringMatching(/shortest reminder is 30 seconds/) });
+  });
+
+  test("a task the person asked for is offered even right after another; the agent's own ideas still wait", async () => {
+    const tool = createSuggestTaskTool(new SuggestionLedger(), () => NOW);
+    expect((await tool.execute({ ...remind, in_minutes: 2, asked: true }, ctx)).data).toMatchObject({ taskSuggestion: expect.anything() });
+    expect((await tool.execute({ ...remind, title: "Again", in_minutes: 1, asked: true }, ctx)).data).toMatchObject({ taskSuggestion: expect.anything() });
+    expect((await tool.execute({ ...remind, title: "My idea", in_minutes: 5 }, ctx)).data).toMatchObject({ taskSuggestionStatus: "rate_limited" });
+  });
+
+  test("to_phone is kept on the card and said in its time", async () => {
+    const tool = createSuggestTaskTool(new SuggestionLedger(), () => NOW);
+    const card = ((await tool.execute({ ...remind, in_minutes: 2, to_phone: true, asked: true }, ctx)).data as any).taskSuggestion;
+    expect(card).toMatchObject({ toPhone: true, when: expect.stringMatching(/on your phone$/) });
   });
 });

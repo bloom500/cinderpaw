@@ -41,22 +41,26 @@ describe('HeadsUpCard: "Something you should know" above the message box', () =>
     expect(invoke).toHaveBeenCalledWith('cinderpaw_heads_up_answer', { sessionId: 's1', headsUpId: 'card-1', choice: 'more' });
   });
 
-  it('"I already knew this" tells the agent and closes the card', () => {
+  it('"Show fewer like this" tells the agent and closes the card', () => {
     useHeadsUp.getState().show('s1', RESULT);
     render(<HeadsUpCard />);
-    fireEvent.click(screen.getByRole('button', { name: 'I already knew this' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show fewer like this' }));
     expect(invoke).toHaveBeenCalledWith('cinderpaw_heads_up_answer', { sessionId: 's1', headsUpId: 'card-1', choice: 'knew' });
     expect(screen.queryByText('The total does not match')).toBeNull();
   });
 
-  it('keys 1, 2, 3 answer the card, but never while typing in a field', () => {
+  it('keys follow the numbers shown, but never while typing in a field', () => {
     useHeadsUp.getState().show('s1', RESULT);
     render(<><textarea aria-label="composer" /><HeadsUpCard /></>);
     fireEvent.keyDown(screen.getByLabelText('composer'), { key: '2' });
     expect(invoke).not.toHaveBeenCalled();
     fireEvent.keyDown(window, { key: '1' });
     expect(screen.getByText(/delivery line/)).toBeInTheDocument();
+    // Learn more is gone once open, so the row is now 1 Show fewer, 2 Dismiss.
+    expect(screen.queryByRole('button', { name: 'Learn more' })).toBeNull();
     fireEvent.keyDown(window, { key: '3' });
+    expect(invoke).not.toHaveBeenCalledWith('cinderpaw_heads_up_answer', expect.objectContaining({ choice: 'dismiss' }));
+    fireEvent.keyDown(window, { key: '2' });
     expect(invoke).toHaveBeenLastCalledWith('cinderpaw_heads_up_answer', { sessionId: 's1', headsUpId: 'card-1', choice: 'dismiss' });
     expect(screen.queryByText('The total does not match')).toBeNull();
   });

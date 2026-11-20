@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { tauri } from '@/lib/tauri';
 import { useNotifications } from '@/stores/notifications';
+import { useBrowser } from '@/stores/browser';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
 import type { PdfEdit } from '@/lib/pdfEdits';
@@ -649,6 +650,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
       useNotifications.getState().push('success', `${e.title?.trim() || 'Your new artifact'} is ready`, 'Saved in Artifacts', {
         label: 'Open',
         run: () => {
+          useBrowser.getState().setPanel(false); // asked for: in front of the browser, as in ArtifactCard
           set({ panelOpen: true, panelTab: 'artifacts' });
           void get().openArtifact(e.id);
           // The panel lives beside the chat. Imported late: the router imports
@@ -758,12 +760,13 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
           return;
         }
         const live = p.version === undefined && prev ? liveAfter(prev, row, e.content, e.encoding, !!get().editing) : undefined;
-        set({
+        const content = e.content;
+        const show = () => set({
           busy: false,
           error: null,
           open: {
             row,
-            content: e.content,
+            content,
             encoding: e.encoding,
             fields: e.fields,
             showing: p.version ?? row.version,
@@ -774,6 +777,19 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
             ...(live ? { live } : {}),
           },
         });
+        // A PDF saved while the draft's letters are still coming in: they finish,
+        // then the pages. Swapping at once stopped the writing mid-line and put
+        // the rest down in one go (Darius, 31 Oct).
+        const lettersLeft = !live && p.version === undefined && e.encoding === 'base64' && prev?.row.version === 0 && prev.live && !prev.live.stopped
+          ? liveUntil(prev.live.runs) - Date.now()
+          : 0;
+        if (lettersLeft > 0) {
+          const draftId = prev!.row.id;
+          // Unless the person moved on (another document, the list) meanwhile.
+          setTimeout(() => { if (wanted === row.id && get().open?.row.id === draftId) show(); }, lettersLeft);
+          return;
+        }
+        show();
         return;
       }
       case 'versions': {
@@ -1027,6 +1043,11 @@ const FILE_MIME: Record<string, string> = {
   code: 'text/plain', json: 'application/json', table: 'application/json', pdf: 'application/pdf',
 };
 
+/** A CSV the agent saved as a file (some were filed as code): a table in all but kind. */
+export function isCsvFile(kind: string, title: string): boolean {
+  return (kind === 'file' || kind === 'code') && /\.csv$/i.test(title.trim());
+}
+
 /**
  * How one kind goes to one Google place, or null when it cannot: Docs takes
  * text and HTML (a PDF would go through OCR and lose its layout), Sheets a
@@ -1034,7 +1055,7 @@ const FILE_MIME: Record<string, string> = {
  * or a CSV the agent wrote as a file, which is already that.
  */
 export function googlePlan(kind: string, dest: GoogleDest = 'docs', content = '', title = ''): { mime: string; convert: boolean; content?: string } | null {
-  const csvFile = kind === 'file' && /\.csv$/i.test(title.trim());
+  const csvFile = isCsvFile(kind, title);
   switch (dest) {
     case 'drive':
     case 'gmail':

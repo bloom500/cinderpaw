@@ -124,6 +124,7 @@ export function parseChannelAnswers(
 }
 
 interface PendingChannelAsk {
+  destination: string;
   resolve: (answers: AskUserAnswer[]) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout> | null;
@@ -150,16 +151,51 @@ export class ChannelAskRouter {
     this.#timeoutMs = timeoutMs;
   }
 
+  readonly #observers: Array<(sessionId: string, direction: "in" | "out") => void> = [];
+
+  /**
+   * Be told of every message that passes through here: a person's message in
+   * (`handleInbound`) and anything this router says out. The nudge ledger uses
+   * it to see whether the owner answered (core/nudges.ts).
+   */
+  observe(fn: (sessionId: string, direction: "in" | "out") => void): void {
+    this.#observers.push(fn);
+  }
+
+  #tell(sessionId: string, direction: "in" | "out"): void {
+    for (const fn of this.#observers) {
+      try { fn(sessionId, direction); } catch { /* an observer never breaks a message */ }
+    }
+  }
+
+  #answers: ((sessionId: string, text: string) => boolean) | null = null;
+  #addressed: ((sessionId: string, text: string) => boolean) | null = null;
+
+  setAddressed(fn: (sessionId: string, text: string) => boolean): void {
+    this.#addressed = fn;
+  }
+
+  /**
+   * Other things a reply can answer when no question is pending: an offer made
+   * in this chat (core/phone-offers.ts). True = answered, no agent turn.
+   */
+  setAnswers(fn: (sessionId: string, text: string) => boolean): void {
+    this.#answers = fn;
+  }
+
   /** Connector lifecycle: register a sender for a session prefix on start… */
   registerSender(prefix: string, sender: ChannelSender): void {
-    this.#senders.set(prefix, sender);
+    this.#senders.set(prefix, (sessionId, text) => {
+      this.#tell(sessionId, "out");
+      return sender(sessionId, text);
+    });
   }
 
   /** …and drop it on stop. Pending asks for that prefix are cancelled. */
   unregisterSender(prefix: string): void {
     this.#senders.delete(prefix);
-    for (const [sessionId] of this.#pending) {
-      if (sessionId.startsWith(`${prefix}:`)) {
+    for (const [sessionId, request] of this.#pending) {
+      if (request.destination.startsWith(`${prefix}:`)) {
         this.#cancel(sessionId, `${prefix} connector stopped`);
       }
     }
@@ -214,18 +250,21 @@ export class ChannelAskRouter {
    * `handleInbound` (or times out with AskUserTimeoutError, matching the
    * bridge: the tool auto-resolves routine batches, but rejects forced escalation).
    */
-  async ask(questions: AskUserQuestion[], sessionId: string): Promise<AskUserAnswer[]> {
-    const prefix = sessionId.split(":", 1)[0] ?? "";
-    const sender = this.#senders.get(prefix);
-    if (!sender) {
+  async ask(questions: AskUserQuestion[], sessionId: string, teammate?: { destination: string; name: string; address: string }): Promise<AskUserAnswer[]> {
+    const destination = teammate?.destination ?? sessionId;
+    const prefix = destination.split(":", 1)[0] ?? "";
+    const send = this.#senders.get(prefix);
+    if (!send) {
       throw new Error(`no channel sender for session ${sessionId}`);
     }
+    const sender = (_session: string, text: string) => send(destination,
+      teammate ? `${teammate.name}\n\n${text}\n\nStart your reply with “${teammate.address}:”.` : text);
     // Dedupe, not supersede: an identical ask while one is pending shares
     // it. Bursts used to cancel each other — the first tool errored
     // "superseded", the agent retried, and the chat got the same question
     // twice while the user's answer fell into the collision.
     const existing = this.#pending.get(sessionId);
-    if (existing && sameQuestions(existing.questions, questions)) {
+    if (existing?.destination === destination && sameQuestions(existing.questions, questions)) {
       return existing.promise;
     }
     // Replace-not-queue: a second ask in the same chat would be unanswerable.
@@ -258,6 +297,7 @@ export class ChannelAskRouter {
       rejectEntry(new AskUserTimeoutError(sessionId, limit));
     }, limit);
     this.#pending.set(sessionId, {
+      destination,
       resolve: resolveEntry,
       reject: rejectEntry,
       timer,
@@ -272,7 +312,9 @@ export class ChannelAskRouter {
     try {
       await sender(sessionId, formatQuestionsForChat(questions));
     } catch (e) {
-      this.#cancel(sessionId, `channel send failed: ${e instanceof Error ? e.message : String(e)}`);
+      if (this.#pending.get(sessionId)?.promise === answered) {
+        this.#cancel(sessionId, `channel send failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
     return answered;
   }
@@ -283,13 +325,19 @@ export class ChannelAskRouter {
    * an agent turn for it).
    */
   handleInbound(sessionId: string, text: string): boolean {
+    this.#tell(sessionId, "in");
+    if (this.#addressed?.(sessionId, text)) return true;
+    return this.answerPending(sessionId, sessionId, text) || (this.#answers?.(sessionId, text) ?? false);
+  }
+
+  answerPending(sessionId: string, destination: string, text: string): boolean {
     const p = this.#pending.get(sessionId);
-    if (!p) return false;
+    if (!p || p.destination !== destination) return false;
     // A message with only a picture or a file has no text. It is not an answer:
     // read as one, it picked the first option, which is "Allow" on every
     // permission question. The question stays open and the person is told so.
     if (!text.trim()) {
-      void this.notify(sessionId, "I still need your answer to the question above: reply with the option number.");
+      void this.notify(destination, "I still need your answer to the question above: reply with the option number.");
       return true;
     }
     if (p.timer) clearTimeout(p.timer);
@@ -305,6 +353,10 @@ export class ChannelAskRouter {
   /** Diagnostic: number of chats currently waiting on an answer. */
   get pendingCount(): number {
     return this.#pending.size;
+  }
+
+  cancelSession(sessionId: string, reason: string): void {
+    this.#cancel(sessionId, reason);
   }
 
   #cancel(sessionId: string, reason: string): void {

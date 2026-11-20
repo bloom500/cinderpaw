@@ -89,6 +89,9 @@ every connector, tell them to send the bot a direct message now and call
 `connectors_pair`: it asks "Is that you?" and adds
 them. Say it works ONLY when the result has `heard: true`, which means their
 next message really got through. Before that, "you're all set" is a guess.
+WhatsApp is the exception for its owner: once the phone is linked, they write
+in their chat with themselves (Message yourself) and are answered there, no
+pairing. `connectors_pair` on WhatsApp is only for letting ANOTHER number in.
 
 The user can also do it manually — in the terminal chat: `/connectors` lists
 them, `/connectors add <id> KEY=value` adds one
@@ -283,6 +286,8 @@ Ask in chat for a reminder, recurring task or source watch. `suggest_task` offer
 a card with the computed schedule; nothing is created until the person presses
 Create. A request for later must not be executed now. The Tasks page lists jobs
 and their history, with edit, pause, resume, renew and delete controls.
+`tasks_list` shows the agent what exists right now, from any chat (WhatsApp
+included), so it never guesses whether a card became a task.
 
 Reminders deliver their text without AI inference. Source watches fetch a public
 HTTPS page and verify configured text in its body; a link or a model's claim is
@@ -298,6 +303,16 @@ watches never count. Task spending is separate from the default $1/month limit
 for automatic proactive inference. Event-driven unfinished-work suggestions use
 no inference and never resume work by themselves; they can be disabled in Tasks.
 
+If the owner asks to stop or resume a kind of unsolicited message, `quiet_nudges`
+applies that preference to unfinished-work follow-ups, ideas, or weekly
+summaries. They can undo it in My day under What I learned. To stop a reminder,
+watch, or recurring task they created, use Pause in Tasks.
+
+`compose_page` makes a page in My day when the owner wants one place to follow
+something. Cards can read existing watches and task runs, count down to a date,
+or show a short list. Source cards refresh from their records without another
+model call. Creating a page does not create a watch or task.
+
 Closing the main window keeps tasks running in the tray. Quit stops the runtime.
 Safe missed reminders and watches can catch up once. A repeating agent task
 missed while Cinderpaw was closed waits for its next time; a missed one-off is
@@ -312,6 +327,17 @@ are fetched once through the egress door and kept in `~/.cinderpaw/cache/images`
 `find_images` returns credited photos; Pexels/Unsplash need `CINDERPAW_PEXELS_KEY` / `CINDERPAW_UNSPLASH_KEY`.
 `heads_up` puts "something you should know" above the message box while work goes on: Learn more,
 I already knew this (the agent flags less of the obvious), Dismiss. One per chat every two minutes at most.
+`set_appearance` changes the desktop app's look when asked in words ("make it dark", "bigger text"):
+theme light, dark or system, and chat text size small, default, large or larger. Settings > Appearance has the same.
+
+## Videos
+
+`watch_video` looks at a video (a YouTube, Instagram or X link, or a file on this computer) as pictures
+with their times plus the words said in it, so any model can follow it. It needs yt-dlp and ffmpeg
+(~150 MB), downloaded once after the person says yes; with nobody there to say yes it refuses.
+A video link in the chat becomes a card that plays the first seconds on hover and the whole video on click.
+`show_video` puts a video the agent made (a render, a cut, a recording) in its reply with a player:
+an .mp4, .m4v, .mov or .webm file on this computer.
 
 ## Keeping its place on a long task
 
@@ -351,7 +377,9 @@ chart, table, code or PDF under a stable id; `artifact_download` saves a PDF or
 Word form from the web; `artifact_list`/`artifact_read` find them; `artifact_edit`
 changes a span or fills a form, as a new version; `artifact_export` writes a file;
 `artifact_delete` hides one; `artifact_send` puts one in your Telegram or Discord
-chat once you approve. You sign PDFs in the Artifacts panel. Before a poster, post,
+chat once you approve. `artifact_preview` opens an app or web page as a real page
+at a link that works only on this computer, so the agent can look at what it built
+(errors show in a red strip) and, if you ask, open it in your own browser. You sign PDFs in the Artifacts panel. Before a poster, post,
 slide or card, `design_guide` gives the agent artboard sizes, type, palettes and a
 checklist, so a design looks finished without a design skill installed.
 
@@ -366,17 +394,31 @@ Persistent named teammate agents, stored in the same local database.
   it makes. With no list it gets a read-only set; writing, sending or running
   commands must be granted on purpose. Change or remove one with
   `cowork_update_teammate` / `cowork_remove_teammate`, only when asked.
+- **Team suggestions:** `suggest_team` can offer one or two teammates after the
+  owner describes ongoing work or requests a research job with a concrete topic.
+  Choose Yes to create them, or Not now to continue with the current agent.
 - **Strictly reactive (v1):** they work only when something reaches their
   inbox — `cowork_send`, another teammate, or a handoff. Nothing is picked
   up unprompted; that is deliberate.
-- **Handing off work:** `cowork_team` lists them; `cowork_send` delivers.
-  Their work runs on their own schedule — never wait on it; point the person
-  at the **Agent Cowork panel** (top-right of chat), replayed per chat when
-  you reopen it. When you need an answer yourself, `cowork_replies` reads it.
+- **Handing off work:** Cubby chooses an existing specialist for independent
+  parts of the person's goal using `cowork_team` and `cowork_send`. Each
+  assignment appears in **Team activity**. Cubby can collect the exact
+  contribution with `cowork_replies(wait_for)` and use it in the same answer.
+- **Team activity:** Context shows which teammate is working and opens their
+  chat. Add a chat panel to compare up to four teammate chats at once.
 - Replies are hop-capped at 3 so teammates cannot ping-pong on tokens.
 - **Approval gates:** destructive shell commands and non-GET HTTP from a
   teammate BLOCK until the human answers Approve/Deny in chat. Expiry fails
   CLOSED — expired is refused, never silently approved.
+
+## Background workers
+
+- In chat, **Stop** stops the current reply and its workers. **Stop work** in
+  the Workers card also works after the reply ends. Workers show **stopped**
+  when they finish stopping.
+- In the notebook, use `rlm.cancel(nameOrId)` to stop one worker or
+  `rlm.cancel()` to stop that chat's workers. Check `rlm.wait()` or
+  `rlm.observe(nameOrId)` before saying a worker has stopped.
 
 ## Asking the agent about itself
 

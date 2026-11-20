@@ -98,10 +98,10 @@ export function EmberPanel({ run, onClosed }: { run: EmberRun; onClosed?: () => 
     >
       <iframe ref={frame} src={GAME_URL} title="Cinderpaw's campfire" className="block h-full w-full border-0" />
       {!ready && !failed && (
-        <p className="absolute inset-0 grid place-items-center text-sm text-[#F6EFE6]/80">Lighting the campfire…</p>
+        <p className="absolute inset-0 grid place-items-center text-sm text-[#F5EBDD]/80">Lighting the campfire…</p>
       )}
       {failed && (
-        <div role="alert" className="absolute inset-0 grid place-items-center bg-[#241a16] p-4 text-center text-sm text-[#F6EFE6]">
+        <div role="alert" className="absolute inset-0 grid place-items-center bg-[#241a16] p-4 text-center text-sm text-[#F5EBDD]">
           The game didn't start on this computer. The chat works as usual.
         </div>
       )}
@@ -116,7 +116,7 @@ export function EmberPanel({ run, onClosed }: { run: EmberRun; onClosed?: () => 
         type="button"
         aria-label="Close the game"
         onClick={close}
-        className="absolute right-2 top-2 rounded-full p-1 text-[#F6EFE6]/80 hover:bg-white/10"
+        className="absolute right-2 top-2 rounded-full p-1 text-[#F5EBDD]/80 hover:bg-white/10"
       >
         <X className="h-4 w-4" />
       </button>

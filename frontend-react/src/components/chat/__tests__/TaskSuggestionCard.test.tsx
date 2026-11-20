@@ -80,6 +80,19 @@ describe('task review', () => {
     await userEvent.click(screen.getByRole('button',{name:'Create task'}));
     expect(invoke).toHaveBeenCalledWith('cinderpaw_cron_op',expect.objectContaining({schedule:expect.objectContaining({taskOptions:expect.objectContaining({watch,expiryDays:14})})}));
   });
+  it('a price watch says the limit and the price seen, and keeps the price read on Create (spec 4.10)', async () => {
+    const watch = {sourceUrl:'https://www.emag.ro/casti/pd/X/',priceBelow:500,currency:'RON'};
+    render(<MemoryRouter><TaskSuggestionCard card={{...card,id:'p1',kind:'watch',watch,seenPrice:529,expiryDays:30,schedule:{kind:'every',intervalMs:3600000}}} sessionId="s1" /></MemoryRouter>);
+    await waitFor(() => expect(screen.getByText('500 RON')).toBeVisible());
+    expect(screen.getByText(/I saw 529 there in our chat/)).toBeVisible();
+    await userEvent.click(screen.getByRole('button',{name:'Create task'}));
+    const requestId = (vi.mocked(invoke).mock.calls.at(-1)![1] as { requestId: string }).requestId;
+    useTasks.getState().receive({ id: requestId, ok: true, jobs: [], note: 'I read 529 RON on this page today. I will tell you when it is under 500 RON.' });
+    expect(await screen.findByText(/Created\. I read 529 RON on this page today/)).toBeVisible();
+    // It stays to be read: no auto-hide after 1.8 s.
+    await new Promise((r) => setTimeout(r, 2000));
+    expect(screen.getByText(/I read 529 RON/)).toBeVisible();
+  });
   it('the first paid card ever asks once about a weekly limit; No limit is the default', async () => {
     useTasks.setState({ limit: { weeklyUsd: null, asked: false, spentUsd: 0 } });
     const { unmount } = render(<MemoryRouter><TaskSuggestionCard card={{...card,id:'a1',kind:'agent'}} sessionId="s1" /></MemoryRouter>);

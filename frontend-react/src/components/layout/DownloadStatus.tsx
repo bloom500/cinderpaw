@@ -16,6 +16,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Download, X, CheckCircle, AlertCircle } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { useDownload } from '@/stores/download';
+import { FAST, SLOW } from '@/lib/motion';
 
 export function DownloadStatus() {
   const active = useDownload((s) => s.active);
@@ -32,7 +33,7 @@ export function DownloadStatus() {
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.9 }}
-          transition={{ duration: 0.15 }}
+          transition={FAST}
         >
           <Popover>
             <PopoverTrigger asChild>
@@ -95,7 +96,7 @@ export function DownloadStatus() {
                       <motion.div
                         className="h-full bg-brand rounded-full"
                         animate={{ width: `${progress}%` }}
-                        transition={{ duration: 0.3 }}
+                        transition={SLOW}
                       />
                     </div>
                   </div>

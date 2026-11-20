@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { ChatMessage } from './chat';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
 /**
@@ -7,19 +8,14 @@ import { persist, createJSONStorage } from 'zustand/middleware';
  * Every `cowork_event` the sidecar emits carries the actual text exchanged
  * between agents (`data.body` = incoming message, `data.output`/`result` =
  * the receiver's reply, `summary`/`reason` for handoffs and approvals).
- * This store accumulates those into chat-like exchanges grouped per
- * counterpart pair, rendered live by CoworkTranscriptPanel.
+ * The store keeps each exchange in its source thread. The main chat uses
+ * that thread for the activity strip, while teammate chats use participants.
  *
  * Deliberately NOT part of useChat: cowork turns run on their own schedule,
  * not the user's, so a reply can land long after the turn that asked for it
  * (and it must not be capped/faded like the mascot's 4-bubble strip, which is
  * glanceability, not a record).
  *
- * But it is NOT app-wide either. Every exchange belongs to the chat it was
- * started from (`threadId` = that conversation's id, set by `cowork_send`),
- * and the panel shows only the open thread's. A transcript that followed the
- * person into every other chat — and into a brand-new one, where nothing had
- * happened at all — was the single loudest complaint about this panel.
  */
 
 export type CoworkExchangeKind = 'message' | 'handoff' | 'approval';
@@ -34,7 +30,17 @@ export interface CoworkExchange {
   fromAgentId: string;
   toAgentId: string;
   requestText: string | null;
+  requestImages?: string[];
+  desktopId?: string;
+  voice?: ChatMessage['voice'];
+  receipt?: {
+    text?: string; stopped?: boolean; failed?: boolean; thinking?: string; tokens?: number; forwardedId?: string;
+    tools: { name: string; done: boolean; failed?: boolean; startedAt?: number; endedAt?: number }[];
+    contextLanes?: ChatMessage['contextLanes'];
+    memoryUsed?: ChatMessage['memoryUsed'];
+  };
   responseText: string | null;
+  responseAt?: number;
   status: CoworkExchangeStatus;
   /** Approval events only: send/publish/delete/purchase/prod_change. */
   approvalClass?: string;
@@ -142,7 +148,7 @@ export function applyCoworkEvent(
   const threadId = evt.threadId ?? fallbackThreadId ?? 'direct';
 
   const status: CoworkExchangeStatus =
-    evt.eventType === 'message_received' ||
+    evt.eventType === 'message_received' || evt.eventType === 'message_queued' ||
     evt.eventType === 'handoff_received' ||
     evt.eventType === 'approval_requested'
       ? 'running'
@@ -178,6 +184,15 @@ export function applyCoworkEvent(
   const named = { fromName, toName, startedAt };
   let next: CoworkExchange;
   switch (evt.eventType) {
+    case 'message_queued':
+      next = {
+        ...base, fromAgentId: 'human', toAgentId: evt.agentId,
+        requestText: base.requestText ?? str(evt.data.body) ?? null,
+        requestImages: Array.isArray(evt.data.images) ? evt.data.images.filter((image): image is string => typeof image === 'string') : undefined,
+        desktopId: str(evt.data.desktopId),
+        voice: evt.data.voice as ChatMessage['voice'],
+      };
+      break;
     case 'message_received':
       next = {
         ...base,
@@ -192,10 +207,13 @@ export function applyCoworkEvent(
       };
       break;
     case 'message_processed':
-      next = { ...base, ...named, kind, threadId, responseText: str(evt.data.output) ?? null, status, at };
+      next = evt.data.toAgentId === 'human'
+        ? { ...base, kind, threadId, fromAgentId: evt.agentId, fromName: toName, toAgentId: 'human', requestText: str(evt.data.body) ?? null, status, at }
+        : { ...base, ...named, kind, threadId, responseText: str(evt.data.output) ?? null, responseAt: Date.now(), status, at,
+            receipt: { tools: base.tools ?? [], stopped: evt.data.stopped === true, forwardedId: str(evt.data.forwardedId) } };
       break;
     case 'message_rejected':
-      next = { ...base, ...named, kind, threadId, responseText: str(evt.data.reason) ?? null, status, at };
+      next = { ...base, ...named, kind, threadId, responseText: str(evt.data.reason) ?? null, responseAt: Date.now(), status, at };
       break;
     case 'handoff_received':
       next = {
@@ -241,13 +259,20 @@ export function applyCoworkEvent(
       break;
   }
 
-  const withoutPrev = exchanges.filter((e) => e.id !== id);
+  const replaces = new Set(evt.eventType === 'message_queued' && Array.isArray(evt.data.replaces) ? evt.data.replaces.map((key) => `msg:${key}`) : []);
+  const withoutPrev = exchanges.filter((e) => e.id !== id && !replaces.has(e.id));
   return [...withoutPrev, next].slice(-COWORK_TRANSCRIPT_MAX);
 }
 
 /** One persisted mailbox row, as `cowork_history_result` delivers it. */
 export interface CoworkHistoryRow {
+  receipt?: CoworkExchange['receipt'];
+  requestImages?: string[];
+  desktopId?: string;
+  voice?: ChatMessage['voice'];
   id: string;
+  /** A teammate's history includes messages from other threads. */
+  threadId?: string | null;
   fromAgentId: string;
   toAgentId: string;
   fromAgentName?: string;
@@ -258,6 +283,7 @@ export interface CoworkHistoryRow {
   /** The teammate's stored answer, when the person sent this message. */
   reply?: string;
   replyFailed?: boolean;
+  replyAt?: number;
 }
 
 /**
@@ -277,16 +303,18 @@ export interface CoworkHistoryRow {
 export function fromHistory(threadId: string, rows: CoworkHistoryRow[]): CoworkExchange[] {
   return rows.map((r) => ({
     id: `msg:${r.id}`,
-    threadId,
+    threadId: r.threadId === null ? 'direct' : (r.threadId ?? threadId),
     kind: 'message' as const,
     fromAgentId: r.fromAgentId,
     toAgentId: r.toAgentId,
     fromName: r.fromAgentName,
     toName: r.toAgentName,
     requestText: r.body,
+    desktopId: r.desktopId, requestImages: r.requestImages, receipt: r.receipt, voice: r.voice,
     // The answer rides on its question (sidecar withHumanReplies). Before it
     // was stored, every reopened chat showed questions with no answers.
-    responseText: r.reply ?? null,
+    responseText: r.reply ?? r.receipt?.text ?? null,
+    ...(r.replyAt !== undefined ? { responseAt: r.replyAt } : {}),
     status:
       r.status === 'rejected' || r.replyFailed
         ? ('error' as const)
@@ -306,9 +334,16 @@ export function threadExchanges(
   return exchanges.filter((e) => e.threadId === threadId);
 }
 
+function involvesTeammate(exchange: CoworkExchange, agentId: string): boolean {
+  return exchange.fromAgentId === agentId || exchange.toAgentId === agentId;
+}
+
+export function teammateExchanges(exchanges: CoworkExchange[], agentId: string): CoworkExchange[] {
+  return exchanges.filter((e) => e.kind !== 'approval' && involvesTeammate(e, agentId));
+}
+
 interface CoworkTranscriptStore {
-  /** Every thread's exchanges in one list; each carries its own `threadId`.
-   *  Read them with `threadExchanges`, never wholesale. */
+  /** Exchanges keyed by mailbox ID, with the original `threadId`. */
   exchanges: CoworkExchange[];
   /** The conversation currently on screen, or null on a chat that has none
    *  yet (a brand-new one). Nothing is shown while this is null. */
@@ -319,7 +354,7 @@ interface CoworkTranscriptStore {
   markSeen: (exchangeId: string) => void;
   ingest: (evt: CoworkEventInput) => void;
   ingestTool: (evt: { sessionId?: string; tool: string; done: boolean }) => void;
-  /** Replace the transcript with one thread replayed from disk. */
+  /** Refresh the requested thread or teammate from disk. */
   hydrate: (threadId: string, rows: CoworkHistoryRow[]) => void;
   clear: () => void;
 }
@@ -335,17 +370,37 @@ export const useCoworkTranscript = create<CoworkTranscriptStore>()(
       ingest: (evt) =>
         set((s) => ({ exchanges: applyCoworkEvent(s.exchanges, evt, s.activeThreadId) })),
       ingestTool: (evt) => set((s) => ({ exchanges: applyCoworkToolEvent(s.exchanges, evt) })),
-      // Replace THIS thread's rows from disk, and leave every other thread's
-      // alone: the mailbox is the record for the thread it was asked about and
-      // says nothing about the others, so wiping them would throw away history
-      // the person can still scroll back to by reopening that chat.
       hydrate: (threadId, rows) =>
-        set((s) => ({
-          exchanges: [
-            ...s.exchanges.filter((e) => e.threadId !== threadId),
-            ...fromHistory(threadId, rows),
-          ].slice(-COWORK_TRANSCRIPT_MAX),
-        })),
+        set((s) => {
+          const agentId = threadId.startsWith('cowork:') ? threadId.slice('cowork:'.length) : null;
+          const inScope = (e: CoworkExchange) => agentId === null
+            ? e.threadId === threadId
+            : e.kind === 'message' && involvesTeammate(e, agentId);
+          const byId = new Map(fromHistory(threadId, rows).map((e) => [e.id, e]));
+          const other: CoworkExchange[] = [];
+          for (const event of s.exchanges) {
+            const row = byId.get(event.id);
+            if (!row && !inScope(event)) {
+              other.push(event);
+            } else if (row?.status === 'running' && event.status !== 'running') {
+              byId.set(event.id, {
+                ...row,
+                status: event.status,
+                responseText: event.responseText,
+                responseAt: event.responseAt,
+              });
+            } else if (event.status === 'running' && (event.startedAt != null || event.kind !== 'message') &&
+                       (!row || row.status === 'running')) {
+              byId.set(event.id, row ? { ...event, threadId: row.threadId } : event);
+            }
+          }
+          return {
+            exchanges: [
+              ...other,
+              ...[...byId.values()].sort((a, b) => a.at - b.at),
+            ].slice(-COWORK_TRANSCRIPT_MAX),
+          };
+        }),
       clear: () => set({ exchanges: [] }),
     }),
     {
@@ -354,13 +409,17 @@ export const useCoworkTranscript = create<CoworkTranscriptStore>()(
       // Only persist the exchanges array — not the methods. Versioned so a
       // future shape change can migrate or drop the cache without wiping
       // unrelated localStorage keys.
-      partialize: (state) => ({ exchanges: state.exchanges }),
+      partialize: (state) => ({ exchanges: state.exchanges.filter((e) => e.status !== 'running') }),
       // v2: exchanges became per-thread. Anything cached by v1 was written
       // when the panel was app-wide, so much of it has no thread of its own
       // and would either haunt every chat or sit invisible forever. Drop it;
       // the mailbox replays the real history the moment a chat is opened.
-      version: 2,
-      migrate: () => ({ exchanges: [] }),
+      version: 3,
+      migrate: (stored, version) => ({
+        exchanges: version === 2
+          ? ((stored as { exchanges?: CoworkExchange[] })?.exchanges ?? []).filter((e) => e.status !== 'running')
+          : [],
+      }),
     },
   ),
 );

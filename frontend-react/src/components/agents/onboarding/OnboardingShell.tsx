@@ -35,7 +35,7 @@ export function OnboardingShell({
                 <span
                   key={i}
                   className={cn(
-                    'h-1.5 rounded-full transition-all duration-300',
+                    'h-1.5 rounded-full transition-all duration-(--motion-slow)',
                     i + 1 === activeDot ? 'w-6 bg-brand' : i + 1 < activeDot ? 'w-1.5 bg-brand/60' : 'w-1.5 bg-bg-hover',
                   )}
                 />

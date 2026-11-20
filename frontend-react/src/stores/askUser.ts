@@ -33,6 +33,7 @@ export interface AskUserQuestion {
   header?: string;
   options: AskUserOption[];
   multiSelect: boolean;
+  fixedOptions?: boolean;
   /**
    * `request_secret`: show a password field instead of the options. The value
    * is saved here, never sent back; the agent only hears "Saved" or "Cancel".
@@ -41,6 +42,10 @@ export interface AskUserQuestion {
   secret?: { connector: string; field: string } | { extensionUrl: string; extensionName?: string };
   /** Text to read before answering (a skill a link would install), in a scrolling box. */
   preview?: string;
+  /** "phone": a country + phone-number field first; the number (+40712345678) is the answer (WhatsApp linking). */
+  input?: 'phone';
+  /** What the field starts with: the number saved last time, to fix or keep. */
+  value?: string;
 }
 
 export interface AskUserAnswer {
@@ -118,7 +123,7 @@ interface AskUserStore {
   isPending: () => boolean;
 }
 
-export const useAskUser = create<AskUserStore>((set, get) => ({
+const makeAskStore = () => create<AskUserStore>((set, get) => ({
   pending: null,
   waiting: [],
   history: [],
@@ -194,6 +199,19 @@ export const useAskUser = create<AskUserStore>((set, get) => ({
 
   isPending: () => get().pending !== null,
 }));
+
+export const useAskUser = makeAskStore();
+const teammateAsks = new Map<string, typeof useAskUser>();
+export function askUserFor(sessionId: string) {
+  if (!sessionId.startsWith('cowork:')) return useAskUser;
+  let store = teammateAsks.get(sessionId);
+  if (!store) { store = makeAskStore(); teammateAsks.set(sessionId, store); }
+  return store;
+}
+
+export function cancelTeammateAsk(requestId: string, reason: string) {
+  for (const store of teammateAsks.values()) store.getState().cancelById(requestId, reason);
+}
 
 /**
  * Turn what the person said into the card's answer.

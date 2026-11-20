@@ -6,12 +6,14 @@ export function VoicePreview({
   blob,
   durationMs,
   peaks,
+  busy = false,
   onDelete,
   onReRecord,
 }: {
   blob: Blob;
   durationMs: number;
   peaks: number[];
+  busy?: boolean;
   onDelete: () => void;
   onReRecord: () => void;
 }) {
@@ -24,8 +26,8 @@ export function VoicePreview({
       </button>
       <WaveformBars peaks={peaks} progress={progress} className="flex-1" />
       <span className="text-xs text-text-muted tabular-nums">{Math.round(durationMs / 1000)}s</span>
-      <button type="button" onClick={onReRecord} aria-label="Re-record" className="p-1.5 rounded hover:bg-bg-hover"><RotateCcw size={14} /></button>
-      <button type="button" onClick={onDelete} aria-label="Delete recording" className="p-1.5 rounded hover:bg-bg-hover"><Trash2 size={14} /></button>
+      <button type="button" disabled={busy} onClick={onReRecord} aria-label="Re-record" className="p-1.5 rounded hover:bg-bg-hover disabled:opacity-50"><RotateCcw size={14} /></button>
+      <button type="button" disabled={busy} onClick={onDelete} aria-label="Delete recording" className="p-1.5 rounded hover:bg-bg-hover disabled:opacity-50"><Trash2 size={14} /></button>
     </div>
   );
 }

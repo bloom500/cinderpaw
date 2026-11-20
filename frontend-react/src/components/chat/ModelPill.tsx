@@ -27,7 +27,7 @@ export function ModelPill() {
           aria-valuemax={100}
         >
           <div
-            className="h-full bg-brand transition-all duration-300"
+            className="h-full bg-brand transition-all duration-(--motion-slow)"
             style={{ width: `${progress.percentage}%` }}
           />
         </div>

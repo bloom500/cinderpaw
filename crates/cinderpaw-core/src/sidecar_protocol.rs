@@ -5,12 +5,14 @@
 pub const SIDECAR_PROTOCOL: u32 = 1;
 
 pub const INBOUND_TYPES: &[&str] = &[
-    "message", "record_turn", "ping", "shutdown", "set_model", "stop",
+    "message", "record_turn", "ping", "shutdown", "set_model", "stop", "steer",
     "ask_user_response", "ask_user_cancel", "heads_up_answer",
     // Host-owned tools: sidecar emits `tool_request`, host answers
     // `tool_response`. See CinderpawAgent/src/core/host-tool-bridge.ts.
     "tool_response",
     "cron_add", "cron_remove", "cron_toggle", "cron_list",
+    "nudge_reaction", "learned_undo", "numbers_send", "page_remove", "page_answer",
+    "presence", "followups_setting", "welcome",
     "desktop_control_response", "connectors_reload",
     "fractal_benchmark", "fractal_cluster_leaves",
     "rsi_start", "rsi_stop", "rsi_set_concurrency", "rsi_dream_now",
@@ -35,11 +37,9 @@ pub const INBOUND_TYPES: &[&str] = &[
     // duplicated inside transports/tauri.ts and only that copy was
     // compile-checked, so the canonical list could fall behind in silence.
     "admin_response", "capability_response", "provider_conformance",
-    "cowork_history", "cowork_team_op",
+    "cowork_history", "cowork_team_op", "chat_spend",
     // Everything the workspace panel does — see `artifact_op` in types.ts.
     "artifact_op",
-    // The Desktop's "Forget" on a memory (src-tauri commands/cinderpaw.rs).
-    "memory_forget",
     // `cinderpaw memory search` and `cinderpaw message send`.
     "memory_search", "message_send",
     // The Leaderboard tab and the consent screens (usage telemetry, 8 Oct 2026).
@@ -48,12 +48,12 @@ pub const INBOUND_TYPES: &[&str] = &[
 
 pub const OUTBOUND_TYPES: &[&str] = &[
     "chunk", "done", "tool_start", "tool_progress", "tool_done", "proactive",
-    "model_set", "model_error", "pong", "error", "ask_user", "tool_request",
+    "model_set", "model_error", "pong", "error", "ask_user", "tool_request", "steer_applied", "steer_ack",
     "ask_user_cancelled", "usage", "budget_warning", "budget_exceeded",
     "heartbeat", "stream_progress", "memory_used", "artifact", "artifact_result", "cron_fired", "cron_error",
     "desktop_control_request", "rsi_engine_event", "rsi_request",
     "meta_result", "meta_proposal", "governance_result", "modules_result", "mcp_result",
-    "cowork_history_result", "cowork_team_result",
+    "cowork_history_result", "cowork_team_result", "chat_spend_result",
     "resume_get_result", "compact_result", "fractal_bench_progress", "fractal_bench_result",
     "code_patches", "code_patch_resolved", "lora_reviews",
     "lora_review_resolved", "lora_train_result", "fractal_activity", "rlm_child",

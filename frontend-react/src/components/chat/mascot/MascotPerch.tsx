@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CinderpawMascot, usePrefersReducedMotion } from './CinderpawMascot';
-import { atRest, boundsFrom, leanDegrees, squashFor, step, type Body } from './physics';
+import { atRest, boundsFrom, leanDegrees, narrowByWalls, squashFor, step, type Body } from './physics';
 import { useUI } from '@/stores/ui';
 import type { MascotState } from './frames';
 import { useBrowser } from '@/stores/browser';
-import { useChat } from '@/stores/chat';
+import { useChatScope, useChatView as useChat } from '@/stores/chatScope';
 import { pulseLabel } from './pulse';
 import { playUiSound } from '@/lib/uiSounds';
 
@@ -94,6 +94,7 @@ export function MascotPerch({ baseState }: { baseState: MascotState }) {
 }
 
 function MascotPerchInner({ baseState }: { baseState: MascotState }) {
+  const scope = useChatScope();
   const [renderState, setRenderState] = useState<MascotState>(baseState);
   const previousSoundState = useRef<MascotState>(baseState);
   useEffect(() => {
@@ -260,9 +261,12 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
       else if (page.x + page.w <= homeLeft) left = Math.max(left, page.x + page.w);
     }
 
+    // Side panels stand in the room like furniture, not like a picture on the
+    // wall: the creature stops at them instead of passing through the cards.
+    const walls = Array.from(document.querySelectorAll('[data-mascot-wall]'), (n) => n.getBoundingClientRect());
     return boundsFrom(
       { left: homeLeft, top: homeTop, width: w },
-      { left, right, top },
+      narrowByWalls({ left, right, top }, { left: homeLeft, width: w }, walls),
       EDGE_MARGIN_PX,
     );
   }, []);
@@ -306,6 +310,9 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
 
   const onDown = useCallback(
     (e: React.PointerEvent<HTMLSpanElement>) => {
+      // The perch owns this gesture. Suppress the WebView's native selection
+      // and keep the composer's focus while the mascot is being moved.
+      e.preventDefault();
       // Reduced motion keeps the poke and loses the throw: a creature arcing
       // across the composer under gravity is exactly the large, unrequested
       // movement the setting is about, even when the person started it.
@@ -397,7 +404,7 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
           transparent to it so the composer underneath keeps every click it
           had. */}
       <span
-        className="pointer-events-auto inline-block touch-none"
+        className="pointer-events-auto inline-block touch-none select-none"
         style={{
           cursor: held ? 'grabbing' : 'grab',
           // Squashed from the feet: a landing flattens a creature against the
@@ -419,7 +426,7 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
         {/* Dangling and falling override everything, the agent's states
             included: whatever the turn is doing, a creature being held by the
             scruff is not calmly reading a file. */}
-        <CinderpawMascot state={airborne ? 'surprised' : renderState} flip={false} />
+        {scope?.mascot ?? <CinderpawMascot state={airborne ? 'surprised' : renderState} flip={false} />}
       </span>
       {/* Beside the creature, just above the composer's edge (104 px down, see
           the class above), so it never covers the text box. A live region, so

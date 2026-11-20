@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
-import { createMemoryRouter, Navigate } from 'react-router-dom';
+import { createMemoryRouter, Navigate, type RouteObject } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
+import { RouteError } from '@/components/ErrorBoundary';
 import { ChatPage } from '@/pages/ChatPage';
 
 // Non-chat pages are code-split so their dependencies (Fractal: WebGL2 +
@@ -11,7 +12,9 @@ import { ChatPage } from '@/pages/ChatPage';
 const ChatsPage       = lazy(() => import('@/pages/ChatsPage').then((m) => ({ default: m.ChatsPage })));
 const ProjectsPage    = lazy(() => import('@/pages/ProjectsPage').then((m) => ({ default: m.ProjectsPage })));
 const ArtifactsPage   = lazy(() => import('@/pages/ArtifactsPage').then((m) => ({ default: m.ArtifactsPage })));
+const TodayPage       = lazy(() => import('@/pages/TodayPage').then((m) => ({ default: m.TodayPage })));
 const TasksPage       = lazy(() => import('@/pages/TasksPage').then((m) => ({ default: m.TasksPage })));
+const TeammateChatPage = lazy(() => import('@/pages/TeammateChatPage').then((m) => ({ default: m.TeammateChatPage })));
 const ModelsPage      = lazy(() => import('@/pages/ModelsPage').then((m) => ({ default: m.ModelsPage })));
 const SettingsPage    = lazy(() => import('@/pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 
@@ -46,13 +49,17 @@ export const router = createMemoryRouter([
   {
     path: '/',
     element: <AppShell />,
-    children: [
+    errorElement: <RouteError />,
+    // Every page carries its own error screen, drawn inside the shell.
+    children: ([
       { index: true, element: <Navigate to="/chat" replace /> },
       { path: 'chat',     element: <ChatPage /> },
       { path: 'chat/:id', element: <ChatPage /> },
+      { path: 'teammates/:id', element: lazyPage(<TeammateChatPage />) },
       { path: 'chats',    element: lazyPage(<ChatsPage />) },
       { path: 'projects', element: lazyPage(<ProjectsPage />) },
       { path: 'artifacts', element: lazyPage(<ArtifactsPage />) },
+      { path: 'today', element: lazyPage(<TodayPage />) },
       { path: 'tasks', element: lazyPage(<TasksPage />) },
       { path: 'models',     element: lazyPage(<ModelsPage />) },
       { path: 'settings', element: lazyPage(<SettingsPage />) },
@@ -66,6 +73,6 @@ export const router = createMemoryRouter([
       { path: 'connectors',    element: <Navigate to="/settings?cat=accounts" replace /> },
       { path: 'memory-layers', element: <Navigate to="/settings?cat=memory" replace /> },
       { path: 'memory-graph',  element: <Navigate to="/settings?cat=memory" replace /> },
-    ],
+    ] as RouteObject[]).map((r) => ({ ...r, errorElement: <RouteError /> })),
   },
 ]);

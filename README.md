@@ -59,12 +59,14 @@ The little orange creature on the screen is Cubby, the face of your helper. Cubb
 shows you what is going on without a log to read: thinking, working, waiting for
 you, done. Playful on the outside, real work underneath.
 
-### Where it stands, 28 October 2026
+### Release status, 9 November 2026
 
-[**v2026.10.28**](https://github.com/bloom500/cinderpaw/releases/latest)
-is the newest release, and it is the one marked *Latest* on GitHub. Every
-download link and install command below gets it. What changed is in the
-[changelog](CHANGELOG.md).
+[**v2026.10.28**](https://github.com/bloom500/cinderpaw/releases/tag/v2026.10.28)
+is the current public release marked *Latest* on GitHub. The download links
+and install commands below follow the published releases.
+
+This checkout contains the upcoming **v2026.11.06** changes described in the
+[changelog](CHANGELOG.md); that version has not been published yet.
 
 Cinderpaw used to be called Feral. The Feral desktop app offers this update by
 itself, and your things come with you: what was in `~/.feral` is brought over

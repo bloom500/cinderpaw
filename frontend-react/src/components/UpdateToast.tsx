@@ -58,7 +58,7 @@ export function UpdateToast() {
               </p>
               <div className="h-1.5 rounded-full bg-bg-hover overflow-hidden">
                 <div
-                  className="h-full bg-brand transition-all duration-300"
+                  className="h-full bg-brand transition-all duration-(--motion-slow)"
                   style={{ width: `${progress}%` }}
                 />
               </div>

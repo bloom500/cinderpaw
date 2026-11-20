@@ -343,6 +343,13 @@ export class Notebook {
         const e = kids.observe(target.trim());
         return guest({ ...e, trail: e.trail ?? [] });
       });
+      rlm.cancel = severed(async (target?: unknown) => {
+        if (target === undefined) return guest({ requested: kids.cancel() });
+        if (typeof target !== "string" || !target.trim()) {
+          throw new Error("rlm.cancel target must be a worker name or id");
+        }
+        return guest({ requested: kids.cancel(target.trim()) });
+      });
       rlm.delete_subagent = severed(async (target: unknown) => {
         if (typeof target !== "string" || !target.trim()) {
           throw new Error("rlm.delete_subagent target must be a non-empty string");

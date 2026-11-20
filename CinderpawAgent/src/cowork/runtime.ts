@@ -19,7 +19,7 @@
    both read what the teammate said.
  */
 
-import type { OutboundEvent } from "../types.ts";
+import type { InboundMessage, OutboundEvent } from "../types.ts";
 import type { CoworkAgent, CoworkAgentRepo } from "./agent-store.ts";
 import type { CoworkMailboxRepo } from "./mailbox.ts";
 import type { CoworkHandoffService } from "./handoff.ts";
@@ -29,12 +29,55 @@ import type {
   CoworkMessage,
 } from "./types.ts";
 
+export type CoworkDesktopTurn = Pick<InboundMessage, "id" | "images" | "skillsContext" | "inferParams" | "surface" | "replaceFrom" | "voice">;
+
+interface TurnReceipt {
+  text?: string;
+  stopped?: boolean;
+  failed?: boolean;
+  thinking?: string;
+  tools: { name: string; done: boolean; failed?: boolean; startedAt?: number; endedAt?: number }[];
+  tokens?: number;
+  contextLanes?: { label: string; tokens: number }[];
+  memoryUsed?: Extract<OutboundEvent, { type: "memory_used" }>["items"];
+  forwardedId?: string;
+}
+export interface CoworkHistoryDetails {
+  requestImages?: string[];
+  desktopId?: string;
+  voice?: CoworkDesktopTurn["voice"];
+  receipt?: TurnReceipt;
+}
+
+export function coworkPayload(row: CoworkMessage): HopPayload & { result?: TurnReceipt; ownerMessenger?: boolean } {
+  try { return JSON.parse(row.payloadJson ?? "null") ?? {}; } catch { return {}; }
+}
+
+/** Keep mailbox audit rows intact. Only superseded direct exchanges leave the chat. */
+export function visibleCoworkRows(rows: CoworkMessage[]): CoworkMessage[] {
+  const hidden = new Set<string>();
+  for (const row of rows) {
+    const replaced = coworkPayload(row).replaces;
+    if (row.fromAgentId === HUMAN && Array.isArray(replaced)) for (const id of replaced) hidden.add(id);
+  }
+  return rows.filter((r) => !hidden.has(r.id) && !hidden.has(coworkPayload(r).replyTo ?? ""));
+}
+
+interface CoworkTurnSource {
+  exchangeId: string;
+  desktop?: CoworkDesktopTurn;
+  mission: string;
+  signal: AbortSignal;
+  recordEvent: (event: OutboundEvent) => void;
+}
+
 /** The inference seam. Production wires `runUnattended`+`handleTurn`. */
 export type CoworkTurnRunner = (
   agent: CoworkAgent,
   prompt: string,
   sessionId: string,
-) => Promise<{ text: string; finished: boolean }>;
+  source: CoworkTurnSource,
+) => Promise<{ text: string; finished: boolean; stopped?: boolean }>;
 
 export interface CoworkRuntimeDeps {
   agents: CoworkAgentRepo;
@@ -49,12 +92,21 @@ export interface CoworkRuntimeDeps {
 
 export const DEFAULT_COWORK_TICK_MS = 15_000;
 export const DEFAULT_MAX_REPLY_HOPS = 3;
+// Roster tools can be registered before boot constructs the runtime.
+const runtimesByRoster = new WeakMap<CoworkAgentRepo, CoworkRuntime>();
+
+export function runtimeForRoster(agents: CoworkAgentRepo): CoworkRuntime | undefined {
+  return runtimesByRoster.get(agents);
+}
 
 /** The mailbox address of the person. Never a roster id (see cowork-create). */
 export const HUMAN = "human";
 
 interface HopPayload {
   coworkHops?: number;
+  replaces?: string[];
+  replyTo?: string;
+  desktop?: CoworkDesktopTurn;
 }
 
 /** What a stored answer to the person carries besides the hop count. */
@@ -73,15 +125,15 @@ export interface HumanReplyPayload extends HopPayload {
  */
 export function withHumanReplies(
   rows: CoworkMessage[],
-): Array<CoworkMessage & { reply?: string; replyFailed?: boolean }> {
-  const answers = new Map<string, { body: string; failed: boolean; rowId: string }>();
+): Array<CoworkMessage & { reply?: string; replyFailed?: boolean; replyAt?: number }> {
+  const answers = new Map<string, { body: string; failed: boolean; rowId: string; at: number }>();
   const ids = new Set(rows.map((r) => r.id));
   for (const r of rows) {
     if (r.toAgentId !== HUMAN || !r.payloadJson) continue;
     try {
       const p = JSON.parse(r.payloadJson) as Partial<HumanReplyPayload>;
       if (typeof p.replyTo === "string" && ids.has(p.replyTo)) {
-        answers.set(p.replyTo, { body: r.body, failed: p.failed === true, rowId: r.id });
+        answers.set(p.replyTo, { body: r.body, failed: p.failed === true, rowId: r.id, at: r.createdAt });
       }
     } catch {
       /* not one of ours: leave the row as it is */
@@ -92,7 +144,7 @@ export function withHumanReplies(
     .filter((r) => !folded.has(r.id))
     .map((r) => {
       const a = answers.get(r.id);
-      return a ? { ...r, reply: a.body, replyFailed: a.failed } : r;
+      return a ? { ...r, reply: a.body, replyFailed: a.failed, replyAt: a.at } : r;
     });
 }
 
@@ -121,8 +173,10 @@ export class CoworkRuntime {
    * waited out all of Bolt's ten minutes.
    */
   readonly #busy = new Set<string>();
+  readonly #controllers = new Map<string, AbortController>();
+  readonly #activeMessages = new Map<string, string>();
   /** Teammate id -> the thread of the message or handoff it is working on. */
-  readonly #threads = new Map<string, string | null>();
+  readonly #turns = new Map<string, { threadId: string | null; hops: number; contacted: Set<string> }>();
   #running = false;
 
   constructor(deps: CoworkRuntimeDeps) {
@@ -130,6 +184,7 @@ export class CoworkRuntime {
     this.#log = deps.log ?? (() => {});
     this.#tickIntervalMs = deps.tickIntervalMs ?? DEFAULT_COWORK_TICK_MS;
     this.#maxReplyHops = deps.maxReplyHops ?? DEFAULT_MAX_REPLY_HOPS;
+    runtimesByRoster.set(deps.agents, this);
   }
 
   /** Idempotent. Self-rescheduling, unref'd — never keeps the process alive. */
@@ -198,9 +253,9 @@ export class CoworkRuntime {
     //
     // allSettled, not all: one agent throwing must not cancel the rest, which
     // is what the per-agent catch was already there to guarantee.
+    for (const agent of roster) this.#busy.add(agent.id);
     await Promise.allSettled(
       roster.map(async (agent) => {
-        this.#busy.add(agent.id);
         try {
           // Loop until the inbox stays empty: a message that arrived while
           // this teammate was mid-turn found it busy and was left for us.
@@ -226,7 +281,71 @@ export class CoworkRuntime {
    * uses it so a request lands in the conversation it belongs to.
    */
   threadOf(agentId: string): string | null {
-    return this.#threads.get(agentId) ?? null;
+    return this.#turns.get(agentId)?.threadId ?? null;
+  }
+
+  ownerMessengerOf(agentId: string): string | null {
+    const id = this.#activeMessages.get(agentId);
+    const row = id && this.#deps.mailbox.get(id);
+    return row && row.fromAgentId === HUMAN && coworkPayload(row).ownerMessenger ? row.threadId : null;
+  }
+
+  isWorking(agentId: string): boolean {
+    return this.#turns.has(agentId);
+  }
+
+  /** Stop work for this chat, including delegated turns and queued messages. */
+  cancel(sessionId?: string, requestId?: string): string[] {
+    const active: string[] = [];
+    for (const teammate of this.#deps.agents.list()) {
+      const sid = this.sessionIdFor(teammate.id);
+      const own = !sessionId || sessionId === sid;
+      const activeId = this.#activeMessages.get(teammate.id);
+      const activeRow = activeId && this.#deps.mailbox.get(activeId);
+      if ((own || this.threadOf(teammate.id) === sessionId) &&
+          (!requestId || (activeRow && coworkPayload(activeRow).desktop?.id === requestId))) {
+        this.#controllers.get(teammate.id)?.abort();
+        if (this.isWorking(teammate.id)) active.push(sid);
+      }
+      for (const msg of this.#deps.mailbox.inbox(teammate.id, "pending")) {
+        if (msg.id === activeId || (requestId && coworkPayload(msg).desktop?.id !== requestId)) continue;
+        if (!own && msg.threadId !== sessionId) continue;
+        this.#deps.mailbox.saveTurnResult(msg.id, { stopped: true, tools: [] });
+        this.#deps.mailbox.updateStatus(msg.id, "processed");
+        this.#deps.emitEvent({ type: "cowork_event", eventType: "message_processed", agentId: teammate.id,
+          threadId: msg.threadId ?? undefined, title: teammate.name,
+          data: { messageId: msg.id, fromAgentId: msg.fromAgentId, body: msg.body, stopped: true, output: "" } });
+      }
+      if (requestId) continue;
+      for (const h of this.#deps.handoffs.history(teammate.id)) {
+        if (h.toAgentId !== teammate.id || h.status !== "initiated" || (!own && h.threadId !== sessionId)) continue;
+        this.#deps.handoffs.fail(h.id, "Stopped.");
+        this.#deps.emitEvent({ type: "cowork_event", eventType: "handoff_failed", agentId: teammate.id,
+          threadId: h.threadId ?? undefined, title: teammate.name, data: { handoffId: h.id, reason: "Stopped." } });
+      }
+    }
+    return active;
+  }
+
+  outgoing(agentId: string, recipientId: string) {
+    const turn = this.#turns.get(agentId);
+    if (!turn) return null;
+    return {
+      threadId: turn.threadId ?? this.sessionIdFor(agentId),
+      hops: turn.hops + 1,
+      allowed: turn.hops < this.#maxReplyHops && turn.contacted.size < 2 && !turn.contacted.has(recipientId),
+      record: () => turn.contacted.add(recipientId),
+    };
+  }
+
+  #teamContext(agentId: string): string {
+    const peers = this.#deps.agents.list().filter((agent) => agent.id !== agentId);
+    if (peers.length === 0) return "";
+    const roster = peers.map((peer) =>
+      `- ${JSON.stringify(peer.name)} (id: ${peer.id})${peer.role ? ` — ${JSON.stringify(peer.role)}` : ""}: ${this.isWorking(peer.id) ? "working" : "available"}`
+    ).join("\n");
+    return `\nTeammates at the start of this turn:\n${roster}\n` +
+      "Use cowork_team for fresh availability. Use cowork_send when a teammate can help with this task; continue without asking the user to relay messages.\n";
   }
 
   #hasWork(agentId: string): boolean {
@@ -238,29 +357,74 @@ export class CoworkRuntime {
     );
   }
 
-  async #onMessage(msg: CoworkMessage): Promise<{ ok: boolean; output: string }> {
+  async #onMessage(msg: CoworkMessage): Promise<{ ok: boolean; output: string; stopped?: boolean; forwardedId?: string }> {
     const receiver = this.#deps.agents.get(msg.toAgentId);
     if (!receiver) return { ok: false, output: `unknown cowork agent ${msg.toAgentId}` };
     const hops = readHops(msg.payloadJson);
-    const prompt = this.#composeMessagePrompt(receiver, msg, hops);
-    let turn: { text: string; finished: boolean };
-    this.#threads.set(receiver.id, msg.threadId);
+    let prompt = this.#composeMessagePrompt(receiver, msg, hops);
+    const receipt: TurnReceipt = { tools: [] };
+    const controller = new AbortController();
+    this.#controllers.set(receiver.id, controller);
+    this.#activeMessages.set(receiver.id, msg.id);
+    let turn: Awaited<ReturnType<CoworkTurnRunner>>;
+    this.#turns.set(receiver.id, { threadId: msg.threadId, hops, contacted: new Set() });
     try {
-      turn = await this.#deps.runTurn(receiver, prompt, this.sessionIdFor(receiver.id));
+      let desktop: CoworkDesktopTurn | undefined;
+      if (msg.fromAgentId === HUMAN && msg.threadId === this.sessionIdFor(receiver.id)) {
+        try { desktop = (JSON.parse(msg.payloadJson ?? "null") as HopPayload | null)?.desktop; } catch { /* Legacy message payload. */ }
+      }
+      if (desktop?.replaceFrom && msg.threadId) {
+        const history = visibleCoworkRows(this.#deps.mailbox.byThread(msg.threadId));
+        const preceding = history.slice(0, history.findIndex((r) => r.id === msg.id));
+        const context = withHumanReplies(preceding).slice(-20).map((r) =>
+          [r.fromAgentId + ": " + r.body, r.reply && receiver.name + ": " + r.reply].filter(Boolean).join("\n")).join("\n");
+        if (context) prompt = "Earlier conversation:\n" + context.slice(-16000) + "\n\n" + prompt;
+      }
+      turn = await this.#deps.runTurn(receiver, prompt, this.sessionIdFor(receiver.id), {
+        exchangeId: `msg:${msg.id}`, desktop, mission: msg.body, signal: controller.signal,
+        recordEvent: (event) => {
+          if (event.type === "tool_start") receipt.tools = [...receipt.tools.slice(-31), { name: event.tool, done: false, startedAt: Date.now() }];
+          if (event.type === "tool_done") {
+            const tool = receipt.tools.findLast((t) => t.name === event.tool && !t.done);
+            if (tool) {
+              tool.done = true;
+              tool.endedAt = Date.now();
+              tool.failed = typeof event.result === "object" && event.result !== null &&
+                "ok" in event.result && event.result.ok === false;
+            }
+          }
+          if (event.type === "usage") {
+            receipt.tokens = event.completionTokens;
+            receipt.contextLanes = event.lanes;
+          }
+          if (event.type === "memory_used") receipt.memoryUsed = event.items;
+        },
+      });
+      if (controller.signal.aborted) turn = { ...turn, finished: false, stopped: true };
     } catch (err) {
-      this.#keepForHuman(receiver, msg, hops, err instanceof Error ? err.message : String(err), true);
-      throw err;
+      if (controller.signal.aborted) {
+        turn = { text: "Stopped.", finished: false, stopped: true };
+      } else {
+        const reason = err instanceof Error ? err.message : String(err);
+        this.#deps.mailbox.saveTurnResult(msg.id, { ...receipt, failed: true, text: reason });
+        this.#keepForHuman(receiver, msg, hops, reason, true);
+        throw err;
+      }
     } finally {
-      this.#threads.delete(receiver.id);
+      this.#controllers.delete(receiver.id);
+      this.#activeMessages.delete(receiver.id);
+      this.#turns.delete(receiver.id);
     }
     if (!turn.finished) {
-      const reason = "turn ended unfinished (deadline/budget)";
-      this.#keepForHuman(receiver, msg, hops, reason, true);
-      return { ok: false, output: reason };
+      const reason = turn.stopped ? (turn.text || "Stopped.") : "turn ended unfinished (deadline/budget)";
+      this.#deps.mailbox.saveTurnResult(msg.id, { ...receipt, text: reason, failed: !turn.stopped, stopped: turn.stopped });
+      this.#keepForHuman(receiver, msg, hops, reason, !turn.stopped);
+      return { ok: !!turn.stopped, output: reason, stopped: turn.stopped };
     }
     this.#keepForHuman(receiver, msg, hops, turn.text, false);
-    await this.#maybeReply(receiver, msg, turn.text, hops);
-    return { ok: true, output: turn.text };
+    const forwardedId = await this.#maybeReply(receiver, msg, turn.text, hops);
+    this.#deps.mailbox.saveTurnResult(msg.id, { ...receipt, text: turn.text, forwardedId });
+    return { ok: true, output: turn.text, forwardedId };
   }
 
   /**
@@ -299,15 +463,24 @@ export class CoworkRuntime {
         : "";
     const prompt =
       `You are "${receiver.name}"${receiver.role ? `, role: ${receiver.role}` : ""}. ` +
-      `${receiver.instructions}\n\n` +
+      `${receiver.instructions}\n${this.#teamContext(receiver.id)}\n` +
       `A teammate (${h.fromAgentId}) handed this task to you. Own it end to end.\n\n` +
       `Task: ${h.summary}${artifactLine}`;
-    this.#threads.set(receiver.id, h.threadId);
-    let turn: { text: string; finished: boolean };
+    this.#turns.set(receiver.id, { threadId: h.threadId, hops: 0, contacted: new Set() });
+    const controller = new AbortController();
+    let turn: Awaited<ReturnType<CoworkTurnRunner>>;
     try {
-      turn = await this.#deps.runTurn(receiver, prompt, this.sessionIdFor(receiver.id));
+      this.#controllers.set(receiver.id, controller);
+      turn = await this.#deps.runTurn(receiver, prompt, this.sessionIdFor(receiver.id), {
+        exchangeId: `handoff:${h.id}`, mission: h.summary, signal: controller.signal, recordEvent: () => {},
+      });
+      if (controller.signal.aborted || turn.stopped) return { ok: false, output: "Stopped." };
+    } catch (err) {
+      if (controller.signal.aborted) return { ok: false, output: "Stopped." };
+      throw err;
     } finally {
-      this.#threads.delete(receiver.id);
+      this.#controllers.delete(receiver.id);
+      this.#turns.delete(receiver.id);
     }
     const { text, finished } = turn;
     if (!finished) {
@@ -330,7 +503,7 @@ export class CoworkRuntime {
     msg: CoworkMessage,
     answer: string,
     hops: number,
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     // The human's answer is stored by #keepForHuman; it never loops back.
     if (msg.fromAgentId === HUMAN) return;
     if (hops >= this.#maxReplyHops) {
@@ -339,13 +512,13 @@ export class CoworkRuntime {
       );
       return;
     }
-    this.#deps.mailbox.send({
+    return this.#deps.mailbox.send({
       fromAgentId: receiver.id,
       toAgentId: msg.fromAgentId,
       threadId: msg.threadId,
       body: answer,
       payloadJson: JSON.stringify({ coworkHops: hops + 1 } satisfies HopPayload),
-    });
+    }).id;
   }
 
   #composeMessagePrompt(agent: CoworkAgent, msg: CoworkMessage, hops: number): string {
@@ -353,7 +526,7 @@ export class CoworkRuntime {
       hops > 0 ? `\n(This thread is ${hops} exchange${hops > 1 ? "s" : ""} deep; wrap up rather than extending it.)` : "";
     return (
       `You are "${agent.name}"${agent.role ? `, role: ${agent.role}` : ""}. ` +
-      `${agent.instructions}\n\n` +
+      `${agent.instructions}\n${this.#teamContext(agent.id)}\n` +
       (msg.fromAgentId === "human"
         ? `The user writes:\n`
         : `A teammate (${msg.fromAgentId}) writes:\n`) +

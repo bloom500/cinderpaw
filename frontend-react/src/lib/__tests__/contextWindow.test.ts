@@ -72,6 +72,11 @@ describe('isLocalBaseUrl', () => {
     expect(isLocalBaseUrl('https://api.minimax.io/v1')).toBe(false);
   });
 
+  // 1 Nov: the ChatGPT plan sits on loopback, so it got Temperature, not Effort.
+  it('treats the ChatGPT plan route as cloud', () => {
+    expect(isLocalBaseUrl('http://localhost:11435/chatgpt')).toBe(false);
+  });
+
   it('is false for a missing or malformed URL', () => {
     expect(isLocalBaseUrl(undefined)).toBe(false);
     expect(isLocalBaseUrl('not a url')).toBe(false);

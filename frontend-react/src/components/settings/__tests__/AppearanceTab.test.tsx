@@ -54,14 +54,14 @@ describe('AppearanceTab: background', () => {
 describe('AppearanceTab: theme and chat font', () => {
   beforeEach(() => {
     get.mockResolvedValue({});
-    useUI.setState({ theme: 'system', chatFont: 'geist' });
+    useUI.setState({ theme: 'system', chatFont: 'inter' });
   });
 
-  test('a fresh install has System and Geist selected', () => {
+  test('a fresh install has System and Inter selected', () => {
     render(<AppearanceTab />);
     expect(screen.getByRole('button', { name: /^System/ })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'Light' })).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByRole('radio', { name: /Geist/ })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /Inter/ })).toBeChecked();
   });
 
   test('a theme card sets the theme, a font row sets the chat font', async () => {

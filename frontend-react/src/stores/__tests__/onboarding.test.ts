@@ -46,14 +46,15 @@ describe('useOnboarding', () => {
     // constant (`5`) that broke silently when a step was added. It's
     // now derived from STEP_IDS.length — pin the contract that adding
     // a step means inserting one entry in the list.
-    // welcome, names, provider, connect, workspace, done: Darius's boards (1 Oct).
-    expect(useOnboarding.getState().totalSteps).toBe(6);
+    // welcome (the film), provider (a brain), done (names + first task): the
+    // three cards of 31 Oct, Darius's release gate.
+    expect(useOnboarding.getState().totalSteps).toBe(3);
     expect(useOnboarding.getState().totalSteps).toBeGreaterThan(0);
     // The last reachable step index is totalSteps - 1 — pins the
     // boundary any `next()` caller can reach.
     useOnboarding.getState().start();
     for (let i = 0; i < 99; i++) useOnboarding.getState().next();
-    expect(useOnboarding.getState().step).toBe(5);
+    expect(useOnboarding.getState().step).toBe(2);
     expect(useOnboarding.getState().step).toBe(useOnboarding.getState().totalSteps - 1);
   });
 

@@ -35,6 +35,11 @@ describe('a model as a person knows it', () => {
     expect(logoKeyFor('sao10k/l3-euryale', 'openrouter', MAKER_TO_LOGO)).toBeNull();
   });
 
+  // 1 Nov: GPT 6.1 Sol on a ChatGPT plan showed the Hugging Face mark.
+  it('a ChatGPT plan model gets the OpenAI mark', () => {
+    expect(logoKeyFor('gpt-6.1-sol', 'chatgpt', MAKER_TO_LOGO)).toBe('openai');
+  });
+
   it('renders the mark, and an initial when there is none', async () => {
     const openai = render(<ModelLogo modelId="openai/gpt-5" provider="openrouter" />);
     await waitFor(() => expect(openai.container.querySelector('svg title')?.textContent).toBe('OpenAI'));

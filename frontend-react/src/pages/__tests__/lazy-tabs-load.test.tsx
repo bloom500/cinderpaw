@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { StrictMode } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { ExtensionsPage } from '../ExtensionsPage';
 import { ConnectorsPage } from '../ConnectorsPage';
 import { tauri } from '@/lib/tauri';
@@ -57,7 +58,8 @@ describe('settings tabs finish loading under strict mode', () => {
       },
     ] as unknown as Awaited<ReturnType<typeof tauri.connectors.catalog>>);
 
-    render(<StrictMode><ConnectorsPage /></StrictMode>);
+    // A card can open the chat ("Ask Cinderpaw"), so it needs a router.
+    render(<StrictMode><MemoryRouter><ConnectorsPage /></MemoryRouter></StrictMode>);
 
     await waitFor(() => expect(screen.getByText('Discord')).toBeTruthy());
   });

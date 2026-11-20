@@ -472,6 +472,12 @@ pub fn type_into_element(id: &str, text: &str) -> Result<(), String> {
     }
 }
 
+/// ponytail: no on-screen overlay outside Windows yet; it needs element
+/// geometry from AT-SPI/AX, add it with the overlay's macOS/Linux windows.
+pub fn element_box(_id: &str) -> Result<(BoundingRect, String), String> {
+    Err("desktop control: element geometry is not available on this system".into())
+}
+
 pub fn get_element_value(id: &str) -> Result<String, String> {
     match target(id)? {
         Target::Element { pid, check, path } => tree::value(pid, check, &path),

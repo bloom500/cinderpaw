@@ -16,12 +16,8 @@ use std::path::PathBuf;
 /// API to mutate the host's environment afterward, so it cannot redirect
 /// the sandbox root by setting `CINDERPAW_HOME`.
 pub fn cinderpaw_dir() -> PathBuf {
-    // Both names are honoured — see `crate::env`. Someone who set CINDERPAW_HOME in
-    // a shell profile a year ago must not find the app quietly ignoring it.
-    if let Some(over) = crate::env::env_var_os("CINDERPAW_HOME") {
-        if !over.is_empty() {
-            return PathBuf::from(over);
-        }
+    if let Some(over) = home_override() {
+        return over;
     }
     // Nothing may learn where data lives until the rename has been carried out
     // — see `migrate_home::ensure_migrated` for why this lives here and not in
@@ -37,6 +33,16 @@ pub fn cinderpaw_dir() -> PathBuf {
 
     let base = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
     base.join(crate::brand::APP_HOME_DIR_NAME)
+}
+
+/// `CINDERPAW_HOME` when it is set and not empty. Both names are honoured — see
+/// `crate::env`. Someone who set it in a shell profile a year ago must not find
+/// the app quietly ignoring it. Apart from `cinderpaw_dir` because the desktop's
+/// log writer starts before the home rename and must not trigger it, yet has to
+/// write where "Open log" looks (4 Nov tour: a test profile logged into the real
+/// ~/.cinderpaw/logs).
+pub fn home_override() -> Option<PathBuf> {
+    crate::env::env_var_os("CINDERPAW_HOME").filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
 pub fn models_dir() -> PathBuf {

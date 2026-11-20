@@ -62,6 +62,18 @@ shows that file. Days before you said yes are never sent. Turn it off and
 sending stops immediately and the code is deleted. The totals are public on the
 Leaderboard tab in Models and at cinderpaw.dev/leaderboard.
 
+The third thing is "Send my numbers", a button on the My day page. Nothing is
+sent until you press it, and each press sends once. It sends your version
+number, your operating system, and for each kind of message Cinderpaw wrote to
+you first (unfinished work, tasks, watches, the daily and weekly summary, its
+own thoughts): how many it sent, how many you opened, answered or acted on, how
+many you closed, and on how many days you reacted. It also sends whether you
+reacted in each of the last two weeks and what share of the things you asked
+for went out on time. Counts only: never your messages, titles, names, links or
+times. It carries its own random code that changes every month, separate from
+the usage summary's. What it sends is written to
+`~/.cinderpaw/telemetry-sent.jsonl` first, like the summaries.
+
 Bug reports are sent only when you write one
 and press the button, and they show you the log lines first. Local logs and
 memory stay local. Public-journal publication requires explicit configuration

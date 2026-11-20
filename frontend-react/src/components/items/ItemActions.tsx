@@ -27,7 +27,7 @@ import {
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useNotifications } from '@/stores/notifications';
-import { useConversations, type ConversationSummary } from '@/stores/conversations';
+import { hideWhileDeleting, useConversations, type ConversationSummary } from '@/stores/conversations';
 import { useProjects, type Project } from '@/stores/projects';
 import { useUI } from '@/stores/ui';
 
@@ -230,18 +230,24 @@ const UNDO_MS = 5_000;
 function deleteChatWithUndo(id: string, title: string) {
   const store = useConversations.getState();
   if (store.currentId === id) store.newChat();
+  // Hidden from every list read until the delete lands or is undone.
+  hideWhileDeleting(id, true);
   useConversations.setState((s) => ({ list: s.list.filter((c) => c.id !== id) }));
   const timer = setTimeout(() => {
     // A delete that fails puts the chat back and says why, instead of leaving
     // it gone from the list and still on disk.
-    useConversations.getState().delete(id).catch((err: unknown) => {
-      useNotifications.getState().push('error', 'Could not delete the chat', err instanceof Error ? err.message : String(err));
-      void useConversations.getState().refresh();
-    });
+    useConversations.getState().delete(id).then(
+      () => hideWhileDeleting(id, false),
+      (err: unknown) => {
+        hideWhileDeleting(id, false);
+        useNotifications.getState().push('error', 'Could not delete the chat', err instanceof Error ? err.message : String(err));
+        void useConversations.getState().refresh();
+      },
+    );
   }, UNDO_MS);
   useNotifications.getState().push('info', 'Chat deleted', title || undefined, {
     label: 'Undo',
-    run: () => { clearTimeout(timer); void useConversations.getState().refresh(); },
+    run: () => { clearTimeout(timer); hideWhileDeleting(id, false); void useConversations.getState().refresh(); },
   });
 }
 
@@ -318,15 +324,20 @@ export function ConversationActions({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <RenameDialog
-        open={renaming}
-        onOpenChange={setRenaming}
-        title="Rename chat"
-        label="Chat name"
-        initial={conv.title}
-        onSave={(title) => useConversations.getState().rename(conv.id, title)}
-      />
-
+      {/* Built only while open: every sidebar row carried a whole dialog, and
+          the list redraws after every reply (191 ms of a 40 s profile, 1 Nov).
+          Opened fresh, it also starts from the chat's current title, not the
+          one it had when the row first drew. */}
+      {renaming && (
+        <RenameDialog
+          open
+          onOpenChange={setRenaming}
+          title="Rename chat"
+          label="Chat name"
+          initial={conv.title}
+          onSave={(title) => useConversations.getState().rename(conv.id, title)}
+        />
+      )}
     </>
   );
 }

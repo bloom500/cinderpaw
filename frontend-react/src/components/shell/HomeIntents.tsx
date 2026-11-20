@@ -1,8 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { ArrowUpRight, BarChart3, PenLine, Repeat, Search } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { tauri } from '@/lib/tauri';
 import { signInWithOpenRouter } from '@/lib/openrouterSignIn';
+import { signInWithChatGPT } from '@/lib/chatgptSignIn';
+import { useNotifications } from '@/stores/notifications';
+import { useConversations } from '@/stores/conversations';
+import { maybeWelcome } from '@/lib/welcome';
+import { useCoworkTeam } from '@/stores/coworkTeam';
 
 /**
  * The four intents, under the composer.
@@ -92,23 +97,41 @@ function useHasAnyModel(): boolean | null {
  * intent chips would only lead to a message nothing can answer.
  */
 function SetupCard() {
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'chatgpt' | 'openrouter' | null>(null);
   return (
     // Same frame as the intent cards below the composer: centered, as wide as the composer.
     <div className="mx-auto mt-4 w-full max-w-2xl px-4">
       <div className="rounded-3xl border border-border-default bg-(--surface-typing) p-5 text-left shadow-lg">
         <p className="text-base font-semibold text-text-primary">Cinderpaw needs a model to think with.</p>
-        <p className="mt-1 text-sm text-text-secondary">
-          Sign in with OpenRouter and it answers right away, on any computer. Or download a model that runs here, free and private, if this machine is strong enough.
+        {/* ChatGPT first, as in the setup wizard and the model menu: this card
+            offered only OpenRouter (smoke test, 7 Nov). */}
+        {/* Hidden in a short window: with it, the card plus the composer left no
+            room for the greeting while the wake-up note is showing (13 Nov).
+            The three buttons name the same three ways. */}
+        <p className="mt-1 text-sm text-text-secondary [@media(max-height:700px)]:hidden">
+          Use the ChatGPT plan you already pay for, or sign in with OpenRouter for free, on any computer. Or download a model that runs here, free and private, if this machine is strong enough.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
-            disabled={busy}
-            onClick={() => { setBusy(true); void signInWithOpenRouter().finally(() => setBusy(false)); }}
+            disabled={busy !== null}
+            onClick={() => {
+              setBusy('chatgpt');
+              void signInWithChatGPT()
+                .catch((err) => useNotifications.getState().push('error', 'ChatGPT sign-in did not finish', String(err)))
+                .finally(() => setBusy(null));
+            }}
             className="rounded-xl bg-brand px-4 py-2 text-sm font-medium text-brand-foreground hover:opacity-90 disabled:opacity-60 cursor-pointer"
           >
-            {busy ? 'Finish in your browser…' : 'Sign in with OpenRouter'}
+            {busy === 'chatgpt' ? 'Finish in your browser…' : 'Continue with ChatGPT'}
+          </button>
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => { setBusy('openrouter'); void signInWithOpenRouter().finally(() => setBusy(null)); }}
+            className="rounded-xl border border-border-default px-4 py-2 text-sm text-text-secondary hover:bg-bg-hover disabled:opacity-60 cursor-pointer"
+          >
+            {busy === 'openrouter' ? 'Finish in your browser…' : 'Sign in with OpenRouter'}
           </button>
           <button
             type="button"
@@ -128,6 +151,9 @@ function SetupCard() {
 export function HomeIntents({ onPick }: { onPick: (text: string) => void }) {
   const t = useT();
   const hasModel = useHasAnyModel();
+  // The agent writes first once a model is connected (onboarding or after Skip).
+  const chatsLoaded = useConversations((s) => s.loaded);
+  useEffect(() => { void maybeWelcome(hasModel); }, [hasModel, chatsLoaded]);
   const [open, setOpen] = useState<(typeof INTENTS)[number]['key'] | null>(null);
   if (hasModel === false) return <SetupCard />;
   const jobs = INTENTS.find((i) => i.key === open)?.jobs;
@@ -177,6 +203,45 @@ export function HomeIntents({ onPick }: { onPick: (text: string) => void }) {
           </button>
         ))}
       </div>
+      )}
+      {hasModel === true && !jobs && <TeamSetup onPick={onPick} />}
+    </div>
+  );
+}
+
+export function TeamSetup({ onPick }: { onPick: (text: string) => void }) {
+  const canSetUp = useCoworkTeam((s) => s.loaded && s.roster.length === 0);
+  const [open, setOpen] = useState(false);
+  const [work, setWork] = useState('');
+  const fieldId = useId();
+
+  if (!canSetUp) return null;
+
+  return (
+    <div className="mx-auto mt-2 max-w-md px-3 pb-2 text-center">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}
+        className="rounded-md px-2 py-1 text-xs text-text-secondary underline-offset-4 hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand">
+        Set up my team
+      </button>
+      {open && (
+        <form className="mt-2 space-y-2 rounded-xl border border-border-default bg-bg-surface p-3 text-left"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const needs = work.trim();
+            if (!needs) return;
+            setOpen(false);
+            setWork('');
+            onPick(`I want to use Cinderpaw for this work: ${needs}\nSuggest teammates who could help.`);
+          }}>
+          <label htmlFor={fieldId} className="block text-sm font-medium text-text-primary">What should your team help with?</label>
+          <div className="flex gap-2">
+            <input id={fieldId} required value={work} onChange={(event) => setWork(event.target.value)}
+              placeholder="e.g. Reply to customers" maxLength={300}
+              className="min-w-0 flex-1 rounded-lg border border-border-default bg-bg-elevated px-2 text-sm text-text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand" />
+            <button type="submit" disabled={!work.trim()} className="rounded-lg bg-brand px-3 py-2 text-xs font-medium text-brand-foreground disabled:opacity-50">Use in chat</button>
+          </div>
+          <p className="text-xs text-text-muted">You can review and send it in chat.</p>
+        </form>
       )}
     </div>
   );

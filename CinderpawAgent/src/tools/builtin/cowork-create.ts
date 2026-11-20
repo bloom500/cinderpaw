@@ -30,7 +30,7 @@
  * meaningful answer (a teammate that only thinks and replies).
  */
 
-import type { Tool, ToolManifest } from "../../types.ts";
+import type { Tool, ToolManifest, ToolResult } from "../../types.ts";
 import type { CoworkAgentRepo } from "../../cowork/agent-store.ts";
 import type { CoworkMailboxRepo } from "../../cowork/mailbox.ts";
 import type { ToolRegistry } from "../registry.ts";
@@ -65,7 +65,9 @@ export interface CoworkCreateDeps {
   log?: (msg: string) => void;
 }
 
-export function createCoworkCreateTool(deps: CoworkCreateDeps): Tool {
+export function createCoworkCreateTool(deps: CoworkCreateDeps): Tool & {
+  create: (args: Record<string, unknown>, registerTools?: boolean) => ToolResult;
+} {
   const manifest: ToolManifest = {
     name: "cowork_create_teammate",
     description:
@@ -76,7 +78,7 @@ export function createCoworkCreateTool(deps: CoworkCreateDeps): Tool {
     permissions: [],
     networkAccess: false,
   };
-  return {
+  const tool: Tool & { create: (args: Record<string, unknown>, registerTools?: boolean) => ToolResult } = {
     manifest,
     parameters: {
       name: {
@@ -108,7 +110,8 @@ export function createCoworkCreateTool(deps: CoworkCreateDeps): Tool {
         required: false,
       },
     },
-    async execute(args) {
+    async execute(args) { return tool.create(args); },
+    create(args, registerTools = true) {
       const name = typeof args.name === "string" ? args.name.trim() : "";
       const role = typeof args.role === "string" ? args.role.trim() : "";
       if (!name || !role) {
@@ -208,8 +211,8 @@ export function createCoworkCreateTool(deps: CoworkCreateDeps): Tool {
       // First teammate: the roster tools become reachable NOW, not after a
       // restart. Registering is idempotent-by-check so a second creation is a
       // no-op here.
-      const gained = registerCoworkRosterTools(deps.registry, deps.agents, deps.mailbox);
-      deps.log?.(
+      const gained = registerTools ? registerCoworkRosterTools(deps.registry, deps.agents, deps.mailbox) : [];
+      if (registerTools) deps.log?.(
         `cowork: created teammate "${agent.name}" (${agent.id})` +
           (gained.length > 0 ? ` — ${gained.join(" + ")} now available` : ""),
       );
@@ -226,7 +229,7 @@ export function createCoworkCreateTool(deps: CoworkCreateDeps): Tool {
           `Created "${agent.name}" — ${agent.role}. Tools: ${scope}` +
           (requested ? ". " : " (the read-only default: they cannot write, send or run commands). ") +
           (gained.length > 0 ? `${gained.join(", ")} are now available. ` : "") +
-          `Hand them work with cowork_send; their replies appear in the Agent Cowork panel ` +
+          `Hand them work with cowork_send; their replies appear in their chat, which opens from the sidebar, ` +
           `and you can read them with cowork_replies. Tell the user what they can and cannot ` +
           `do; widen it with cowork_update_teammate if the user asks.`,
         data: {
@@ -239,4 +242,5 @@ export function createCoworkCreateTool(deps: CoworkCreateDeps): Tool {
       };
     },
   };
+  return tool;
 }

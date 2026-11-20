@@ -2,8 +2,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { tauri, type Conversation } from '@/lib/tauri';
 import { useChat } from '../chat';
-import { useConversations } from '../conversations';
+import { hideWhileDeleting, useConversations } from '../conversations';
 import { useNotifications } from '../notifications';
+import { useArtifacts } from '../artifacts';
 
 vi.mock('@/lib/tauri', () => ({
   tauri: {
@@ -31,7 +32,33 @@ beforeEach(() => {
   useNotifications.setState({ toasts: [] });
 });
 
+// 1 Nov: delete 2-3 chats in a row and they came back for a moment. The first
+// one's real delete re-read the list from disk, where the others still were.
+describe('a chat waiting out its Undo stays off the list', () => {
+  it('is not brought back by a list read, and returns once undone', async () => {
+    const row = (id: string) => ({ id, title: id, created_at: '', updated_at: id }) as never;
+    vi.mocked(tauri.conversations.list).mockResolvedValue([row('a'), row('b'), row('c')]);
+    hideWhileDeleting('b', true);
+    hideWhileDeleting('c', true);
+    await useConversations.getState().refresh();
+    expect(useConversations.getState().list.map((c) => c.id)).toEqual(['a']);
+
+    hideWhileDeleting('b', false); // Undo
+    await useConversations.getState().refresh();
+    expect(useConversations.getState().list.map((c) => c.id)).toEqual(['b', 'a']);
+    hideWhileDeleting('c', false);
+  });
+});
+
 describe('the latest conversation choice wins', () => {
+  it('hides the previous artifact on a new chat without discarding its edit', () => {
+    const editing = { draft: 'Unsaved changes', base: 1 };
+    useArtifacts.setState({ panelOpen: true, editing });
+    useConversations.getState().newChat();
+    expect(useArtifacts.getState().panelOpen).toBe(false);
+    expect(useArtifacts.getState().editing).toBe(editing);
+    useArtifacts.setState({ editing: null });
+  });
   it('keeps provider waits with their session and clears them when a turn ends', () => {
     useConversations.getState().markStreaming('waiting');
     useConversations.getState().setProviderWait('waiting', 30_000);

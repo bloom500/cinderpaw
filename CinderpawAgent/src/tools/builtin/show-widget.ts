@@ -14,13 +14,16 @@
  * what the agent meant to show and the turn does not stall on a retry.
  */
 
-import type { CinderpawFetch, Tool, ToolManifest, ToolResult } from "../../types.ts";
-import { cacheImage, pagePreviewImage } from "../image-cache.ts";
+import type { CinderpawFetch, Tool, ToolContext, ToolManifest, ToolResult } from "../../types.ts";
+import { resolveAllowedPath } from "../../egress/tool-permissions.ts";
+import { cacheImage, keepLocalImage, pagePreviewImage } from "../image-cache.ts";
 
-export const WIDGET_KINDS = ["facts", "checklist", "cards", "breakdown", "progress", "table", "verdict", "followups"] as const;
+export const WIDGET_KINDS = ["facts", "checklist", "cards", "breakdown", "progress", "table", "verdict", "photos", "followups"] as const;
 
 /** A follow-up chip's longest text: a short request, not a paragraph. */
 export const FOLLOWUP_MAX = 80;
+/** The next-step card's question: one short line, like Claude's. */
+export const ASK_MAX = 100;
 export type WidgetKind = (typeof WIDGET_KINDS)[number];
 
 /** The only icons a `facts` row may name; the app draws each one. */
@@ -123,11 +126,28 @@ export function validateWidget(args: Rec): Rec | null {
       const text = str(args.text);
       return text ? { kind, title, text } : null;
     }
+    case "photos": {
+      // `image` is an https address or a path on this computer; `keepPhotos`
+      // turns each into a kept file or drops it.
+      const items = list(args.items, 1, 8);
+      if (!items) return null;
+      const rows = items.map((it) => {
+        const image = str(it.image);
+        const t = str(it.title) ?? undefined;
+        return image ? { image, ...(t ? { title: t } : {}) } : null;
+      });
+      return rows.every(Boolean) ? { kind, title, items: rows } : null;
+    }
     case "followups": {
-      const next = Array.isArray(args.next) && args.next.length >= 1 && args.next.length <= 4 ? args.next : null;
+      // With `ask` it is the next-step card: one question, one or two answers.
+      const ask = str(args.ask);
+      if (ask !== null && ask.length > ASK_MAX) return null;
+      const most = ask ? 2 : 4;
+      const next = Array.isArray(args.next) && args.next.length >= 1 && args.next.length <= most ? args.next : null;
       if (!next) return null;
       const texts = next.map((it) => str(it));
-      return texts.every((t) => t !== null && t.length <= FOLLOWUP_MAX) ? { kind, next: texts } : null;
+      if (!texts.every((t) => t !== null && t.length <= FOLLOWUP_MAX)) return null;
+      return ask ? { kind, ask, next: texts } : { kind, next: texts };
     }
     default:
       return null;
@@ -184,22 +204,58 @@ export async function attachImages(widget: Rec, fetch: CinderpawFetch, dir?: str
   return found;
 }
 
+/**
+ * Keep each photo as a file the app may show: an https picture through the
+ * egress door (`cacheImage`), a file on this computer only from a folder the
+ * agent may read (the same check as read_file), copied by its bytes. A photo
+ * that cannot be kept is dropped. Returns how many were kept.
+ */
+export async function keepPhotos(widget: Rec, ctx: ToolContext): Promise<number> {
+  const kept: Rec[] = [];
+  for (const it of widget.items as Rec[]) {
+    const src = String(it.image);
+    let file: string | null = null;
+    if (/^https:\/\//i.test(src)) {
+      // `typeof`: a test double may pass a context without a fetch.
+      file = typeof ctx?.fetch === "function" ? await cacheImage(src, ctx.fetch) : null;
+    } else {
+      try { file = keepLocalImage(resolveAllowedPath(ctx.manifest, "fs:read", src)); } catch { file = null; }
+      delete it.image; // a path on this computer is no address for the app
+    }
+    if (file) kept.push({ ...it, imageFile: file });
+  }
+  widget.items = kept;
+  return kept.length;
+}
+
 const OBJ_ITEMS = { type: "array", items: { type: "object" } };
 
-export function createShowWidgetTool(): Tool {
+/** `allowedPaths`: the folders a `photos` widget may show files from (read_file's). */
+export function createShowWidgetTool(allowedPaths: string[] = []): Tool {
   const manifest: ToolManifest = {
     name: "show_widget",
     description:
       "Show structured information to the user as a themed widget in the chat, instead of a markdown list. " +
+      "When you finish a task, or answer something with an obvious next step, write your reply, then end with " +
+      "`followups` as your very last action: `ask` = one short question about the most useful next step (under " +
+      `${ASK_MAX} characters), \`next\` = 1-2 short answers in the person's own voice, your recommendation first ` +
+      "(ask \"Should I send it to Ana?\", next [\"Yes, send it\", \"Not now\"]). Do it on most finished tasks; skip it " +
+      "only for small talk and when you just asked them a question. Write nothing after it. " +
       "Kinds: `facts` (items: 2-6 {label, value, icon?}), `checklist` (items: {text, done, note?}), " +
       "`cards` (items: 2-6 {title, subtitle?, image?, url?}, https only; a card with a url and no image gets " +
       "the picture that page shows in link previews, so link the real product or place page), `breakdown` (items: {label, value}, total?), " +
       "`progress` (done, total, label), `table` (columns: 2-4 {title, subtitle?, image?}, rows: {label, cells[]} " +
       "with one cell per column), `verdict` (text, one per answer: your take under a comparison), " +
-      "`followups` (next: 1-4 short strings, next requests the user might send, in their voice; only after a finished task, last). " +
+      "`photos` (items: 1-8 {image, title?}: pictures that ARE the result, shown large in the reply; `image` is " +
+      "an https address or the path of an image file on this computer, e.g. a chart you made. What you looked at " +
+      "on the way is already in your steps: use photos for what you hand over), " +
+      "`followups` (ask?, next: 1-2 answers with ask, else 1-4 next requests in their voice; after a finished task, last). " +
       `Icons: ${WIDGET_ICONS.join(", ")}. Say in your text what the widget shows; do not repeat its contents. ` +
       "A board, dashboard, itinerary or plan the user asked for is not a widget: make it with artifact_create, kind `board`.",
-    permissions: [],
+    // fs:read only with a folder to read: a manifest with the permission and no
+    // folder is refused at registration, and the whole tool would be gone.
+    permissions: allowedPaths.length > 0 ? ["fs:read"] : [],
+    ...(allowedPaths.length > 0 ? { allowedPaths, fullAccessReach: true } : {}),
     networkAccess: false,
   };
 
@@ -209,8 +265,9 @@ export function createShowWidgetTool(): Tool {
       kind: { type: "string", description: `One of: ${WIDGET_KINDS.join(", ")}.`, required: true,
         schema: { type: "string", enum: [...WIDGET_KINDS] } },
       title: { type: "string", description: "Optional heading.", required: false },
-      items: { type: "array", description: "Rows for facts, checklist, cards, breakdown.", required: false, schema: OBJ_ITEMS },
-      next: { type: "array", description: "followups: 1-4 short next requests.", required: false,
+      items: { type: "array", description: "Rows for facts, checklist, cards, breakdown, photos.", required: false, schema: OBJ_ITEMS },
+      ask: { type: "string", description: `followups: the one question about the next step, under ${ASK_MAX} characters.`, required: false },
+      next: { type: "array", description: "followups: 1-2 answers to `ask` (recommendation first), or 1-4 next requests without it.", required: false,
         schema: { type: "array", items: { type: "string" } } },
       columns: { type: "array", description: "Table columns.", required: false, schema: OBJ_ITEMS },
       rows: { type: "array", description: "Table rows: {label, cells}.", required: false, schema: OBJ_ITEMS },
@@ -221,12 +278,34 @@ export function createShowWidgetTool(): Tool {
     },
     async execute(args, ctx): Promise<ToolResult> {
       const widget = validateWidget(args);
+      if (widget?.kind === "photos") {
+        const asked = (widget.items as Rec[]).length;
+        const kept = await keepPhotos(widget, ctx);
+        if (kept === 0) {
+          return {
+            ok: false,
+            error: "no_photos",
+            content: "show_widget: none of the photos could be shown. Each must be an https image address, or a " +
+              "png/jpg/gif/webp/avif file under 10 MB in a folder you may read.",
+          };
+        }
+        const missing = asked - kept;
+        return {
+          ok: true,
+          content: `Shown to the user: ${kept} photo${kept === 1 ? "" : "s"}.${missing > 0 ? ` ${missing} could not be shown (not an https image or a readable image file).` : ""}`,
+          data: widget,
+        };
+      }
       if (widget) {
         // `typeof`: a test double may pass a context without a fetch.
         const pictures = typeof ctx?.fetch === "function" && (widget.kind === "cards" || widget.kind === "table")
           ? await attachImages(widget, ctx.fetch)
           : 0;
         const note = pictures > 0 ? ` ${pictures} with a picture.` : "";
+        // Told to stop: after the card, Haiku wrote its answer a second time ("Gata, am afișat sugestiile…", 31 Oct).
+        if (widget.kind === "followups") {
+          return { ok: true, content: "Shown under your reply. Your reply is finished: end the turn now and write nothing more.", data: widget };
+        }
         return { ok: true, content: `Shown to the user as a ${widget.kind} widget.${note}`, data: widget };
       }
       const title = str(args.title) ?? undefined;

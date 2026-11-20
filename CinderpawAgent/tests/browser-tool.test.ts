@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { createBrowserTool, renderSnapshot } from "../src/tools/builtin/browser.ts";
+import { createBrowserTool, memoryNote, renderSnapshot, renderTabs } from "../src/tools/builtin/browser.ts";
 
 function setup(answer: (action: string, params: Record<string, unknown>) => unknown) {
   const calls: Array<{ action: string; params: Record<string, unknown> }> = [];
@@ -27,6 +27,26 @@ describe("browser tool", () => {
     const res = await t.tool.execute({ action: "open", url: "example.ro" }, t.ctx);
     expect(res.ok).toBe(true);
     expect(t.calls).toEqual([{ action: "browser.open", params: { url: "example.ro" } }]);
+  });
+
+  test("a file: link is refused with the artifact way, before the host is asked", async () => {
+    const t = setup(() => ({ ok: true }));
+    const res = await t.tool.execute({ action: "open", url: "file:///C:/Users/a/ceas/index.html" }, t.ctx);
+    expect(res.ok).toBe(false);
+    expect(res.content).toContain("artifact_preview");
+    expect(t.calls).toEqual([]);
+  });
+
+  test("screenshot brings the page's picture back as an image, not as text", async () => {
+    const picture = "data:image/jpeg;base64,/9j/AAAA";
+    const t = setup(() => ({ ok: true, url: "https://example.ro/", data_url: picture }));
+    const res = await t.tool.execute({ action: "screenshot" }, t.ctx);
+    expect(t.calls).toEqual([{ action: "browser.screenshot", params: {} }]);
+    expect(res.ok).toBe(true);
+    expect(res.images).toEqual([picture]);
+    expect(res.content).not.toContain("base64");
+    const empty = setup(() => ({ ok: true, url: "https://example.ro/" }));
+    expect((await empty.tool.execute({ action: "screenshot" }, empty.ctx)).ok).toBe(false);
   });
 
   test("click and type act on a control by its number", async () => {
@@ -326,6 +346,59 @@ describe("paying on any site waits for the person", () => {
     expect(t.calls).toEqual(["browser.snapshot"]);
   });
 
+  test("booking buttons in English, Romanian, German, French and Spanish are asked about, on any site", async () => {
+    for (const name of ["Schedule Event", "Book now", "Book", "Reserve a table", "Complete booking", "Confirm appointment",
+      "Programează", "Rezervă acum", "Termin buchen", "Réserver", "Agendar"]) {
+      const t = store(shop(name, "https://restaurant.example/table"));
+      await t.tool.execute({ action: "snapshot" }, t.ctx);
+      expect({ name, res: await t.tool.execute({ action: "click", ref: "2" }, t.ctx) }).toMatchObject({ name, res: { error: "booking_needs_approval" } });
+      expect(t.calls).toEqual(["browser.snapshot"]);
+    }
+  });
+
+  test("the person says yes: the booking goes through; no: it does not", async () => {
+    const yes = store(shop("Schedule Event", "https://calendly.com/ana/30min"), "Yes, book it");
+    await yes.tool.execute({ action: "snapshot" }, yes.ctx);
+    expect((await yes.tool.execute({ action: "click", ref: "2" }, yes.ctx)).ok).toBe(true);
+    expect(yes.asked[0]).toStartWith('true:Booking:Cinderpaw wants to press "Schedule Event" on calendly.com. This may book or schedule something in your name.');
+    const no = store(shop("Schedule Event", "https://calendly.com/ana/30min"), "No, don't book");
+    await no.tool.execute({ action: "snapshot" }, no.ctx);
+    expect(await no.tool.execute({ action: "click", ref: "2" }, no.ctx)).toMatchObject({ ok: false, error: "booking_declined" });
+    expect(no.calls).toEqual(["browser.snapshot"]);
+  });
+
+  test("a bare Confirm or a submitted form books on a scheduling site, not elsewhere; Books and Bookmarks never", async () => {
+    for (const url of ["https://cal.com/ana/15min", "https://app.savvycal.com/x"]) {
+      const t = store(shop("Confirm", url));
+      await t.tool.execute({ action: "snapshot" }, t.ctx);
+      expect({ url, res: await t.tool.execute({ action: "click", ref: "2" }, t.ctx) }).toMatchObject({ url, res: { error: "booking_needs_approval" } });
+      expect({ url, res: await t.tool.execute({ action: "type", ref: "1", text: "Ana", submit: true }, t.ctx) }).toMatchObject({ url, res: { error: "booking_needs_approval" } });
+    }
+    for (const name of ["Confirm", "Books", "Bookmark", "Facebook", "Notebook"]) {
+      const t = store(shop(name, "https://librarie.example/home"));
+      await t.tool.execute({ action: "snapshot" }, t.ctx);
+      expect({ name, ok: (await t.tool.execute({ action: "click", ref: "2" }, t.ctx)).ok }).toEqual({ name, ok: true });
+    }
+  });
+
+  // 1 Nov: Darius gave Cinderpaw ten job links to apply to.
+  test("sending a job application is asked about; a coupon's Apply is not", async () => {
+    for (const [name, url] of [["Submit application", "https://acme.example/about"], ["Trimite candidatura", "https://firma.ro/x"],
+      ["Easy Apply", "https://www.linkedin.example/feed"], ["Apply", "https://boards.greenhouse.io/acme/jobs/1"],
+      ["Submit", "https://acme.example/careers/42"], ["Aplică", "https://www.ejobs.ro/user/locuri-de-munca/1"]]) {
+      const t = store(shop(name!, url!));
+      await t.tool.execute({ action: "snapshot" }, t.ctx);
+      expect({ name, res: await t.tool.execute({ action: "click", ref: "2" }, t.ctx) }).toMatchObject({ name, res: { error: "application_needs_approval" } });
+    }
+    const coupon = store(shop("Apply", "https://florarie.example/cos"));
+    await coupon.tool.execute({ action: "snapshot" }, coupon.ctx);
+    expect((await coupon.tool.execute({ action: "click", ref: "2" }, coupon.ctx)).ok).toBe(true);
+    const yes = store(shop("Submit application", "https://jobs.lever.co/acme/1"), "Yes, send it");
+    await yes.tool.execute({ action: "snapshot" }, yes.ctx);
+    expect((await yes.tool.execute({ action: "click", ref: "2" }, yes.ctx)).ok).toBe(true);
+    expect(yes.asked[0]).toContain("Application:Cinderpaw wants to press \"Submit application\" on jobs.lever.co");
+  });
+
   test("on a checkout page an unread control, or a submitted form, is asked about too", async () => {
     const t = store(shop("Continue", "https://florarie.ro/checkout/payment"));
     await t.tool.execute({ action: "open", url: "https://florarie.ro/checkout/payment" }, t.ctx);
@@ -335,5 +408,71 @@ describe("paying on any site waits for the person", () => {
     expect((await t.tool.execute({ action: "type", ref: "1", text: "Str. Lalelelor 3" }, t.ctx)).ok).toBe(true);
     await t.tool.execute({ action: "snapshot" }, t.ctx);
     expect((await t.tool.execute({ action: "click", ref: "2" }, t.ctx)).ok).toBe(true); // "Continue", read: not a pay word
+  });
+});
+
+describe("browser tabs", () => {
+  // 1 Nov: ten job links ran one after another in what looked like one tab.
+  const STRIP = {
+    active: 3, working: 3,
+    tabs: [
+      { id: 1, title: "My video", url: "https://youtube.com/watch?v=x", agent: false },
+      { id: 2, title: "Job A", url: "https://jobs.example/a", agent: true },
+      { id: 3, title: "Job B", url: "https://jobs.example/b", agent: true },
+    ],
+  };
+
+  function withTabs(answer?: string) {
+    const calls: string[] = [];
+    const asked: string[] = [];
+    const ctx = {
+      sessionId: "s1",
+      askUser: answer === undefined ? undefined : {
+        ask: async (qs: Array<{ question: string }>) => { asked.push(qs[0]!.question); return [{ selected: [answer] }]; },
+      },
+      desktopControl: {
+        request: async (action: string, params: Record<string, unknown>) => {
+          calls.push(`${action}${params.id === undefined ? "" : ` ${params.id}`}`);
+          return STRIP;
+        },
+      },
+    } as never;
+    return { tool: createBrowserTool(), ctx, calls, asked };
+  }
+
+  test("tabs lists every tab with whose it is and where the agent works", async () => {
+    const t = withTabs();
+    const res = await t.tool.execute({ action: "tabs" }, t.ctx);
+    expect(res.content).toContain("[1] My video (https://youtube.com/watch?v=x): the user's");
+    expect(res.content).toContain("[3] Job B (https://jobs.example/b): yours, in front, you work here");
+  });
+
+  test("switch_tab and closing its own tab go straight to the host", async () => {
+    const t = withTabs();
+    expect((await t.tool.execute({ action: "switch_tab", id: 2 }, t.ctx)).ok).toBe(true);
+    expect((await t.tool.execute({ action: "close_tab", id: 2 }, t.ctx)).ok).toBe(true);
+    expect(t.calls).toEqual(["browser.switch_tab 2", "browser.tabs", "browser.close_tab 2"]);
+    expect((await t.tool.execute({ action: "switch_tab" }, t.ctx)).ok).toBe(false);
+  });
+
+  test("closing the user's tab asks first, and keeps it on a no", async () => {
+    const no = withTabs("No, keep it");
+    expect((await no.tool.execute({ action: "close_tab", id: 1 }, no.ctx)).ok).toBe(false);
+    expect(no.asked[0]).toContain('"My video"');
+    expect(no.calls).toEqual(["browser.tabs"]);
+    const yes = withTabs("Yes, close it");
+    expect((await yes.tool.execute({ action: "close_tab", id: 1 }, yes.ctx)).ok).toBe(true);
+    expect(yes.calls).toEqual(["browser.tabs", "browser.close_tab 1"]);
+  });
+});
+
+describe("browser memory", () => {
+  // 1 Nov: no cap on tabs; the agent sees memory and closes tabs itself.
+  test("the agent is told plainly when memory runs low, and quietly when it does not", () => {
+    expect(memoryNote({ freeMb: 1024, totalMb: 16384 }, false)).toContain("Memory is low: 1.0 GB free of 16.0 GB");
+    expect(memoryNote({ freeMb: 8192, totalMb: 16384 }, false)).toBe("");
+    expect(memoryNote({ freeMb: 8192, totalMb: 16384 }, true)).toBe("Memory: 8.0 GB free of 16.0 GB.");
+    expect(renderTabs({ tabs: [{ id: 2, title: "Job", url: "https://jobs.example", agent: true }], memory: { freeMb: 900, totalMb: 8192 } }))
+      .toContain("close the tabs you are done with");
   });
 });

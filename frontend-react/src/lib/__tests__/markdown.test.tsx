@@ -1,7 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import mermaid from 'mermaid';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Markdown } from '../markdown';
 import { chunkRun } from '../emberLetters';
+// jsdom cannot lay out SVG. Keep the real diagram component, but make its
+// renderer fail deterministically instead of leaving a cold Mermaid import
+// running after the fallback test and into the dialog/focus test below.
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: vi.fn(),
+    parse: vi.fn().mockResolvedValue(true),
+    render: vi.fn().mockRejectedValue(new Error('SVG layout is unavailable')),
+  },
+}));
 
 describe('Markdown math', () => {
   it('draws a $$ block as a formula, not as text', () => {
@@ -19,12 +30,34 @@ describe('Markdown math', () => {
   });
 });
 
+// One highlighter is shared by every block (it used to be rebuilt, all ~37
+// languages, per block per render): it must still colour each new block.
+describe('Markdown code highlighting', () => {
+  it('colours code in every block, not only the first one drawn', () => {
+    for (const code of ['```sql\nSELECT 1;\n```', '```python\ndef f():\n    return 1\n```']) {
+      const { container, unmount } = render(<Markdown>{code}</Markdown>);
+      expect(container.querySelector('[class^="hljs-"]')).not.toBeNull();
+      unmount();
+    }
+  });
+});
+
 describe('Markdown mermaid', () => {
-  it('keeps the source readable when the diagram cannot be drawn', () => {
-    // jsdom has no layout, so mermaid's render fails here exactly as it does in
-    // the app while a fence is still arriving: the user sees the source.
-    const { container } = render(<Markdown>{'```mermaid\ngraph TD; A-->B;\n```'}</Markdown>);
-    expect(container.textContent).toContain('graph TD; A-->B;');
+  it('keeps the source readable when the diagram cannot be drawn', async () => {
+    const root = document.documentElement;
+    const theme = root.getAttribute('data-theme');
+    root.setAttribute('data-theme', 'light');
+    try {
+      const { container } = render(<Markdown>{'```mermaid\ngraph TD; A-->B;\n```'}</Markdown>);
+      // Wait for drawing to fail: initial source text alone cannot prove that
+      // the fallback survives the renderer's asynchronous rejection.
+      await waitFor(() => expect(mermaid.render).toHaveBeenCalled());
+      expect(mermaid.initialize).toHaveBeenCalledWith(expect.objectContaining({ securityLevel: 'strict' }));
+      expect(container.textContent).toContain('graph TD; A-->B;');
+    } finally {
+      if (theme === null) root.removeAttribute('data-theme');
+      else root.setAttribute('data-theme', theme);
+    }
   });
 });
 
@@ -120,5 +153,5 @@ describe('Markdown expanded table', () => {
     fireEvent.keyDown(dialog, { key: 'Escape' });
     await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
     await waitFor(() => expect(document.activeElement).toBe(expand));
-  }, 15_000);
+  });
 });

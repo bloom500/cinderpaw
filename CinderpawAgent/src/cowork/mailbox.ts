@@ -36,6 +36,7 @@ export class CoworkMailboxRepo {
   readonly #inboxByStatus: ReturnType<Database["query"]>;
   readonly #outbox: ReturnType<Database["query"]>;
   readonly #updateStatus: ReturnType<Database["query"]>;
+  readonly #saveResult: ReturnType<Database["query"]>;
   readonly #get: ReturnType<Database["query"]>;
   readonly #lastInThread: ReturnType<Database["query"]>;
   readonly #byThread: ReturnType<Database["query"]>;
@@ -81,7 +82,7 @@ export class CoworkMailboxRepo {
     `);
     // Same deterministic tiebreak as the inbox queries.
     this.#lastInThread = db.query(`
-      SELECT payload_json FROM cowork_mailbox
+      SELECT * FROM cowork_mailbox
       WHERE thread_id = ?
       ORDER BY created_at DESC, rowid DESC
       LIMIT 1
@@ -103,6 +104,7 @@ export class CoworkMailboxRepo {
           END
       WHERE id = ?
     `);
+    this.#saveResult = db.query("UPDATE cowork_mailbox SET payload_json = json_set(CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END, '$.result', json(?)) WHERE id = ?");
     this.#get = db.query(`SELECT * FROM cowork_mailbox WHERE id = ?`);
   }
 
@@ -156,6 +158,10 @@ export class CoworkMailboxRepo {
     return (this.#outbox.all(fromAgentId) as MailboxRow[]).map(fromRow);
   }
 
+  saveTurnResult(id: string, result: object): void {
+    this.#saveResult.run(JSON.stringify(result), id);
+  }
+
   /** Move a message to a new status. Returns false if the id is unknown. */
   updateStatus(id: string, status: CoworkMessageStatus): boolean {
     const result = this.#updateStatus.run(status, status, Date.now(), id);
@@ -177,6 +183,11 @@ export class CoworkMailboxRepo {
    */
   byThread(threadId: string): CoworkMessage[] {
     return (this.#byThread.all(threadId) as MailboxRow[]).map(fromRow);
+  }
+
+  latestInThread(threadId: string): CoworkMessage | undefined {
+    const row = this.#lastInThread.get(threadId) as MailboxRow | null;
+    return row ? fromRow(row) : undefined;
   }
 
   /**

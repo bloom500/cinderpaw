@@ -649,6 +649,25 @@ describe("InferenceRouter.cloudReachable (slice 5)", () => {
     db.close();
   });
 
+  // 1 Nov: GPT 6.1 Sol on the plan opened every task with "Making room in this
+  // chat": the router called the plan's loopback gateway local.
+  test("ChatGPT plan primary (loopback gateway) → cloud, not local", () => {
+    const db = openDatabase(":memory:");
+    const audit = new AuditLog(db.raw);
+    const router = new InferenceRouter(
+      {
+        primary: { provider: "openai_compatible", model: "gpt-6.1-sol", baseUrl: "http://127.0.0.1:11435/chatgpt" },
+        trustedBaseUrls: ["http://127.0.0.1:11435/chatgpt"],
+        tokenBudget: BUDGET,
+      },
+      audit.logger,
+      db.raw,
+    );
+    expect(router.isPrimaryLocal).toBe(false);
+    expect(router.cloudReachable).toBe(true);
+    db.close();
+  });
+
   test("local primary, local fallback → cloud NOT reachable (both loopback)", () => {
     const db = openDatabase(":memory:");
     const audit = new AuditLog(db.raw);

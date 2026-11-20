@@ -14,12 +14,12 @@ import { cubbyVoiceUrl } from '@/voice/cubbyVoice';
 vi.mock('@/stores/systemInfo', () => ({ useSystemInfo: vi.fn() }));
 vi.mock('@/stores/download', () => ({ useDownload: vi.fn() }));
 vi.mock('@/stores/settings', () => ({ useSettings: vi.fn() }));
-vi.mock('@/stores/onboarding', () => ({ useOnboarding: vi.fn() }));
 vi.mock('@/stores/catalog', () => ({ useCatalog: vi.fn() }));
 vi.mock('@/voice/cubbyVoice', () => ({ cubbyVoiceUrl: vi.fn(() => null) }));
 
 const mockStart = vi.fn();
 const mockSave = vi.fn();
+const mockTest = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -31,12 +31,13 @@ beforeEach(() => {
     sel({ active: null, done: false, error: null, start: mockStart }),
   );
   vi.mocked(useSettings).mockImplementation((sel: any) =>
-    sel({ saveByokProvider: mockSave, testByokProvider: vi.fn() }),
+    sel({ saveByokProvider: mockSave, testByokProvider: mockTest }),
   );
   // After a save the wizard reads the refreshed provider list off the store
   // to learn which model Rust filled in.
   (useSettings as any).getState = () => ({ byok: [{ id: 'openai', name: 'OpenAI', default_model: 'gpt-4o' }] });
-  vi.mocked(useOnboarding).mockImplementation((sel: any) => sel({ finish: vi.fn() }));
+  // The real store: the open way lives there, and a click must stick.
+  useOnboarding.setState({ brainWay: null, brainVerified: false });
   // Phase 1 — CloudBranch now reads from the catalog store instead of
   // calling tauri.raw.providerCatalog() inline. Pretend the gateway was
   // reachable with one canned entry; the test then exercises both the
@@ -57,13 +58,15 @@ beforeEach(() => {
 const renderStep = () => render(<MemoryRouter><ProviderStep /></MemoryRouter>);
 
 describe('ProviderStep', () => {
-  it('offers Cloud, Hugging Face and Local, and recommends Cloud on a machine that cannot run 27B', () => {
+  it('leads with the free sign-in, and offers a key or this computer', () => {
     renderStep();
-    expect(screen.getByRole('button', { name: /^Online/ })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: /^Hugging Face/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^This computer/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Sign in with OpenRouter/ })).toHaveTextContent('Free');
+    // The ChatGPT plan sits beside it: no key to copy either (4 Nov).
+    expect(screen.getByRole('button', { name: /Continue with ChatGPT/ })).toHaveTextContent('No key, no extra bill');
+    expect(screen.getByRole('button', { name: /^I have a key/ })).toHaveAttribute('aria-pressed', 'false');
+    // A 12 GB card cannot run the ~27B the tools need: not called "strong enough".
+    expect(screen.getByRole('button', { name: /^This computer/ })).toHaveTextContent('Needs a strong computer');
     expect(cubbyVoiceUrl).toHaveBeenCalledWith('onboarding.provider');
-    expect(screen.getByText(/start with Online/)).toBeInTheDocument();
   });
 
   it('local download starts the recommended-tier model with the exact repo + file', async () => {
@@ -76,12 +79,14 @@ describe('ProviderStep', () => {
     );
   });
 
-  it('saving a curated provider calls saveByokProvider with its id (enabled)', async () => {
+  it('Connect tries the key, then saves the provider with its id (enabled)', async () => {
     mockSave.mockResolvedValue(undefined);
+    mockTest.mockResolvedValue({ ok: true });
     renderStep();
-    await userEvent.click(await screen.findByRole('button', { name: /OpenAI/ }));
+    await userEvent.click(screen.getByRole('button', { name: /^I have a key/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /^OpenAI/ }));
     await userEvent.type(screen.getByPlaceholderText('sk-...'), 'sk-test');
-    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^connect$/i }));
     expect(mockSave).toHaveBeenCalledWith(
       expect.objectContaining({ providerId: 'openai', enabled: true }),
     );
@@ -90,5 +95,18 @@ describe('ProviderStep', () => {
     // (Astra, 19 Sep 2026, P1).
     expect(useModel.getState().cloudModel).toEqual({ providerId: 'openai', providerName: 'OpenAI', modelId: 'gpt-4o' });
     expect(await screen.findByText(/gpt-4o will answer/)).toBeInTheDocument();
+  });
+
+  it('a key the provider refuses is not saved, and Save it anyway is offered', async () => {
+    mockSave.mockClear();
+    mockTest.mockResolvedValue({ ok: false, error: 'Invalid API key' });
+    renderStep();
+    await userEvent.click(screen.getByRole('button', { name: /^I have a key/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /^OpenAI/ }));
+    await userEvent.type(screen.getByPlaceholderText('sk-...'), 'sk-bad');
+    await userEvent.click(screen.getByRole('button', { name: /^connect$/i }));
+    expect(await screen.findByText(/OpenAI did not accept this key/)).toBeInTheDocument();
+    expect(mockSave).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /save it anyway/i })).toBeInTheDocument();
   });
 });

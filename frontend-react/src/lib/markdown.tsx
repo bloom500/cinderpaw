@@ -145,9 +145,16 @@ function rehypePlaceholder() {
   };
 }
 
+// rehype-highlight registers its ~37 languages anew every time a processor is
+// built, and react-markdown builds one per block per render: ~50 ms of
+// `registerLanguage` each time a chat opened (production build, 30 Oct). Built
+// once here; the transformer it returns keeps no state between runs.
+const highlightOnce = rehypeHighlight();
+const rehypeHighlightOnce = () => highlightOnce;
+
 // KaTeX before highlight, so a formula is a formula and not a code span.
-const REHYPE = [rehypePlaceholder, rehypeKatex, rehypeHighlight];
-const REHYPE_FADE = [rehypePlaceholder, rehypeKatex, rehypeHighlight, rehypeWordFade];
+const REHYPE = [rehypePlaceholder, rehypeKatex, rehypeHighlightOnce];
+const REHYPE_FADE = [rehypePlaceholder, rehypeKatex, rehypeHighlightOnce, rehypeWordFade];
 
 /**
  * One top-level block, parsed again only when its own text changes. The fade

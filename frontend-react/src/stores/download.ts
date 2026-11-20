@@ -17,6 +17,7 @@ interface ActiveDownload {
 interface DownloadStore {
   active: ActiveDownload | null;
   done: boolean;
+  completedFile: DownloadCompleteEvent | null;
   error: string | null;
 
   start:  (repoId: string, filename: string) => Promise<void>;
@@ -27,12 +28,13 @@ interface DownloadStore {
 export const useDownload = create<DownloadStore>((set, get) => ({
   active: null,
   done:   false,
+  completedFile: null,
   error:  null,
 
   start: async (repoId, filename) => {
     if (get().active !== null) throw new Error('A download is already in progress');
     const key = `${repoId}::${filename}`;
-    set({ active: { repoId, filename, progress: 0, key }, done: false, error: null });
+    set({ active: { repoId, filename, progress: 0, key }, done: false, completedFile: null, error: null });
     // Fire-and-forget — completion comes via module-level event listeners
     try {
       await tauri.download.start(repoId, filename);
@@ -50,7 +52,7 @@ export const useDownload = create<DownloadStore>((set, get) => ({
     } catch { /* ignore — already cleared */ }
   },
 
-  reset: () => set({ active: null, done: false, error: null }),
+  reset: () => set({ active: null, done: false, completedFile: null, error: null }),
 }));
 
 // ── Module-level listeners — always-on, outlive any component ────────────────
@@ -71,7 +73,7 @@ void listen<DownloadProgressEvent>('cinderpaw://download-progress', (e) => {
 void listen<DownloadCompleteEvent>('cinderpaw://download-complete', (e) => {
   const { active } = useDownload.getState();
   if (active?.key !== `${e.payload.repoId}::${e.payload.filename}`) return;
-  useDownload.setState({ active: null, done: true, error: null });
+  useDownload.setState({ active: null, done: true, completedFile: e.payload, error: null });
 });
 
 void listen<DownloadErrorEvent>('cinderpaw://download-error', (e) => {

@@ -25,6 +25,7 @@ import { nextRunAt } from "./schedule.ts";
 import { isBlockedHost } from "../egress/egress-proxy.ts";
 
 const HISTORY_CAP = 50;
+const PRICE_KEEP_MS = 31 * 86_400_000;
 
 /** Tolerate a corrupt done_when payload — an unparseable one becomes "unchecked". */
 function safeParse(json: string): unknown {
@@ -45,6 +46,7 @@ interface CronRow {
   task: string;
   schedule_json: string;
   delivery_json: string;
+  owner_agent_id: string | null;
   enabled: number;
   last_run_ms: number | null;
   next_run_ms: number | null;
@@ -69,13 +71,15 @@ export class CronJobsRepo {
     if (!(db.query("PRAGMA table_info(cron_jobs)").all() as {name:string}[]).some(c => c.name === "policy_json")) {
       db.exec("ALTER TABLE cron_jobs ADD COLUMN policy_json TEXT");
     }
+    db.exec("CREATE TABLE IF NOT EXISTS watch_prices (job_id TEXT NOT NULL, at INTEGER NOT NULL, amount REAL NOT NULL)");
+    db.exec("CREATE INDEX IF NOT EXISTS watch_prices_job ON watch_prices(job_id, at)");
     this.#insert = db.query(`
       INSERT INTO cron_jobs (
-        id, name, task, schedule_json, delivery_json,
+        id, name, task, schedule_json, delivery_json, owner_agent_id,
         enabled, last_run_ms, next_run_ms, history_json,
         done_when_json, max_retries, retry_count, created_at, updated_at, kind, policy_json
       ) VALUES (
-        $id, $name, $task, $scheduleJson, $deliveryJson,
+        $id, $name, $task, $scheduleJson, $deliveryJson, $ownerAgentId,
         $enabled, $lastRunMs, $nextRunMs, $historyJson,
         $doneWhenJson, $maxRetries, 0, $createdAt, $updatedAt, $kind, $policyJson
       )
@@ -84,6 +88,7 @@ export class CronJobsRepo {
         task = excluded.task,
         schedule_json = excluded.schedule_json,
         delivery_json = excluded.delivery_json,
+        owner_agent_id = excluded.owner_agent_id,
         enabled = excluded.enabled,
         -- Carried through the update too, or a reschedule would keep firing on
         -- the OLD schedule's timestamp. upsert() only puts a new value here
@@ -97,14 +102,14 @@ export class CronJobsRepo {
         policy_json = excluded.policy_json
     `);
     this.#list = db.query(`
-      SELECT id, name, task, schedule_json, delivery_json,
+      SELECT id, name, task, schedule_json, delivery_json, owner_agent_id,
              enabled, last_run_ms, next_run_ms, history_json,
              done_when_json, max_retries, retry_count, created_at, updated_at, kind, policy_json
       FROM cron_jobs
       ORDER BY created_at ASC
     `);
     this.#get = db.query(`
-      SELECT id, name, task, schedule_json, delivery_json,
+      SELECT id, name, task, schedule_json, delivery_json, owner_agent_id,
              enabled, last_run_ms, next_run_ms, history_json,
              done_when_json, max_retries, retry_count, created_at, updated_at, kind, policy_json
       FROM cron_jobs
@@ -155,11 +160,23 @@ export class CronJobsRepo {
    */
   upsert(input: CronJobInput): CronJob {
     const existing = input.id ? this.get(input.id) : undefined;
+    const ownerAgentId = input.ownerAgentId === undefined ? existing?.ownerAgentId ?? null : input.ownerAgentId;
+    if (ownerAgentId !== null) {
+      if (typeof ownerAgentId !== "string" || !this.#db.query("SELECT id FROM cowork_agents WHERE id = ?").get(ownerAgentId)) {
+        throw new Error("That teammate is gone. Pick another owner.");
+      }
+      if (input.delivery.kind !== "chat") throw new Error("A teammate's task needs a chat for its results.");
+    }
     const kind = input.kind ?? existing?.kind ?? "agent";
     if (kind !== "agent" && kind !== "reminder" && kind !== "watch") throw new Error("Unknown task kind");
     const watch = input.watch;
     if (kind === "watch") {
-      if (!watch || !watch.contains?.trim() || watch.contains.length > 500) throw new Error("A watch needs the exact text to verify on its source");
+      if (!watch) throw new Error("A watch needs the exact text to verify on its source");
+      if ("priceBelow" in watch) {
+        // Spec 4.10: a number from the page's structured data, never guessed from text.
+        if (!Number.isFinite(watch.priceBelow) || watch.priceBelow <= 0 || watch.priceBelow > 1e9) throw new Error("A price watch needs a limit above zero");
+        if (watch.currency !== undefined && !/^[A-Z]{3}$/.test(watch.currency)) throw new Error("A price watch currency is a three-letter code, like RON or EUR");
+      } else if (!watch.contains?.trim() || watch.contains.length > 500) throw new Error("A watch needs the exact text to verify on its source");
       const url = new URL(watch.sourceUrl);
       if (url.protocol !== "https:" || url.username || url.password || isBlockedHost(url.hostname)) throw new Error("A watch source must be public HTTPS without credentials");
       if (input.schedule.kind === "at") throw new Error("A watch needs a recurring check");
@@ -191,6 +208,7 @@ export class CronJobsRepo {
       $task: input.task,
       $scheduleJson: scheduleJson,
       $deliveryJson: deliveryJson,
+      $ownerAgentId: ownerAgentId,
       $enabled: (input.enabled ?? existing?.enabled ?? true) ? 1 : 0,
       $lastRunMs: existing?.lastRunMs ?? null,
       $nextRunMs: nextRunMs,
@@ -232,7 +250,27 @@ export class CronJobsRepo {
   /** Remove a job. Returns true if a row was deleted. */
   remove(id: string): boolean {
     const result = this.#delete.run(id);
+    this.#db.query("DELETE FROM watch_prices WHERE job_id = ?").run(id);
     return result.changes > 0;
+  }
+
+  /**
+   * One price read by a price watch (spec 4.13): a number and a time, nothing
+   * else, kept 31 days for the card's 7/30-day graph.
+   */
+  addPrice(id: string, at: number, amount: number): void {
+    this.#db.query("INSERT INTO watch_prices (job_id, at, amount) VALUES (?, ?, ?)").run(id, at, amount);
+    this.#db.query("DELETE FROM watch_prices WHERE at < ?").run(at - PRICE_KEEP_MS);
+  }
+
+  /**
+   * The jobs as people see them: `list()` plus each price watch's reads. Kept
+   * apart from `list()` because the scheduler compares jobs field by field.
+   */
+  forPeople(): CronJob[] {
+    const reads = this.#db.query("SELECT at, amount FROM watch_prices WHERE job_id = ? ORDER BY at ASC");
+    return this.list().map((j) =>
+      j.watch && "priceBelow" in j.watch ? { ...j, prices: reads.all(j.id) as { at: number; amount: number }[] } : j);
   }
 
   /**
@@ -302,6 +340,7 @@ function fromRow(r: CronRow): CronJob {
     task: r.task,
     schedule: JSON.parse(r.schedule_json) as Schedule,
     delivery: JSON.parse(r.delivery_json) as DeliveryTarget,
+    ownerAgentId: r.owner_agent_id,
     enabled: r.enabled === 1,
     lastRunMs: r.last_run_ms ?? undefined,
     nextRunMs: r.next_run_ms ?? undefined,

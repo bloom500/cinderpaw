@@ -1,59 +1,215 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
 import { OnboardingWizard } from '../OnboardingWizard';
 import { tauri } from '@/lib/tauri';
 import { useOnboarding } from '@/stores/onboarding';
 import { useModel } from '@/stores/model';
+import { useDownload } from '@/stores/download';
+import { useSettings } from '@/stores/settings';
+import type { DownloadCompleteEvent } from '@/lib/tauri/events';
 
-vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
+const downloadEvents = vi.hoisted(() => ({
+  complete: undefined as ((event: { payload: DownloadCompleteEvent }) => void) | undefined,
+}));
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: async (name: string, callback: typeof downloadEvents.complete) => {
+    if (name === 'cinderpaw://download-complete') downloadEvents.complete = callback;
+    return () => {};
+  },
+}));
+
+const OPENAI = { providerId: 'openai', providerName: 'OpenAI', modelId: 'gpt-4o' };
 
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.spyOn(tauri.mcp, 'list').mockResolvedValue([]);
   vi.spyOn(tauri.connectors, 'list').mockResolvedValue([]);
-  useOnboarding.setState({ active: true, step: 5 });
+  vi.spyOn(tauri.raw, 'setupDetect').mockResolvedValue([]);
+  vi.spyOn(tauri.system, 'countInstall').mockResolvedValue(undefined as never);
+  vi.spyOn(tauri.system, 'setUsageSharing').mockResolvedValue(undefined as never);
+  useModel.setState({ cloudModel: null, loaded: null });
+  useDownload.setState({ active: null, done: false, completedFile: null });
+  useSettings.setState({ byok: [] });
+  useOnboarding.setState({ active: true, step: 2, brainVerified: false, brainWay: null, firstTask: null, userName: '', agentName: 'Cinderpaw' });
 });
 
-const renderLast = () => render(<MemoryRouter><OnboardingWizard /></MemoryRouter>);
+const renderWizard = () => render(<MemoryRouter><OnboardingWizard /></MemoryRouter>);
 
-describe('the names board', () => {
-  it('waits for your name, and shows both names in the preview', async () => {
-    useOnboarding.setState({ step: 1, userName: '', agentName: 'Cinderpaw' });
-    renderLast();
-    expect(screen.getByRole('button', { name: /Continue/ })).toBeDisabled();
-    // The grey button says why, and the preview does not call the person "you".
-    expect(screen.getByText('Type your name to continue.')).toBeInTheDocument();
-    expect(screen.getByText(/Sure! What can I help you with/)).toBeInTheDocument();
-    useOnboarding.setState({ userName: 'Ana', agentName: 'Ember' });
-    expect(await screen.findByText(/Sure, Ana!/)).toBeInTheDocument();
-    expect(screen.getByText('Ember:')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Continue/ })).toBeEnabled();
+describe('the welcome card', () => {
+  it('keeps keyboard focus on setup and returns it to the film button after fullscreen', async () => {
+    const user = userEvent.setup();
+    useOnboarding.setState({ step: 0 });
+    render(<MemoryRouter><button>Behind setup</button><OnboardingWizard /></MemoryRouter>);
+    const welcome = screen.getByRole('dialog');
+    expect(welcome).toContainElement(document.activeElement as HTMLElement);
+    const full = within(welcome).getByRole('button', { name: /Full screen/ });
+    await user.click(full);
+    const film = screen.getByRole('dialog', { name: 'Your AI team, full screen' });
+    await user.tab();
+    expect(film).toContainElement(document.activeElement as HTMLElement);
+    await user.keyboard('{Escape}');
+    await vi.waitFor(() => expect(full).toHaveFocus());
+    screen.getByRole('button', { name: 'Skip onboarding' }).focus();
+    await user.tab();
+    expect(welcome).toContainElement(document.activeElement as HTMLElement);
+  });
+  it('plays the film without sound, and one button turns the music on', () => {
+    useOnboarding.setState({ step: 0 });
+    const { container } = renderWizard();
+    const video = container.querySelector('video')!;
+    // WebM first for Linux webviews, MP4 for the rest.
+    expect([...video.querySelectorAll('source')].map((s) => s.type)).toEqual(['video/webm', 'video/mp4']);
+    expect(video.muted).toBe(true);
+    // The path starts with the install already done, not at zero.
+    expect(screen.getByLabelText('Installed. Step 1 of 3')).toBeInTheDocument();
+    const sound = screen.getByRole('button', { name: /Sound on/ });
+    fireEvent.click(sound);
+    expect(video.muted).toBe(false);
+    expect(screen.getByRole('button', { name: /Sound off/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('opens over the whole screen, and Esc brings it back', () => {
+    useOnboarding.setState({ step: 0 });
+    renderWizard();
+    fireEvent.click(screen.getByRole('button', { name: /Full screen/ }));
+    const big = screen.getByRole('dialog', { name: 'Your AI team, full screen' });
+    expect(big.querySelector('video')).toHaveAttribute('controls');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Your AI team, full screen' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the film paused across fullscreen and Escape', () => {
+    useOnboarding.setState({ step: 0 });
+    renderWizard();
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+    fireEvent.click(screen.getByRole('button', { name: /Full screen/ }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  // His report, 31 Oct: pressing the player's full-screen button again did not get him out.
+  it("the player's own full-screen button brings it back too", () => {
+    useOnboarding.setState({ step: 0 });
+    renderWizard();
+    fireEvent.click(screen.getByRole('button', { name: /Full screen/ }));
+    const video = screen.getByRole('dialog', { name: 'Your AI team, full screen' }).querySelector('video');
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => video });
+    try {
+      fireEvent(document, new Event('fullscreenchange'));
+    } finally {
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => null });
+    }
+    expect(screen.queryByRole('dialog', { name: 'Your AI team, full screen' })).not.toBeInTheDocument();
   });
 });
 
-// The board ticks all three; a stranger who skipped the model step must not
-// be told a model is selected and then meet "no model" on the first message.
-describe('the last board', () => {
-  it('says what is still missing instead of ticking it', async () => {
-    useModel.setState({ cloudModel: null, loaded: null });
-    renderLast();
-    expect(await screen.findByText('Pick a model in Models')).toBeInTheDocument();
-    expect(screen.getByText('Connect apps in Settings')).toBeInTheDocument();
-    expect(screen.getByText('Workspace ready')).toBeInTheDocument();
-    // Alpha is said once, here, with where to report a problem.
-    expect(screen.getByText(/still in alpha/)).toHaveTextContent('Report a bug');
-    // Not "ready" with nothing to answer, and one click back to the model board.
-    expect(screen.queryByText(/ready to explore/)).not.toBeInTheDocument();
-    expect(screen.getByText('Pick a model so I can answer you.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Choose a model/ }));
+// A stranger must not click through to a chat that answers "no model", and a
+// Continue that does nothing must say why and leave a way on.
+describe('the brain card', () => {
+  it('holds Continue until something will answer, and says how to go on anyway', () => {
+    useOnboarding.setState({ step: 1 });
+    renderWizard();
+    expect(screen.getByRole('button', { name: /^Continue$/ })).toBeDisabled();
+    expect(screen.getByText(/Pick one way above so I can answer you/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'skip for now' }));
     expect(useOnboarding.getState().step).toBe(2);
   });
 
-  it('ticks the model once one will answer', async () => {
-    useModel.setState({ cloudModel: { providerId: 'openai', providerName: 'OpenAI', modelId: 'gpt-4o' } });
-    renderLast();
-    expect(await screen.findByText('Model selected')).toBeInTheDocument();
+  // 4 Nov tour: after "I have a key" the footer still said "Pick one way above".
+  it('after a pick, the footer names the next step', () => {
+    useOnboarding.setState({ step: 1 });
+    renderWizard();
+    fireEvent.click(screen.getByRole('button', { name: /^I have a key/ }));
+    expect(screen.queryByText(/Pick one way above/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Pick your provider above, then paste your key/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^This computer/ }));
+    expect(screen.getByText(/Download and start a local model above/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^This computer/ }));
+    expect(screen.getByText(/Pick one way above/)).toBeInTheDocument();
+  });
+
+  it('lets you on once a model will answer', () => {
+    useOnboarding.setState({ step: 1 });
+    useModel.setState({ cloudModel: OPENAI });
+    renderWizard();
+    expect(screen.getByRole('button', { name: /^Continue$/ })).toBeEnabled();
+    expect(screen.queryByText(/Pick one way above/)).not.toBeInTheDocument();
+  });
+
+  it('waits for the downloaded model to load and allows retry without downloading again', async () => {
+    useOnboarding.setState({ step: 1, brainWay: 'local' });
+    const file = { repoId: 'bartowski/Qwen_Qwen3.5-4B-GGUF', filename: 'Qwen_Qwen3.5-4B-Q4_K_M.gguf', path: 'C:/models/first.gguf' };
+    useDownload.setState({ active: { ...file, key: file.repoId + '::' + file.filename, progress: 0.2 } });
+    const model = { path: file.path, name: 'First model', ctx_len: 4096, n_ctx_train: 4096, backend: 'CPU', gpu_layers: 0, gpu_layers_total: 0 };
+    const load = vi.spyOn(tauri.models, 'startLoad').mockRejectedValueOnce(new Error('Out of memory')).mockResolvedValue(model);
+    renderWizard();
+    const next = screen.getByRole('button', { name: /^Continue$/ });
+    expect(next).toBeDisabled();
+    act(() => downloadEvents.complete!({ payload: { ...file, filename: 'another.gguf' } }));
+    expect(screen.queryByRole('button', { name: /Start local model/ })).not.toBeInTheDocument();
+    act(() => downloadEvents.complete!({ payload: file }));
+    expect(next).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /Start local model/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Out of memory');
+    expect(next).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /Start local model/ }));
+    expect(await screen.findByText(/is ready to answer/)).toBeInTheDocument();
+    expect(next).toBeEnabled();
+    expect(load).toHaveBeenCalledWith(file.path, undefined);
+  });
+});
+
+describe('the last card', () => {
+  it('says what is still missing instead of "ready", one click back to the brain card', () => {
+    renderWizard();
+    expect(screen.getByText('Pick a model so I can answer you.')).toBeInTheDocument();
+    expect(screen.queryByText(/What should/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /My parcel was due yesterday/ })).not.toBeInTheDocument();
+    // Alpha is said once, here, with where to report a problem.
+    expect(screen.getByText(/still in alpha/)).toHaveTextContent('Report a bug');
+    fireEvent.click(screen.getByRole('button', { name: /Choose a model/ }));
+    expect(useOnboarding.getState().step).toBe(1);
+  });
+
+  it('lets you start without a name', () => {
+    useModel.setState({ cloudModel: OPENAI });
+    renderWizard();
+    expect(screen.getByText('Pick a job, or ask me anything.')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Your name/)).toHaveValue('');
+    expect(screen.getByRole('button', { name: /Start exploring/ })).toBeEnabled();
+  });
+
+  it('offers a customer message to try before connecting a messaging account', () => {
+    useModel.setState({ cloudModel: OPENAI });
+    renderWizard();
+    fireEvent.click(screen.getByRole('button', { name: /Draft a short reply/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Start with this job/ }));
+    expect(useOnboarding.getState().firstTask).toContain('My parcel was due yesterday.');
+  });
+
+  it('a job is picked, not started: the wizard stays until Start, and a second press unpicks it', () => {
+    useModel.setState({ cloudModel: OPENAI });
+    renderWizard();
+    const card = screen.getByRole('button', { name: /coffee machines/ });
+    fireEvent.click(card);
+    expect(useOnboarding.getState().firstTask).toBe('Find the five best-reviewed coffee machines and put them in a table');
+    expect(useOnboarding.getState().active).toBe(true);
+    expect(card).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /Start with this job/ })).toBeEnabled();
+    fireEvent.click(card);
+    expect(useOnboarding.getState().firstTask).toBeNull();
+    expect(screen.getByRole('button', { name: /Start exploring/ })).toBeEnabled();
+  });
+
+  it('Start closes the wizard and the picked job waits in the chat box, unsent', () => {
+    useModel.setState({ cloudModel: OPENAI });
+    renderWizard();
+    fireEvent.click(screen.getByRole('button', { name: /take a stretch break/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Start with this job/ }));
+    expect(useOnboarding.getState().active).toBe(false);
+    expect(useOnboarding.getState().firstTask).toBe('Remind me in two minutes to take a stretch break');
   });
 });
 
@@ -62,7 +218,7 @@ describe('the last board', () => {
 describe('where did you hear about Cinderpaw', () => {
   it('shows buttons only while the count is ticked, and a click picks one', async () => {
     useOnboarding.setState({ countInstall: true, heardFrom: null });
-    renderLast();
+    renderWizard();
     const reddit = await screen.findByRole('button', { name: 'Reddit' });
     expect(reddit).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(reddit);
@@ -71,5 +227,12 @@ describe('where did you hear about Cinderpaw', () => {
     expect(useOnboarding.getState().heardFrom).toBeNull();
     fireEvent.click(screen.getByRole('checkbox', { name: /Count this install/ }));
     expect(screen.queryByRole('button', { name: 'Reddit' })).not.toBeInTheDocument();
+  });
+
+  // Smoke test 7 Nov: ticked and hidden under the pinned bar at the end of the board.
+  it('the install count sits in the pinned bar, beside the button that sends it', () => {
+    renderWizard();
+    const bar = screen.getByRole('button', { name: /Start exploring/ }).closest('nav')!;
+    expect(within(bar).getByRole('checkbox', { name: /Count this install/ })).toBeInTheDocument();
   });
 });

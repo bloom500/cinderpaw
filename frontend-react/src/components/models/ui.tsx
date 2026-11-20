@@ -82,7 +82,7 @@ export function Meter({ value, tone = 'brand', label }: { value: number; tone?: 
   const pct = Math.max(0, Math.min(1, value)) * 100;
   return (
     <div className="h-1.5 w-full overflow-hidden rounded-full bg-bg-elevated" role="meter" aria-label={label} aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
-      <div className={cn('h-full rounded-full transition-[width] duration-500', TONE[tone].dot)} style={{ width: `${pct}%` }} />
+      <div className={cn('h-full rounded-full transition-[width] duration-(--motion-slow)', TONE[tone].dot)} style={{ width: `${pct}%` }} />
     </div>
   );
 }

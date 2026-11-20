@@ -9,6 +9,9 @@ import { useModel } from '@/stores/model';
 import { useConversations } from '@/stores/conversations';
 import { useDeferredMemoryModel } from '@/hooks/useDeferredMemoryModel';
 import { useUiSounds } from '@/hooks/useUiSounds';
+import { useKeepAwake } from '@/hooks/useKeepAwake';
+import { useTidyAgentTabs } from '@/hooks/useTidyAgentTabs';
+import { useUI } from '@/stores/ui';
 
 /**
  * Top-of-window banner for the in-flight embedding download. Pinned across
@@ -42,7 +45,7 @@ function EmbeddingDownloadBanner({ state }: { state: ReturnType<typeof useEmbedd
         className="ml-1 h-1 w-16 overflow-hidden rounded-full bg-bg-elevated"
       >
         <span
-          className="block h-full bg-brand transition-[width] duration-150"
+          className="block h-full bg-brand transition-[width] duration-(--motion-fast)"
           style={{ width: `${pct}%` }}
         />
       </span>
@@ -52,6 +55,8 @@ function EmbeddingDownloadBanner({ state }: { state: ReturnType<typeof useEmbedd
 
 export default function App() {
   useUiSounds();
+  useKeepAwake();
+  useTidyAgentTabs();
   // Cold-start guard for the Fractal Memory Search embedding model. The hook
   // listens to cinderpaw://embedding-download-* channels and surfaces one of four
   // clear states (idle/present/downloading/failed) instead of the old
@@ -103,7 +108,10 @@ export default function App() {
     try {
       const raw = localStorage.getItem(KEY);
       const last = raw ? (JSON.parse(raw) as { id?: string; at?: number }) : null;
-      if (last?.id && last.at && Date.now() - last.at < RECENT_MS) {
+      // Settings > Appearance can make it always new or always the last one.
+      const startOn = useUI.getState().startOn;
+      const recent = !!last?.at && Date.now() - last.at < RECENT_MS;
+      if (last?.id && startOn !== 'new' && (startOn === 'last' || recent)) {
         const id = last.id;
         void useConversations.getState().refresh().then(() => {
           const s = useConversations.getState();

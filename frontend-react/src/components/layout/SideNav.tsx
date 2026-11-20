@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { panelMotionEnd, panelMotionStart } from '@/lib/panelMotion';
 import {
-  Plus, Search, Folder, Box, Settings, FileBox, Globe, CalendarClock,
-  PanelLeftOpen, Loader2, FolderPlus, Star,
-  ChevronDown, ChevronLeft, ChevronRight,
+  Folder,
+  Loader2, FolderPlus, Star,
+  ChevronDown, ChevronRight,
 } from 'lucide-react';
 import logoUrl from '@/assets/logo.svg';
 import {
@@ -21,10 +21,26 @@ import { useProjects } from '@/stores/projects';
 import { DreamingCard } from './DreamingCard';
 import { useArtifacts } from '@/stores/artifacts';
 import { useBrowser } from '@/stores/browser';
+import { useCoworkTeam } from '@/stores/coworkTeam';
+import { useCoworkTranscript } from '@/stores/coworkTranscript';
+import { useOnboarding } from '@/stores/onboarding';
+import { CoworkAvatar } from '@/components/chat/CoworkTranscriptPanel';
 import { cn } from '@/lib/utils';
 import { Kbd, MOD } from '@/components/ui/kbd';
 import { useMagnetic } from '@/hooks/useMagnetic';
 import { APP_NAME } from '@/lib/brand';
+import { BASE, FAST, MOTION, spring } from '@/lib/motion';
+import { SearchIcon } from '@/components/ui/animated-icons/search';
+import { ShapesIcon } from '@/components/ui/animated-icons/shapes';
+import { PlusIcon } from '@/components/ui/animated-icons/plus';
+import { PanelLeftOpenIcon } from '@/components/ui/animated-icons/panel-left-open';
+import { PanelLeftCloseIcon } from '@/components/ui/animated-icons/panel-left-close';
+import { useIconHover } from '@/components/ui/animated-icons/useIconHover';
+import { ActivityIcon } from '@/components/ui/animated-icons/activity';
+import { SunIcon } from '@/components/ui/animated-icons/sun';
+import { EarthIcon } from '@/components/ui/animated-icons/earth';
+import { BrainIcon } from '@/components/ui/animated-icons/brain';
+import { SettingsIcon } from '@/components/ui/animated-icons/settings';
 
 /**
  * Primary navigation. It answers exactly one question — where do I want to go —
@@ -40,8 +56,10 @@ import { APP_NAME } from '@/lib/brand';
 
 export const NAV_W = 256;
 
-/** Section headings in the library: STARRED, PROJECTS, TODAY, ... (canvas: 0.08em tracking; 12px, the scale's step nearest its 11.5). */
-const LABEL = 'px-3 pb-1.5 pt-3.5 text-2xs font-semibold uppercase tracking-[0.08em] text-text-disabled select-none';
+/** Section headings in the library: Starred, Projects, Today, ... Sentence case
+ *  since 28 Oct: in capitals with tracking (the canvas look) they were the loudest
+ *  words in the rail, louder than the chats they label (his Claude comparison). */
+const LABEL = 'px-3 pb-1.5 pt-4 text-xs font-medium text-text-muted select-none';
 /** Hover on the sidebar ground. `bg-hover` is the sidebar's own colour in light, so it would not show. */
 const ROW_HOVER = 'hover:bg-text-primary/5';
 /**
@@ -63,14 +81,19 @@ export const NAV_COLLAPSED_W = 0;
  * does not. Two doors to one room, where the near one is already open.
  */
 const NAV = [
-  { to: '/models',   icon: Box,           label: 'Models' },
-  { to: '/settings', icon: Settings,      label: 'Settings' },
+  { to: '/models',   icon: BrainIcon,    label: 'Models' },
+  { to: '/settings', icon: SettingsIcon, label: 'Settings' },
 ] as const;
+
+/** A lucide-animated icon (components/ui/animated-icons): it plays when told to. */
+type AnimatedIcon = React.ForwardRefExoticComponent<
+  { size?: number; className?: string } & React.RefAttributes<{ startAnimation: () => void; stopAnimation: () => void }>
+>;
 
 function Row({
   icon: Icon, label, collapsed, onClick, to, active, hint,
 }: {
-  icon: React.ComponentType<{ size?: number | string; strokeWidth?: number; className?: string }>;
+  icon: AnimatedIcon;
   label: string;
   collapsed: boolean;
   onClick?: () => void;
@@ -85,6 +108,11 @@ function Row({
   // Expanded these are labelled rows in a list, and a list whose rows move
   // under the cursor is a list that is harder to click.
   const magnet = useMagnetic<HTMLSpanElement>({ enabled: collapsed, radius: 72, pull: 5 });
+  // The whole row is the hover target, not just the 18px icon (14 Nov, Darius:
+  // playful hover moves from lucide-animated). Leaving eases back, never snaps.
+  const icon = useRef<{ startAnimation: () => void; stopAnimation: () => void }>(null);
+  const play = () => icon.current?.startAnimation();
+  const settle = () => icon.current?.stopAnimation();
 
   const inner = (
     <>
@@ -93,13 +121,13 @@ function Row({
         style={{ x: magnet.x, y: magnet.y }}
         className="flex shrink-0 items-center justify-center"
       >
-        <Icon size={16} strokeWidth={1.75} className="shrink-0 text-text-muted" />
+        <Icon ref={icon} size={18} className="flex shrink-0 text-text-muted" />
       </motion.span>
       <AnimatePresence initial={false}>
         {!collapsed && (
           <motion.span
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            transition={{ duration: 0.12 }}
+            transition={FAST}
             className="truncate"
           >
             {label}
@@ -110,20 +138,24 @@ function Row({
     </>
   );
   const classes = (isActive: boolean) => cn(
-    'w-full flex items-center gap-3 h-9 px-3 rounded-[10px] text-sm text-text-primary transition-colors cursor-pointer',
+    // 15px in the secondary tone, white only where you are: the same weight
+    // read heavy at 14.5px in full white next to Claude's lighter rail.
+    'w-full flex items-center gap-3 h-9 px-3 rounded-[10px] text-sm transition-colors cursor-pointer',
     collapsed && 'justify-center px-0',
-    isActive ? 'bg-bg-active' : ROW_HOVER,
+    isActive ? 'bg-bg-active text-text-primary' : cn(ROW_HOVER, 'text-text-secondary hover:text-text-primary'),
   );
 
   if (to) {
     return (
-      <NavLink to={to} title={collapsed ? label : undefined} className={({ isActive }) => classes(isActive)}>
+      <NavLink to={to} title={collapsed ? label : undefined} className={({ isActive }) => classes(isActive)}
+        onPointerEnter={play} onPointerLeave={settle} onFocus={play} onBlur={settle}>
         {inner}
       </NavLink>
     );
   }
   return (
-    <button type="button" onClick={onClick} title={collapsed ? label : undefined} className={classes(Boolean(active))}>
+    <button type="button" onClick={onClick} title={collapsed ? label : undefined} className={classes(Boolean(active))}
+      onPointerEnter={play} onPointerLeave={settle} onFocus={play} onBlur={settle}>
       {inner}
     </button>
   );
@@ -211,7 +243,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
             setDragOverProject(null);
           }}
           className={cn(
-            'group flex items-center rounded-[10px] pr-1 transition-opacity duration-150',
+            'group relative flex items-center rounded-[10px] transition-opacity duration-(--motion-fast)',
             c.id === currentId ? 'bg-bg-active' : ROW_HOVER,
             // While any chat is dragged, the other rows step back
             // so the target section reads as the destination.
@@ -224,9 +256,12 @@ function Library({ collapsed }: { collapsed: boolean }) {
             // Which chat you are in was said in background colour alone, so a
             // screen reader read a column of interchangeable titles.
             aria-current={c.id === currentId ? 'page' : undefined}
+            // The "..." button floats over the row's end and the title makes
+            // room only while it shows: an invisible button in the flow cut
+            // every title ~30px short of the edge.
             className={cn(
               rowBase,
-              'flex-1 min-w-0',
+              'flex-1 min-w-0 group-hover:pr-9 group-has-[:focus-visible]:pr-9 group-has-[[data-state=open]]:pr-9',
               c.id === currentId
                 ? 'text-text-primary'
                 : 'text-text-muted group-hover:text-text-secondary',
@@ -246,7 +281,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
             )}
             <span className="truncate">{c.title}</span>
           </button>
-          <ConversationActions conv={c} side="right" align="start" />
+          <ConversationActions conv={c} side="right" align="start" className="absolute right-1.5 top-1/2 -translate-y-1/2" />
         </div>
       ))}
     </div>
@@ -270,6 +305,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto scrollbar-hide pb-2">
+      <TeamContacts />
       {starred.length > 0 && (
         <section>
           <div className={LABEL}>Starred</div>
@@ -287,7 +323,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
               <div key={p.id}>
                 <div
                   className={cn(
-                    'group flex items-center rounded-[10px] pr-1 transition-all duration-150',
+                    'group flex items-center rounded-[10px] pr-1 transition-all duration-(--motion-fast)',
                     ROW_HOVER,
                     // While a chat is being dragged, every project row advertises
                     // itself as a target (dashed outline); the row under the cursor
@@ -383,11 +419,63 @@ function Library({ collapsed }: { collapsed: boolean }) {
   );
 }
 
+function TeamContacts() {
+  const roster = useCoworkTeam((s) => s.roster);
+  const mainName = useOnboarding((s) => s.agentName.trim() || APP_NAME);
+  const exchanges = useCoworkTranscript((s) => s.exchanges);
+
+  if (!roster.length) return null;
+  const rowClass = ({ isActive }: { isActive: boolean }) => cn(
+    'flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-text-primary',
+    isActive ? 'bg-bg-active' : 'hover:bg-bg-hover',
+  );
+
+  return (
+    <div role="group" aria-label="Team" className="mb-3 space-y-0.5">
+      <NavLink to="/chat" className={rowClass}>
+        <img src={logoUrl} alt="" className="size-7 shrink-0" />
+        <span className="truncate font-medium">{mainName}</span>
+      </NavLink>
+      {roster.map((teammate) => {
+        const latest = exchanges.reduce<{ text: string; at: number } | undefined>((last, exchange) => {
+          if (exchange.threadId !== `cowork:${teammate.id}` || exchange.kind === 'approval') return last;
+          const text = exchange.responseText || exchange.requestText;
+          const at = exchange.responseText ? exchange.responseAt ?? exchange.at : exchange.at;
+          return text && (!last || at >= last.at) ? { text, at } : last;
+        }, teammate.lastMessage);
+        const at = latest && new Date(latest.at);
+        return (
+          <NavLink key={teammate.id} to={`/teammates/${encodeURIComponent(teammate.id)}`} className={rowClass}>
+            <CoworkAvatar id={teammate.id} name={teammate.name} className="size-7" />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-baseline justify-between gap-1.5">
+                <span className="truncate font-medium">{teammate.name}</span>
+                {teammate.role.trim() && <span title={teammate.role} className="min-w-0 max-w-[65%] truncate text-right text-2xs text-text-muted">
+                  {teammate.role}
+                </span>}
+              </span>
+              {latest && <span className="flex items-baseline justify-between gap-1.5">
+                <span className="truncate text-xs text-text-muted">{latest.text}</span>
+                {at && <time dateTime={at.toISOString()} className="shrink-0 text-2xs text-text-muted">
+                  {at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                </time>}
+              </span>}
+            </span>
+          </NavLink>
+        );
+      })}
+    </div>
+  );
+}
+
 export function SideNav() {
   const navigate = useNavigate();
   const collapsed = useUI((s) => s.navCollapsed);
   const toggle = useUI((s) => s.toggleNav);
   const openSearch = useUI((s) => s.openSearch);
+  const expandIcon = useIconHover();
+  const collapseIcon = useIconHover();
+  const newChatIcon = useIconHover();
   const { pathname } = useLocation();
   const browserOpen = useBrowser((s) => s.panelOpen);
   // Same shape as Artifacts: it lives beside the chat, so from elsewhere the
@@ -424,12 +512,13 @@ export function SideNav() {
             onClick={toggle}
             aria-label="Expand navigation"
             title="Expand navigation"
+            {...expandIcon.hover}
             initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1, transition: { delay: 0.16, duration: 0.12 } }}
-            exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.08 } }}
+            animate={{ opacity: 1, scale: 1, transition: { ...FAST, delay: MOTION.base } }}
+            exit={{ opacity: 0, scale: 0.9, transition: spring(MOTION.fast / 2) }}
             className="fixed left-3 top-3 z-30 h-9 w-9 grid place-items-center rounded-lg border border-border-subtle bg-bg-elevated/80 backdrop-blur-sm text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors cursor-pointer shadow-md"
           >
-            <PanelLeftOpen size={20} />
+            <PanelLeftOpenIcon ref={expandIcon.ref} size={20} className="flex" />
           </motion.button>
         )}
       </AnimatePresence>
@@ -447,7 +536,7 @@ export function SideNav() {
             style={{ width: NAV_W }}
             initial={false}
             animate={collapsed ? { x: -(NAV_W + 12), opacity: 0 } : { x: 0, opacity: 1 }}
-            transition={{ duration: 0.2, ease: 'easeOut' }}
+            transition={BASE}
             onAnimationStart={panelMotionStart}
             onAnimationComplete={panelMotionEnd}
             // Off screen is not gone for a keyboard or a screen reader; inert is.
@@ -479,9 +568,10 @@ export function SideNav() {
             onClick={toggle}
             aria-label="Collapse navigation"
             title="Collapse navigation"
+            {...collapseIcon.hover}
             className={cn('grid size-[30px] shrink-0 place-items-center rounded-lg border border-border-default text-text-muted hover:text-text-primary transition-colors cursor-pointer', ROW_HOVER)}
           >
-            <ChevronLeft size={16} strokeWidth={1.75} />
+            <PanelLeftCloseIcon ref={collapseIcon.ref} size={16} className="flex" />
           </button>
         </div>
 
@@ -493,9 +583,10 @@ export function SideNav() {
             type="button"
             onClick={newChat}
             className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2.5 pl-3 pr-1 text-left text-sm font-semibold"
+            {...newChatIcon.hover}
           >
             <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded-full bg-brand text-brand-foreground">
-              <Plus size={12} strokeWidth={2.5} />
+              <PlusIcon ref={newChatIcon.ref} size={12} className="flex [&_svg]:stroke-[2.5]" />
             </span>
             <span className="flex-1 truncate">New chat</span>
             <Kbd keys={[MOD, 'N']} />
@@ -521,15 +612,18 @@ export function SideNav() {
         </div>
 
         <div className="mt-2 space-y-0.5 shrink-0">
-          <Row icon={Search} label="Search" collapsed={false} onClick={() => openSearch()} hint={<Kbd keys={[MOD, 'K']} />} />
+          <Row icon={SearchIcon} label="Search" collapsed={false} onClick={() => openSearch()} hint={<Kbd keys={[MOD, 'K']} />} />
           {/* The artifacts' entrance. It sat in the chat header first, right
               under the window's maximize button, where a miss resizes the window.
               Named Artifacts, not Workspace: the agent's scratch folder is already
               called workspace, and one word for two places confused the agent.
               It opens the gallery page; a card there opens the side panel. */}
-          <Row icon={FileBox} label="Artifacts" collapsed={false} to="/artifacts" />
-          <Row icon={CalendarClock} label="Tasks" collapsed={false} to="/tasks" />
-          <Row icon={Globe} label="Browser" collapsed={false} onClick={openBrowser} active={pathname === '/chat' && browserOpen} />
+          {/* What needs you, what is planned, what was done (proactivity slice 3).
+              Not "Today": the chat list below already has a "Today" heading. */}
+          <Row icon={SunIcon} label="My day" collapsed={false} to="/today" />
+          <Row icon={ShapesIcon} label="Artifacts" collapsed={false} to="/artifacts" />
+          <Row icon={ActivityIcon} label="Tasks" collapsed={false} to="/tasks" />
+          <Row icon={EarthIcon} label="Browser" collapsed={false} onClick={openBrowser} active={pathname === '/chat' && browserOpen} />
           {NAV.map((n) => (
             <Row key={n.to} icon={n.icon} label={n.label} collapsed={false} to={n.to} />
           ))}

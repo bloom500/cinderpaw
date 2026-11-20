@@ -4,8 +4,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { invoke } from '@tauri-apps/api/core';
 import type { CallPhase } from '@/hooks/useCallSession';
-import { useAskUser, type AskUserQuestion } from '@/stores/askUser';
-import { useChat } from '@/stores/chat';
+import { askUserFor, type AskUserQuestion } from '@/stores/askUser';
+import { useChatView as useChat } from '@/stores/chatScope';
 import { useLiveToolActivity, type ToolKind } from '@/hooks/useLiveToolActivity';
 
 /**
@@ -147,8 +147,9 @@ export function useCallPill(call: {
 }) {
   // The browser app and the tests have no host window: nothing to park, nothing to open.
   const active = onCall(call.phase) && '__TAURI_INTERNALS__' in window;
-  const pendingAsk = useAskUser((s) => s.pending);
   const sessionId = useChat((s) => s.sessionId);
+  const questions = askUserFor(sessionId);
+  const pendingAsk = questions((s) => s.pending?.sessionId === sessionId ? s.pending : null);
   const running = useLiveToolActivity(active, sessionId).filter((a) => a.status === 'running');
   const now = running.length ? running.reduce((a, b) => (b.startedAt > a.startedAt ? b : a)) : null;
   const state: CallPillState = {
@@ -275,9 +276,9 @@ export function useCallPill(call: {
       // land (up to a second), and a person who pressed Open is waiting too.
       listen('call-pill://open', () => { void (async () => { await showMain(); await closePill('open pressed'); })(); }),
       listen<{ id: string; selected: string[] }>('call-pill://answer', (e) => {
-        const p = useAskUser.getState().pending;
+        const p = questions.getState().pending;
         if (!p || p.id !== e.payload.id) return;
-        useAskUser.getState().submit([{ question: p.questions[0].question, selected: e.payload.selected }]);
+        questions.getState().submit([{ question: p.questions[0].question, selected: e.payload.selected }]);
       }),
     ];
     return () => { subs.forEach((s) => { void s.then((off) => off()); }); };

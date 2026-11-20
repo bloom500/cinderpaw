@@ -36,10 +36,10 @@ function warmTheme(dark: boolean): Record<string, string> {
     return /^#[0-9a-f]{6}$/i.test(v) ? v : fallback;
   };
   // The surface tokens are translucent glass, so the paper colour is fixed per theme.
-  const paper = dark ? '#36302B' : '#FBF7F1';
-  const brand = token('--brand', '#B15129');
-  const text = token('--text-primary', dark ? '#F6EFE6' : '#2F2A26');
-  const muted = token('--text-muted', dark ? '#CDBFB2' : '#6F5747');
+  const paper = dark ? '#271D17' : '#FBF7F1';
+  const brand = token('--brand', '#D2410F');
+  const text = token('--text-primary', dark ? '#F5EBDD' : '#1E1813');
+  const muted = token('--text-muted', dark ? '#CFBFAB' : '#6B5D50');
   return {
     background: paper,
     primaryColor: mix(brand, paper, 0.12),

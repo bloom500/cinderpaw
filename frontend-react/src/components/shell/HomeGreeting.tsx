@@ -63,11 +63,16 @@ export function HomeGreeting() {
     // Spec 5 (27 Sep): the greeting is the big line, in Young Serif, with the
     // person's name when onboarding has one ("Good evening, Darius"; no name,
     // no comma), and the day's question sits under it, quiet.
-    <div className="mb-28 flex flex-col items-center px-6 text-center select-none">
-      <h1 className="font-display text-3xl font-normal text-text-primary sm:text-display">
+    // A short window (the 600 px minimum, a small laptop) cannot hold the big
+    // line, the quiet line, the composer and the "needs a model" card at once:
+    // the block is pinned to the bottom when it does not fit, so the greeting
+    // was the part pushed off the top (13 Nov, measured 696 px in a 538 px
+    // space). There the greeting is one smaller line and the quiet line goes.
+    <div className="mb-28 flex flex-col items-center px-6 text-center select-none [@media(max-height:700px)]:mb-24">
+      <h1 className="font-display text-3xl font-normal text-text-primary sm:text-display [@media(max-height:700px)]:sm:text-3xl">
         {hello}
       </h1>
-      <p className="mt-3 text-lg text-text-muted">{line}</p>
+      <p className="mt-3 text-lg text-text-muted [@media(max-height:700px)]:hidden">{line}</p>
     </div>
   );
 }

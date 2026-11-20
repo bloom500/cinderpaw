@@ -71,6 +71,20 @@ fn pick_second_provider(
     if !enabled {
         return None;
     }
+    provider_targets(primary, providers, catalog, key_of).into_iter().next()
+}
+
+/// Every provider the person can answer from besides `primary`, one target
+/// each (its default model), in a stable order: the same rules as the
+/// fallback above. Automatic (the model menu's "Let Cinderpaw choose") hands
+/// all of them to the brain, which picks one per message.
+fn provider_targets(
+    primary: &str,
+    providers: &std::collections::HashMap<String, cinderpaw_core::byok::ProviderConfig>,
+    catalog: &[cinderpaw_core::byok::ProviderCatalogEntry],
+    key_of: &dyn Fn(&str) -> Option<String>,
+) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
     let mut candidates: Vec<_> = providers
         .iter()
         .filter(|(id, cfg)| id.as_str() != primary && cfg.enabled)
@@ -101,14 +115,36 @@ fn pick_second_provider(
         else {
             continue;
         };
-        return Some(serde_json::json!({
+        out.push(serde_json::json!({
             "provider": id,
             "model": model,
-            "baseUrl": base_url,
+            // Same form as the primary's: the engine appends its own paths.
+            "baseUrl": base_url.trim_end_matches('/').trim_end_matches("/v1").trim_end_matches('/'),
             "apiKey": key,
         }));
     }
-    None
+    out
+}
+
+/// Automatic's list: the providers above plus the ChatGPT plan when signed in
+/// (it has no key, it goes through this host's API with the local token).
+fn automatic_candidates(primary: &str, api_port: u16, local_token: &str) -> Vec<serde_json::Value> {
+    let settings = cinderpaw_core::settings::load();
+    let byok = cinderpaw_core::byok::load(&settings);
+    let catalog = cinderpaw_core::byok::provider_catalog();
+    let mut out = provider_targets(primary, &byok.providers, &catalog, &|id| cinderpaw_core::byok::byok_get(id));
+    let plan = cinderpaw_core::chatgpt_signin::PROVIDER_ID;
+    if primary != plan && cinderpaw_core::chatgpt_signin::account().is_some() {
+        if let Some(model) = byok.providers.get(plan).filter(|c| c.enabled).and_then(|c| c.default_model.clone()) {
+            out.insert(0, serde_json::json!({
+                "provider": plan,
+                "model": model,
+                "baseUrl": cinderpaw_core::chatgpt_signin::engine_base_url(api_port).trim_end_matches("/v1").trim_end_matches('/'),
+                "apiKey": local_token,
+            }));
+        }
+    }
+    out
 }
 
 #[tauri::command]
@@ -559,11 +595,26 @@ pub(crate) async fn cinderpaw_set_model(
     provider_id: Option<String>,
     model: String,
     base_url: Option<String>,
+    // Automatic: the brain may answer from any of the person's models, with
+    // this one as where it starts. None/false: this model only.
+    automatic: Option<bool>,
 ) -> Result<(), String> {
     let (provider, mut resolved_url, api_key) = match source.as_str() {
         "ollama" => {
             let url = base_url.unwrap_or_else(|| "http://localhost:11434".to_string());
             ("ollama".to_string(), url, String::new())
+        }
+        // A ChatGPT plan: no key, a sign-in; the engine goes through this
+        // host's API, which holds the token (chatgpt_gateway).
+        "byok" if provider_id.as_deref() == Some(cinderpaw_core::chatgpt_signin::PROVIDER_ID) => {
+            if cinderpaw_core::chatgpt_signin::account().is_none() {
+                return Err("Sign in with ChatGPT first, in Models > Cloud.".into());
+            }
+            (
+                cinderpaw_core::chatgpt_signin::PROVIDER_ID.to_string(),
+                cinderpaw_core::chatgpt_signin::engine_base_url(state.runtime.effective_api_port()),
+                state.local_api_token.to_string(),
+            )
         }
         "byok" => {
             let pid = provider_id.as_deref().ok_or("byok source requires provider_id")?;
@@ -614,7 +665,9 @@ pub(crate) async fn cinderpaw_set_model(
     // so its transcript-compaction budget matches the KV cache the engine
     // actually allocated (Hardware can raise this well past the old 8192). Cloud
     // models omit it — the sidecar uses its generous cloud budget.
-    let is_local = is_local_api_url(&resolved_url, state.settings.api_port);
+    // The ChatGPT route is on loopback too, but it answers from the cloud.
+    let is_local = is_local_api_url(&resolved_url, state.settings.api_port)
+        && provider != cinderpaw_core::chatgpt_signin::PROVIDER_ID;
     let context_window = if is_local {
         state.manager.current().map(|m| m.ctx_len)
     } else {
@@ -656,8 +709,16 @@ pub(crate) async fn cinderpaw_set_model(
         "contextWindow": context_window,
         "localFallbackAvailable": local_fallback_available,
         "fallback": cloud_fallback,
-    })
-    .to_string();
+    });
+    let mut msg = msg;
+    if automatic == Some(true) {
+        msg["candidates"] = serde_json::Value::Array(automatic_candidates(
+            &provider,
+            state.runtime.effective_api_port(),
+            &state.local_api_token,
+        ));
+    }
+    let msg = msg.to_string();
 
     let tx = {
         let guard = state.cinderpaw_agent_tx.lock();
@@ -706,6 +767,12 @@ pub(crate) fn cinderpaw_get_model_config(state: State<'_, AppState>) -> Option<C
     // Nothing picked this session: the model the engine booted on. Returning
     // None here made the picker say "Automatic" after every restart (24 Oct).
     let model = state.runtime.active_agent_model.lock().clone()?;
+    // "cinderpaw-local" is the engine's placeholder for "no model on disk"; named
+    // as a model, the composer read as if one were chosen. None lets it say
+    // "Add a model" instead.
+    if model == "cinderpaw-local" {
+        return None;
+    }
     let (provider, base_url) = state.runtime.active_agent_route.lock().clone()?;
     Some(CinderpawModelConfigView {
         display_name: format!("{} · {}", provider, model),

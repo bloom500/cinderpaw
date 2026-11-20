@@ -206,6 +206,8 @@ describe('the promise on the start page', () => {
     expect(screen.getByText(/Cinderpaw can use this browser too/)).toBeInTheDocument();
     act(() => useBrowser.setState({ agent: { op: 'click', ref: '12', busy: true } }));
     expect(screen.getByRole('status')).toHaveTextContent('Cinderpaw clicked control 12…');
+    // 1 Nov: it floated over the address bar. Now a row at the bottom, in the flow.
+    expect(screen.getByRole('status').className).not.toMatch(/absolute/);
   });
   it('Stop on the agent bar ends the run driving the page; a paused agent has none', () => {
     const stop = vi.spyOn(tauri.cinderpawAgent, 'stop').mockResolvedValue(undefined);

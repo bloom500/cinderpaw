@@ -250,6 +250,7 @@ export interface DesktopControlBridge {
     action: string,
     params: Record<string, unknown>,
     sessionId?: string,
+    timeoutMs?: number,
   ): Promise<unknown>;
 }
 
@@ -714,6 +715,8 @@ export interface InferenceRequest {
    * `provider: { only, allow_fallbacks }`; ignored by gateways without it.
    */
   providerOnly?: string[];
+  /** Provider-side rates, in USD per million tokens, for capped OpenRouter chat calls. */
+  openRouterPriceCeiling?: { prompt: number; completion: number };
   temperature?: number;
   /**
    * Optional abort signal. When aborted, the in-flight fetch / streaming
@@ -1186,23 +1189,27 @@ export type Schedule =
  * lands in P0-1 once subagent delegation is wired.
  */
 export type DeliveryTarget =
-  | { kind: "chat"; sessionId: string }
+  /** `phone`: the person asked for it on their phone (suggest_task's to_phone, or accepted there). */
+  | { kind: "chat"; sessionId: string; phone?: boolean }
   | { kind: "webhook"; url: string }
   | { kind: "tool"; toolName: string; args: Record<string, unknown> };
 
 /** One row in a job's run history. Capped to the most recent 50 entries. */
 import type { DoneWhen } from "./cron/done-when.ts";
 
-export interface WatchCondition {
-  sourceUrl: string;
-  contains: string;
-  /** User-selected source preference, never inferred authority. */
-  official?: boolean;
-}
+/**
+ * Exact visible text on a page, or (spec 4.10) a price read from the page's
+ * structured data that must drop below a limit. `official` is the person's
+ * own source preference, never inferred authority.
+ */
+export type WatchCondition =
+  | { sourceUrl: string; contains: string; official?: boolean }
+  | { sourceUrl: string; priceBelow: number; currency?: string; official?: boolean };
 
 export interface CronRunRecord {
   costUsd?: number;
-  proof?: { sourceUrl: string; checkedAt: number; excerpt: string; contentHash: string };
+  /** `price`: the price read on a price watch's hit. */
+  proof?: { sourceUrl: string; checkedAt: number; excerpt: string; contentHash: string; price?: number };
   runAt: number;
   /**
    * `incomplete` = the agent ran but stopped with work outstanding (the turn
@@ -1223,6 +1230,7 @@ export interface CronJob {
   task: string;
   schedule: Schedule;
   delivery: DeliveryTarget;
+  ownerAgentId?: string | null;
   enabled: boolean;
   lastRunMs?: number;
   nextRunMs?: number;
@@ -1243,6 +1251,8 @@ export interface CronJob {
   expiresAt?: number;
   budgetUsd?: number;
   spentUsd?: number;
+  /** A price watch's reads, last 31 days, oldest first (`CronJobsRepo.forPeople`); absent elsewhere. */
+  prices?: Array<{ at: number; amount: number }>;
   createdAt: number;
   updatedAt: number;
 }
@@ -1255,6 +1265,8 @@ export interface CronJobInput {
   task: string;
   schedule: Schedule;
   delivery: DeliveryTarget;
+  /** Omitted keeps the existing owner. Null assigns it to the main agent. */
+  ownerAgentId?: string | null;
   enabled?: boolean;
   doneWhen?: DoneWhen | null;
   maxRetries?: number;
@@ -1304,7 +1316,7 @@ export interface InboundMessage {
   // the user has already been heard and answered; `message` would make the
   // agent reply to a question that is already answered, which is why this is a
   // type of its own rather than a flag on that one.
-  type: "message" | "record_turn" | "ping" | "shutdown" | "set_model" | "stop"
+  type: "message" | "record_turn" | "ping" | "shutdown" | "set_model" | "stop" | "steer"
     | "ask_user_response" | "ask_user_cancel"
     // The person's answer to a heads_up card (tools/builtin/heads-up.ts).
     | "heads_up_answer"
@@ -1313,6 +1325,10 @@ export interface InboundMessage {
     // `error` on failure; see core/host-tool-bridge.ts.
     | "tool_response"
     | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list"
+    // The unfinished-work card was opened or dismissed (`sourceId`, `outcome`).
+    | "nudge_reaction" | "learned_undo" | "numbers_send" | "page_remove" | "page_answer"
+    // The window was focused; and its "Follow-up suggestions" choice (`enabled`).
+    | "presence" | "followups_setting" | "welcome"
     | "desktop_control_response" | "capability_response" | "admin_response" | "connectors_reload"
     // PROVISIONAL — temporary Settings button to run the Fractal Memory Search
     // benchmark gate on demand. Remove with the button after the ship/hold call.
@@ -1381,6 +1397,7 @@ export interface InboundMessage {
     // teammates, "remove" deletes the one named by `toAgentId` first. Both
     // reply with one `cowork_team_result`.
     | "cowork_team_op"
+    | "chat_spend"
     // Faza 6 (L6) Meta Evolution — the host queries/drives the MetaGenome
     // engine; the sidecar replies with one `meta_result` paired by `id`.
     | "meta_status" | "meta_evolve" | "meta_rollback" | "meta_history"
@@ -1517,6 +1534,9 @@ export interface InboundMessage {
   /** Cowork approval payload (type === "cowork_approval_resolve"); the
    *  request id rides the plain `id` field. */
   approvalAction?: "approve" | "reject";
+  /** Chat model spending limit. A null amount removes it. */
+  chatSpendAction?: "get" | "set";
+  chatSpendLimitUsd?: number | null;
   /** Roster payload (type === "cowork_team_op"); "remove" names `toAgentId`. */
   teamAction?: "list" | "remove";
   /** LoRA gate payloads. `loraAction` rides "rsi_lora_review_resolve" (the
@@ -1551,7 +1571,13 @@ export interface InboundMessage {
    * this session only — the summarizer and memory extractor keep their own
    * fixed params. Values are validated and clamped by the agent loop.
    */
-  inferParams?: { temperature?: number; max_tokens?: number };
+  /** Desktop mailbox turn being retried or edited in this teammate's direct conversation. */
+  replaceFrom?: string;
+  stopRequestId?: string;
+  voice?: { audioPath: string; durationMs: number; transcript: string; peaks: number[] };
+  inferParams?: { temperature?: number; max_tokens?: number; effort?: string };
+  /** Dev-only: answer with the model alone, no Cinderpaw (core/bare-turn.ts). */
+  bare?: boolean;
   /**
    * Roster of currently-installed LOCAL skills, rebuilt by Rust on every send.
    * The agent loop renders this as a short "Available skills" menu inside the
@@ -1589,6 +1615,9 @@ export interface InboundMessage {
    *  Rust API lazily re-load the multi-GB model the unload just released.
    *  Absent = unknown; the sidecar keeps its boot-time behaviour. */
   localFallbackAvailable?: boolean;
+  /** set_model, Automatic: the person's other models (provider, model, baseUrl,
+   *  apiKey each), which the brain may route a turn to. Absent = one model. */
+  candidates?: Array<{ provider?: unknown; model?: unknown; baseUrl?: unknown; apiKey?: unknown }>;
   /** heads_up_answer: the card answered (its `data.headsUp.id`) and how. */
   headsUpId?: string;
   headsUpChoice?: "more" | "knew" | "dismiss";
@@ -1596,6 +1625,13 @@ export interface InboundMessage {
   /** Matches the id of the original "ask_user" outbound event. */
   /** Explicit desktop task subscriber requesting unfinished-work suggestions. */
   followUps?: boolean;
+  /** nudge_reaction: the card's source (a run id) and what the person did. */
+  sourceId?: string;
+  outcome?: "opened" | "dismissed";
+  /** followups_setting: the window's "Follow-up suggestions" switch. */
+  enabled?: boolean;
+  /** cron_list: send a test notice to the owner's phone and say where it went. */
+  testNotify?: boolean;
   /** cron_list: set the weekly task limit first (number, or null = none). */
   taskLimit?: { weeklyUsd: number | null };
   requestId?: string;
@@ -1660,6 +1696,8 @@ export interface AskUserQuestion {
    * because each covers the other's blind spot.
    */
   forceEscalate?: boolean;
+  /** Only the listed choices count as answers. */
+  fixedOptions?: boolean;
   /**
    * Text the person must be able to read before answering, shown in a
    * scrolling box under the question: the skill a link would install.
@@ -1673,6 +1711,10 @@ export interface AskUserQuestion {
    * extension form (a service's link + key) is sent to the desktop app only.
    */
   secret?: { connector: string; field: string } | { extensionUrl: string; extensionName?: string };
+  /** "phone": the card opens a country + phone-number field; the number (+40712345678) comes back as the answer. */
+  input?: "phone";
+  /** What that field starts with: the number saved last time, to keep or fix. */
+  value?: string;
 }
 
 export interface AskUserAnswer {
@@ -1747,8 +1789,14 @@ export type OutboundEvent =
       find?: string;
       traceId?: string;
     }
-  | { type: "proactive"; content: string; followUp?: { id: string; sessionId: string; mission: string }; traceId?: string }
-  | { type: "model_set"; provider: string; model: string }
+  /** The first message after a model is connected (core/welcome.ts). */
+  | { type: "welcome_ready"; id: string; sessionId: string; content: string }
+  | { type: "proactive"; content: string; ownerAgentId?: string; followUp?: { id: string; sessionId: string; mission: string }; traceId?: string }
+  | { type: "model_set"; provider: string; model: string; automatic?: boolean; choices?: number }
+  /** Steering: what the person added mid-turn reached the model (`id` = the reply). */
+  | { type: "steer_applied"; sessionId: string; id: string; texts: string[] }
+  /** Answer to a `steer` message: false = no turn was running, send it normally. */
+  | { type: "steer_ack"; sessionId: string; accepted: boolean; text: string }
   | { type: "model_error"; message: string; traceId?: string }
   /**
    * Which model this turn is being answered by, and why that one.
@@ -1789,7 +1837,7 @@ export type OutboundEvent =
   | { type: "tool_request"; id: string; sessionId: string; tool: string; arguments: Record<string, unknown> }
   | { type: "ask_user"; id: string; sessionId: string; questions: AskUserQuestion[]; traceId?: string }
   | { type: "ask_user_cancelled"; id: string; sessionId: string; reason: string; traceId?: string }
-  | { type: "usage"; id: string; sessionId: string; promptTokens: number; completionTokens: number; traceId?: string }
+  | { type: "usage"; id: string; sessionId: string; promptTokens: number; completionTokens: number; traceId?: string; /** What the prompt was made of (Context card). */ lanes?: { label: string; tokens: number }[] }
   | { type: "budget_warning"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; percent: number; traceId?: string }
   | { type: "budget_exceeded"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; message: string; traceId?: string }
   // The next request would exceed the provider's requests-per-minute cap, so
@@ -1816,7 +1864,8 @@ export type OutboundEvent =
   | {
       type: "cowork_history_result";
       threadId: string;
-      messages: {
+      messages: ({
+        threadId?: string | null;
         id: string;
         fromAgentId: string;
         toAgentId: string;
@@ -1829,8 +1878,12 @@ export type OutboundEvent =
         reply?: string;
         /** True when `reply` is the reason the teammate could not answer. */
         replyFailed?: boolean;
-      }[];
+        replyAt?: number;
+      } & import("./cowork/runtime.ts").CoworkHistoryDetails)[];
     }
+  | ({ type: "chat_spend_result"; id: string } & (
+    import("./egress/chat-spend.ts").ChatSpendView | { error: string }
+  ))
   /** Answers a `cowork_team_op`: the roster as it stands after the action. */
   | {
       type: "cowork_team_result";
@@ -1844,6 +1897,7 @@ export type OutboundEvent =
         /** null means the Brain Stack routes per task. */
         model: string | null;
         createdAt: number;
+        lastMessage?: { text: string; at: number };
       }[];
       /** The teammate a "remove" deleted. */
       removed?: string;
@@ -1864,6 +1918,7 @@ export type OutboundEvent =
   | {
       type: "cowork_event";
       eventType:
+        | "message_queued"
         | "message_received"
         | "message_processed"
         | "message_rejected"
@@ -2312,8 +2367,19 @@ export type OutboundEvent =
       id: string;
       ok: boolean;
       error?: string;
-      jobs: Array<Pick<CronJob, "id" | "name" | "task" | "schedule" | "enabled" | "nextRunMs" | "lastRunMs" | "kind" | "history" | "watch" | "expiresAt" | "budgetUsd" | "spentUsd">>;
+      jobs: Array<Pick<CronJob, "id" | "name" | "task" | "schedule" | "enabled" | "nextRunMs" | "lastRunMs" | "kind" | "history" | "watch" | "expiresAt" | "budgetUsd" | "spentUsd" | "prices" | "ownerAgentId">>;
       taskLimit?: { weeklyUsd: number | null; asked: boolean; spentUsd: number };
+      /** After adding a price watch: the price read on accept, said on the card (spec 4.10). */
+      note?: string;
+      /** "What I learned" (spec 4.7): one line per kind and time Cubby stopped, each with its Undo key. */
+      learned?: Array<{ bucket: string; line: string }>;
+      /** The Today page's "This week" card, from the nudge ledger (Nudges.week). */
+      week?: { wroteFirst: number; answered: number; days: number[] };
+      /** Pages the agent composed (spec 4.14), each card ready to draw. */
+      pages?: import("./core/pages.ts").PageView[];
+      /** Where a fired task reaches the owner away from the computer (a
+       *  messenger id), or null; `tested` when this answer sent a test. */
+      phone?: { via: string | null; tested: boolean };
     }
   // Dream Cycle lifecycle — emitted by the host when an evolutionary episode
   // starts (`phase:"started"`) and ends (`phase:"ended"`). Forwarded verbatim

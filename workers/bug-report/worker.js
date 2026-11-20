@@ -9,7 +9,7 @@
 // POST /usage {v,code,day,app,os,groups} -> 204 | 400 | 413 | 429  (opt-in daily usage summary)
 // GET  /leaderboard?month=YYYY-MM -> 200 {month, minInstalls, minTasks, installs, hidden, models, counting}
 
-import { admitCode, aggregate, validatePayload } from './usage.js';
+import { admitCode, aggregate, validateNumbers, validatePayload } from './usage.js';
 
 // 64 KB, not 8: the app sends up to LOG_TAIL_BYTES (48 KB) of log plus the
 // description, and at 8 KB every report that kept the log ticked came back
@@ -188,10 +188,27 @@ async function storeUsage(req, env) {
   return new Response(null, { status: 204 });
 }
 
+// "Send my numbers": one row per monthly code and month, replaced on a resend, never added.
+async function storeNumbers(req, env) {
+  if (await overLimit(req, 'numbers', 20)) return new Response('rate limited', { status: 429 });
+  if (Number(req.headers.get('content-length') ?? 0) > 8 * 1024) return new Response('too large', { status: 413 });
+  let body;
+  try { body = await req.json(); } catch { return new Response('bad json', { status: 400 }); }
+  const v = validateNumbers(body);
+  if (!v.ok) return new Response(v.error, { status: 400 });
+  if (!(await admitted(req, body.code))) return new Response('too many installs from one address today', { status: 429 });
+  if (!env.USAGE) return new Response(null, { status: 204 });
+  const month = new Date().toISOString().slice(0, 7);
+  await env.USAGE.prepare('INSERT INTO numbers_month (code, month, app, os, data) VALUES (?, ?, ?, ?, ?) ON CONFLICT(code, month) DO UPDATE SET app = excluded.app, os = excluded.os, data = excluded.data')
+    .bind(body.code, month, body.app, body.os, JSON.stringify({ kinds: body.kinds, answeredTwoWeeks: body.answeredTwoWeeks, onTimePct: body.onTimePct })).run();
+  return new Response(null, { status: 204 });
+}
+
 export default {
   async fetch(req, env) {
     const path = new URL(req.url).pathname;
     if (path === '/usage' && req.method === 'POST') return storeUsage(req, env);
+    if (path === '/numbers' && req.method === 'POST') return storeNumbers(req, env);
     if (path === '/visit' && req.method === 'POST') return countVisit(req, env);
     if (path === '/leaderboard' && req.method === 'GET') return leaderboard(req, env);
     if (path === '/install') {

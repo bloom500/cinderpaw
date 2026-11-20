@@ -59,6 +59,10 @@ describe("unkeptWriteClaims", () => {
     expect(await unkeptWriteClaims("I could not find config.json in the project.", dir)).toEqual([]);
   });
 
+  test("a bare name with no known folder is not accused (7 Nov: saved on the Desktop)", async () => {
+    expect(await unkeptWriteClaims("Am salvat lista-test.txt pe Desktop.")).toEqual([]);
+  });
+
   test("a path whose parent directory does not exist is skipped, not accused", async () => {
     // Unknown location means no claim checked. An agent working in a directory
     // this process cannot resolve must not have every sentence called a lie.

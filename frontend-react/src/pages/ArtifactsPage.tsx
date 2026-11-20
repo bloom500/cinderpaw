@@ -229,7 +229,7 @@ export function ArtifactsPage() {
               <ul className="grid grid-cols-1 gap-x-5 gap-y-7 sm:grid-cols-2 lg:grid-cols-3">
                 {shown.map((r, i) => (
                   <li key={r.id}
-                    className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-300 motion-reduce:animate-none"
+                    className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-(--motion-slow) motion-reduce:animate-none"
                     // A short cascade on the first screen, nothing longer: by the
                     // thirteenth card the eye has stopped following it.
                     style={{ animationDelay: `${Math.min(i, 12) * 25}ms` }}>
@@ -251,7 +251,7 @@ function Card({ row, archived, onOpen }: { row: ArtifactRow; archived: boolean; 
     <div className="group relative">
       <button type="button" onClick={onOpen}
         className="block w-full rounded-2xl text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-4 focus-visible:ring-offset-bg-primary">
-        <span className="relative block aspect-[4/3] overflow-hidden rounded-2xl border border-border-default bg-bg-surface shadow-sm transition duration-200 group-hover:-translate-y-0.5 group-hover:border-brand/30 group-hover:shadow-md motion-reduce:transform-none">
+        <span className="relative block aspect-[4/3] overflow-hidden rounded-2xl border border-border-default bg-bg-surface shadow-sm transition duration-(--motion-base) group-hover:border-brand/30 group-hover:shadow-md motion-reduce:transform-none">
           <ArtifactThumbnail row={row} size="page" className="h-full w-full" />
           <span title={look.word}
             className="absolute bottom-2.5 left-2.5 grid size-7 place-items-center rounded-lg border border-border-default bg-bg-elevated text-text-secondary shadow-sm">
@@ -284,7 +284,7 @@ function MakeTile({ tile, onPick, className }: {
       type="button"
       onClick={() => onPick(tile.prompt)}
       className={cn(
-        'group flex flex-col gap-2.5 rounded-2xl border border-border-default bg-bg-surface p-2 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-brand/30 hover:shadow-md active:scale-[0.97] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand motion-reduce:transform-none',
+        'group flex flex-col gap-2.5 rounded-2xl border border-border-default bg-bg-surface p-2 text-left shadow-sm transition duration-(--motion-base) hover:border-brand/30 hover:shadow-md active:scale-[0.97] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand motion-reduce:transform-none',
         className,
       )}
     >
@@ -343,7 +343,7 @@ function TileArt({ art }: { art: Art }) {
         <rect x="17" y="29" width="30" height="5" rx="2" className="fill-brand/20" />
       </>}
       {art === 'motion' && (
-        <g className="transition-transform duration-500 group-hover:translate-x-1.5 motion-reduce:transform-none">
+        <g className="transition-transform duration-(--motion-slow) group-hover:translate-x-1.5 motion-reduce:transform-none">
           <circle cx="20" cy="22" r="4" className="fill-brand/20" />
           <circle cx="30" cy="22" r="5" className="fill-brand/45" />
           <circle cx="42" cy="22" r="7" className="fill-brand" />

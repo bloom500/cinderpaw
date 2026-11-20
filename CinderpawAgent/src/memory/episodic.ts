@@ -211,6 +211,25 @@ export class EpisodicMemory {
   }
 
   /**
+   * What was said in OTHER conversations since `ts`, newest first: the owner's
+   * words and the agent's replies only, never a guest's private rows. Feeds the
+   * "elsewhere" note (memory/elsewhere.ts), which decides whose chats count.
+   */
+  since(ts: number, exceptSessionId: string, limit = 200): EpisodicEvent[] {
+    const rows = this.#db
+      .query<EpisodicRow, [number, string, number]>(
+        `SELECT id, session_id, timestamp, role, content
+         FROM episodic
+         WHERE timestamp > ? AND session_id != ? AND private = 0
+           AND role IN ('user', 'assistant') AND content NOT LIKE '[obs:%'
+         ORDER BY timestamp DESC, id DESC
+         LIMIT ?`,
+      )
+      .all(ts, exceptSessionId, limit);
+    return rows.map(fromRow);
+  }
+
+  /**
    * Persist freshly-computed embeddings for the given rows. One UPDATE per
    * row, all in a single transaction so a partial write can't leave the
    * table half-updated (a crash mid-flight is fine — the next rebuild just

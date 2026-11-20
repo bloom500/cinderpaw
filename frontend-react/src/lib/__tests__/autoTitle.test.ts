@@ -11,9 +11,14 @@ describe('autoTitle', () => {
     expect(autoTitle([msg('user', '   Hello world   ')])).toBe('Hello world');
   });
 
-  it('truncates with ellipsis past 40 chars', () => {
-    const long = 'A'.repeat(60);
-    expect(autoTitle([msg('user', long)])).toBe('A'.repeat(40) + '…');
+  it('truncates with ellipsis past 60 chars', () => {
+    const long = 'A'.repeat(80);
+    expect(autoTitle([msg('user', long)])).toBe('A'.repeat(60) + '…');
+  });
+
+  it('cuts on a word, never mid-word', () => {
+    const t = autoTitle([msg('user', 'Imi poti face o favoare? Scaneaza tot Disk D: si zi-mi cum ne descurcam')]);
+    expect(t).toBe('Imi poti face o favoare? Scaneaza tot Disk D: si zi-mi cum…');
   });
 
   it('uses first user message, skipping assistant', () => {

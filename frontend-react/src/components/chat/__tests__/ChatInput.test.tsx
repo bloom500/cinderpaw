@@ -14,22 +14,31 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createRef } from 'react';
+import { createRef, StrictMode } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChatInput, DRAFT_KEY } from '../ChatInput';
 import { useChat } from '@/stores/chat';
 import { useNotifications } from '@/stores/notifications';
 import { useConversations } from '@/stores/conversations';
+import { tauri } from '@/lib/tauri';
+import { saveVoiceBlobToDisk, transcribeVoiceBlob } from '@/hooks/useSendMessage';
 
 // Everything the composer mounts that talks to the OS, the microphone or a
 // call. None of it participates in the send path under test.
 vi.mock('@tauri-apps/api/webview', () => ({
   getCurrentWebview: () => ({ onDragDropEvent: () => Promise.resolve(() => {}) }),
 }));
-vi.mock('@/hooks/useVoiceRecorder', () => ({
-  useVoiceRecorder: () => ({ state: 'idle', blob: null, durationMs: 0, error: null, start: vi.fn(), stop: vi.fn(), reset: vi.fn() }),
+const recorder = vi.hoisted(() => ({
+  state: 'idle' as 'idle' | 'preview',
+  blob: null as Blob | null,
+  durationMs: 0,
+  error: null,
+  start: vi.fn(),
+  stop: vi.fn(),
+  reset: vi.fn(),
 }));
+vi.mock('@/hooks/useVoiceRecorder', () => ({ useVoiceRecorder: () => recorder }));
 // Inlined rather than shared through a const: vi.mock factories are hoisted
 // above every top-level binding in the file.
 const IDLE_CALL = {
@@ -59,6 +68,8 @@ beforeEach(() => {
   useNotifications.setState({ toasts: [] });
   useConversations.setState({ currentId: null });
   window.localStorage.clear();
+  recorder.state = 'idle';
+  recorder.blob = null;
 });
 
 async function type(text: string) {
@@ -68,6 +79,41 @@ async function type(text: string) {
 }
 
 describe('a send that fails', () => {
+  it('keeps unsent attachments with the chat they were added to', async () => {
+    useConversations.setState({ currentId: 'attachments-original' });
+    const view = render(<ChatInput sendFn={vi.fn()} />);
+    const box = screen.getByRole('textbox');
+    fireEvent.paste(box, { clipboardData: { items: [], getData: () => 'a'.repeat(1300) } });
+    await screen.findByText(/Pasted text/);
+    act(() => useConversations.setState({ currentId: 'attachments-other' }));
+    expect(screen.queryByText(/Pasted text/)).toBeNull();
+    view.unmount();
+    useConversations.setState({ currentId: 'attachments-original' });
+    render(<ChatInput sendFn={vi.fn()} />);
+    expect(await screen.findByText(/Pasted text/)).toBeTruthy();
+  });
+
+  it('keeps a recording available to play and retry when transcription fails', async () => {
+    recorder.state = 'preview';
+    recorder.blob = new Blob(['recording'], { type: 'audio/webm' });
+    recorder.durationMs = 1500;
+    vi.mocked(saveVoiceBlobToDisk).mockResolvedValue('recording.webm');
+    vi.mocked(transcribeVoiceBlob).mockRejectedValueOnce(new Error('stt-cloud-failed'));
+    const sendFn = vi.fn().mockResolvedValue(undefined);
+    render(<ChatInput sendFn={sendFn} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(useNotifications.getState().toasts.length).toBeGreaterThan(0));
+    expect(recorder.reset).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy();
+    expect(sendFn).not.toHaveBeenCalled();
+
+    vi.mocked(transcribeVoiceBlob).mockResolvedValueOnce('Ready to send');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(recorder.reset).toHaveBeenCalledOnce());
+    expect(sendFn).toHaveBeenCalledWith('Ready to send', undefined, expect.any(Object));
+  });
+
   it('gives the message back when nothing reached the transcript', async () => {
     const sendFn = vi.fn(async () => { throw new Error('cinderpaw-agent is not running'); });
     render(<ChatInput sendFn={sendFn} />);
@@ -82,6 +128,23 @@ describe('a send that fails', () => {
         useNotifications.getState().toasts.some((t) => t.kind === 'error' && t.title === 'Message not sent'),
       ).toBe(true),
     );
+  });
+
+  it('returns a failed send to its original chat after switching away', async () => {
+    useConversations.setState({ currentId: 'failed-original' });
+    let reject!: (error: Error) => void;
+    const sendFn = vi.fn(() => new Promise<void>((_, fail) => { reject = fail; }));
+    render(<ChatInput sendFn={sendFn} />);
+    await type('original draft');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(sendFn).toHaveBeenCalledOnce();
+
+    act(() => useConversations.setState({ currentId: 'failed-other' }));
+    const box = await type('other draft');
+    await act(async () => reject(new Error('Connection lost')));
+    expect(box.value).toBe('other draft');
+    act(() => useConversations.setState({ currentId: 'failed-original' }));
+    expect(box.value).toBe('original draft');
   });
 
   it('does NOT give it back when a bubble already carries it', async () => {
@@ -113,6 +176,26 @@ describe('a send that fails', () => {
 });
 
 describe('a message written while a reply is arriving', () => {
+  // These are the fallback: the engine could not take it mid-turn (steering,
+  // below), so it waits for the reply like before.
+  beforeEach(() => {
+    vi.spyOn(tauri.raw, 'cinderpawSteer').mockRejectedValue('cinderpaw-agent is not running');
+  });
+
+  it('joins the running turn when the engine takes it, with nothing left waiting', async () => {
+    const steer = vi.spyOn(tauri.raw, 'cinderpawSteer').mockResolvedValue(undefined);
+    const sendFn = vi.fn(async () => {});
+    useChat.setState({ sessionId: 'steer-chat', streamStatus: 'streaming' });
+    render(<ChatInput sendFn={sendFn} />);
+    const box = await type('make it shorter');
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(steer).toHaveBeenCalledWith('steer-chat', 'make it shorter');
+    expect(box.value).toBe('');
+    expect(screen.queryByText(/Sends when this reply is done/)).toBeNull();
+    act(() => useChat.setState({ streamStatus: 'done' }));
+    expect(sendFn).not.toHaveBeenCalled();
+  });
+
   it('restores a queued message and newer draft after leaving the chat', async () => {
     useConversations.setState({ currentId: 'queue-chat' });
     useChat.setState({ sessionId: 'queue-chat', streamStatus: 'streaming' });
@@ -120,6 +203,7 @@ describe('a message written while a reply is arriving', () => {
     const view = render(<ChatInput sendFn={sendFn} />);
     const box = await type('queued words');
     fireEvent.keyDown(box, { key: 'Enter' });
+    await screen.findByText(/Sends when this reply is done/);
     await type('newer words');
     view.unmount();
     render(<ChatInput sendFn={sendFn} />);
@@ -135,6 +219,7 @@ describe('a message written while a reply is arriving', () => {
     render(<ChatInput sendFn={sendFn} />);
     const box = await type('belongs to the old chat');
     fireEvent.keyDown(box, { key: 'Enter' });
+    await screen.findByText(/Sends when this reply is done/);
     act(() => {
       useChat.setState({ sessionId: 'other-chat', streamStatus: 'done' });
       useConversations.setState({ currentId: 'other-chat' });
@@ -153,6 +238,7 @@ describe('a message written while a reply is arriving', () => {
     useChat.setState({ streamStatus: 'streaming' });
     const view = render(<ChatInput sendFn={vi.fn()} />);
     fireEvent.keyDown(await type('survive reload'), { key: 'Enter' });
+    await screen.findByText(/Sends when this reply is done/);
     fireEvent(window, new Event('pagehide'));
     expect(localStorage.getItem(DRAFT_KEY('queue-chat'))).toBe('survive reload');
     view.unmount();
@@ -164,7 +250,7 @@ describe('a message written while a reply is arriving', () => {
     render(<ChatInput sendFn={sendFn} />);
     const box = await type('and one more thing');
     fireEvent.keyDown(box, { key: 'Enter' });
-    expect(screen.getByText(/Sends when this reply is done/)).toBeTruthy();
+    expect(await screen.findByText(/Sends when this reply is done/)).toBeTruthy();
     expect(box.value).toBe('');
     expect(sendFn).not.toHaveBeenCalled();
     act(() => useChat.setState({ streamStatus: 'done' }));
@@ -178,6 +264,7 @@ describe('a message written while a reply is arriving', () => {
     render(<ChatInput sendFn={sendFn} />);
     const box = await type('wait');
     fireEvent.keyDown(box, { key: 'Enter' });
+    await screen.findByText(/Sends when this reply is done/);
     act(() => useChat.setState({ streamStatus: 'stopped' }));
     await waitFor(() => expect(box.value).toBe('wait'));
     expect(sendFn).not.toHaveBeenCalled();
@@ -190,7 +277,7 @@ describe('a message written while a reply is arriving', () => {
 describe('a file dropped on the composer', () => {
   it('is attached through the same helper as a paste', async () => {
     const attachments = await import('@/lib/attachments');
-    const spy = vi.spyOn(attachments, 'attachmentsFromClipboard').mockResolvedValue([]);
+    const spy = vi.spyOn(attachments, 'pendingFromClipboard').mockReturnValue([]);
     render(<ChatInput sendFn={vi.fn(async () => {})} />);
     const composer = screen.getByRole('textbox').closest('[class*="rounded-[28px]"]') as HTMLElement;
     expect(composer).not.toBeNull();
@@ -202,6 +289,27 @@ describe('a file dropped on the composer', () => {
     fireEvent.drop(composer, { dataTransfer });
     await waitFor(() => expect(spy).toHaveBeenCalledWith(dataTransfer));
     expect(composer.className).not.toContain('border-dashed');
+  });
+});
+
+describe('a file on its way in', () => {
+  it('shows by name at once and fills in when read; send waits for it', async () => {
+    const attachments = await import('@/lib/attachments');
+    let finish!: (f: import('../AttachedFileChip').AttachedFile) => void;
+    const ready = new Promise<import('../AttachedFileChip').AttachedFile>((r) => { finish = r; });
+    vi.spyOn(attachments, 'pendingFromClipboard').mockReturnValue([{ name: 'report.pdf', ready }]);
+    const sendFn = vi.fn(async () => {});
+    render(<ChatInput sendFn={sendFn} />);
+    const composer = screen.getByRole('textbox').closest('[class*="rounded-[28px]"]') as HTMLElement;
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.drop(composer, { dataTransfer: { types: ['Files'], items: [], files: [] } as unknown as DataTransfer });
+    expect(await screen.findByText('report.pdf')).toBeInTheDocument();
+    expect(screen.getByLabelText('Reading')).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+    expect(sendFn).not.toHaveBeenCalled();
+    finish({ name: 'report.pdf', path: 'C:/report.pdf', content: 'the report' });
+    await waitFor(() => expect(screen.queryByLabelText('Reading')).toBeNull());
+    expect(screen.getByText('report.pdf')).toBeInTheDocument();
   });
 });
 
@@ -245,6 +353,12 @@ describe('a pasted link', () => {
 });
 
 describe('a draft', () => {
+  it('keeps the saved draft when the composer is remounted before its first edit', async () => {
+    useConversations.setState({ currentId: 'reopened' });
+    localStorage.setItem(DRAFT_KEY('reopened'), 'Still writing');
+    render(<StrictMode><ChatInput sendFn={vi.fn()} /></StrictMode>);
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('Still writing'));
+  });
   it('stays with its conversation across a switch', async () => {
     useConversations.setState({ currentId: 'c1' });
     render(<ChatInput sendFn={vi.fn()} />);
@@ -272,22 +386,35 @@ describe('a long paste', () => {
     fireEvent.paste(screen.getByRole('textbox'), { clipboardData: { getData: () => text, items: [] } });
 
   it('becomes a card instead of filling the box, and a click shows all of it', async () => {
+    useConversations.setState({ currentId: 'long-paste' });
     render(<ChatInput sendFn={vi.fn(async () => {})} />);
     const log = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join('\n');
     paste(log);
 
     expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('');
-    await userEvent.click(screen.getByRole('button', { name: 'Open Pasted text, 30 lines' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Open Pasted text, 30 lines' }));
     expect(screen.getByText(/line 30/)).toBeTruthy();
   });
 
   it('a short paste stays text', () => {
+    useConversations.setState({ currentId: 'short-paste' });
     render(<ChatInput sendFn={vi.fn(async () => {})} />);
     paste('just a sentence');
     expect(screen.queryByRole('button', { name: /^Open Pasted text/ })).toBeNull();
   });
 });
 
+
+// 14 Nov, Darius: nobody guesses that holding the mic opens the transcription
+// choice. A visible arrow beside it opens the same card in one click.
+describe('choosing the voice transcription', () => {
+  it('has a visible arrow next to the mic that opens the choice', async () => {
+    render(<ChatInput sendFn={vi.fn(async () => {})} />);
+    expect(screen.getByRole('button', { name: 'Record voice message' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Choose voice transcription' }));
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Choose voice transcription');
+  });
+});
 
 // 30 Sep: with the game open, the perch mascot kept walking the composer's edge
 // right under the game and got in the way of play.

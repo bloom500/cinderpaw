@@ -1,9 +1,45 @@
 import { useEffect, useId, useState } from 'react';
-import { ArrowUpRight, Bell, CalendarClock, ChevronDown, Pause, Play, ScanSearch, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { ArrowUpRight, Bell, CalendarClock, ChevronDown, Pause, Play, ScanSearch, SlidersHorizontal, Smartphone, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import type { ScheduledTask, TaskSchedule } from '@/lib/tauri';
 import { useTasks } from '@/stores/tasks';
 import { useFollowUps } from '@/stores/followUps';
+import { useCoworkTeam } from '@/stores/coworkTeam';
+import { useOnboarding } from '@/stores/onboarding';
 import { cn } from '@/lib/utils';
+
+/** A price watch's reads over 7 or 30 days, with the person's limit as a
+ *  dashed line (spec 4.13). Plain SVG: one line, nothing to install. */
+export function PriceGraph({ reads, limit, currency }: { reads: { at: number; amount: number }[]; limit: number; currency?: string }) {
+  const [days, setDays] = useState<7 | 30>(7);
+  const unit = currency ? ` ${currency}` : '';
+  if (!reads.length) return <p className="mt-2 text-xs text-text-muted">No price read yet. The first check draws the graph.</p>;
+  const from = reads.at(-1)!.at - days * 86_400_000;
+  const shown = reads.filter((r) => r.at >= from);
+  const first = shown[0]!, last = shown.at(-1)!;
+  const values = [...shown.map((r) => r.amount), limit];
+  const lo = Math.min(...values), hi = Math.max(...values), span = hi - lo || 1;
+  const x = (at: number) => shown.length < 2 ? 150 : ((at - first.at) / (last.at - first.at || 1)) * 300;
+  const y = (v: number) => 72 - ((v - lo) / span) * 64;
+  const diff = last.amount - first.amount;
+  return (
+    <div className="mt-3">
+      <div className="flex items-baseline justify-between gap-2 text-xs text-text-muted">
+        <span className="tabular-nums">{diff === 0 ? `Same price for ${days} days` : `Was ${first.amount}${unit}, ${diff < 0 ? '−' : '+'}${Math.abs(Math.round(diff * 100) / 100)}${unit}`}</span>
+        <span className="flex gap-1">{([7, 30] as const).map((d) => (
+          <button key={d} type="button" aria-pressed={days === d} onClick={() => setDays(d)}
+            className={cn('rounded-full px-2 py-0.5', days === d ? 'bg-bg-hover text-text-primary' : 'hover:text-text-primary')}>{d} days</button>))}</span>
+      </div>
+      <svg viewBox="0 0 300 80" preserveAspectRatio="none" className="mt-2 h-20 w-full overflow-visible" role="img" aria-label={`Price over ${days} days: from ${first.amount} to ${last.amount}${unit}. Your limit is ${limit}${unit}.`}>
+        <line x1="0" x2="300" y1={y(limit)} y2={y(limit)} strokeDasharray="4 4" className="stroke-text-muted" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+        <polyline fill="none" points={shown.map((r) => `${x(r.at)},${y(r.amount)}`).join(' ')} className="stroke-brand" strokeWidth="2" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        {/* A zero-length line with a round cap: a dot that stays round when the graph stretches. */}
+        <line x1={x(last.at)} x2={x(last.at)} y1={y(last.amount)} y2={y(last.amount)} className="stroke-brand" strokeWidth="7" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <p className="mt-1 text-xs text-text-muted">Dashed line: your limit, {limit}{unit}.</p>
+    </div>
+  );
+}
 
 const DAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -53,12 +89,17 @@ const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 6
 
 function TaskEditor({job,close}: {job:ScheduledTask;close:()=>void}) {
   const edit = useTasks(s => s.edit);
+  const roster = useCoworkTeam(s => s.roster);
+  const agentName = useOnboarding(s => s.agentName.trim() || 'Cinderpaw');
+  const [ownerAgentId, setOwnerAgentId] = useState(job.ownerAgentId ?? '');
   const [name,setName] = useState(job.name);
   const [task,setTask] = useState(job.task);
   const [kind,setKind] = useState(job.schedule.kind);
   const [schedule,setSchedule] = useState(job.schedule.kind === 'every' ? String(job.schedule.intervalMs / 60000) : job.schedule.kind === 'cron' ? job.schedule.expression : localInput(new Date(job.schedule.isoTimestamp)));
   const [source,setSource] = useState(job.watch?.sourceUrl ?? '');
   const [contains,setContains] = useState(job.watch?.contains ?? '');
+  const price = job.watch?.priceBelow !== undefined;
+  const [below,setBelow] = useState(String(job.watch?.priceBelow ?? ''));
   const [expiry,setExpiry] = useState('30');
   const [renew,setRenew] = useState(false);
   const [error,setError] = useState('');
@@ -69,20 +110,29 @@ function TaskEditor({job,close}: {job:ScheduledTask;close:()=>void}) {
       if (!name.trim() || !task.trim()) throw Error('Name and instruction are required.');
       const next:TaskSchedule = kind === 'every' ? {kind,intervalMs:Number(schedule)*60000} : kind === 'cron' ? {kind,expression:schedule} : {kind,isoTimestamp:new Date(schedule).toISOString()};
       if (next.kind === 'every' && (!Number.isFinite(next.intervalMs) || next.intervalMs < 60000)) throw Error('Use an interval of at least one minute.');
-      if (job.kind === 'watch' && (new URL(source).protocol !== 'https:' || !contains.trim())) throw Error('Use a HTTPS source and the exact text to verify.');
-      edit(job,{name:name.trim(),task:task.trim(),schedule:next,...(job.kind === 'watch' ? {watch:{...job.watch,sourceUrl:source,contains},...(renew ? {expiryDays:Number(expiry)} : {})} : {})});
+      if (job.kind === 'watch' && new URL(source).protocol !== 'https:') throw Error('Use a HTTPS source.');
+      if (job.kind === 'watch' && !price && !contains.trim()) throw Error('Add the exact text to look for.');
+      if (price && !(Number(below) > 0)) throw Error('Use a price above zero.');
+      const watch = price ? {...job.watch,sourceUrl:source,priceBelow:Number(below)} : {...job.watch,sourceUrl:source,contains};
+      edit(job,{name:name.trim(),task:task.trim(),schedule:next,...(roster.length ? {ownerAgentId:ownerAgentId || null} : {}),...(job.kind === 'watch' ? {watch,...(renew ? {expiryDays:Number(expiry)} : {})} : {})});
       close();
     } catch(e) { setError(e instanceof Error ? e.message : String(e)); }
   }}>
     <label className="block">Task name<input aria-label="Task name" value={name} onChange={e=>setName(e.target.value)} className={field}/></label>
     <label className="block">Instruction<textarea aria-label="Instruction" value={task} onChange={e=>setTask(e.target.value)} className={field}/></label>
+    {roster.length > 0 && <label className="block">Assigned to<select value={ownerAgentId} onChange={e=>setOwnerAgentId(e.target.value)} className={field}>
+      <option value="">{agentName}</option>
+      {roster.map((teammate) => <option key={teammate.id} value={teammate.id}>{teammate.name}</option>)}
+    </select></label>}
     <label className="block">Schedule<select aria-label="Schedule type" value={kind} onChange={e=>{const value=e.target.value as TaskSchedule['kind'];setKind(value);setSchedule(value==='every'?'60':value==='cron'?'0 9 * * *':localInput(new Date(Date.now()+3600000)));}} className={field}>
       <option value="every">Every N minutes</option><option value="cron">Cron expression</option>{job.kind !== 'watch' && <option value="at">Once</option>}
     </select></label>
     <label className="block">{kind === 'every' ? 'Interval (minutes)' : kind === 'cron' ? 'Cron expression' : 'Time'}<input aria-label="Schedule value" type={kind==='every'?'number':kind==='at'?'datetime-local':'text'} value={schedule} onChange={e=>setSchedule(e.target.value)} className={field}/></label>
     {job.kind === 'watch' && <>
       <label className="block">Source URL<input aria-label="Source URL" type="url" value={source} onChange={e=>setSource(e.target.value)} className={field}/></label>
-      <label className="block">Expected text<input aria-label="Expected text" value={contains} onChange={e=>setContains(e.target.value)} className={field}/></label>
+      {price
+        ? <label className="block">Tell me when the price is under{job.watch?.currency ? ` (${job.watch.currency})` : ''}<input aria-label="Price limit" type="number" min="0" step="any" value={below} onChange={e=>setBelow(e.target.value)} className={field}/></label>
+        : <label className="block">Expected text<input aria-label="Expected text" value={contains} onChange={e=>setContains(e.target.value)} className={field}/></label>}
       <label className="flex items-center gap-2"><input type="checkbox" checked={renew} onChange={e=>setRenew(e.target.checked)}/>Renew expiry from today</label>
       {renew && <label className="block">Expiry (days)<input aria-label="Expiry (days)" type="number" min="1" max="365" value={expiry} onChange={e=>setExpiry(e.target.value)} className={field}/></label>}
       <p className="text-xs leading-relaxed text-text-muted">After renewing an expired or completed watch, press Resume to start checking again.</p>
@@ -95,6 +145,7 @@ function TaskEditor({job,close}: {job:ScheduledTask;close:()=>void}) {
 function TaskRow({ job }: { job: ScheduledTask }) {
   const remove = useTasks((s) => s.remove);
   const toggle = useTasks((s) => s.toggle);
+  const ownerName = useCoworkTeam((s) => s.roster.find((agent) => agent.id === job.ownerAgentId)?.name);
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [editing,setEditing] = useState(false);
@@ -117,7 +168,8 @@ function TaskRow({ job }: { job: ScheduledTask }) {
             <span className={cn('hidden text-xs sm:inline', state === 'Active' ? 'text-brand' : 'text-text-muted')}>{state}</span>
           </div>
           <p className="mt-1 text-sm text-text-secondary">{scheduleWords(job.schedule)}</p>
-          <p className="mt-1.5 text-xs text-text-muted"><span className="sm:hidden">{state} · </span>{job.kind === 'reminder' ? 'Reminder · Free' : job.kind === 'watch' ? 'Source watch · Free' : <><span className="hidden sm:inline">Uses your model · </span><span className="tabular-nums">${(job.spentUsd ?? 0).toFixed(2)} used</span></>}</p>
+          {ownerName && <p className="mt-1 text-xs text-text-muted">Assigned to {ownerName}</p>}
+          <p className="mt-1.5 text-xs text-text-muted"><span className="sm:hidden">{state} · </span>{job.kind === 'reminder' ? 'Reminder · Free' : job.kind === 'watch' ? (job.prices?.length ? `Price watch · Free · last read ${job.prices.at(-1)!.amount}${job.watch?.currency ? ` ${job.watch.currency}` : ''}` : 'Source watch · Free') : <><span className="hidden sm:inline">Uses your model · </span><span className="tabular-nums">${(job.spentUsd ?? 0).toFixed(2)} used</span></>}</p>
         </div>
         <ChevronDown size={16} aria-hidden className={cn('mt-1 shrink-0 text-text-muted transition-transform', open && 'rotate-180')} />
       </button>
@@ -127,7 +179,10 @@ function TaskRow({ job }: { job: ScheduledTask }) {
           {job.watch && <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
             <div><dt className="text-xs text-text-muted">Source</dt><dd className="mt-1"><a href={job.watch.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 text-brand hover:underline"><span className="break-all">{sourceHost(job.watch.sourceUrl)}</span><ArrowUpRight size={12} className="shrink-0" aria-hidden /></a></dd></div>
             <div><dt className="text-xs text-text-muted">Expires</dt><dd className="mt-1 text-text-primary">{when(job.expiresAt) || 'Not set'}</dd></div>
-            <div className="sm:col-span-2"><dt className="text-xs text-text-muted">Notify when this text appears</dt><dd className="mt-1 break-words font-medium text-text-primary">“{job.watch.contains}”</dd></div>
+            {job.watch.priceBelow
+              ? <div className="sm:col-span-2"><dt className="text-xs text-text-muted">Tell me when the price is under</dt><dd className="mt-1 font-medium tabular-nums text-text-primary">{job.watch.priceBelow}{job.watch.currency ? ` ${job.watch.currency}` : ''}</dd>
+                <PriceGraph reads={job.prices ?? []} limit={job.watch.priceBelow} currency={job.watch.currency} /></div>
+              : <div className="sm:col-span-2"><dt className="text-xs text-text-muted">Notify when this text appears</dt><dd className="mt-1 break-words font-medium text-text-primary">“{job.watch.contains}”</dd></div>}
           </dl>}
           {job.kind === 'agent' && <div className="mt-4">
             <dl className="flex flex-wrap gap-x-8 gap-y-3"><div><dt className="text-xs text-text-muted">Used or reserved</dt><dd className="mt-1 text-base font-medium tabular-nums text-text-primary">${(job.spentUsd ?? 0).toFixed(2)}</dd></div></dl>
@@ -186,6 +241,51 @@ function WeeklyLimit() {
   );
 }
 
+const MESSENGER: Record<string, string> = { telegram: 'Telegram', whatsapp: 'WhatsApp', discord: 'Discord' };
+
+/**
+ * Will a task reach me when I am away? Answered on the page, with a real test
+ * (28 Oct, Darius: getting notifications must be ultra simple, and a promise
+ * is not proof). Connected: where they go, and Send a test. Not connected: one
+ * button to the place that connects a phone.
+ */
+function PhoneRow() {
+  const phone = useTasks((s) => s.phone);
+  const testing = useTasks((s) => s.testing);
+  const testPhone = useTasks((s) => s.testPhone);
+  const navigate = useNavigate();
+  if (!phone) return null;
+  const name = phone.via ? (MESSENGER[phone.via] ?? phone.via) : null;
+  // WhatsApp runs on the person's own number, so a task lands in their chat
+  // with themselves, and WhatsApp never rings for that: "it arrived but the
+  // phone did not ring" read as broken (smoke test, 7 Nov).
+  const silent = phone.via === 'whatsapp' ? ' It comes in your chat with yourself, so your phone stays silent.' : '';
+  // Spec 4.8: say on screen that nothing reaches anyone once the app is quit.
+  const closed = ' If you quit Cinderpaw, nothing reaches you. The tray is fine.';
+  const button = 'rounded-full px-3 py-1 text-xs font-medium transition-colors';
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm" data-testid="phone-row">
+      <Smartphone size={16} className="shrink-0 text-text-muted" aria-hidden />
+      <span className="min-w-0 flex-1 text-text-secondary">
+        {testing ? 'Sending a test…'
+          : name && phone.tested ? `Test sent to your ${name}. Did it arrive?${silent}`
+          : name ? `Tasks also reach you on ${name}.${silent}${closed}`
+          : phone.tested ? 'No phone app answered. Connect one, then try again.'
+          : `Tasks reach you only here. Get them on your phone too.${closed}`}
+      </span>
+      {name ? (
+        <button type="button" disabled={testing} onClick={testPhone} className={cn(button, 'border border-border-default text-text-secondary hover:text-text-primary disabled:opacity-60')}>
+          {phone.tested ? 'Send again' : 'Send a test'}
+        </button>
+      ) : (
+        <button type="button" onClick={() => navigate('/settings?cat=accounts')} className={cn(button, 'bg-brand text-brand-foreground')}>
+          Connect your phone
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Things Cinderpaw does later: every scheduled task, pause, delete, and what each run said. */
 export function TasksPage() {
   const { jobs, loaded, error, refresh } = useTasks();
@@ -206,6 +306,7 @@ export function TasksPage() {
               <button type="button" aria-label="Task settings" aria-expanded={settingsOpen} aria-controls={settingsId} onClick={() => setSettingsOpen(!settingsOpen)} className="flex items-center gap-1.5 rounded-lg py-2 text-sm text-text-muted hover:text-text-primary"><SlidersHorizontal size={14} aria-hidden />Settings</button>
             </div>
             <p className="mt-1 text-sm text-text-muted">Reminders, source checks, and work for later.</p>
+            <PhoneRow />
             <div id={settingsId} hidden={!settingsOpen} className="mt-4 space-y-3 rounded-xl border border-border-subtle bg-bg-surface/60 p-4">
               <WeeklyLimit />
               <div><label className="flex items-center gap-2 text-sm text-text-primary"><input type="checkbox" checked={suggestions} onChange={e=>setSuggestions(e.target.checked)} className="accent-brand"/>Follow-up suggestions</label><p className="mt-1 text-xs leading-relaxed text-text-muted">Offer unfinished work in chat. Suggestions are free; nothing resumes until you ask.</p></div>

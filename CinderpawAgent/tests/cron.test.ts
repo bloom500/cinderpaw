@@ -13,6 +13,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { openDatabase, type CinderpawDb } from "../src/db.ts";
+import { CoworkAgentRepo } from "../src/cowork/agent-store.ts";
+import { withCronOwner } from "../src/cron/owner.ts";
 import {
   CronJobsRepo,
   nextRunAt,
@@ -56,6 +58,43 @@ function makeInput(overrides: Partial<CronJobInput> = {}): CronJobInput {
     ...overrides,
   };
 }
+
+test("owned scheduled work runs under the teammate profile and clears it afterwards", async () => {
+  const db = makeDb();
+  try {
+    const agents = new CoworkAgentRepo(db.raw);
+    const atlas = agents.upsert({ name: "Atlas", instructions: "Find suppliers.", tools: ["web_search"] });
+    const jobs = new CronJobsRepo(db.raw);
+    const job = jobs.upsert(makeInput({ ownerAgentId: atlas.id }));
+    const agent = { registerProfile: mock(() => {}), setSessionProfile: mock(() => {}), clearSessionProfile: mock(() => {}), resetSession: mock(() => {}) };
+    const active = new Map<string, string>();
+    const sessionId = `cron:${job.id}`;
+    await withCronOwner(agent, active, agents.get(job.ownerAgentId!), sessionId, async () => {
+      expect(active.get(sessionId)).toBe(atlas.id);
+      expect(agent.registerProfile).toHaveBeenCalledWith(`cowork:${atlas.id}`, expect.objectContaining({
+        systemPrompt: expect.stringContaining("Find suppliers."), allowedTools: ["web_search"], owner: true,
+      }));
+      expect(agent.setSessionProfile).toHaveBeenCalledWith(sessionId, `cowork:${atlas.id}`);
+    });
+    expect(agent.clearSessionProfile).toHaveBeenCalledWith(sessionId);
+    expect(agent.resetSession).toHaveBeenCalledTimes(2);
+    expect(active.size).toBe(0);
+  } finally { db.close(); }
+});
+
+test("deleting a teammate transfers their tasks to the main agent", () => {
+  const db = makeDb();
+  try {
+    const agents = new CoworkAgentRepo(db.raw);
+    const atlas = agents.upsert({ name: "Atlas" });
+    const jobs = new CronJobsRepo(db.raw);
+    const job = jobs.upsert(makeInput({ ownerAgentId: atlas.id }));
+    expect(job.ownerAgentId).toBe(atlas.id);
+    agents.remove(atlas.id);
+    expect(jobs.get(job.id)?.ownerAgentId).toBeNull();
+    expect(() => jobs.upsert(makeInput({ ownerAgentId: atlas.id }))).toThrow();
+  } finally { db.close(); }
+});
 
 // ─── Schedule parsing ──────────────────────────────────────────────────────
 

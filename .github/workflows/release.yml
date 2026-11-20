@@ -277,7 +277,11 @@ jobs:
         run: npm ci
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        # 1.99.1, not stable: Rust 1.100 (9 Nov 2026) builds one folder deeper and ort-sys
+        # 2.0.0-rc.12 (copy-dylibs) then panics on Windows. Unpin together with an ort that handles it.
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.1"
 
       # Only the macOS Intel entry declares a target; everything else builds
       # natively and skips this.
@@ -285,10 +289,16 @@ jobs:
         if: matrix.target != ''
         run: rustup target add ${{ matrix.target }}
 
+      # prefix-key: a fresh cache, so llama.cpp is configured once with
+      # .cargo/config.toml's CMAKE_DISABLE_FIND_PACKAGE_OpenSSL. A restored
+      # CMakeCache.txt is never reconfigured (cmake crate), and one that found
+      # Homebrew's OpenSSL would ship a Mac app needing Homebrew's libssl.
+      # Bump it again whenever a CMAKE_* setting there changes.
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          prefix-key: v1-rust
 
       # Cinderpaw Agent is vendored in this monorepo at CinderpawAgent/ — the single
       # source of truth. The actual compile + copy into src-tauri/binaries/
@@ -334,6 +344,14 @@ jobs:
           $notes               | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
           "$delimiter"         | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "Release notes extracted for v$version ($($notes.Length) chars, $end-$start lines)"
+
+      # Keep the same identity across Mac updates so keychain access persists.
+      - name: macOS signing certificate
+        if: runner.os == 'macOS'
+        env:
+          MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
+          MACOS_SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+        run: bash .github/scripts/macos-signing-cert.sh
 
       - name: Build, sign and publish release
         uses: tauri-apps/tauri-action@v1
@@ -602,7 +620,11 @@ jobs:
         working-directory: frontend-react
         run: npm ci
 
-      - uses: dtolnay/rust-toolchain@stable
+      # 1.99.1, not stable: Rust 1.100 (9 Nov 2026) builds one folder deeper and ort-sys
+      # 2.0.0-rc.12 (copy-dylibs) then panics on Windows. Unpin together with an ort that handles it.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.1"
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri

@@ -49,8 +49,14 @@ const DialogContent = React.forwardRef<
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}
+      // Grows from its own centre, like an Apple alert. The slide-in-from-left-1/2
+      // and -top-[48%] classes of the old shadcn dialog (dropped upstream) made
+      // every dialog drift in diagonally from the top-left (recording, 29 Oct).
+      // The near-opaque ground the menus and popovers already use: on the 34%
+      // elevated glass the app's text read straight through "WhatsApp is
+      // connected" (14 Nov). A dialog sits over content, so nothing may show.
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 bg-bg-elevated liquid-glass liquid-glass-rim p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
+        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 bg-(--surface-typing) liquid-glass liquid-glass-rim p-6 shadow-lg duration-(--motion-base) data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-lg",
         className
       )}
       {...props}

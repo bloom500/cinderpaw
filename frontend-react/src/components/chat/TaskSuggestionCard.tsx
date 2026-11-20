@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import type { TaskCard } from '@/lib/widgets';
 import { isCreated, useTasks } from '@/stores/tasks';
 import { GooeyCard } from './GooeyCard';
+import { BASE } from '@/lib/motion';
 
 /**
  * A task the agent offered (`suggest_task`), at the end of the reply it came
@@ -44,11 +45,13 @@ export function TaskSuggestionCard({ card, sessionId }: { card: TaskCard; sessio
   // Seen "Created" long enough to read it, then out.
   const [settled, setSettled] = useState(false);
   const [expiry, setExpiry] = useState(String(card.expiryDays ?? 30));
+  // A price watch's first read stays to be read (spec 4.10); a plain "Created" goes.
+  const note = pressed?.note;
   useEffect(() => {
-    if (!justCreated) return;
+    if (!justCreated || note) return;
     const t = setTimeout(() => setSettled(true), 1800);
     return () => clearTimeout(t);
-  }, [justCreated]);
+  }, [justCreated, note]);
   // Created in an earlier visit: nothing left to decide, nothing to show.
   if (created && !justCreated) return null;
   const visible = !dismissed && !settled;
@@ -66,8 +69,8 @@ export function TaskSuggestionCard({ card, sessionId }: { card: TaskCard; sessio
       aria-label="Suggested task"
       initial={false}
       animate={{ opacity: 1, y: 0, height: 'auto' }}
-      exit={reduced ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.96, height: 0, marginTop: 0, paddingTop: 0, paddingBottom: 0, filter: 'blur(6px)' }}
-      transition={reduced ? { duration: 0 } : { type: 'spring', stiffness: 320, damping: 30 }}>
+      exit={reduced ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.96, height: 0, marginTop: 0, paddingTop: 0, paddingBottom: 0 }}
+      transition={reduced ? { duration: 0 } : BASE}>
       <GooeyCard key={card.id}>
       <div className="min-w-0 p-1">
           <div className="flex items-start gap-1.5 text-xs text-text-muted">
@@ -78,10 +81,13 @@ export function TaskSuggestionCard({ card, sessionId }: { card: TaskCard; sessio
           <p className="mt-1 text-sm font-medium text-text-primary">{card.when}</p>
           {watch && card.watch ? (
             <p className="mt-3 break-words text-sm leading-relaxed text-text-secondary">
-              Notify when <span className="font-medium text-text-primary">“{card.watch.contains}”</span> appears on{' '}
+              {card.watch.priceBelow
+                ? <>Tell me when the price is under <span className="font-medium text-text-primary">{card.watch.priceBelow}{card.watch.currency ? ` ${card.watch.currency}` : ''}</span> on{' '}</>
+                : <>Notify when <span className="font-medium text-text-primary">“{card.watch.contains}”</span> appears on{' '}</>}
               <a href={card.watch.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-0.5 text-brand hover:underline">
                 <span className="break-all">{sourceHost}</span><ArrowUpRight size={12} className="shrink-0" aria-hidden />
               </a>.
+              {card.seenPrice ? ` I saw ${card.seenPrice} there in our chat.` : ''}
             </p>
           ) : <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-text-secondary">{card.task}</p>}
           {askLimit && !created && (
@@ -102,7 +108,7 @@ export function TaskSuggestionCard({ card, sessionId }: { card: TaskCard; sessio
           )}
           {created ? (
             <p className="mt-4 text-sm text-text-primary">
-              Created. <Link to="/tasks" className="text-brand underline-offset-2 hover:underline">See it in Tasks</Link>
+              Created.{note ? ` ${note}` : ''} <Link to="/tasks" className="text-brand underline-offset-2 hover:underline">See it in Tasks</Link>
             </p>
           ) : (
             <div className="mt-4 flex flex-wrap items-center gap-1">

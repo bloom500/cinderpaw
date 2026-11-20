@@ -128,6 +128,20 @@ export async function embed(
 }
 
 /**
+ * The host refuses a whole batch when one text passes 32 KiB (rsi/runtime.rs
+ * MAX_EMBED_BYTES_PER_TEXT), so one 594 KB memory stopped the tree build for
+ * the entire profile (smoke test, 7 Nov). The model reads only the start of a
+ * text that long anyway, so each is cut to 32,000 UTF-8 bytes on a character
+ * boundary; 32 texts a chunk then stay under the 1 MiB batch limit too.
+ */
+export const EMBED_MAX_BYTES = 32_000;
+export function fitForEmbed(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.length <= EMBED_MAX_BYTES) return text;
+  return new TextDecoder().decode(bytes.subarray(0, EMBED_MAX_BYTES)).replace(/�+$/, "");
+}
+
+/**
  * Production invoker factory: binds `embed_text` to the live `RsiBridge`.
  * The Rust `handle_rsi_request` dispatcher routes the method name to the
  * Phase-0 embedding context (mean-pooled, L2-normalized, returned as
@@ -141,7 +155,7 @@ export function rsiBridgeEmbed(bridge: RsiBridge): EmbedInvoker {
     // is slow but finite; this only fires if a response is genuinely lost
     // (the interleaved-stdout deadlock), so the build fails over to FTS5
     // instead of hanging forever. Not a latency budget.
-    const wire = await bridge.request<number[][]>("embed_text", { texts }, 5 * 60 * 1000);
+    const wire = await bridge.request<number[][]>("embed_text", { texts: texts.map(fitForEmbed) }, 5 * 60 * 1000);
     if (!Array.isArray(wire)) {
       throw new Error(
         `embed_text: expected number[][], got ${typeof wire} from Rust`,

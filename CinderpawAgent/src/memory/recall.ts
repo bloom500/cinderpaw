@@ -21,6 +21,7 @@ import type { EpisodicMemory } from "./episodic.ts";
 import { memoryScope, memoryTokens, type SemanticMemory } from "./semantic.ts";
 import type { MemoryGraph, MemoryGraphData } from "./graph.ts";
 import type { EpisodicEvent } from "../types.ts";
+import { localDay } from "./day.ts";
 
 /**
  * Whether a recalled line is a tool result, not something said. Tool rows are
@@ -292,7 +293,7 @@ export class RecallEngine {
         .filter((e) => !isToolRow(e.role, e.content))
         .map((e) => ({ kind: "past", text: clip(e.content, this.#config.snippetMaxChars), ts: e.timestamp })),
       // Dated lines need today's date to be read against; see fractal-recall.
-      text: `Relevant past exchanges (today is ${new Date(this.#config.now()).toISOString().slice(0, 10)}):\n${lines.join("\n")}`,
+      text: `Relevant past exchanges (today is ${localDay(this.#config.now())}):\n${lines.join("\n")}`,
       count: hits.length,
     };
   }
@@ -303,6 +304,6 @@ function clip(text: string, maxChars: number): string {
 }
 
 function formatEpisodic(event: EpisodicEvent, maxChars: number): string {
-  const when = new Date(event.timestamp).toISOString().slice(0, 10);
+  const when = localDay(event.timestamp);
   return `  [${when}] ${event.role}: ${clip(event.content, maxChars)}`;
 }

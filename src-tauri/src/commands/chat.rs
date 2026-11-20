@@ -80,7 +80,10 @@ pub(crate) async fn chat_cloud_complete(
                 ctx.push(serde_json::json!({ "role": m.role, "content": m.content }));
             }
         }
-        (sys, ctx)
+        // The title call passes its instruction as `params.system_prompt`,
+        // not as a message, and this branch only looked at messages: Claude
+        // got "User: ... Assistant: ..." with no instruction at all.
+        (sys.or_else(|| params.system_prompt.clone().filter(|s| !s.is_empty())), ctx)
     } else {
         let mut ctx: Vec<serde_json::Value> = Vec::new();
         if let Some(sys) = &params.system_prompt {
@@ -98,9 +101,15 @@ pub(crate) async fn chat_cloud_complete(
         "model": model,
         "messages": ctx,
         "stream": false,
-        "temperature": params.temperature,
         "max_tokens": params.max_tokens,
     });
+    // No sampling settings for Anthropic: Claude from Opus 4.7 on answers any
+    // `temperature` with a 400, Haiku 5.5 and Sonnet 5.5 any but the default.
+    // The sidecar learned this on 19 Oct (`anthropicSampling`); this path had
+    // not, and no chat got a generated title after the move to Haiku 5.5 (28 Oct).
+    if provider.is_openai_compatible() {
+        body["temperature"] = serde_json::json!(params.temperature);
+    }
     if let Some(sys) = system {
         body["system"] = serde_json::Value::String(sys);
     }

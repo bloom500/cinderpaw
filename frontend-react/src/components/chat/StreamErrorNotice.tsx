@@ -7,13 +7,17 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, ChevronDown, Hourglass } from 'lucide-react';
-import { useChat } from '@/stores/chat';
+import { useChatApi, useChatView as useChat } from '@/stores/chatScope';
 import { useConversations } from '@/stores/conversations';
 import { humanizeError } from '@/lib/humanizeError';
 import { useResendTurn } from '@/hooks/useResendTurn';
 import { cn } from '@/lib/utils';
 
+const PRIMARY = 'h-8 rounded-lg bg-brand px-3.5 text-sm font-medium text-brand-foreground hover:bg-brand/90';
+const SECONDARY = 'h-8 rounded-lg border border-border-default px-3 text-sm text-text-primary hover:bg-text-primary/5';
+
 export function StreamErrorNotice() {
+  const chat = useChatApi();
   const status = useChat((s) => s.streamStatus);
   const live = useChat((s) => s.streamError);
   // The failure saved with the last reply: a chat reopened after an error, or
@@ -34,7 +38,7 @@ export function StreamErrorNotice() {
   // One resend for the whole app (`useResendTurn`). This used to be its own
   // copy of the logic and it only ever called the chat path, so pressing Retry
   // in agent mode sent the turn past the agent to the local model.
-  const retry = () => void resend(useChat.getState().messages.length - 1);
+  const retry = () => void resend(chat.getState().messages.length - 1);
 
   return (
     <div role="alert" className="mx-auto w-full max-w-2xl px-4 pb-2">
@@ -49,23 +53,22 @@ export function StreamErrorNotice() {
             <p className="text-sm leading-relaxed text-text-muted">{`${err.message} Your message is safe, nothing was lost.`}</p>
           </div>
         </div>
+        {/* With a fix (no model, a bad key) the fix is the orange button: Try
+            again alone cannot work until it is done, and a new install met
+            "Try again" as the way out of "No model is chosen yet" (smoke test, 7 Nov). */}
         <div className="mt-3.5 flex flex-wrap items-center gap-2 pl-11">
-          <button
-            type="button"
-            onClick={retry}
-            className="h-8 rounded-lg bg-brand px-3.5 text-sm font-medium text-brand-foreground hover:bg-brand/90"
-          >
-            Try again
-          </button>
           {err.action && (
             <button
               type="button"
               onClick={() => navigate(err.action === 'settings' ? '/models?tab=cloud' : '/models')}
-              className="h-8 rounded-lg border border-border-default px-3 text-sm text-text-primary hover:bg-text-primary/5"
+              className={PRIMARY}
             >
               {err.actionLabel}
             </button>
           )}
+          <button type="button" onClick={retry} className={err.action ? SECONDARY : PRIMARY}>
+            Try again
+          </button>
           {hasDetail && (
             <button
               type="button"

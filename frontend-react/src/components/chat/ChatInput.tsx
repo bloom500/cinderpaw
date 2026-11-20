@@ -1,19 +1,24 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { ArrowUp, Square, Mic, Phone, Clock } from 'lucide-react';
+import { tauri } from '@/lib/tauri';
+import { Square, Phone, Clock, ChevronDown } from 'lucide-react';
+import { SendIcon } from '@/components/ui/animated-icons/send';
+import { AudioLinesIcon } from '@/components/ui/animated-icons/audio-lines';
+import { useIconHover } from '@/components/ui/animated-icons/useIconHover';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AttachedFileChip, isLongPaste, pastedText, type AttachedFile } from './AttachedFileChip';
+import { useAttachmentDraft } from './attachmentDrafts';
 import { LinkChip } from './LinkChip';
+import { VideoLinkCard } from './VideoLinkCard';
+import { isVideoLink } from '@/lib/videoLinks';
 import { splitLinks } from '@/lib/linkLabel';
 import { FileAttachButton } from './FileAttachButton';
 import { VoicePreview } from './VoicePreview';
 import { VoiceProviderCard } from './VoiceProviderCard';
 import { VoiceEngineCard } from './VoiceEngineCard';
-import { CallOverlay } from './CallOverlay';
 import { ComposerPlaceholder } from './ComposerPlaceholder';
-import { motion } from 'framer-motion';
 import { ModelPill } from './ModelPill';
 import { ContextRing } from './ContextRing';
 import { PermissionPill } from './PermissionPill';
@@ -22,19 +27,16 @@ import { useMascotState } from './mascot/useMascotState';
 import { useEmberRun } from './ember/useEmberRun';
 import { EmberInvite } from './ember/EmberInvite';
 import { EmberPanel } from './ember/EmberPanel';
-import { useChat, type ChatMessage } from '@/stores/chat';
-import { useUI, type CallEngine } from '@/stores/ui';
+import type { ChatMessage } from '@/stores/chat';
+import { useChatApi, useChatScope, useChatView } from '@/stores/chatScope';
+import { askUserFor } from '@/stores/askUser';
+import { useUI } from '@/stores/ui';
 import { useConversations } from '@/stores/conversations';
 import { saveVoiceBlobToDisk, transcribeVoiceBlob, buildUserContent } from '@/hooks/useSendMessage';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
-import { useCallSession } from '@/hooks/useCallSession';
-import { useLiveCallSession } from '@/hooks/useLiveCallSession';
-import { useLiveKitCallSession } from '@/hooks/useLiveKitCallSession';
-import { useCallPill, hangUpLandsOn } from '@/lib/callPill';
-import { useJevCallSession } from '@/hooks/useJevCallSession';
-import { JEV_PROVIDER_ID } from './JevKeyRow';
-import { attachmentFromPath, attachmentsFromClipboard } from '@/lib/attachments';
-import { decodeToPcm16k, computePeaks, chime } from '@/lib/audio';
+import { ComposerCall, claimVoiceCapture, releaseVoiceCapture, useVoiceCapture } from './ComposerCall';
+import { pendingFromClipboard, pendingFromPaths, type PendingAttachment } from '@/lib/attachments';
+import { decodeToPcm16k, computePeaks } from '@/lib/audio';
 import { ensureSttModel } from '@/lib/voiceModel';
 import { stopActiveStream } from '@/lib/streamControl';
 import { useNotifications } from '@/stores/notifications';
@@ -62,10 +64,11 @@ export interface ChatInputProps {
     opts?: {
       voice?: ChatMessage['voice'];
       existingUserId?: string;
+      replaceFrom?: string;
       /** `'voice'` when the answer will be spoken aloud — see `cinderpaw_send_message`. */
       surface?: 'voice' | 'text';
     },
-  ) => Promise<void>;
+  ) => Promise<void | string>;
 }
 
 /**
@@ -88,7 +91,15 @@ export const DRAFT_KEY = (id: string) => `cinderpaw.draft.${id}`;
 
 export function readDraft(id: string): string {
   try {
-    return window.localStorage.getItem(DRAFT_KEY(id)) ?? '';
+    const key = DRAFT_KEY(id);
+    const saved = window.localStorage.getItem(key);
+    if (saved !== null || !id.startsWith('cowork:')) return saved ?? '';
+    const legacy = window.sessionStorage.getItem(key);
+    if (legacy !== null) {
+      window.localStorage.setItem(key, legacy);
+      window.sessionStorage.removeItem(key);
+    }
+    return legacy ?? '';
   } catch {
     return '';
   }
@@ -101,6 +112,7 @@ export function writeDraft(id: string, text: string): void {
     // opened, which is a slow leak of keys nobody reads.
     if (text.trim()) window.localStorage.setItem(DRAFT_KEY(id), text);
     else window.localStorage.removeItem(DRAFT_KEY(id));
+    if (id.startsWith('cowork:')) window.sessionStorage.removeItem(DRAFT_KEY(id));
   } catch {
     /* the draft is lost on reload, exactly as it always was */
   }
@@ -109,24 +121,27 @@ export function writeDraft(id: string, text: string): void {
 // Mobile UX (deferred): swap to Enter=newline + explicit send button.
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 function ChatInput({ isEmpty, sendFn }, ref) {
+  const chat = useChatApi();
+  const scope = useChatScope();
+  const sendIcon = useIconHover();
+  const voiceIcon = useIconHover();
   const [text, setText] = useState('');
-  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
-  // Links pasted on their own become chips beside the files instead of a
-  // hundred characters of address in the text box (the ChatGPT composer, 24
-  // Sep). They go back into the message, first, when it is sent.
-  const [links, setLinks] = useState<string[]>([]);
 
   // `'new'` for a conversation that has not been saved yet — it still has a
   // draft, and it is the single most likely one to be interrupted.
-  const convId = useConversations((s) => s.currentId) ?? 'new';
-  const sessionId = useChat((s) => s.sessionId);
+  const currentConversation = useConversations((s) => s.currentId);
+  const sessionId = useChatView((s) => s.sessionId);
+  const convId = scope ? sessionId : currentConversation ?? 'new';
+  const { files: attachedFiles, links, setFiles: setAttachedFiles, setLinks, ready: attachmentsReady } = useAttachmentDraft(convId);
+  // A question card above is waiting for THIS chat's answer. The reply cannot
+  // finish until it is answered, so "it sends when this reply is done" was a
+  // promise the field could not keep (seen 28 Oct with a red Stop beside it).
+  const askingHere = askUserFor(sessionId)((s) => s.pending?.sessionId === sessionId);
   const [queued, setQueued] = useState<string | null>(null);
   const queuedRef = useRef(queued);
   queuedRef.current = queued;
   const liveDraft = useRef<{ id: string; sessionId: string } | null>(null);
-  // The live text, readable from a cleanup that must not re-run on every
-  // keystroke. Assigned during render on purpose: a ref is not state, and this
-  // one only ever mirrors what was just rendered.
+  // Keep the latest draft available to the cleanup between renders.
   const textRef = useRef(text);
   textRef.current = text;
   // Text a caller typed in for the person (Teach, an artifact question). Those
@@ -149,7 +164,9 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     const typed = prefill.current;
     prefill.current = null;
     setQueued(null);
-    setText(typed ?? readDraft(id));
+    const restored = typed ?? readDraft(id);
+    textRef.current = restored;
+    setText(restored);
     return () => {
       writeDraft(id, [queuedRef.current, textRef.current].filter(Boolean).join('\n'));
       queuedRef.current = null;
@@ -172,10 +189,22 @@ function ChatInput({ isEmpty, sendFn }, ref) {
   useEffect(() => {
     const save = () => writeDraft(convId, [queuedRef.current, textRef.current].filter(Boolean).join('\n'));
     window.addEventListener('pagehide', save);
-    return () => window.removeEventListener('pagehide', save);
-  }, [convId]);
+    // A message typed mid-turn that arrived after the turn ended: it waits and
+    // sends when the reply is done, like before steering existed. Kept in this
+    // effect so the composer gains no hook (a live app hot-reloads it).
+    const refused = (e: Event) => {
+      const { text: back, sessionId: target } = (e as CustomEvent<{ sessionId: string; text: string }>).detail;
+      if (target !== sessionId) return;
+      setQueued((q) => (q ? `${q}\n${back}` : back));
+    };
+    window.addEventListener('cinderpaw:steer-refused', refused);
+    return () => {
+      window.removeEventListener('pagehide', save);
+      window.removeEventListener('cinderpaw:steer-refused', refused);
+    };
+  }, [convId, sessionId]);
   const [dragOver, setDragOver] = useState(false);
-  const status = useChat((s) => s.streamStatus);
+  const status = useChatView((s) => s.streamStatus);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   // In use until a press lands outside it. Not blur: the model menu and the
@@ -194,7 +223,9 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     return () => document.removeEventListener('pointerdown', onDown);
   }, [engaged]);
   const t = useT();
-  const rec = useVoiceRecorder();
+  const rec = useVoiceRecorder(sessionId);
+  const voiceSendInFlight = useRef(false);
+  const [sendingVoice, setSendingVoice] = useState(false);
   const [voicePeaks, setVoicePeaks] = useState<number[]>([]);
   const sttProvider = useUI((s) => s.sttProvider);
   const [providerCardOpen, setProviderCardOpen] = useState(false);
@@ -203,95 +234,24 @@ function ChatInput({ isEmpty, sendFn }, ref) {
   const micHoldTimer = useRef<number | null>(null);
   const micHeldRef = useRef(false);
 
-  // A call turn is routed exactly like a typed or recorded one: to the agent.
-  const pipelineCall = useCallSession(async (text: string) => {
-    // `surface: 'voice'` is what tells the agent this answer gets spoken. Without
-    // it a call received the desktop's full markdown answer read out loud.
-    await sendFn(text, undefined, { surface: 'voice' });
-  });
-  // Both loops are mounted, and only one is ever running: an unopened call is a
-  // handful of refs. Choosing the hook at call time instead would mean calling a
-  // hook conditionally, which React does not allow.
-  //
-  // They each own a speech player, and both players listen to the same
-  // `cinderpaw://tts-chunk` event for the same session — but a player only schedules
-  // audio between `beginSpeech` and its stop, and only the loop taking the call
-  // ever calls that. The idle one drops every chunk, which is the same guard that
-  // already keeps a straggler from an interrupted utterance out.
-  const liveCall = useLiveCallSession();
-  const liveKitCall = useLiveKitCallSession();
-  const callEngine = useUI((s) => s.callEngine);
-  // Jev: the command call. Picked through the voice provider row, not the
-  // engine, because on the call screen it sits beside Gemini and OpenAI. What
-  // Jev does not recognise goes to the agent, and its reply is spoken back on
-  // the call (see `handOff`), so the agent is told to answer for the ear.
-  const jevCall = useJevCallSession(async (text: string) => {
-    await sendFn(text, undefined, { surface: 'voice' });
-  });
-  const s2sProvider = useUI((s) => s.s2sProvider);
-  // Three engines, one overlay. LiveKit is the only one offered now; the other
-  // two are retired rather than deleted and still run if something selects
-  // them, which is what keeps the rollback a config change instead of a revert.
-  // See `RETIRED_CALL_ENGINES` — a machine that had picked one is moved over on
-  // rehydrate, so this branch resolves to LiveKit everywhere in practice.
-  const call =
-    s2sProvider === JEV_PROVIDER_ID ? jevCall
-      : callEngine === 'livekit' ? liveKitCall : callEngine === 'live' ? liveCall : pipelineCall;
-  // X and minimise park a live call in the top-of-screen pill instead of ending it.
-  useCallPill(call);
-  // A tone when the line opens and when it closes: on a call you are looking
-  // away from the screen, and the sound is the confirmation. Jev chimes its own
-  // (useJevCallSession), so it is left out here rather than heard twice.
-  const wasLive = useRef(false);
-  useEffect(() => {
-    const live = call.phase !== 'idle' && call.phase !== 'ready' && call.phase !== 'connecting';
-    if (live !== wasLive.current && s2sProvider !== JEV_PROVIDER_ID) chime(live ? 'connect' : 'end');
-    wasLive.current = live;
-  }, [call.phase, s2sProvider]);
-  // Changing who answers on the pre-call screen swaps the engine under it
-  // (Jev <-> LiveKit), and the new one starts idle: idle closes the call screen,
-  // so picking Gemini while on Jev dropped him back into the chat (22 and
-  // 23 Sep). The ready screen carries over to the engine now chosen.
-  const engineKey: 'jev' | CallEngine = s2sProvider === JEV_PROVIDER_ID ? 'jev' : callEngine;
-  const engines = { jev: jevCall, livekit: liveKitCall, live: liveCall, pipeline: pipelineCall };
-  const prevEngine = useRef<'jev' | CallEngine>(engineKey);
-  useEffect(() => {
-    const was = prevEngine.current;
-    prevEngine.current = engineKey;
-    if (was === engineKey || engines[was].phase !== 'ready') return;
-    engines[was].hangUp();
-    engines[engineKey].open();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change of engine acts
-  }, [engineKey]);
-  const ttsProvider = useUI((s) => s.ttsProvider);
   const [engineCardOpen, setEngineCardOpen] = useState(false);
+  const [inCall, setInCall] = useState(false);
+  const lease = useRef(Symbol('composer voice')).current;
+  const owner = useVoiceCapture((s) => s.owner);
+  const voiceBusy = owner !== null && owner !== lease;
+  const recordingLease = useRef(false);
+  const release = () => releaseVoiceCapture(lease);
+  useEffect(() => {
+    setInCall(false);
+    recordingLease.current = false;
+    return () => releaseVoiceCapture(lease);
+  }, [lease, sessionId]);
 
-  /**
-   * Two first-use choices gate a call, and both are asked before the microphone
-   * opens rather than after: which engine transcribes you (existing card), and
-   * which one answers you (the voice card). Order matters only in that neither
-   * may be skipped — a call that cannot hear or cannot speak wastes the words
-   * someone already said.
-   */
-  const onCallClick = () => {
-    // Neither question applies to a speech-to-speech call: it has no transcriber
-    // and no synthesiser to choose. Asking anyway would gate it behind two
-    // settings it never reads.
-    // A realtime vendor has no transcriber and no synthesiser to choose, so
-    // asking would gate it behind two settings it never reads. The pipeline
-    // does read them — and picking the engine that speaks is not a thing to
-    // guess at, because the choice includes whether the audio leaves the
-    // machine.
-    const pipelineCallChosen =
-      callEngine === 'livekit' && useUI.getState().s2sProvider === 'pipeline';
-    // A Jev call hears a transcript, so it needs the transcriber chosen, like
-    // the pipeline; it never speaks, so the voice question is not asked.
-    const jevChosen = useUI.getState().s2sProvider === JEV_PROVIDER_ID;
-    if ((callEngine === 'live' || callEngine === 'livekit') && !pipelineCallChosen && !jevChosen) call.open();
-    else if (sttProvider === null) setProviderCardOpen(true);
-    else if (ttsProvider === null && !jevChosen) setEngineCardOpen(true);
-    else call.open();
+  const openCall = () => {
+    if (rec.state === 'recording' || recordingLease.current || !claimVoiceCapture(lease)) return;
+    setInCall(true);
   };
+  const closeCall = () => { setInCall(false); release(); };
 
   // When a recording finishes, compute peaks for the preview and warm the model.
   useEffect(() => {
@@ -315,10 +275,20 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     // refusal said nothing at all and the microphone button just went back to
     // idle. Being told nothing is the worst possible answer to "I pressed the
     // microphone and pressed Deny by accident".
+    if (recordingLease.current || inCall || !claimVoiceCapture(lease)) return;
+    recordingLease.current = true;
     const failure = await rec.start();
+    if (failure) { recordingLease.current = false; release(); }
     if (failure === 'denied') useNotifications.getState().push('error', t('voice.permissionDenied'));
     if (failure === 'unsupported') useNotifications.getState().push('error', t('voice.unsupported'));
   };
+
+  useEffect(() => {
+    if (rec.state === 'preview' && recordingLease.current) {
+      recordingLease.current = false;
+      releaseVoiceCapture(lease);
+    }
+  }, [rec.state, lease]);
 
   // Press-and-hold the mic to (re)open the provider chooser; a normal tap
   // records. Holding is disabled while recording so "tap to stop" still works.
@@ -354,8 +324,8 @@ function ChatInput({ isEmpty, sendFn }, ref) {
       setTimeout(() => taRef.current?.focus(), 0);
     },
     focus: () => taRef.current?.focus(),
-    attach: (dt: DataTransfer) => { void attachmentsFromClipboard(dt).then(addFiles); },
-    attachPaths: (paths: string[]) => { void Promise.all(paths.map(attachmentFromPath)).then(addFiles); },
+    attach: (dt: DataTransfer) => attachLater(pendingFromClipboard(dt)),
+    attachPaths: (paths: string[]) => attachLater(pendingFromPaths(paths)),
   }));
 
   // Auto-resize textarea
@@ -372,16 +342,36 @@ function ChatInput({ isEmpty, sendFn }, ref) {
       return [...prev, ...files.filter((f) => !existing.has(f.path))];
     });
 
+  // Each file shows at once with its name and a spinner, and fills in when it
+  // has been read. Before, nothing appeared until every file was read, so a big
+  // video looked like a frozen app (29 Oct 2026).
+  const attachLater = (jobs: PendingAttachment[]) => {
+    const ids = jobs.map(() => `pending://${crypto.randomUUID()}`);
+    addFiles(jobs.map((j, i) => ({ name: j.name, path: ids[i], content: null, kind: 'binary', loading: true })));
+    jobs.forEach((j, i) => {
+      void j.ready.then((f) => setAttachedFiles((prev) => {
+        if (!prev.some((p) => p.path === ids[i])) return prev;                         // removed while it was read
+        if (prev.some((p) => p.path === f.path)) return prev.filter((p) => p.path !== ids[i]);  // already attached
+        return prev.map((p) => (p.path === ids[i] ? f : p));
+      }));
+    });
+  };
+  const attachLaterRef = useRef(attachLater);
+  attachLaterRef.current = attachLater;
+
   // Drag & drop: Tauri intercepts native file drops (the webview never sees
   // HTML5 drop events for OS files) and emits drag-drop events with paths.
   useEffect(() => {
     const webview = getCurrentWebview();
     const unlistenPromise = webview.onDragDropEvent((event) => {
-      if (event.payload.type === 'over') {
-        setDragOver(true);
-      } else if (event.payload.type === 'drop') {
-        setDragOver(false);
-        void Promise.all(event.payload.paths.map(attachmentFromPath)).then(addFiles);
+      const payload = event.payload;
+      if (payload.type === 'over' || payload.type === 'drop') {
+        const scale = window.devicePixelRatio || 1;
+        const target = document.elementFromPoint(payload.position.x / scale, payload.position.y / scale);
+        const panel = composerRef.current?.closest('[data-chat-drop-target]') ?? composerRef.current;
+        const inside = !!target && !!panel?.contains(target);
+        setDragOver(payload.type === 'over' && inside);
+        if (payload.type === 'drop' && inside) attachLaterRef.current(pendingFromPaths(payload.paths));
       } else {
         setDragOver(false);
       }
@@ -412,7 +402,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     if (!hasFiles(e)) return;
     e.preventDefault();
     setDragOver(false);
-    void attachmentsFromClipboard(e.dataTransfer).then(addFiles);
+    attachLater(pendingFromClipboard(e.dataTransfer));
   };
 
   // Ctrl+V / ⌘V: attach pasted screenshots and copied files. Keep text.
@@ -440,7 +430,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     if (!hasFile) return;
     // Don't preventDefault — text+image paste should keep the text in the textarea
     // while also attaching the image. Preventing drops the text.
-    void attachmentsFromClipboard(e.clipboardData).then(addFiles);
+    attachLater(pendingFromClipboard(e.clipboardData));
   };
 
   const isStreaming = status === 'streaming';
@@ -468,7 +458,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     }
     else setText((cur) => (cur ? `${queued}\n${cur}` : queued));
   }, [status, queued, sendFn]);
-  const agentPhase = useChat((s) => s.agentPhase);
+  const agentPhase = useChatView((s) => s.agentPhase);
   const mascotState = useMascotState({
     streamStatus: status,
     agentPhase,
@@ -482,39 +472,54 @@ function ChatInput({ isEmpty, sendFn }, ref) {
   const disabled = false;
 
   const trySend = async () => {
+    if (voiceSendInFlight.current || !attachmentsReady) return;
     // Voice path: a recorded preview is pending — transcribe + send it instead
     // of the (empty) textarea content.
     if (rec.state === 'preview' && rec.blob) {
       if (isStreaming || disabled) return;
       const { blob, durationMs } = rec;
       const peaks = voicePeaks;
-      rec.reset();
-      setVoicePeaks([]);
+      const owner = liveDraft.current;
+      voiceSendInFlight.current = true;
+      setSendingVoice(true);
       const userId = crypto.randomUUID();
       try {
-        // Optimistic bubble: persist the blob (fast) and show the playable
-        // voice message instantly, then transcribe in the background. The user
-        // no longer waits seconds for whisper before their own message appears.
         const audioPath = await saveVoiceBlobToDisk(blob);
-        useChat.getState().addMessage({
+        if (liveDraft.current !== owner) return;
+        const transcript = await transcribeVoiceBlob(blob, audioPath);
+        if (liveDraft.current !== owner) return;
+        const body = transcript || '(unintelligible)';
+        const voice = { audioPath, durationMs, transcript, peaks };
+        chat.getState().addMessage({
           id: userId,
           role: 'user',
           content: '',
-          voice: { audioPath, durationMs, transcript: '', peaks },
+          voice,
           voicePending: true,
           createdAt: Date.now(),
         });
-        const transcript = await transcribeVoiceBlob(blob, audioPath);
-        const body = transcript || '(unintelligible)';
-        const voice = { audioPath, durationMs, transcript, peaks };
         // Route the transcript exactly like a typed message, to the agent.
         // `existingUserId` fills in the optimistic bubble instead of adding a
         // duplicate.
-        await sendFn(body, undefined, { voice, existingUserId: userId });
+        const turn = sendFn(body, undefined, { voice, existingUserId: userId });
+        const started = chat.getState().messages.some((message) => message.id === userId && !message.voicePending);
+        if (started) {
+          void turn.catch((err) => console.error('[voice] turn FAILED', err));
+        } else {
+          await turn;
+        }
+        rec.reset();
+        setVoicePeaks([]);
       } catch (err) {
         console.error('[voice] sendVoice FAILED', err);
-        // Drop the optimistic bubble — transcription failed before any reply.
-        useChat.getState().removeMessage(userId);
+        const bubble = chat.getState().messages.find((message) => message.id === userId);
+        if (bubble && !bubble.voicePending) {
+          rec.reset();
+          setVoicePeaks([]);
+          return;
+        }
+        if (bubble) chat.getState().removeMessage(userId);
+        if (liveDraft.current !== owner) return;
         // Tauri's invoke rejects with the raw error *string*, not an Error
         // object, so read both shapes before matching the sentinels.
         const code = err instanceof Error ? err.message : String(err);
@@ -522,17 +527,24 @@ function ChatInput({ isEmpty, sendFn }, ref) {
         else if (code === 'voice-unavailable') useNotifications.getState().push('error', t('voice.unsupported'));
         else if (code === 'stt-no-key') setProviderCardOpen(true); // cloud chosen but key missing
         else if (code === 'stt-cloud-failed') useNotifications.getState().push('error', t('voice.cloudFailed'));
-        else useNotifications.getState().push('error', t('voice.emptyTranscript'));
+        else useNotifications.getState().push('error', 'Voice message not sent', 'Your recording is still here. Try sending it again.');
+      } finally {
+        voiceSendInFlight.current = false;
+        setSendingVoice(false);
       }
       return;
     }
     if (isStreaming && text.trim() && attachedFiles.length === 0 && links.length === 0) {
       const next = text;
-      setQueued((q) => (q ? `${q}\n${next}` : next));
       setText('');
+      // It joins the turn that is running (steering, 4 Nov). If the engine
+      // cannot take it, it waits and sends when this reply is done, as before.
+      if (askingHere) { setQueued((q) => (q ? `${q}\n${next}` : next)); return; }
+      void tauri.raw.cinderpawSteer(sessionId, next).catch(() => setQueued((q) => (q ? `${q}\n${next}` : next)));
       return;
     }
     if ((!text.trim() && attachedFiles.length === 0 && links.length === 0) || isStreaming || disabled) return;
+    if (attachedFiles.some((f) => f.loading)) return; // the button says so: it waits for the files
     const draftText = text;
     const draftLinks = links;
     // Links first, the way they sat in the composer; the words on the next line.
@@ -546,7 +558,9 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     // in these two consts until a bubble carries it — so if the send throws
     // before that bubble exists, the message is simply gone, and until now the
     // rejection was unhandled on top of it: an empty composer and silence.
-    const before = useChat.getState().messages.length;
+    const before = chat.getState().messages.length;
+    const owner = liveDraft.current;
+    let posted = false;
     setText('');
     setAttachedFiles([]);
     setLinks([]);
@@ -556,15 +570,23 @@ function ChatInput({ isEmpty, sendFn }, ref) {
       const images = files
         .filter((f) => f.kind === 'image' && f.dataUrl)
         .map((f) => f.dataUrl!);
-      await sendFn(buildUserContent(content, files), images.length > 0 ? images : undefined);
+      const turn = sendFn(buildUserContent(content, files), images.length > 0 ? images : undefined);
+      posted = chat.getState().messages.length !== before;
+      await turn;
     } catch (err) {
       // Put it back only if nothing made it onto the transcript. Once a user
       // bubble exists the words are safe there, and restoring the draft as
       // well would show them twice.
-      if (useChat.getState().messages.length === before) {
-        setText(draftText);
-        setLinks(draftLinks);
-        setAttachedFiles(files);
+      const stillHere = liveDraft.current === owner;
+      if (!posted && (!stillHere || chat.getState().messages.length === before)) {
+        const restore = (current: string) => [draftText, current].filter(Boolean).join('\n');
+        if (stillHere) setText(restore);
+        else if (owner) writeDraft(owner.id, restore(readDraft(owner.id)));
+        setLinks((current) => [...new Set([...draftLinks, ...current])]);
+        setAttachedFiles((current) => [
+          ...files.filter((file) => !current.some((next) => next.path === file.path)),
+          ...current,
+        ]);
       }
       useNotifications.getState().push(
         'error',
@@ -592,17 +614,13 @@ function ChatInput({ isEmpty, sendFn }, ref) {
     setAttachedFiles((prev) => prev.filter((f) => f.path !== path));
 
 
-  // Expanded while the composer is in use: focused, holding something, recording,
-  // streaming, or on Home where the field IS the screen. Collapsed to one row in
-  // a running conversation, where the transcript is the subject.
-  const expanded =
-    engaged || isEmpty || isStreaming || dragOver || text.length > 0 ||
-    attachedFiles.length > 0 || links.length > 0 || rec.state !== 'idle';
-
   return (
     <TooltipProvider delayDuration={300}>
-      <div className={cn(
-        'px-4 py-3 mx-auto w-full',
+      {/* data-composer: ChatPage measures it to glide the dock with a side panel. */}
+      {/* @container: the button row reads its own width (a side panel narrows
+          it), not the window's, to decide which names fit. */}
+      <div data-composer="" className={cn(
+        '@container px-4 py-3 mx-auto w-full',
         // In a conversation the composer lines up with the transcript's
         // 700px column (MessageList, max-w-[748px] minus px-6), 16px wider
         // on each side as the canvas draws it, instead of spanning the pane.
@@ -643,13 +661,12 @@ function ChatInput({ isEmpty, sendFn }, ref) {
           <EmberInvite run={ember} />
           {(attachedFiles.length > 0 || links.length > 0) && (
             <div className="flex flex-wrap gap-1 px-3 pt-2">
-              {links.map((href) => (
-                <LinkChip
-                  key={href}
-                  href={href}
-                  onRemove={() => setLinks((prev) => prev.filter((h) => h !== href))}
-                />
-              ))}
+              {links.map((href) => {
+                const remove = () => setLinks((prev) => prev.filter((h) => h !== href));
+                return isVideoLink(href)
+                  ? <VideoLinkCard key={href} href={href} onRemove={remove} />
+                  : <LinkChip key={href} href={href} onRemove={remove} />;
+              })}
               {attachedFiles.map((f) => (
                 <AttachedFileChip
                   key={f.path}
@@ -664,6 +681,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
               blob={rec.blob}
               durationMs={rec.durationMs}
               peaks={voicePeaks}
+              busy={sendingVoice}
               onDelete={() => { rec.reset(); setVoicePeaks([]); }}
               onReRecord={() => {
                 rec.reset();
@@ -671,13 +689,11 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                 // Same reason as the microphone button: a refusal here was
                 // silent too, and this one happens after the person has already
                 // recorded something once.
-                void rec.start().then((failure) => {
-                  if (failure === 'denied') useNotifications.getState().push('error', t('voice.permissionDenied'));
-                  if (failure === 'unsupported') useNotifications.getState().push('error', t('voice.unsupported'));
-                });
+                void onMic();
               }}
             />
           )}
+          {sendingVoice && <p role="status" className="px-4 pt-2 text-xs text-text-muted">Preparing your voice message…</p>}
           {queued !== null && (
             <div className="flex items-center gap-2 px-4 pt-2.5 text-xs text-text-muted" role="status">
               <Clock size={12} className="shrink-0 text-brand" />
@@ -693,11 +709,11 @@ function ChatInput({ isEmpty, sendFn }, ref) {
               </button>
             </div>
           )}
-          <div className="flex items-end gap-1 px-2 pt-2 pb-1.5">
-            <div className="flex h-11 shrink-0 items-center">
-              <FileAttachButton onFilesSelected={addFiles} />
-            </div>
-            <div className="relative min-w-0 flex-1">
+          {/* Two rows, after the 21st.dev prompt composer (MIT) Darius picked on
+              1 Nov: the words get the whole width, and every button lives on
+              one row under them. */}
+          <div className="px-3 pt-2">
+            <div className="relative min-w-0">
               <Textarea
                 ref={taRef}
                 value={text}
@@ -706,7 +722,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                 onPaste={onPaste}
                 // The visible placeholder is drawn below, animated; the box keeps
                 // an accessible name so a screen reader still hears what it is for.
-                aria-label={t('chat.placeholder.agent')}
+                aria-label={scope ? `Message ${scope.name}` : t('chat.placeholder.agent')}
                 disabled={disabled}
                 rows={1}
                 className={cn(
@@ -724,34 +740,75 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                     // forty blurred letters every 3.2 s behind the transcript
                     // and every streamed reply; there the field says what it is.
                     active={!!isEmpty && !engaged && !disabled}
-                    fallback={isStreaming ? 'Write your next message. It sends when this reply is done.' : t('chat.placeholder.agent')}
+                    fallback={askingHere
+                      ? 'Answer the questions above to go on.'
+                      : isStreaming ? 'Add something while it works…' : scope ? `Message ${scope.name}…` : t('chat.placeholder.agent')}
                   />
                 </div>
               )}
             </div>
-            <div className="flex h-11 shrink-0 items-center gap-1">
+          </div>
+          {/* Stable controls: focusing, sending and finishing a reply must not
+              move the composer, mascot or transcript. The left group gives way
+              (the model name truncates); the right group never does. */}
+          <div className="flex items-center justify-between gap-2 px-2.5 pt-1 pb-2.5">
+            <div className="flex min-w-0 items-center gap-1">
+              <FileAttachButton onPathsSelected={(paths) => attachLater(pendingFromPaths(paths))} />
+              <ModelPill />
+              {/* ponytail: the "Shift+Enter for newline" hint is gone from this
+                  row. Invisible until typing, it still took ~140px, and with every
+                  button on one row it cut the model's name to "Claude S…". */}
+              <PermissionPill />
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <ContextRing />
               {!isStreaming && (
-                <button
-                  type="button"
-                  onClick={onMicClick}
-                  onPointerDown={onMicPointerDown}
-                  onPointerUp={clearMicHold}
-                  onPointerLeave={clearMicHold}
-                  aria-label={rec.state === 'recording' ? 'Stop recording' : 'Record voice message (hold to choose provider)'}
-                  className={cn('p-1.5 rounded-full hover:bg-bg-hover', rec.state === 'recording' ? 'text-error animate-pulse' : 'text-text-muted')}
-                >
-                  {rec.state === 'recording' ? <Square size={16} /> : <Mic size={16} />}
-                </button>
+                // A split button (14 Nov, Darius): nobody guesses that holding
+                // the mic opens the transcription choice, so a small arrow beside
+                // it opens the same card in one visible click. Holding still works.
+                <div className="flex h-8 items-center rounded-full border border-border-default bg-bg-hover">
+                  <button
+                    type="button"
+                    disabled={sendingVoice || voiceBusy || inCall}
+                    onClick={onMicClick}
+                    onPointerDown={onMicPointerDown}
+                    onPointerUp={clearMicHold}
+                    onPointerEnter={voiceIcon.hover.onPointerEnter}
+                    onPointerLeave={() => { clearMicHold(); voiceIcon.hover.onPointerLeave(); }}
+                    onFocus={voiceIcon.hover.onFocus}
+                    onBlur={voiceIcon.hover.onBlur}
+                    aria-label={rec.state === 'recording' ? 'Stop recording' : 'Record voice message'}
+                    className={cn(
+                      'group flex h-full items-center px-2 transition-colors hover:bg-bg-active',
+                      rec.state === 'recording' ? 'rounded-full text-error animate-pulse' : 'rounded-l-full text-text-secondary hover:text-text-primary',
+                    )}
+                  >
+                    {rec.state === 'recording' ? <Square size={16} className="shrink-0" /> : <AudioLinesIcon ref={voiceIcon.ref} size={16} className="flex shrink-0" />}
+                    <span className="composer-slide-label text-sm">{rec.state === 'recording' ? 'Stop' : 'Record'}</span>
+                  </button>
+                  {rec.state !== 'recording' && (
+                    <button
+                      type="button"
+                      onClick={() => setProviderCardOpen(true)}
+                      aria-label={t('voice.provider.title')}
+                      title={t('voice.provider.title')}
+                      aria-haspopup="dialog"
+                      className="flex h-full items-center rounded-r-full border-l border-border-default pl-1 pr-1.5 text-text-muted transition-colors hover:bg-bg-active hover:text-text-primary"
+                    >
+                      <ChevronDown size={12} />
+                    </button>
+                  )}
+                </div>
               )}
               {!isStreaming && (
                 <Button
                   size="icon"
                   variant="ghost"
-                  onClick={onCallClick}
-                  disabled={disabled}
-                  aria-label={t('call.aria')}
+                  onClick={openCall}
+                  disabled={disabled || voiceBusy || rec.state === 'recording'}
+                  aria-label={scope ? `Call ${scope.name}` : t('call.aria')}
                   title={t('call.title')}
-                  className="h-8 w-8 rounded-full text-text-muted hover:text-brand"
+                  className="h-8 w-8 rounded-full border border-border-default bg-bg-hover text-text-secondary hover:bg-bg-active hover:text-brand"
                 >
                   <Phone size={16} />
                 </Button>
@@ -760,7 +817,7 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                 <Button
                   size="icon"
                   variant="destructive"
-                  onClick={() => void stopActiveStream(useChat.getState().sessionId)}
+                  onClick={() => void stopActiveStream(sessionId)}
                   aria-label="Stop"
                   className="h-8 w-8 rounded-full"
                 >
@@ -770,92 +827,24 @@ function ChatInput({ isEmpty, sendFn }, ref) {
                 <Button
                   size="icon"
                   onClick={() => void trySend()}
-                  disabled={(!text.trim() && attachedFiles.length === 0 && rec.state !== 'preview') || disabled}
+                  disabled={sendingVoice || !attachmentsReady || (!text.trim() && attachedFiles.length === 0 && links.length === 0 && rec.state !== 'preview') || attachedFiles.some((f) => f.loading) || disabled}
                   aria-label="Send"
                   className="h-8 w-8 rounded-full"
+                  {...sendIcon.hover}
                 >
-                  <ArrowUp size={16} />
+                  <SendIcon ref={sendIcon.ref} size={16} className="flex" />
                 </Button>
               )}
             </div>
           </div>
-          {/* The second row slides out when the composer is in use. It stays
-              mounted when collapsed, only clipped: the model menu opens in a
-              portal, and unmounting its trigger while it is open would strand
-              the menu with nothing to anchor to. */}
-          <motion.div
-            initial={false}
-            animate={expanded ? { height: 'auto', opacity: 1 } : { height: 0, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 260, damping: 30 }}
-            className="overflow-hidden"
-            aria-hidden={!expanded}
-            {...(!expanded ? { inert: true } : {})}
-          >
-            {/* The left group gives way (the model name truncates); the right
-                group never does. */}
-            <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
-              <div className="flex min-w-0 items-center gap-1">
-                <ModelPill />
-                <PermissionPill />
-                <span
-                  className={cn(
-                    'hidden truncate text-2xs text-text-muted transition-opacity duration-150 sm:inline',
-                    text.length > 0 ? 'opacity-100' : 'opacity-0',
-                  )}
-                  aria-hidden={text.length === 0}
-                >
-                  Shift+Enter for newline
-                </span>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <ContextRing />
-              </div>
-            </div>
-          </motion.div>
         </div>
       </div>
       <VoiceProviderCard open={providerCardOpen} onOpenChange={setProviderCardOpen} />
-      {/* Picking a voice flows straight into the call it was blocking. */}
-      <VoiceEngineCard
-        open={engineCardOpen}
-        onOpenChange={setEngineCardOpen}
-        onChosen={call.open}
-      />
-      <CallOverlay
-        phase={call.phase}
-        // Only the LiveKit engine ever reports a stage; the retired two share the
-        // shape and pass none, so this needs no branch on the engine.
-        stage={call.stage}
-        heard={call.heard}
-        // Only the LiveKit engine measures this; the retired two omit it.
-        youSpeaking={'youSpeaking' in call ? Boolean(call.youSpeaking) : false}
-        level={call.level}
-        notice={call.notice}
-        // Only a Jev call answers in lines of text; the others speak theirs.
-        said={s2sProvider === JEV_PROVIDER_ID ? jevCall.said : undefined}
-        // Only a Jev call hands sentences to Cinder; the card shows what went and what came back.
-        handoffText={s2sProvider === JEV_PROVIDER_ID ? jevCall.handoffText : undefined}
-        handoffReply={s2sProvider === JEV_PROVIDER_ID ? jevCall.handoffReply : undefined}
-        onAnswer={() => void call.begin()}
-        onHangUp={() => {
-          const next = hangUpLandsOn(call.phase);
-          call.hangUp();
-          if (next === 'ready') call.open();
-        }}
-        onInterrupt={call.interrupt}
-        // The microphone switch, LiveKit only; the retired engines share the shape and pass none.
-        muted={'muted' in call ? Boolean(call.muted) : undefined}
-        onMute={'setMuted' in call ? (call.setMuted as (m: boolean) => void) : undefined}
-        // Only the LiveKit engine has a channel to speak on demand; the other
-        // two share the shape and pass none.
-        onAskAloud={'askAloud' in call ? (call.askAloud as (text: string) => void) : undefined}
-        // Both modes can be typed into now — the pipeline hands the text to its
-        // turn loop, the Live session sends it on its own `clientContent`
-        // channel. `call` is whichever hook is driving this overlay.
-        onSay={call.say}
-        onChangeEngine={() => setEngineCardOpen(true)}
-        onChangeStt={() => setProviderCardOpen(true)}
-      />
+      <VoiceEngineCard open={engineCardOpen} onOpenChange={setEngineCardOpen} />
+      {inCall && (
+        <ComposerCall key={sessionId} send={sendFn} onClose={closeCall}
+          onChangeEngine={() => setEngineCardOpen(true)} onChangeStt={() => setProviderCardOpen(true)} />
+      )}
     </TooltipProvider>
   );
 });

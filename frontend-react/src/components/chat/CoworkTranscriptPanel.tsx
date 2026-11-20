@@ -29,6 +29,8 @@ import { cn } from '@/lib/utils';
 import { BubbleTail } from './BubbleTail';
 import { Markdown } from '@/lib/markdown';
 import { tauri } from '@/lib/tauri';
+import avatarAtlas from '@/assets/cowork-avatars.webp';
+import { useCoworkTeam } from '@/stores/coworkTeam';
 import {
   useCoworkTranscript,
   threadExchanges,
@@ -37,6 +39,7 @@ import {
 import { useConversations } from '@/stores/conversations';
 import { useChat } from '@/stores/chat';
 import { CopiedCheck } from '@/components/ui/copied-check';
+import { BASE, FAST } from '@/lib/motion';
 
 const AVATAR_COLORS = [
   'bg-sky-500',
@@ -47,10 +50,23 @@ const AVATAR_COLORS = [
   'bg-cyan-500',
 ] as const;
 
-function avatarColor(id: string): string {
+// Left-to-right order in the avatar atlas.
+const AVATAR_CHARACTERS = ['scout', 'tally', 'pip', 'moss', 'rook', 'loom', 'quill', 'echo'];
+
+function avatarHash(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
-  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+  return Math.abs(h);
+}
+
+export function coworkCharacterSprite(id: string, imageUrl: string) {
+  const namedCharacter = AVATAR_CHARACTERS.indexOf(id.toLowerCase());
+  const slot = namedCharacter >= 0 ? namedCharacter : avatarHash(id) % AVATAR_CHARACTERS.length;
+  return {
+    backgroundImage: `url("${imageUrl}")`,
+    backgroundSize: `${AVATAR_CHARACTERS.length * 100}% 100%`,
+    backgroundPosition: `${slot * 100 / (AVATAR_CHARACTERS.length - 1)}% 0`,
+  };
 }
 
 /**
@@ -104,20 +120,24 @@ function Avatar({
   className?: string;
 }) {
   const label = displayName(id, name);
+  const teammate = useCoworkTeam((s) => s.roster.some((agent) => agent.id === id));
+  const hash = avatarHash(id);
   return (
     <span
       className={cn(
         'inline-flex shrink-0 items-center justify-center rounded-full',
         'font-semibold text-white select-none',
         size === 'head' ? 'size-full text-lg' : 'size-6 text-2xs',
-        avatarColor(id),
+        teammate ? 'bg-no-repeat' : AVATAR_COLORS[hash % AVATAR_COLORS.length],
         className,
       )}
+      style={teammate ? coworkCharacterSprite(id, avatarAtlas) : undefined}
+      aria-hidden={teammate || undefined}
       // The id stays reachable on hover: the name is for the person, the id is
       // what they would quote in a bug report.
       title={name ? `${name} (${id})` : id}
     >
-      {(label[0] ?? '?').toUpperCase()}
+      {!teammate && (label[0] ?? '?').toUpperCase()}
     </span>
   );
 }
@@ -162,7 +182,7 @@ export function toMessages(exchanges: CoworkExchange[]): TranscriptMessage[] {
         authorId: e.toAgentId,
         authorName: e.toName,
         text: e.responseText,
-        at: e.at,
+        at: e.responseAt ?? e.at,
         side: e.toAgentId === 'human' ? 'right' : 'left',
         failed: e.status === 'error',
       });
@@ -200,7 +220,7 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
       id={`cowork-msg-${m.key}`}
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.16 }}
+      transition={BASE}
       className={cn('group/bubble flex w-full gap-1.5', right ? 'justify-end' : 'justify-start')}
     >
       {/* The avatar column keeps its width on a continued run, so consecutive
@@ -475,6 +495,7 @@ function Composer({
         )}
         <input
           value={text}
+          aria-label="Message"
           // Clear the last failure as soon as the person acts on it. A red
           // line that outlives the message it was about starts describing the
           // wrong send.
@@ -509,6 +530,7 @@ function Composer({
 }
 
 const COLLAPSED_KEY = 'cowork-panel-collapsed';
+export { Avatar as CoworkAvatar, Bubble as CoworkBubble, Composer as CoworkComposer };
 const PANEL_WIDTH_KEY = 'cowork-panel-width';
 const PANEL_MIN_W = 280;
 const PANEL_MAX_W = 640;
@@ -971,7 +993,7 @@ export function CoworkTranscriptPanel() {
         style={{ top: pos.top, right: pos.right, borderRadius: 9999 }}
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.14, ease: 'easeOut' }}
+        transition={FAST}
         // Hover and press are framer's too. As Tailwind's `hover:scale-105
         // active:scale-95 transition-transform` they were a second animation
         // writing the same `transform` property that framer writes inline every
@@ -1044,7 +1066,7 @@ export function CoworkTranscriptPanel() {
       // there is nothing writing the radius but the class.
       initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.16, ease: 'easeOut' }}
+      transition={BASE}
       // z-30, not z-20: the chat input wrapper is z-20 AND comes later in the
       // DOM, so at the same level it painted its own panel straight over a
       // floating window the person had dragged there. Modals (z-40+) still

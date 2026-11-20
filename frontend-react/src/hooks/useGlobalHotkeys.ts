@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { runCommand } from '@/lib/commands';
+import { useOnboarding } from '@/stores/onboarding';
+import { setUiZoom, uiZoom, zoomKey } from '@/lib/uiZoom';
 
 /** Close the browser panel if it is open, else the artifacts panel. True if one closed. */
 async function closeSidePanel(): Promise<boolean> {
@@ -12,6 +14,12 @@ async function closeSidePanel(): Promise<boolean> {
 
 export function useGlobalHotkeys() {
   const navigate = useNavigate();
+
+  // The size picked last time, back on start. Here, in the main window's
+  // shell, so the call pill (a window of its own, sized to fit) keeps 100%.
+  useEffect(() => {
+    if (uiZoom() !== 1) void setUiZoom(uiZoom(), false);
+  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -34,6 +42,11 @@ export function useGlobalHotkeys() {
 
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
+
+      // From anywhere, the composer included: making the text bigger is never
+      // something a text field means by Ctrl +.
+      if (zoomKey(e)) { e.preventDefault(); return; }
+      if (useOnboarding.getState().active) return;
 
       const target = e.target as HTMLElement | null;
       const inEditable =

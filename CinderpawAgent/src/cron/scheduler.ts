@@ -21,7 +21,8 @@
  */
 
 import { nextRunAt } from "./schedule.ts";
-import { verifyWatch } from "./watch.ts";
+import { checkWatch } from "./watch.ts";
+import { quietHour } from "../core/nudges.ts";
 import { deliverCron, type CronDeliveryContext } from "./delivery.ts";
 import type {
   CronJob,
@@ -89,6 +90,10 @@ export interface CronSchedulerConfig {
    * the run-history table.
    */
   onJobError?: (job: CronJob, message: string) => void;
+  /** Runs at the start of every tick: work that must happen while the person is away rides it. */
+  onTick?: (now: number) => void;
+  /** When watches do not check. Default 22:00-08:00 local; tests on the real clock pin it. */
+  watchQuiet?: (at: number) => boolean;
 }
 
 const DEFAULT_TICK_MS = 30_000;
@@ -115,6 +120,8 @@ export class CronScheduler {
   readonly #catchUpOnStart: boolean;
   readonly #stopJob: CronSchedulerConfig["stopJob"];
   readonly #limit: CronSchedulerConfig["limit"];
+  readonly #onTick: CronSchedulerConfig["onTick"];
+  readonly #watchQuiet: (at: number) => boolean;
 
   #timer: ReturnType<typeof setTimeout> | null = null;
   #running = false;
@@ -133,6 +140,8 @@ export class CronScheduler {
     this.#catchUpOnStart = config.catchUpOnStart ?? false;
     this.#stopJob = config.stopJob;
     this.#limit = config.limit;
+    this.#onTick = config.onTick;
+    this.#watchQuiet = config.watchQuiet ?? quietHour;
   }
 
   /** Start the timer. Idempotent. */
@@ -177,9 +186,13 @@ export class CronScheduler {
     this.#inflight = true;
     try {
       const now = this.#now();
+      try { this.#onTick?.(now.getTime()); } catch { /* never stops the tasks */ }
       const due = this.#repo.list().filter((j) => {
         if (!j.enabled) return false;
         if (j.expiresAt !== undefined && now.getTime() >= j.expiresAt) return true;
+        // A watch has no chosen minute: none at night, and no queue. The first
+        // check after 08:00 reads the page fresh, not one from 3 a.m.
+        if (j.kind === "watch" && this.#watchQuiet(now.getTime())) return false;
         if (j.nextRunMs == null) return false;
         return j.nextRunMs <= now.getTime();
       });
@@ -249,8 +262,8 @@ export class CronScheduler {
     try {
       if (job.kind === "watch") {
         if (!job.watch || !this.#watchFetch) throw new Error("Watch source verification is unavailable");
-        const proof = await verifyWatch(job.watch, this.#watchFetch(job), startedAt);
-        const result = proof ? `Verified on ${proof.sourceUrl}:\n“${proof.excerpt}”` : "Checked source; expected text is not present yet.";
+        const { proof, result, price } = await checkWatch(job.watch, this.#watchFetch(job), startedAt);
+        if (price !== undefined) this.#repo.addPrice(job.id, startedAt, price);
         if (!this.#repo.updateAfterRun(job.id, startedAt, computeNext(job, this.#now()), {runAt:startedAt,status:proof ? "success" : "waiting",durationMs:this.#now().getTime()-startedAt,result,proof,costUsd:0}, 0, job.updatedAt)) return;
         if (proof) {
           this.#repo.setEnabled(job.id, false);

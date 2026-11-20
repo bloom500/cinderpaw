@@ -36,12 +36,23 @@ class InferenceError extends Error {
    */
   readonly status?: number;
   readonly retryAfter?: string | null;
+  readonly providerCode?: string;
+  readonly providerType?: string;
 
-  constructor(message: string, status?: number, retryAfter?: string | null) {
+  constructor(message: string, status?: number, retryAfter?: string | null, detail?: string) {
     super(message);
     this.name = "InferenceError";
     this.status = status;
     this.retryAfter = retryAfter;
+    // Keep structured error fields even when the human-readable detail is
+    // truncated. A billing 429 needs credits/limit changes, not another retry.
+    try {
+      const error = JSON.parse(detail ?? "null")?.error;
+      if (typeof error?.code === "string") this.providerCode = error.code;
+      if (typeof error?.type === "string") this.providerType = error.type;
+    } catch {
+      // Plain-text or malformed errors still retain their HTTP status/header.
+    }
   }
 }
 
@@ -445,7 +456,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       // `InferenceRequest.providerOnly` for the measurements that make this
       // mandatory rather than tidy. `allow_fallbacks: false` is the point: a
       // fallback is exactly the unpinned behaviour we are removing.
-      ...(req.providerOnly && req.providerOnly.length > 0
+      ...withChatPriceCeiling(req, req.providerOnly && req.providerOnly.length > 0
         ? { provider: { only: req.providerOnly, allow_fallbacks: false } }
         : {}),
       ...openAIReasoning(target, req),
@@ -594,7 +605,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       // rides in the same usage block, so a provider that caches perfectly
       // looked identical to one that does not cache at all.
       stream_options: { include_usage: true },
-      ...openRouterProviderPin(target),
+      ...withChatPriceCeiling(req, openRouterProviderPin(target)),
       ...openRouterUsageAccounting(target),
     };
     if (useNativeTools) {
@@ -1538,6 +1549,7 @@ async function fetchStream(
       `inference endpoint ${url} returned ${res.status}: ${detail.slice(0, 200)}`,
       res.status,
       res.headers.get("retry-after"),
+      detail,
     );
   }
   if (!res.body) throw new InferenceError("no response body for streaming");
@@ -1572,6 +1584,7 @@ export async function postJson(
         `inference endpoint ${url} returned ${res.status}: ${detail.slice(0, 200)}`,
         res.status,
         res.headers.get("retry-after"),
+        detail,
       );
     }
     return await res.json();
@@ -1931,6 +1944,18 @@ function anthropicCacheControl(req: InferenceRequest): Record<string, unknown> {
  *  unknown ones, and none would honour it. */
 export function openRouterUsageAccounting(target: ModelTarget): Record<string, unknown> {
   return /openrouter\.ai/i.test(target.baseUrl ?? "") ? { usage: { include: true } } : {};
+}
+
+function withChatPriceCeiling(req: InferenceRequest, options: Record<string, unknown>): Record<string, unknown> {
+  if (!req.openRouterPriceCeiling) return options;
+  return {
+    provider: {
+      ...(options.provider as Record<string, unknown> | undefined),
+      require_parameters: true,
+      allow_fallbacks: false,
+      max_price: { ...req.openRouterPriceCeiling, request: 0, image: 0 },
+    },
+  };
 }
 
 export function openRouterProviderPin(target: ModelTarget): Record<string, unknown> {

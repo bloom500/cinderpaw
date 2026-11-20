@@ -81,6 +81,7 @@ describe("npm pack manifest (files whitelist)", () => {
       cwd: pkgDir,
       encoding: "utf8",
       shell: true, // npm is npm.cmd on Windows
+      env: { ...process.env, npm_config_update_notifier: "false" }, // no registry check on a cold runner
     });
     // If npm isn't available in this environment, don't fail the suite.
     if (r.status !== 0 || !r.stdout.trim().startsWith("[")) return;
@@ -89,5 +90,5 @@ describe("npm pack manifest (files whitelist)", () => {
     expect(paths.some((p) => p === "bin/cinderpaw.js")).toBe(true);
     expect(paths.some((p) => p.startsWith("src/"))).toBe(false);
     expect(paths.some((p) => p.startsWith("dist/"))).toBe(false);
-  }, 30_000); // npm pack shells out to npm.cmd — slow on Windows, well past the 5s default
+  }, 90_000); // npm pack shells out to npm.cmd: slow on Windows; a cold windows-latest runner passed 30 s on 20 Nov
 });

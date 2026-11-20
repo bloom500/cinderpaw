@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { aggregate, medianBucket, validatePayload, wilson } from './usage.js';
+import { aggregate, medianBucket, validateNumbers, validatePayload, wilson } from './usage.js';
 
 const group = (over = {}) => ({
   provider: 'openrouter.ai', model: 'm', tasks_part: 1, tasks_main: 1,
@@ -136,4 +136,21 @@ test('one address cannot bring the 20 installs that put a model on the public ta
   expect((await post(code(0), '9.9.9.9')).status).toBe(204); // a code already seen may resend
   expect((await post(code(5), '9.9.9.9')).status).toBe(429);
   expect((await post(code(5), '8.8.8.8')).status).toBe(204);
+});
+
+describe('Send my numbers', () => {
+  const numbers = (over = {}) => ({ v: 1, code: 'b'.repeat(32), app: '2026.11.6', os: 'windows',
+    kinds: { task: { sent: 3, positive: 1, dismissed: 0, daysAnswered: 1 } }, answeredTwoWeeks: 0, onTimePct: 100, ...over });
+  test('counts are accepted', () => {
+    expect(validateNumbers(numbers())).toEqual({ ok: true });
+    expect(validateNumbers(numbers({ kinds: {}, onTimePct: null })).ok).toBe(true);
+  });
+  test('any text, unknown field or odd kind is refused', () => {
+    expect(validateNumbers(numbers({ title: 'Call the bank' })).ok).toBe(false);
+    expect(validateNumbers(numbers({ kinds: { task: { sent: 'three', positive: 0, dismissed: 0, daysAnswered: 0 } } })).ok).toBe(false);
+    expect(validateNumbers(numbers({ kinds: { 'whatsapp:+40700000000': { sent: 1, positive: 0, dismissed: 0, daysAnswered: 0 } } })).ok).toBe(false);
+    expect(validateNumbers(numbers({ kinds: { task: { sent: 1, positive: 0, dismissed: 0, daysAnswered: 0, note: 'x' } } })).ok).toBe(false);
+    expect(validateNumbers(numbers({ answeredTwoWeeks: true })).ok).toBe(false);
+    expect(validateNumbers(numbers({ code: 'not-a-code' })).ok).toBe(false);
+  });
 });

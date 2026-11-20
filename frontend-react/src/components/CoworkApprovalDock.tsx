@@ -16,6 +16,7 @@ import { ShieldAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useChat } from '@/stores/chat';
 import { useCoworkTranscript, type CoworkExchange } from '@/stores/coworkTranscript';
+import { BASE } from '@/lib/motion';
 
 /** The chat a request belongs to, when it has a real one to open. */
 function chatOf(e: CoworkExchange): string | null {
@@ -48,7 +49,7 @@ function Request({ e }: { e: CoworkExchange }) {
       initial={{ opacity: 0, x: 24, scale: 0.96 }}
       animate={{ opacity: 1, x: 0, scale: 1 }}
       exit={{ opacity: 0, x: 24, scale: 0.96 }}
-      transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.8 }}
+      transition={BASE}
       role="alertdialog"
       aria-label={`${who} needs your approval`}
       data-testid="cowork-approval-dock"

@@ -20,7 +20,7 @@ serde_json = "1.0"
 serde_yaml = "0.9"
 json5 = "0.4"
 # Read-only: OpenClaw keeps auth profiles and cron jobs, Hermes its sessions, in SQLite (migrate/).
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 base64 = "0.22"
 # Tier 0 grading: fold H₂O → h2o before comparing. Already in the lockfile via
 # the HTTP stack, so this costs a line, not a download.
@@ -95,6 +95,9 @@ dirs = "5"
 # here uses the same algorithm but a separate chain so a tamper on one side
 # cannot mask a tamper on the other.
 sha2 = "0.10"
+# RS256 check of the ChatGPT sign-in identity (chatgpt_signin). Already in the
+# tree through rustls; named here to call it.
+ring = "0.17"
 # One HMAC-SHA256 signature, for the LiveKit access token. Same authors as
 # sha2 above; the alternative was a whole JWT crate for nine lines.
 hmac = "0.12"

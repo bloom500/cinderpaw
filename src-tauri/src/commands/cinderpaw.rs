@@ -12,6 +12,8 @@ use tauri::State;
 pub struct CinderpawInferParams {
     pub temperature: Option<f64>,
     pub max_tokens: Option<u32>,
+    /// The Effort control on a cloud model ("auto", "low", "medium", "high").
+    pub effort: Option<String>,
 }
 
 /// Is the sidecar ready right now?
@@ -47,8 +49,12 @@ pub(crate) async fn cinderpaw_send_message(
     images: Option<Vec<String>>,
     infer_params: Option<CinderpawInferParams>,
     surface: Option<String>,
+    bare: Option<bool>,
+    request_id: Option<String>,
+    replace_from: Option<String>,
+    voice: Option<serde_json::Value>,
 ) -> Result<String, String> {
-    let id = uuid::Uuid::new_v4().to_string();
+    let id = request_id.and_then(|value| uuid::Uuid::parse_str(&value).ok()).unwrap_or_else(uuid::Uuid::new_v4).to_string();
 
     // Send a metadata-only roster of installed skills (id, name, description,
     // version, tags) on every message. The agent sidecar renders this as a
@@ -71,6 +77,14 @@ pub(crate) async fn cinderpaw_send_message(
         "content": content,
         "sessionId": session_id,
     });
+    if session_id.starts_with("cowork:") {
+        if let Some(target) = replace_from {
+            payload["replaceFrom"] = serde_json::Value::String(target);
+        }
+        if let Some(recording) = voice {
+            payload["voice"] = recording;
+        }
+    }
     // Image attachments (data URLs) ride along so the sidecar can hand
     // real pixels to vision-capable models.
     if let Some(imgs) = images.filter(|v| !v.is_empty()) {
@@ -100,7 +114,14 @@ pub(crate) async fn cinderpaw_send_message(
         payload["inferParams"] = serde_json::json!({
             "temperature": p.temperature,
             "max_tokens": p.max_tokens,
+            "effort": p.effort,
         });
+    }
+    // Dev-only "Bare model": the sidecar answers with the model alone, no
+    // Cinderpaw prompt, tools or memory (CinderpawAgent/src/core/bare-turn.ts).
+    // Only a debug build's composer sends it.
+    if bare == Some(true) {
+        payload["bare"] = serde_json::json!(true);
     }
     let msg = payload.to_string();
 
@@ -132,12 +153,38 @@ pub(crate) fn cinderpaw_agent_status(state: State<'_, AppState>) -> bool {
 pub(crate) async fn cinderpaw_stop_generation(
     state: State<'_, AppState>,
     session_id: Option<String>,
+    stop_request_id: Option<String>,
 ) -> Result<(), String> {
     let mut payload = serde_json::json!({ "type": "stop" });
+    if let Some(id) = stop_request_id {
+        payload["stopRequestId"] = serde_json::Value::String(id);
+    }
     if let Some(sid) = session_id {
         payload["sessionId"] = serde_json::Value::String(sid);
     }
     let msg = payload.to_string();
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Add to the turn running for `session_id` (steering): the engine gives it to
+/// the model at its next step and answers `steer_ack`; when no turn is running
+/// the ack says so and the window sends it as an ordinary message instead.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cinderpaw_steer(
+    state: State<'_, AppState>,
+    session_id: String,
+    content: String,
+) -> Result<(), String> {
+    let msg = serde_json::json!({ "type": "steer", "sessionId": session_id, "content": content }).to_string();
     let tx = {
         let guard = state.cinderpaw_agent_tx.lock();
         guard
@@ -564,6 +611,52 @@ pub(crate) async fn cinderpaw_cowork_team(
     Ok(())
 }
 
+#[derive(Debug, Deserialize, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ChatSpendView {
+    limit_usd: Option<f64>,
+    used_usd: f64,
+}
+
+/// Read or change a chat's model spending limit. SQLite stays owned by the sidecar.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cinderpaw_chat_spend(
+    state: State<'_, AppState>,
+    session_id: String,
+    set_limit: bool,
+    limit_usd: Option<f64>,
+) -> Result<ChatSpendView, String> {
+    let unavailable = "Cinderpaw is still starting up. Try again in a moment.";
+    let sender = state.cinderpaw_agent_tx.lock().as_ref().cloned()
+        .ok_or_else(|| unavailable.to_string())?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let mut receiver = state.runtime.events_tx.subscribe();
+    let request = serde_json::json!({
+        "type": "chat_spend",
+        "id": id,
+        "sessionId": session_id,
+        "chatSpendAction": if set_limit { "set" } else { "get" },
+        "chatSpendLimitUsd": limit_usd,
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(8), async {
+        sender.send(request.to_string()).await.map_err(|_| unavailable.to_string())?;
+        loop {
+            let event = match receiver.recv().await {
+                Ok(event) => event,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(_) => return Err(unavailable.to_string()),
+            };
+            if event.event != "cinderpaw://agent-output" { continue; }
+            let Some(line) = event.payload.get("data").and_then(|value| value.as_str()) else { continue; };
+            let Ok(reply) = serde_json::from_str::<serde_json::Value>(line) else { continue; };
+            if reply["type"] != "chat_spend_result" || reply["id"].as_str() != Some(id.as_str()) { continue; }
+            if let Some(error) = reply["error"].as_str() { return Err(error.to_string()); }
+            return serde_json::from_value(reply).map_err(|_| "Could not read the chat spending limit.".to_string());
+        }
+    }).await.map_err(|_| "The spending limit took too long to load. Try again.".to_string())?
+}
+
 /// The workspace panel's one door to the artifact store.
 ///
 /// Fire-and-forget, like every other paired request here: the answer arrives as
@@ -891,6 +984,17 @@ pub(crate) async fn cinderpaw_cron_op(
             payload["expiryDays"] = days.clone();
         }
         if let Some(watch) = options.get("watch") { payload["watch"] = watch.clone(); }
+        if let Some(owner) = options.get("ownerAgentId") {
+            if !owner.is_null() && !owner.is_string() {
+                return Err("Pick a teammate for this task.".into());
+            }
+            payload["ownerAgentId"] = owner.clone();
+        }
+        // "Send it to me on WhatsApp": the result goes to the phone even while the
+        // window has focus. Only on a new task, which is the one with a delivery.
+        if options.get("toPhone").and_then(|v| v.as_bool()) == Some(true) && payload["delivery"].is_object() {
+            payload["delivery"]["phone"] = serde_json::Value::Bool(true);
+        }
         if action == "limit" {
             // The weekly limit for all scheduled tasks: a positive amount, or null for none.
             let limit = options.get("weeklyLimitUsd").cloned().unwrap_or(serde_json::Value::Null);
@@ -928,6 +1032,10 @@ fn cron_op_line(
     let msg = match action {
         "list" => serde_json::json!({ "type": "cron_list", "id": request_id }),
         "followups" => serde_json::json!({ "type": "cron_list", "id": request_id, "followUps": true }),
+        // The Tasks page's "Send a test": a real notice to the owner's phone,
+        // answered with where it went (28 Oct, Darius: notifications must be
+        // ultra simple to get, and proven, not promised).
+        "test_notify" => serde_json::json!({ "type": "cron_list", "id": request_id, "testNotify": true }),
         "limit" => serde_json::json!({ "type": "cron_list", "id": request_id }),
         "add" | "edit" => {
             if action == "edit" && !present(&job_id) { return Err("no task selected".into()); }
@@ -955,6 +1063,36 @@ fn cron_op_line(
             serde_json::json!({ "type": "cron_toggle", "requestId": request_id, "id": job_id, "enabled": enabled })
         }
         "remove" | "toggle" => return Err("no task selected".to_string()),
+        // The unfinished-work card was opened or closed: counted, nothing runs.
+        "nudge_opened" | "nudge_dismissed" if present(&job_id) => serde_json::json!({
+            "type": "nudge_reaction", "id": request_id, "sourceId": job_id,
+            "outcome": if action == "nudge_opened" { "opened" } else { "dismissed" },
+        }),
+        "nudge_opened" | "nudge_dismissed" => return Err("no card selected".to_string()),
+        // Undo on a line of "What I learned": that kind and time of day start counting again.
+        "learned_undo" if present(&job_id) => serde_json::json!({ "type": "learned_undo", "id": request_id, "sourceId": job_id }),
+        "learned_undo" => return Err("no line selected".to_string()),
+        // Remove on a page the agent composed (spec 4.14): the page id.
+        "page_remove" if present(&job_id) => serde_json::json!({ "type": "page_remove", "id": request_id, "sourceId": job_id }),
+        "page_remove" => return Err("no page selected".to_string()),
+        // Yes / Not now on a question card: "pageId:cardIndex", and which button.
+        "page_answer" if present(&job_id) && enabled.is_some() => serde_json::json!({ "type": "page_answer", "id": request_id, "sourceId": job_id, "enabled": enabled }),
+        "page_answer" => return Err("no answer selected".to_string()),
+        // "Send my numbers": pressed by the person; the engine sends counts only and logs them first.
+        "numbers_send" => serde_json::json!({ "type": "numbers_send", "id": request_id }),
+        // The window was focused: the person is at the computer, so a nudge
+        // rings here instead of on the phone.
+        "presence" => serde_json::json!({ "type": "presence", "id": request_id }),
+        // "Follow-up suggestions": a person who said no is never written to on the phone.
+        "followups_setting" => serde_json::json!({
+            "type": "followups_setting", "id": request_id, "enabled": enabled.ok_or("on or off?")?,
+        }),
+        // The first message after a model is connected: the model writes it from
+        // the app names (one per line, in `task`; empty when they could not be read).
+        "welcome" if present(&session_id) => serde_json::json!({
+            "type": "welcome", "id": request_id, "sessionId": session_id, "content": task.unwrap_or_default(),
+        }),
+        "welcome" => return Err("a welcome needs a chat".to_string()),
         other => return Err(format!("unknown task action '{other}'")),
     };
     Ok(msg.to_string())
@@ -990,6 +1128,66 @@ mod cron_op_tests {
         assert!(cron_op_line("r", "list", None, None, None, None, None, None, None).is_ok());
         assert!(cron_op_line("r", "limit", None, None, None, None, None, None, None).unwrap().contains("cron_list"));
         assert!(cron_op_line("r", "limit", None, None, None, None, None, None, None).unwrap().contains("cron_list"));
+    }
+
+    #[test]
+    fn a_card_reaction_names_the_card_and_what_was_done() {
+        let line = cron_op_line("r", "nudge_dismissed", Some("run-1".into()), None, None, None, None, None, None).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(v["type"], "nudge_reaction");
+        assert_eq!(v["sourceId"], "run-1");
+        assert_eq!(v["outcome"], "dismissed");
+        let opened: serde_json::Value = serde_json::from_str(&cron_op_line("r", "nudge_opened", Some("run-1".into()), None, None, None, None, None, None).unwrap()).unwrap();
+        assert_eq!(opened["outcome"], "opened");
+        assert!(cron_op_line("r", "nudge_opened", None, None, None, None, None, None, None).is_err());
+    }
+
+    #[test]
+    fn page_remove_names_the_page() {
+        let v: serde_json::Value = serde_json::from_str(&cron_op_line("r", "page_remove", Some("ab12cd34".into()), None, None, None, None, None, None).unwrap()).unwrap();
+        assert_eq!(v["type"], "page_remove");
+        assert_eq!(v["sourceId"], "ab12cd34");
+        assert!(cron_op_line("r", "page_remove", None, None, None, None, None, None, None).is_err());
+    }
+
+    #[test]
+    fn page_answer_names_the_card_and_the_button() {
+        let v: serde_json::Value = serde_json::from_str(&cron_op_line("r", "page_answer", Some("ab12cd34:2".into()), None, None, None, None, None, Some(true)).unwrap()).unwrap();
+        assert_eq!(v["type"], "page_answer");
+        assert_eq!(v["sourceId"], "ab12cd34:2");
+        assert_eq!(v["enabled"], true);
+        assert!(cron_op_line("r", "page_answer", Some("ab12cd34:2".into()), None, None, None, None, None, None).is_err());
+    }
+
+    #[test]
+    fn learned_undo_names_the_line() {
+        let v: serde_json::Value = serde_json::from_str(&cron_op_line("r", "learned_undo", Some("followup:evening".into()), None, None, None, None, None, None).unwrap()).unwrap();
+        assert_eq!(v["type"], "learned_undo");
+        assert_eq!(v["sourceId"], "followup:evening");
+        assert!(cron_op_line("r", "learned_undo", None, None, None, None, None, None, None).is_err());
+        let n: serde_json::Value = serde_json::from_str(&cron_op_line("r", "numbers_send", None, None, None, None, None, None, None).unwrap()).unwrap();
+        assert_eq!(n["type"], "numbers_send");
+    }
+
+    #[test]
+    fn presence_and_the_follow_up_switch_reach_the_engine() {
+        let p: serde_json::Value = serde_json::from_str(&cron_op_line("r", "presence", None, None, None, None, None, None, None).unwrap()).unwrap();
+        assert_eq!(p["type"], "presence");
+        let off: serde_json::Value = serde_json::from_str(&cron_op_line("r", "followups_setting", None, None, None, None, None, None, Some(false)).unwrap()).unwrap();
+        assert_eq!(off["type"], "followups_setting");
+        assert_eq!(off["enabled"], false);
+        assert!(cron_op_line("r", "followups_setting", None, None, None, None, None, None, None).is_err());
+    }
+
+    #[test]
+    fn the_welcome_carries_the_chat_and_the_app_names() {
+        let w: serde_json::Value = serde_json::from_str(&cron_op_line("r", "welcome", None, None, Some("Figma\nSteam".into()), None, None, Some("chat-1".into()), None).unwrap()).unwrap();
+        assert_eq!(w["type"], "welcome");
+        assert_eq!(w["sessionId"], "chat-1");
+        assert_eq!(w["content"], "Figma\nSteam");
+        let none: serde_json::Value = serde_json::from_str(&cron_op_line("r", "welcome", None, None, None, None, None, Some("chat-1".into()), None).unwrap()).unwrap();
+        assert_eq!(none["content"], "");
+        assert!(cron_op_line("r", "welcome", None, None, Some("Figma".into()), None, None, None, None).is_err());
     }
 }
 

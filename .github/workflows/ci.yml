@@ -172,6 +172,9 @@ jobs:
   rust:
     name: rust / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # A healthy run takes 5-25 min. On 6 Nov the Windows test binary hung with
+    # no output and the job sat until GitHub's 6 h limit; fail fast instead.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -187,7 +190,12 @@ jobs:
           # so compiling GPL code here distributes none of it.
           - os: ubuntu-22.04
             features: ""
-          - os: windows-latest
+          # windows-2022, like release.yml: windows-latest moved to the VS 2026
+          # image in Nov 2026, where espeak-rs-sys (piper) fails to compile
+          # (`__has_include_next` undefined) and ort-sys (kokoro) panics copying
+          # DirectML.dll. CI should test the image that ships. Move both files
+          # together when windows-2022 is retired, after fixing those two.
+          - os: windows-2022
             features: "--features cinderpaw/piper,cinderpaw/kokoro"
           # Desktop control has a macOS backend (osascript) that nothing else
           # compiles or runs; see the live step below.
@@ -217,10 +225,21 @@ jobs:
           bun-version: latest
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        # 1.99.1, not stable: Rust 1.100 (9 Nov 2026) builds one folder deeper and ort-sys
+        # 2.0.0-rc.12 (copy-dylibs) then panics on Windows. Unpin together with an ort that handles it.
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.1"
 
+      # prefix-key starts a fresh cache: the cmake crate configures llama.cpp
+      # only when no CMakeCache.txt exists, so a restored one kept a Homebrew
+      # OpenSSL path that no longer exists ('openssl/err.h' not found, 1 Nov) and
+      # never saw CMAKE_DISABLE_FIND_PACKAGE_OpenSSL (.cargo/config.toml).
+      # Bump it again whenever a CMAKE_* setting there changes.
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
 
       - name: Install sidecar dependencies
         working-directory: CinderpawAgent
@@ -272,7 +291,11 @@ jobs:
           sudo apt-get install -y build-essential pkg-config libssl-dev libdbus-1-dev cmake
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        # 1.99.1, not stable: Rust 1.100 (9 Nov 2026) builds one folder deeper and ort-sys
+        # 2.0.0-rc.12 (copy-dylibs) then panics on Windows. Unpin together with an ort that handles it.
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.1"
 
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2

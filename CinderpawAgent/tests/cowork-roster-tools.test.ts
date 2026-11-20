@@ -160,6 +160,35 @@ describe("cowork_remove_teammate", () => {
 });
 
 describe("cowork_replies", () => {
+  test("joins the selected assignment and leaves concurrent answers unread", async () => {
+    const h = harness();
+    try {
+      await h.create.execute({ name: "Atlas", role: "Research" }, chat);
+      const sent = await h.tool("cowork_send").execute({ to: "Atlas", message: "Check WAL" }, chat);
+      const id = (sent.data as { messageId: string }).messageId;
+      expect(sent.content).toContain(id);
+      const join = h.tool("cowork_replies");
+      expect((await join.execute({ wait_for: id }, { sessionId: "another-chat" })).ok).toBe(false);
+      const cancelled = new AbortController();
+      const interrupted = join.execute({ wait_for: id }, { ...chat, signal: cancelled.signal });
+      cancelled.abort();
+      await expect(interrupted).rejects.toThrow();
+      const waiting = join.execute({ wait_for: id }, chat);
+      const other = h.mailbox.send({ fromAgentId: "atlas", toAgentId: HUMAN, threadId: chat.sessionId, body: "Unrelated answer" });
+      const answer = h.mailbox.send({ fromAgentId: "atlas", toAgentId: HUMAN, threadId: chat.sessionId,
+        body: "Readers can continue.", payloadJson: JSON.stringify({ replyTo: id }) });
+      h.mailbox.updateStatus(id, "processed");
+      const result = await waiting;
+      expect(result.content).toContain("Readers can continue.");
+      expect(result.content).not.toContain("Unrelated answer");
+      expect(h.mailbox.get(other.id)?.status).toBe("pending");
+      expect(h.mailbox.get(answer.id)?.status).toBe("read");
+      expect((await join.execute({ wait_for: id }, chat)).content).toBe(result.content);
+    } finally {
+      h.close();
+    }
+  });
+
   test("returns a stored answer once, and says who is still working", async () => {
     const h = harness();
     try {
@@ -200,6 +229,13 @@ describe("cowork_replies", () => {
       const r = await h.tool("cowork_replies").execute({}, chat);
       expect(r.content).toContain("Atlas could not answer");
       expect(r.content).toContain("model is down");
+      const joined = await h.tool("cowork_replies").execute({ wait_for: q.id }, chat);
+      expect(joined.ok).toBe(false);
+      expect(joined.content).toContain("model is down");
+      const stopped = h.mailbox.send({ fromAgentId: HUMAN, toAgentId: "atlas", threadId: chat.sessionId, body: "another task" });
+      h.mailbox.saveTurnResult(stopped.id, { stopped: true, tools: [] });
+      h.mailbox.updateStatus(stopped.id, "processed");
+      expect(await h.tool("cowork_replies").execute({ wait_for: stopped.id }, chat)).toMatchObject({ ok: false, error: "stopped" });
     } finally {
       h.close();
     }

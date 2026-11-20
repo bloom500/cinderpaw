@@ -1,9 +1,9 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 type RecState = 'idle' | 'recording' | 'preview';
 type RecError = 'denied' | 'unsupported' | null;
 
-export function useVoiceRecorder() {
+export function useVoiceRecorder(sessionId?: string) {
   const [state, setState] = useState<RecState>('idle');
   const [blob, setBlob] = useState<Blob | null>(null);
   const [durationMs, setDurationMs] = useState(0);
@@ -11,6 +11,7 @@ export function useVoiceRecorder() {
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const generation = useRef(0);
   const chunksRef = useRef<Blob[]>([]);
   const startedAtRef = useRef(0);
 
@@ -34,9 +35,14 @@ export function useVoiceRecorder() {
       setError('unsupported');
       return 'unsupported';
     }
+    const attempt = ++generation.current;
     let gotStream = false;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (attempt !== generation.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return null;
+      }
       streamRef.current = stream;
       gotStream = true;
       console.log('[voice] getUserMedia tracks', (stream.getAudioTracks?.() ?? []).map((tr) => ({
@@ -67,6 +73,7 @@ export function useVoiceRecorder() {
       setState('recording');
       return null;
     } catch (err) {
+      if (attempt !== generation.current) return null;
       // Release the microphone. `getUserMedia` may well have SUCCEEDED and the
       // failure come from `new MediaRecorder(stream)` — WebView2 is picky about
       // MIME types — in which case the mic was already live and stayed live:
@@ -95,6 +102,7 @@ export function useVoiceRecorder() {
   }, []);
 
   const reset = useCallback(() => {
+    generation.current++;
     // Detach the handler before stopping. `onstop` fires asynchronously, so a
     // reset while a recording was still finishing had its blob land afterwards
     // and put the hook back into `preview` — the recording the user had just
@@ -117,5 +125,6 @@ export function useVoiceRecorder() {
     setError(null);
   }, []);
 
+  useEffect(() => () => reset(), [reset, sessionId]);
   return { state, start, stop, reset, blob, durationMs, error };
 }

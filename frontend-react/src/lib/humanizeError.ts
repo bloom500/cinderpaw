@@ -31,6 +31,19 @@ interface Rule {
 
 const RULES: Rule[] = [
   {
+    test: /would exceed this chat[’']s spending limit/i,
+    title: 'This call would go over your limit',
+    message: 'Change the spending limit at the top of the chat, or choose a cheaper model.',
+    action: null,
+  },
+  {
+    test: /cannot use a chat spending limit|this chat[’']s spending limit supports/i,
+    title: 'This call needs a supported model',
+    message: 'Chat spending limits support OpenRouter text calls and the built-in local model.',
+    action: 'models',
+    actionLabel: 'Choose a model',
+  },
+  {
     test: /\b401\b|unauthorized|invalid[_ ]api[_ ]key|incorrect api key|authentication/i,
     title: 'Your API key was not accepted',
     message: 'Your API key was rejected by the provider. Check that the key is correct and active.',
@@ -41,6 +54,18 @@ const RULES: Rule[] = [
     test: /\b403\b|forbidden|permission/i,
     title: 'The provider said no',
     message: 'The provider refused the request (forbidden). Your key may lack access to this model.',
+    action: 'settings',
+    actionLabel: 'Open Cloud Keys',
+  },
+  {
+    // Before the 429 rule: OpenAI sends an empty account as HTTP 429
+    // "insufficient_quota ... check your plan and billing details", and it read
+    // "wait a minute and try again", which can never work (OpenClaw fixed the
+    // same, 1 Nov). Only words that name money: Google's per-minute "quota
+    // exceeded" is a real rate limit and stays below.
+    test: /\b402\b|insufficient[_ ](quota|credits?|balance|funds)|credit balance|billing details|payment required|out of credits?/i,
+    title: 'Your account with the provider is out of credit',
+    message: 'The provider says the account behind this key has no credit left. Add credit with them, then try again, or switch to another model.',
     action: 'settings',
     actionLabel: 'Open Cloud Keys',
   },
@@ -76,7 +101,7 @@ const RULES: Rule[] = [
     title: 'No model is chosen yet',
     message: 'Cinderpaw has no model to answer with. Pick one in the model switcher under the message box, or open Models.',
     action: 'models',
-    actionLabel: 'Open Models',
+    actionLabel: 'Choose a model',
   },
   {
     test: /stream stalled|stopped responding|idle.?timeout/i,

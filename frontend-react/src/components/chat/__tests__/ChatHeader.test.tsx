@@ -10,6 +10,7 @@ import { ChatHeader } from '../ChatHeader';
 import { useConversations } from '@/stores/conversations';
 import { useProjects } from '@/stores/projects';
 import { useArtifacts } from '@/stores/artifacts';
+import { useUI } from '@/stores/ui';
 
 // The download store subscribes to host events when it is imported; there is no host here.
 vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
@@ -36,14 +37,20 @@ describe('ChatHeader', () => {
     expect(screen.queryByText(/^in /)).toBeNull();
   });
 
-  it('opens the Context tab, and closes it again', async () => {
+  it('closes the Context cards, opens them again, and brings them back over Artifacts', async () => {
+    // Their own column since 29 Oct, open by default; Artifacts covers them.
     useConversations.setState({ currentId: 'c1' });
+    useUI.setState({ contextOpen: true });
     useArtifacts.setState({ panelOpen: false, panelTab: 'artifacts' });
     render(<ChatHeader />);
     await userEvent.click(screen.getByRole('button', { name: 'Chat context' }));
-    expect(useArtifacts.getState()).toMatchObject({ panelOpen: true, panelTab: 'context' });
+    expect(useUI.getState().contextOpen).toBe(false);
+    await userEvent.click(screen.getByRole('button', { name: 'Chat context' }));
+    expect(useUI.getState().contextOpen).toBe(true);
+    useArtifacts.setState({ panelOpen: true });
     await userEvent.click(screen.getByRole('button', { name: 'Chat context' }));
     expect(useArtifacts.getState().panelOpen).toBe(false);
+    expect(useUI.getState().contextOpen).toBe(true);
   });
 
   it('names the project the chat is in', () => {

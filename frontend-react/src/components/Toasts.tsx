@@ -17,7 +17,7 @@ import { useNotifications, type Toast } from '@/stores/notifications';
 /** The pill's colour: the app's solid surface for the theme. It must be
  *  opaque: the gooey filter sharpens alpha, and the glass tokens (24-34%)
  *  came out invisible, leaving bare text at the window's edge (24 Oct). */
-const SOLID = { dark: 'rgb(54, 48, 43)', light: 'rgb(251, 247, 241)' } as const;
+const SOLID = { dark: 'rgb(52, 39, 31)', light: 'rgb(255, 253, 250)' } as const;
 function useFill(): string {
   const read = () => (document.documentElement.getAttribute('data-theme') === 'light' ? SOLID.light : SOLID.dark);
   const [fill, setFill] = useState(read);
@@ -48,7 +48,10 @@ export function Toasts({ compact = false }: { compact?: boolean }) {
 
   return (
     // Sileo's width, to our 320 px column (its WIDTH constant says the same).
-    <div className="flex flex-col items-end gap-2" role="status" aria-live="polite" style={{ '--sileo-width': '320px' } as React.CSSProperties}>
+    // text-text-primary: the column is portalled to <body>, whose colour is the
+    // browser's black; Sileo's title and description inherit it, so in dark mode
+    // they were black on the dark pill (8 Nov). The theme's own colours instead.
+    <div className="flex flex-col items-end gap-2 text-text-primary" role="status" aria-live="polite" style={{ '--sileo-width': '320px' } as React.CSSProperties}>
       {[...toasts].reverse().map((t) => (
         <div key={t.id} className="pointer-events-auto relative w-full">
           <Sileo
@@ -74,7 +77,7 @@ export function Toasts({ compact = false }: { compact?: boolean }) {
             }
             onDismiss={() => dismiss(t.id)}
             // Sileo capitalises every word; our titles are sentences.
-            styles={{ title: 'normal-case!' }}
+            styles={{ title: 'normal-case!', description: 'text-text-secondary' }}
           />
         </div>
       ))}

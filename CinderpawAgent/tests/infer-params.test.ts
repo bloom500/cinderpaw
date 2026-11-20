@@ -29,6 +29,12 @@ describe("sanitizeInferParams", () => {
     expect(sanitizeInferParams({})).toEqual({});
   });
 
+  it("keeps a known Effort and sends none for auto or junk", () => {
+    expect(sanitizeInferParams({ effort: "high" })).toEqual({ reasoningEffort: "high" });
+    expect(sanitizeInferParams({ effort: "auto" })).toEqual({});
+    expect(sanitizeInferParams({ effort: "max; drop" })).toEqual({});
+  });
+
   it("floors fractional max_tokens", () => {
     expect(sanitizeInferParams({ max_tokens: 1024.7 })).toEqual({ maxTokens: 1024 });
   });

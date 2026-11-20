@@ -2,10 +2,15 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const persisted = vi.hoisted(() => ({ load: async () => true as boolean }));
+const persisted = vi.hoisted(() => ({
+  load: async () => true as boolean,
+  wizard: false,
+  listeners: new Set<(s: { active: boolean }) => void>(),
+}));
 vi.mock('@/stores/onboarding', () => ({
   useOnboarding: Object.assign((sel: (s: { active: boolean }) => unknown) => sel({ active: false }), {
-    getState: () => ({ loadPersisted: () => persisted.load() }),
+    getState: () => ({ loadPersisted: () => persisted.load(), active: persisted.wizard }),
+    subscribe: (l: (s: { active: boolean }) => void) => { persisted.listeners.add(l); return () => persisted.listeners.delete(l); },
   }),
 }));
 
@@ -22,6 +27,25 @@ describe("What's new closes only on purpose", () => {
     useWhatsNew.setState({ open: false, due: false });
     useAttention.setState({ waiting: [], holder: null });
     persisted.load = async () => true;
+    persisted.wizard = false;
+    persisted.listeners.clear();
+  });
+
+  // Smoke test 7 Nov: the read gave up on a 2.5 min first launch, and launch two
+  // showed a brand-new user October's changes.
+  it('a new user who meets the setup wizard never gets this card, even when the read gives up', async () => {
+    vi.useFakeTimers();
+    try {
+      persisted.load = () => new Promise<boolean>(() => {});
+      useWhatsNew.setState({ due: null });
+      render(<WhatsNew />);
+      act(() => { persisted.listeners.forEach((l) => l({ active: true })); });
+      act(() => { vi.advanceTimersByTime(WHATS_NEW_DECIDE_MS); });
+      expect(useWhatsNew.getState().due).toBe(false);
+      expect(localStorage.getItem('cinderpaw.whatsNew.seen')).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a read that never answers stops holding the queue, without marking the release seen', async () => {

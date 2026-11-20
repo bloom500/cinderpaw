@@ -174,7 +174,7 @@ export function Widget({ activity: a, flat = false }: { activity: ToolActivity; 
         ) : app ? (
           <DesktopBody d={app} running={running} />
         ) : (
-          <GenericBody a={a} running={running} t={t} />
+          <GenericBody a={a} running={running} />
         )}
 
         {/* A progress line from a tool that reports one — real, when present. */}
@@ -559,6 +559,7 @@ function desktopLine(d: DesktopFact): string {
     case 'perform_action': return `${d.actionName || 'Acting on'}${on}`;
     case 'get_value': return `Reading${on || ' a value'}`;
     case 'get_focused': return 'Reading what has focus';
+    case 'screenshot': return d.app ? `Taking a picture of ${d.app}` : 'Taking a picture';
     default: return d.action;
   }
 }
@@ -721,10 +722,12 @@ function ArtifactBody({ f }: { f: ArtifactFact }) {
   );
 }
 
-function GenericBody({ a, running, t }: { a: ToolActivity; running: boolean; t: (k: 'call.toolSearching') => string }) {
+function GenericBody({ a, running }: { a: ToolActivity; running: boolean }) {
   return (
     <p className="truncate text-2xs text-text-muted" title={a.subject}>
-      {a.subject || (running ? t('call.toolSearching') : '')}
+      {/* What it does, in the step's own words: "searching…" was said for every
+          tool with no subject, a picture of the page included. */}
+      {a.subject || (running ? `${stepTitle(a)}…` : '')}
     </p>
   );
 }

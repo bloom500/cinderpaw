@@ -57,7 +57,7 @@ function buildRegistry(db: ReturnType<typeof openDatabase>): ToolRegistry {
   return new ToolRegistry(new EgressProxy(audit.logger), audit, new RealProcessSandbox(audit.logger));
 }
 
-function buildAgent(db: ReturnType<typeof openDatabase>, registry = buildRegistry(db)): AgentLoop {
+function buildAgent(db: ReturnType<typeof openDatabase>, registry = buildRegistry(db), teamBrief?: () => string): AgentLoop {
   const audit = new AuditLog(db.raw);
   const router = new InferenceRouter(
     { primary: { provider: "ollama", model: "m", baseUrl: "http://localhost:11434" }, tokenBudget: BUDGET },
@@ -66,7 +66,7 @@ function buildAgent(db: ReturnType<typeof openDatabase>, registry = buildRegistr
   );
   const episodic = new EpisodicMemory(db.raw, audit.logger);
   const recall = new RecallEngine(episodic, new SemanticMemory(db.raw, audit.logger));
-  return new AgentLoop(router, registry, episodic, {}, recall);
+  return new AgentLoop(router, registry, episodic, { teamBrief }, recall);
 }
 
 /** Stand-in for a tool an MCP server registers after the loop already exists. */
@@ -147,6 +147,33 @@ describe("MCP — tools registered after boot are actually callable", () => {
     expect(tools.at(-1)).toContain("mcp_shop_lookup");
     db.close();
   });
+});
+
+test("configured teammates reach the model even in an existing chat with a narrowed tool list", async () => {
+  const { tools, prompts } = installPromptRecorder();
+  const db = openDatabase(":memory:");
+  try {
+    const registry = buildRegistry(db);
+    for (const name of ["web_search", "edit_file", "write_file", "shell_exec"]) registry.register(lateTool(name));
+    let roster = "";
+    const agent = buildAgent(db, registry, () => roster);
+    await agent.handle("s-team", "Look up a good recipe online", "m1", () => {});
+    expect(tools.at(-1)).toContain("web_search");
+    expect(tools.at(-1)).not.toContain("edit_file");
+    expect(tools.at(-1)).not.toContain("cowork_send");
+
+    for (const name of ["cowork_team", "cowork_send", "cowork_replies"]) registry.register(lateTool(name));
+    roster = "Scout specializes in ingredient sourcing.";
+    await agent.handle("s-team", "Compare the ingredients and prepare a shopping plan", "m2", () => {});
+    expect(JSON.stringify(prompts.at(-1))).toContain(roster);
+    expect(tools.at(-1)).toEqual(expect.arrayContaining(["cowork_team", "cowork_send", "cowork_replies"]));
+    agent.registerProfile("shop", { systemPrompt: "Public shop assistant", allowedTools: ["web_search"] });
+    agent.setSessionProfile("public-shop", "shop");
+    await agent.handle("public-shop", "Compare the ingredients", "m3", () => {});
+    expect(JSON.stringify(prompts.at(-1))).not.toContain(roster);
+  } finally {
+    db.close();
+  }
 });
 
 describe("F8 — sessions survive a restart", () => {

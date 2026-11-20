@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { tauri, type ScheduledTask } from '@/lib/tauri';
+import { tauri, type PageView, type ScheduledTask } from '@/lib/tauri';
 import type { TaskCard } from '@/lib/widgets';
 
 /**
@@ -17,17 +17,38 @@ interface TasksStore {
   /** The one weekly limit for all scheduled tasks; null until the first answer. */
   limit: { weeklyUsd: number | null; asked: boolean; spentUsd: number } | null;
   setLimit: (weeklyUsd: number | null) => void;
+  /** Where a fired task reaches the person away from the computer: the
+   *  messenger id, or null when none is connected. `tested` after a real test;
+   *  `testing` while one is on its way. */
+  phone: { via: string | null; tested: boolean } | null;
+  /** The Today page's "This week" card: sends, reactions, sends per day (oldest first). */
+  week: { wroteFirst: number; answered: number; days: number[] } | null;
+  /** "What I learned" (spec 4.7): what the agent stopped saying, each with its Undo key. */
+  learned: { bucket: string; line: string }[];
+  undoLearned: (bucket: string) => void;
+  /** Pages the agent composed (spec 4.14), with Remove. */
+  pages: PageView[];
+  removePage: (id: string) => void;
+  /** Yes / Not now on a question card. */
+  answerCard: (pageId: string, index: number, yes: boolean) => void;
+  /** "Send my numbers" (spec 4.12): idle until pressed; the engine answers sent or why not. */
+  numbers: { state: 'idle' | 'sending' | 'sent' | 'failed'; error?: string };
+  sendNumbers: () => void;
+  testing: boolean;
+  /** Send a real notice to the phone, and learn where it went. */
+  testPhone: () => void;
   /** What a card's Create is doing, by card id. Absent = not pressed this session. */
-  creating: Record<string, { state: 'creating' | 'created' | 'failed'; error?: string }>;
+  /** `note`: what the engine said on creating it, e.g. the price it read (spec 4.10). */
+  creating: Record<string, { state: 'creating' | 'created' | 'failed'; error?: string; note?: string }>;
   /** Cards closed with Not now, by card id. */
   dismissed: Record<string, true>;
   refresh: () => void;
   remove: (jobId: string) => void;
   toggle: (jobId: string, enabled: boolean) => void;
-  edit: (job: ScheduledTask, changes: {name:string;task:string;schedule:ScheduledTask["schedule"];watch?:ScheduledTask["watch"];expiryDays?:number}) => void;
+  edit: (job: ScheduledTask, changes: {name:string;task:string;schedule:ScheduledTask["schedule"];watch?:ScheduledTask["watch"];expiryDays?:number;ownerAgentId?:string|null}) => void;
   create: (card: TaskCard, sessionId: string) => void;
   dismiss: (cardId: string) => void;
-  receive: (e: { id: string; ok: boolean; error?: string; jobs: ScheduledTask[]; taskLimit?: TasksStore['limit'] }) => void;
+  receive: (e: { id: string; ok: boolean; error?: string; note?: string; jobs: ScheduledTask[]; taskLimit?: TasksStore['limit']; phone?: TasksStore['phone']; week?: TasksStore['week']; learned?: TasksStore['learned']; pages?: PageView[] }) => void;
 }
 
 /** Which card a request was for, so its answer can settle that card. */
@@ -38,17 +59,20 @@ export const isCreated = (jobs: ScheduledTask[], card: TaskCard) =>
   jobs.some((j) => j.name === card.title && j.task === card.task);
 
 export const useTasks = create<TasksStore>()((set) => {
-  const settle = (cardId: string, state: 'created' | 'failed', error?: string) =>
-    set((s) => ({ creating: { ...s.creating, [cardId]: { state, error } } }));
-  const send = (action: 'list' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit', opts: Parameters<typeof tauri.raw.cinderpawCronOp>[2] = {}, forCard?: string) => {
+  const settle = (cardId: string, state: 'created' | 'failed', error?: string, note?: string) =>
+    set((s) => ({ creating: { ...s.creating, [cardId]: { state, error, ...(note ? { note } : {}) } } }));
+  let numbersRequest: string | null = null;
+  const send = (action: 'list' | 'add' | 'edit' | 'remove' | 'toggle' | 'limit' | 'test_notify' | 'learned_undo' | 'numbers_send' | 'page_remove' | 'page_answer', opts: Parameters<typeof tauri.raw.cinderpawCronOp>[2] = {}, forCard?: string) => {
     const requestId = crypto.randomUUID();
     if (forCard) pendingCreate.set(requestId, forCard);
+    if (action === 'numbers_send') numbersRequest = requestId;
     tauri.raw.cinderpawCronOp(requestId, action, opts).catch((err: unknown) => {
       // The engine is not running or refused it: say so, never a list that silently never loads.
       const message = err instanceof Error ? err.message : String(err);
       pendingCreate.delete(requestId);
       if (forCard) settle(forCard, 'failed', message);
-      else set({ error: message });
+      else if (requestId === numbersRequest) set({ numbers: { state: 'failed', error: message } });
+      else set({ error: message, testing: false });
     });
   };
   return {
@@ -57,6 +81,23 @@ export const useTasks = create<TasksStore>()((set) => {
     error: null,
     limit: null,
     setLimit: (weeklyUsd) => send('limit', { weeklyLimitUsd: weeklyUsd }),
+    phone: null,
+    week: null,
+    learned: [],
+    undoLearned: (bucket) => send('learned_undo', { jobId: bucket }),
+    pages: [],
+    removePage: (id) => send('page_remove', { jobId: id }),
+    answerCard: (pageId, index, yes) => send('page_answer', { jobId: `${pageId}:${index}`, enabled: yes }),
+    numbers: { state: 'idle' },
+    sendNumbers: () => {
+      set({ numbers: { state: 'sending' } });
+      send('numbers_send');
+    },
+    testing: false,
+    testPhone: () => {
+      set({ testing: true });
+      send('test_notify');
+    },
     creating: {},
     dismissed: {},
     refresh: () => send('list'),
@@ -65,14 +106,28 @@ export const useTasks = create<TasksStore>()((set) => {
     edit: (job, changes) => send('edit', {jobId:job.id,kind:job.kind,...changes}),
     create: (card, sessionId) => {
       set((s) => ({ creating: { ...s.creating, [card.id]: { state: 'creating' } } }));
-      send('add', { name: card.title, task: card.task, schedule: card.schedule, kind: card.kind, watch:card.watch,expiryDays:card.expiryDays, sessionId }, card.id);
+      send('add', { name: card.title, task: card.task, schedule: card.schedule, kind: card.kind, watch:card.watch,expiryDays:card.expiryDays, toPhone: card.toPhone, sessionId }, card.id);
     },
     dismiss: (cardId) => set((s) => ({ dismissed: { ...s.dismissed, [cardId]: true } })),
     receive: (e) => {
       const forCard = pendingCreate.get(e.id);
       pendingCreate.delete(e.id);
-      set((s) => ({ jobs: e.jobs ?? [], loaded: true, limit: e.taskLimit ?? s.limit, error: e.ok ? null : (e.error ?? 'That did not work.') }));
-      if (forCard) settle(forCard, e.ok ? 'created' : 'failed', e.error);
+      if (e.id === numbersRequest) {
+        // Answered on the button, not as a Tasks page error.
+        numbersRequest = null;
+        set({ numbers: e.ok ? { state: 'sent' } : { state: 'failed', error: e.error ?? 'That did not work.' } });
+        return;
+      }
+      set((s) => ({
+        jobs: e.jobs ?? [], loaded: true, limit: e.taskLimit ?? s.limit, error: e.ok ? null : (e.error ?? 'That did not work.'),
+        // A plain list after a test must not wipe the test's answer.
+        phone: e.phone && (e.phone.tested || !s.phone?.tested) ? e.phone : s.phone,
+        testing: e.phone?.tested ? false : s.testing,
+        week: e.week ?? s.week,
+        learned: e.learned ?? s.learned,
+        pages: e.pages ?? s.pages,
+      }));
+      if (forCard) settle(forCard, e.ok ? 'created' : 'failed', e.error, e.note);
     },
   };
 });

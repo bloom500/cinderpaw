@@ -38,6 +38,7 @@ import { cn } from '@/lib/utils';
 import { tauri } from '@/lib/tauri';
 import type { AskUserAnswer, AskUserOption, AskUserQuestion } from '@/stores/askUser';
 import { GooeyCard } from './GooeyCard';
+import { PhoneField } from './PhoneField';
 
 interface AskUserCardProps {
   requestId: string;
@@ -55,6 +56,7 @@ export function AskUserCard({
   onCancel,
 }: AskUserCardProps) {
   const isAnswered = answered !== undefined;
+  const canSkip = onCancel && !questions.every((question) => question.fixedOptions);
 
   // One slot per question, in the same order. null = unanswered.
   // After every slot is filled, the auto-submit effect below calls
@@ -163,9 +165,9 @@ export function AskUserCard({
           }}
         />
       ))}
-      {!isAnswered && (onCancel || questions.length > 1) && (
+      {!isAnswered && (canSkip || questions.length > 1) && (
         <div className="flex justify-end gap-2">
-          {onCancel && (
+          {canSkip && (
             <button
               type="button"
               onClick={onCancel}
@@ -275,13 +277,13 @@ function QuestionBlock({
     // an answer the person never chose (17 Sep); the arrows moved focus instead
     // of the caret for the same reason.
     const target = e.target as HTMLElement;
-    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return;
     if (e.key === 'Enter' && question.multiSelect) {
       e.preventDefault();
       handleSubmitMulti();
       return;
     }
-    if (e.key === 'Escape' && !question.multiSelect) {
+    if (e.key === 'Escape' && !question.multiSelect && !question.fixedOptions) {
       e.preventDefault();
       setOtherOpen(true);
       return;
@@ -360,6 +362,7 @@ function QuestionBlock({
       {/* Pending: render options */}
       {!disabled && !question.secret && (
         <div className="space-y-1.5">
+          {question.input === 'phone' && <PhoneField initial={question.value} onSubmit={onAnswerSingle} />}
           {question.options.map((opt, i) => {
             // For single-select, the visual highlight is driven by the
             // parent (so the user sees their pick even before the card
@@ -418,7 +421,7 @@ function QuestionBlock({
           })}
 
           {/* "Other" — implicit 5th option. Opens a text input. */}
-          {!question.multiSelect && (
+          {!question.multiSelect && !question.input && !question.fixedOptions && (
             <OtherInput
               open={otherOpen}
               value={otherText}

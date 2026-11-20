@@ -124,6 +124,25 @@ export function step(
  * `home` is where the perch sits on screen with any current offset already
  * taken back out. `area` is the content box it must stay inside.
  */
+/**
+ * Narrow the room by the walls standing in it (a side panel, the browser's
+ * page): a wall to the right of the creature's home becomes the right edge,
+ * one to its left the left edge. A wall the creature overlaps is ignored, so
+ * it can never be trapped inside one.
+ */
+export function narrowByWalls(
+  area: { left: number; right: number; top: number },
+  home: { left: number; width: number },
+  walls: readonly { left: number; right: number }[],
+): { left: number; right: number; top: number } {
+  let { left, right } = area;
+  for (const w of walls) {
+    if (w.left >= home.left + home.width) right = Math.min(right, w.left);
+    else if (w.right <= home.left) left = Math.max(left, w.right);
+  }
+  return { left, right, top: area.top };
+}
+
 export function boundsFrom(
   home: { left: number; top: number; width: number },
   area: { left: number; right: number; top: number },

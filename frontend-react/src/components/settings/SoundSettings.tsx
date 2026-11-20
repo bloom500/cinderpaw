@@ -27,10 +27,16 @@ export function SoundSettings() {
           <h3 id="sounds-heading" className="text-sm font-semibold text-text-primary">Sounds</h3>
           <p className="mt-0.5 text-xs text-text-muted">Calm, organic feedback for small actions and finished work.</p>
         </div>
-        <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm text-text-secondary">
-          <input type="checkbox" role="switch" aria-label="Sound effects" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="size-4 accent-brand" />
-          {enabled ? 'On' : 'Off'}
-        </label>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-label="Sound effects"
+          onClick={() => setEnabled(!enabled)}
+          className={`relative h-6 w-10 shrink-0 overflow-hidden rounded-full transition-colors ${enabled ? 'bg-brand' : 'bg-border-default'}`}
+        >
+          <span className={`absolute top-1 left-0 h-4 w-4 rounded-full bg-white transition-transform ${enabled ? 'translate-x-5' : 'translate-x-1'}`} />
+        </button>
       </div>
       <label className="flex items-center gap-3 text-xs text-text-secondary">
         Volume

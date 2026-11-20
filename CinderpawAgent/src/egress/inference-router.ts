@@ -50,7 +50,9 @@ import {
   parseRetryAfter,
   type ThrottleWait,
 } from "./rate-limiter.ts";
-import { AutonomousSpendDeniedError, type InferenceSpendAuthority } from "./inference-spend-authority.ts";
+import { AutonomousSpendDeniedError, InferenceSpendAuthority } from "./inference-spend-authority.ts";
+import { type ChatSpendRepo, isOpenRouterChatTarget } from "./chat-spend.ts";
+import { chatModelPrice, refreshModelPrices } from "./model-prices.ts";
 
 /**
  * How many times a transient failure is retried before it surfaces.
@@ -62,6 +64,16 @@ import { AutonomousSpendDeniedError, type InferenceSpendAuthority } from "./infe
  * of quota" or "this endpoint is down" into a minutes-long silent stall.
  */
 const MAX_TRANSIENT_RETRIES = 3;
+
+// These 429s require an account change; waiting cannot restore API access.
+// https://developers.openai.com/api/docs/guides/error-codes
+const PERMANENT_QUOTA_ERROR_CODES = new Set([
+  "insufficient_quota",
+  "credit_balance_exhausted",
+  "organization_spend_limit_exceeded",
+  "project_spend_limit_exceeded",
+  "organization_usage_limit_exceeded",
+]);
 
 /** `subagent:<parent>:<id>` → `<parent>`; null for any other session. */
 function subagentParent(sessionId: string): string | null {
@@ -190,6 +202,12 @@ function asInferenceError(err: unknown): Error {
   return err instanceof Error ? err : new InferenceError(String(err));
 }
 
+interface ChatSpendConfig {
+  repo: ChatSpendRepo;
+  sessionOf: (id: string) => string;
+  localBaseUrl?: string;
+}
+
 export class InferenceRouter {
   // Mutable so reconfigure() can hot-swap the active model at runtime.
   #primary: ModelTarget;
@@ -234,6 +252,11 @@ export class InferenceRouter {
    */
   readonly #conversationTokens = new Map<string, number>();
   readonly #sessionSpend = new Map<string, InferenceSpendAuthority>();
+  #chatSpend?: ChatSpendConfig;
+
+  configureChatSpend(config: ChatSpendConfig): void {
+    this.#chatSpend = config;
+  }
 
   /**
    * Bind every inference of this task to its allowance: the task's own session
@@ -340,12 +363,19 @@ export class InferenceRouter {
     primary: ModelTarget,
     fallback?: ModelTarget,
     trustedUrls?: string[],
-  ): void {
-    const newTrusted = this.#buildTrusted(
-      primary,
-      fallback,
-      trustedUrls ?? this.#configuredTrusted,
-    );
+    /**
+     * Automatic: the person's other models, which the Brain may route a turn
+     * to. Trusted like the primary when no allowlist is configured; under an
+     * allowlist only the members survive. Returns the ones that may be used.
+     */
+    extra: ModelTarget[] = [],
+  ): ModelTarget[] {
+    const allow = trustedUrls ?? this.#configuredTrusted;
+    const newTrusted = this.#buildTrusted(primary, fallback, allow);
+    const usable = allow && allow.length > 0
+      ? extra.filter((t) => newTrusted.has(normalizeBaseUrl(t.baseUrl)))
+      : extra;
+    for (const t of usable) newTrusted.add(normalizeBaseUrl(t.baseUrl));
 
     for (const target of [primary, fallback]) {
       if (target && !newTrusted.has(normalizeBaseUrl(target.baseUrl))) {
@@ -358,6 +388,7 @@ export class InferenceRouter {
     this.#primary = primary;
     this.#fallback = fallback;
     this.#trusted = newTrusted;
+    return usable;
   }
 
   /** Active local-model context window in tokens, or 0 when unknown. Set by the
@@ -416,7 +447,12 @@ export class InferenceRouter {
 
   #isLocalHost(url: string): boolean {
     try {
-      const host = new URL(url).hostname;
+      const { hostname: host, pathname } = new URL(url);
+      // A ChatGPT plan answers through the host's own API (`/chatgpt` holds its
+      // token), from OpenAI: on loopback, not on this computer. Called local, it
+      // got a local model's few-K budget and compacted before every turn, and
+      // passed the gates that keep the agent's source and memory on-device (1 Nov).
+      if (/^\/chatgpt\/?$/.test(pathname)) return false;
       return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
     } catch {
       return false;
@@ -1076,8 +1112,9 @@ export class InferenceRouter {
     isFallback: boolean,
     /**
      * Whether a provider blip on THIS target is worth waiting out. False when a
-     * fallback is configured — see the call site. A 429 is retried either way:
-     * that is the quota gate correcting itself, not an endpoint being unwell.
+     * fallback is configured — see the call site. A rate-limit 429 is retried
+     * either way: that is the quota gate correcting itself. Billing 429s fail
+     * immediately so the caller can surface the error or use its fallback.
      */
     retryTransient: boolean,
     spendCeiling: { maxPromptTokens: number; maxCompletionTokens: number },
@@ -1128,12 +1165,36 @@ export class InferenceRouter {
         this.#throttleListener?.({ ...info, sessionId: req.sessionId }),
       );
 
-      const spendReservation = req.spendAuthority?.reserve({
+      let targetRequest = req;
+      let authority = req.spendAuthority;
+      const chat = this.#chatSpend;
+      if (chat && !authority) {
+        const sessionId = chat.sessionOf(req.sessionId);
+        const { limitUsd } = chat.repo.get(sessionId);
+        if (limitUsd !== null) {
+          const local = !!chat.localBaseUrl && target.baseUrl.replace(/\/$/, "") === chat.localBaseUrl.replace(/\/$/, "");
+          if (!local) {
+            if (!isOpenRouterChatTarget(target.baseUrl) || req.messages.some((m) => m.images?.length)) {
+              throw new AutonomousSpendDeniedError("unknown_price", "This chat’s spending limit supports OpenRouter text calls and the built-in local model.");
+            }
+            await refreshModelPrices();
+            req.signal?.throwIfAborted();
+          }
+          const price = local ? { inputPerMillionUsd: 0, outputPerMillionUsd: 0 } : chatModelPrice(target);
+          authority = new InferenceSpendAuthority({ maxCostUsd: limitUsd, allowCloud: true, price: () => price, account: chat.repo.account(sessionId) });
+          if (!local && price) targetRequest = {
+            ...req,
+            maxTokens: spendCeiling.maxCompletionTokens,
+            openRouterPriceCeiling: { prompt: price.inputPerMillionUsd, completion: price.outputPerMillionUsd },
+          };
+        }
+      }
+      const spendReservation = authority?.reserve({
         targets: [target],
         ...spendCeiling,
       });
       try {
-        const res = await provider.complete(target, req, isFallback);
+        const res = await provider.complete(target, targetRequest, isFallback);
         spendReservation?.settle({ target, usage: res });
         return attempt > 0 ? { ...res, retries: attempt } : res;
       } catch (err) {
@@ -1142,11 +1203,15 @@ export class InferenceRouter {
         // Charge the full conservative hold before considering retry/fallback.
         spendReservation?.commitMaximum();
         // The gate is best-effort — our request count is local, so a key used
-        // from outside Cinderpaw is invisible to it. A 429 is that blind spot
-        // showing up, not a bug: respect the provider's Retry-After and go
-        // again rather than failing the user's task on a transient collision.
-        const status = (err as { status?: number }).status;
-        const rateLimited = status === 429;
+        // from outside Cinderpaw is invisible to it. A rate-limit 429 is that
+        // blind spot showing up: respect Retry-After on a transient collision.
+        // Structured billing/quota errors cannot be fixed by retrying.
+        const { status, providerCode, providerType } = err as {
+          status?: number; providerCode?: string; providerType?: string;
+        };
+        const rateLimited = status === 429 &&
+          providerType !== "insufficient_quota" &&
+          !PERMANENT_QUOTA_ERROR_CODES.has(providerCode ?? "");
         if (!rateLimited && !(retryTransient && isTransientProviderFailure(err))) throw err;
         if (attempt >= MAX_TRANSIENT_RETRIES) throw err;
         // A stop that landed while the provider was failing is still a stop.

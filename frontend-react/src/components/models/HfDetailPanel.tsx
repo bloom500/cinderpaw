@@ -257,7 +257,7 @@ export function HfDetailPanel({ repoId, detail, loading }: Props) {
                   <div className="flex w-full items-center gap-1.5">
                     <div className="h-1 flex-1 overflow-hidden rounded-full bg-bg-hover">
                       <div
-                        className="h-full bg-brand transition-all duration-300"
+                        className="h-full bg-brand transition-all duration-(--motion-slow)"
                         style={{ width: `${progress}%` }}
                       />
                     </div>

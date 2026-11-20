@@ -84,8 +84,24 @@ export function lookupEntry(
 ): CatalogEntry | null {
   const id = modelId.trim().toLowerCase();
   if (!id) return null;
-  if (limits[id]) return limits[id]!;
+  let seen = lookups.get(limits);
+  if (!seen) lookups.set(limits, (seen = new Map()));
+  if (seen.has(id)) return seen.get(id)!;
+  const found = findEntry(limits, id);
+  seen.set(id, found);
+  return found;
+}
 
+/**
+ * Answers already given against one catalog object (a refresh is a new object,
+ * so they go with it). An id the catalog lacks ("gpt-6.1-sol" on a ChatGPT
+ * plan) walked all ~450 rows, and the picker asks for every name on every
+ * redraw: 105 ms of a 40 s profile (1 Nov).
+ */
+const lookups = new WeakMap<Record<string, CatalogEntry>, Map<string, CatalogEntry | null>>();
+
+function findEntry(limits: Record<string, CatalogEntry>, id: string): CatalogEntry | null {
+  if (limits[id]) return limits[id]!;
   const bare = id.slice(id.lastIndexOf('/') + 1);
   if (limits[bare]) return limits[bare]!;
   for (const [key, value] of Object.entries(limits)) {

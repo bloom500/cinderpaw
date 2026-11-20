@@ -54,6 +54,19 @@ describe('useUI: engines that are retired rather than deleted', () => {
   });
 });
 
+describe('useUI: the app typeface moved from Geist to Inter (14 Nov)', () => {
+  const rehydrate = (persisted: Record<string, unknown>) =>
+    useUI.persist.getOptions().merge!(persisted, useUI.getState()) as ReturnType<typeof useUI.getState>;
+
+  it('a fresh install uses Inter', () => {
+    expect(useUI.getInitialState().chatFont).toBe('inter');
+  });
+  it('a saved Geist pick becomes Inter, a saved System pick stays', () => {
+    expect(rehydrate({ chatFont: 'geist' }).chatFont).toBe('inter');
+    expect(rehydrate({ chatFont: 'system' }).chatFont).toBe('system');
+  });
+});
+
 describe('useUI: theme default', () => {
   it('a fresh install follows the OS', () => {
     // The initial state, before any setTheme: what a stranger starts with.

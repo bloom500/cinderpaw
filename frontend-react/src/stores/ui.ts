@@ -6,9 +6,13 @@ export type ThemePref = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 // English only this release; the next one adds ~70 languages.
 export type LangPref = 'en';
-/** The typeface of the chat's messages (spec 7.4): the app's Geist, or the
+/** The typeface of the chat's messages (spec 7.4): the app's Inter, or the
  *  one the computer uses everywhere else. */
-export type ChatFont = 'geist' | 'system';
+export type ChatFont = 'inter' | 'system';
+/** How big the chat's own text is, apart from the app's zoom (Hermes ships the same, 1 Nov). */
+export type ChatTextSize = 'small' | 'default' | 'large' | 'larger';
+/** Which chat the app opens on: the last one if used in the past 12 hours (the default), always a new one, or always the last. */
+export type StartOn = 'recent' | 'new' | 'last';
 export const SYSTEM_FONT = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 /**
  * Which on-device transcription model to use, by id.
@@ -60,6 +64,9 @@ interface UIStore {
    *  here — the rail answers "where do I want to go" and nothing else. */
   navCollapsed: boolean;
   toggleNav: () => void;
+  /** The Context cards beside a chat: open by default, the person may close them. */
+  contextOpen: boolean;
+  setContextOpen: (open: boolean) => void;
   /** Starred chat ids, newest star first. Per machine, like everything here. */
   starredChats: string[];
   toggleStar: (id: string) => void;
@@ -97,6 +104,10 @@ interface UIStore {
   recordEmberScore: (score: number) => void;
   chatFont: ChatFont;
   setChatFont: (f: ChatFont) => void;
+  chatTextSize: ChatTextSize;
+  setChatTextSize: (s: ChatTextSize) => void;
+  startOn: StartOn;
+  setStartOn: (s: StartOn) => void;
   /**
    * In-app glass (backdrop blur) on or off. Off by default: solid surfaces
    * cost nothing per frame, and the people who never open Settings are the
@@ -194,6 +205,8 @@ export const useUI = create<UIStore>()(
     (set) => ({
       navCollapsed: false,
       toggleNav: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
+      contextOpen: true,
+      setContextOpen: (contextOpen) => set({ contextOpen }),
       starredChats: [],
       toggleStar: (id) => set((s) => ({
         starredChats: s.starredChats.includes(id)
@@ -229,8 +242,12 @@ export const useUI = create<UIStore>()(
       setEmberGameEnabled: (emberGameEnabled) => set({ emberGameEnabled }),
       emberBest: 0,
       recordEmberScore: (score) => set((s) => (score > s.emberBest ? { emberBest: score } : {})),
-      chatFont: 'geist',
+      chatFont: 'inter',
       setChatFont: (chatFont) => set({ chatFont }),
+      chatTextSize: 'default',
+      setChatTextSize: (chatTextSize) => set({ chatTextSize }),
+      startOn: 'recent',
+      setStartOn: (startOn) => set({ startOn }),
       glassEffects: false,
       setGlassEffects: (glassEffects) => {
         applyGlassEffects(glassEffects);
@@ -262,12 +279,15 @@ export const useUI = create<UIStore>()(
       name: 'cinderpaw-ui',
       partialize: (s) => ({
         navCollapsed: s.navCollapsed,
+        contextOpen: s.contextOpen,
         starredChats: s.starredChats,
         theme: s.theme,
         mascotEnabled: s.mascotEnabled,
         emberGameEnabled: s.emberGameEnabled,
         emberBest: s.emberBest,
         chatFont: s.chatFont,
+        chatTextSize: s.chatTextSize,
+        startOn: s.startOn,
         glassEffects: s.glassEffects,
         sttModel: s.sttModel,
         sttProvider: s.sttProvider,
@@ -302,6 +322,9 @@ export const useUI = create<UIStore>()(
         // it would still route the call button through its setup cards, so it is
         // cleared here and the picker falls back to speech to speech.
         if (merged.s2sProvider === 'pipeline') merged.s2sProvider = null;
+        // Geist was the app's typeface until 14 Nov; Inter replaced it. A saved
+        // 'geist' meant "the app's own font", which is now Inter.
+        if ((merged.chatFont as string) === 'geist') merged.chatFont = 'inter';
         return merged;
       },
       onRehydrateStorage: () => (state) => {

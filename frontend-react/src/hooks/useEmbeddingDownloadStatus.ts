@@ -14,18 +14,15 @@
  *   - an infinite spinner (if a listener forgets to handle the complete /
  *     error channels).
  *
- * Mount once near the app root. On the very first call we probe the model
- * presence by invoking `downloadEmbeddingModel()` — if the embedding is
- * already on disk, the Rust side returns `Ok(key)` without firing any of the
- * three events, so we treat "no event in 500 ms after a successful return"
- * as the `present` state.
+ * Mount once near the app root. It only listens: useDeferredMemoryModel
+ * decides when the download starts.
  */
 import { useEffect, useState } from 'react';
 import type { UnlistenFn } from '@tauri-apps/api/event';
-import { tauri, events } from '@/lib/tauri';
+import { events } from '@/lib/tauri';
 
 export type EmbeddingDownloadState =
-  /** Initial state before the probe completes. */
+  /** Nothing heard yet: on disk already, or not started. */
   | { kind: 'idle' }
   /** Embedding model is on disk — fractal recall is fully armed. */
   | { kind: 'present' }
@@ -34,18 +31,12 @@ export type EmbeddingDownloadState =
   /** Download failed; recall falls back to FTS5 keyword search. */
   | { kind: 'failed'; reason: string };
 
-/** How long to wait after `downloadEmbeddingModel()` returns Ok before
- *  treating the absence of an event as "already present". The Rust side
- *  emits no event when the file exists, so this delay is the only signal. */
-const PRESENT_PROBE_MS = 500;
-
 export function useEmbeddingDownloadStatus(): EmbeddingDownloadState {
   const [state, setState] = useState<EmbeddingDownloadState>({ kind: 'idle' });
 
   useEffect(() => {
     let alive = true;
     let unlistens: UnlistenFn[] = [];
-    let probeTimer: ReturnType<typeof setTimeout> | null = null;
 
     const isEmbeddingEvent = (repoId: string): boolean => repoId === 'embedding';
 
@@ -82,31 +73,17 @@ export function useEmbeddingDownloadStatus(): EmbeddingDownloadState {
         return;
       }
 
-      // Probe: the Rust command is idempotent. If the model is on disk it
-      // returns Ok with no events — we time out to 'present'. Otherwise it
-      // returns Err("Download already in progress") OR starts streaming
-      // events from the background task.
-      try {
-        await tauri.raw.downloadEmbeddingModel();
-        probeTimer = setTimeout(() => {
-          if (!alive) return;
-          setState((s) => (s.kind === 'idle' ? { kind: 'present' } : s));
-        }, PRESENT_PROBE_MS);
-      } catch (err) {
-        const msg = String(err);
-        // "Download already in progress" means another caller (e.g. a
-        // retry) is mid-download. The events will arrive — leave state
-        // as 'idle' and let them move us to 'downloading'.
-        if (msg.includes('already in progress')) return;
-        setState({ kind: 'failed', reason: msg });
-      }
+      // No probe here: the only probe there is, `downloadEmbeddingModel()`,
+      // STARTS the download when the file is missing, so calling it at mount
+      // pulled ~600 MB on every first launch and undid useDeferredMemoryModel
+      // (smoke test, 7 Nov). This hook only listens; the deferred hook decides
+      // when the download starts.
     };
 
     void setup();
 
     return () => {
       alive = false;
-      if (probeTimer !== null) clearTimeout(probeTimer);
       for (const u of unlistens) {
         try { u(); } catch { /* listener may already be detached */ }
       }

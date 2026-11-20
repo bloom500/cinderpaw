@@ -42,6 +42,7 @@ import { cfgPath, readEnv } from "../config.ts";
 import { priceResolverFromJson } from "../rsi/infra/rsi-cost.ts";
 import { MonthlyProactiveBudget } from "./proactive-followups.ts";
 import type { InferenceSpendAuthority } from "../egress/inference-spend-authority.ts";
+import { namedThought, type Situation } from "./thought-situation.ts";
 
 export interface InnerThoughtsConfig {
   /** How often the loop ticks, in milliseconds. */
@@ -95,6 +96,12 @@ export interface InnerThoughtsConfig {
   surfacedToday: number;
   /** UTC day-of-year at the time of the last reset. */
   surfacedTodayUtcDay: number;
+  /**
+   * Spec slice 9: what the thought may be about (watches, tasks due, unfinished
+   * work). With it, a thought must name one item ("[W1] ...") or it is not
+   * sent, and an empty list skips the model call. Without it: chat lines only.
+   */
+  situation?: () => Situation;
 }
 
 const DEFAULT_CONFIG: InnerThoughtsConfig = {
@@ -196,19 +203,28 @@ export class InnerThoughtsLoop {
       return;
     }
 
+    let situation: Situation | undefined;
+    try { situation = this.#config.situation?.(); } catch { return; }
+    if (situation && situation.items.length === 0) {
+      this.#persistThought("[nothing to talk about]", false);
+      return;
+    }
+
     let thought: string;
     try {
-      thought = await this.#generateThought();
+      thought = await this.#generateThought(situation);
     } catch {
       this.#mood.applyEvent("inference_error");
       return;
     }
 
-    const suppressed = !thought || thought.trim().toUpperCase() === "SUPPRESS";
+    // With a situation, a thought that names no known item is filler: not sent.
+    const named = situation ? namedThought(thought, new Set(situation.items.map((i) => i.id))) : thought.trim();
+    const suppressed = !thought || thought.trim().toUpperCase() === "SUPPRESS" || !named;
     this.#persistThought(thought, !suppressed);
 
     if (!suppressed && this.#emit) {
-      this.#emit({ type: "proactive", content: thought.trim() });
+      this.#emit({ type: "proactive", content: named!, ...(situation?.owner ? { ownerAgentId: situation.owner.id } : {}) });
       this.#mood.applyEvent("message_answered");
       this.#config.lastSurfacedMs = Date.now();
       this.#config.surfacedToday++;
@@ -283,13 +299,13 @@ export class InnerThoughtsLoop {
     }
   }
 
-  async #generateThought(): Promise<string> {
+  async #generateThought(situation?: Situation): Promise<string> {
     const recentEvents = this.#episodic.recent(
-      this.#config.sessionId,
+      situation?.owner ? `cowork:${situation.owner.id}` : this.#config.sessionId,
       10,
     );
     // Also pull recent events from the default session.
-    const defaultEvents = this.#episodic.recent("default", 6);
+    const defaultEvents = situation?.owner ? [] : this.#episodic.recent("default", 6);
     const allEvents = [...defaultEvents, ...recentEvents]
       .sort((a, b) => a.timestamp - b.timestamp)
       .slice(-10);
@@ -297,9 +313,22 @@ export class InnerThoughtsLoop {
     const contextLines = allEvents.map(
       (e) => `[${new Date(e.timestamp).toISOString().slice(11, 19)}] ${e.role}: ${e.content.slice(0, 120)}`,
     );
-    const context = contextLines.length > 0
+    const chat = contextLines.length > 0
       ? `Recent activity:\n${contextLines.join("\n")}`
       : "No recent activity.";
+    const context = situation
+      ? [
+          "Things you may talk about (name exactly one by its id):",
+          ...situation.items.map((i) => `[${i.id}] ${i.line}`),
+          "",
+          ...situation.notes,
+          "",
+          chat,
+        ].join("\n")
+      : chat;
+    const nameRule = situation
+      ? ["- Start the message with the id of the one thing it is about, in brackets, like [W1]. Only things from the list."]
+      : [];
 
     const moodDesc = this.#mood.describe();
 
@@ -311,6 +340,7 @@ export class InnerThoughtsLoop {
           role: "system",
           content: [
             "You are Cinderpaw, a proactive local AI agent running a background reflection loop.",
+            ...(situation?.owner ? [`Write as teammate ${JSON.stringify(situation.owner.name)}. Your role is ${JSON.stringify(situation.owner.role)}. Speak about your own work.`] : []),
             `Your current mood: ${moodDesc}.`,
             "",
             "Review the recent activity and decide if there is something genuinely worth",
@@ -322,6 +352,7 @@ export class InnerThoughtsLoop {
             "- If you have nothing worth saying, respond with exactly: SUPPRESS",
             "- Do not explain your reasoning. Do not mention this loop or your mood.",
             "- Prefer SUPPRESS over a weak or filler message.",
+            ...nameRule,
           ].join("\n"),
         },
         {

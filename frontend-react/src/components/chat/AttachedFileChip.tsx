@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileText, X } from 'lucide-react';
+import { FileText, Loader2, Play, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
@@ -17,6 +17,10 @@ export interface AttachedFile {
   kind?: 'text' | 'image' | 'binary';
   /** data:<mime>;base64 payload for image attachments. */
   dataUrl?: string;
+  /** Asset URL of a video (still a `binary` path for the model), for its first frame in the composer. */
+  videoUrl?: string;
+  /** Shown by name with a spinner while it is read; the message cannot be sent until it is. */
+  loading?: boolean;
   error?: string;
 }
 
@@ -77,12 +81,46 @@ interface Props {
   onRemove: () => void;
 }
 
+/**
+ * A photo or video shows itself, not its name: a thumbnail like the one the
+ * person picked. A video shows its first frame; one the webview cannot decode
+ * falls back to the name chip.
+ */
+function MediaTile({ file, onRemove }: Props) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return <NameChip file={file} onRemove={onRemove} />;
+  return (
+    <span className="relative inline-block h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-border-default bg-bg-elevated" title={file.name}>
+      {file.videoUrl ? (
+        <>
+          {/* #t=0.1: a frame to show; muted + metadata: nothing plays or downloads whole. */}
+          <video src={`${file.videoUrl}#t=0.1`} muted playsInline preload="metadata" aria-label={file.name}
+            onError={() => setBroken(true)} className="h-full w-full object-cover" />
+          <span className="pointer-events-none absolute inset-0 grid place-items-center">
+            <span className="grid h-6 w-6 place-items-center rounded-full bg-black/55 text-white"><Play size={12} fill="currentColor" /></span>
+          </span>
+        </>
+      ) : (
+        <img src={file.dataUrl} alt={file.name} className="h-full w-full object-cover" />
+      )}
+      <button type="button" onClick={onRemove} aria-label={`Remove ${file.name}`}
+        className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/60 text-white hover:bg-black/80">
+        <X size={12} />
+      </button>
+    </span>
+  );
+}
+
 export function AttachedFileChip({ file, onRemove }: Props) {
   if (isPasted(file)) return <PastedTextCard file={file} onRemove={onRemove} />;
-  const isImage = file.kind === 'image' && !!file.dataUrl;
+  if ((file.kind === 'image' && file.dataUrl) || file.videoUrl) return <MediaTile file={file} onRemove={onRemove} />;
+  return <NameChip file={file} onRemove={onRemove} />;
+}
+
+function NameChip({ file, onRemove }: Props) {
   // Binary files are a normal, supported attachment (sent as a path
   // reference) — only a real extraction/read error gets the red treatment.
-  const hasError = !isImage && file.content === null && file.kind !== 'binary';
+  const hasError = !file.loading && file.content === null && file.kind !== 'binary';
 
   const chip = (
     <span
@@ -93,13 +131,7 @@ export function AttachedFileChip({ file, onRemove }: Props) {
           : 'border-border-default bg-bg-elevated text-text-secondary',
       )}
     >
-      {isImage && (
-        <img
-          src={file.dataUrl}
-          alt={file.name}
-          className="h-6 w-6 rounded object-cover border border-border-subtle"
-        />
-      )}
+      {file.loading && <Loader2 size={12} className="shrink-0 animate-spin text-text-muted" aria-label="Reading" />}
       <span className="max-w-[120px] truncate">{file.name}</span>
       <button
         type="button"

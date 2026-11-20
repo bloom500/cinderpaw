@@ -82,6 +82,7 @@ $tui = Join-Path $Root 'tui'
 
 Invoke-Step 'CinderpawAgent tests'     $agent { bun test --timeout 20000 }
 Invoke-Step 'CinderpawAgent typecheck' $agent { bunx tsc --noEmit }
+Invoke-Step 'Worker tests'             (Join-Path $Root 'workers/bug-report') { bun test }
 Invoke-Step 'React tests'              $react { bunx vitest run --pool=threads --maxWorkers=1 }
 Invoke-Step 'React typecheck'          $react { bunx tsc --noEmit }
 Invoke-Step 'Web app dependencies'    $web { bun install --frozen-lockfile }
