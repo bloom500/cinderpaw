@@ -225,7 +225,11 @@ jobs:
           bun-version: latest
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        # 1.99.1, not stable: Rust 1.100 (9 Nov 2026) builds one folder deeper and ort-sys
+        # 2.0.0-rc.12 (copy-dylibs) then panics on Windows. Unpin together with an ort that handles it.
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.1"
 
       # prefix-key starts a fresh cache: the cmake crate configures llama.cpp
       # only when no CMakeCache.txt exists, so a restored one kept a Homebrew
@@ -287,7 +291,11 @@ jobs:
           sudo apt-get install -y build-essential pkg-config libssl-dev libdbus-1-dev cmake
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        # 1.99.1, not stable: Rust 1.100 (9 Nov 2026) builds one folder deeper and ort-sys
+        # 2.0.0-rc.12 (copy-dylibs) then panics on Windows. Unpin together with an ort that handles it.
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.1"
 
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2

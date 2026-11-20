@@ -277,7 +277,11 @@ jobs:
         run: npm ci
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        # 1.99.1, not stable: Rust 1.100 (9 Nov 2026) builds one folder deeper and ort-sys
+        # 2.0.0-rc.12 (copy-dylibs) then panics on Windows. Unpin together with an ort that handles it.
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.1"
 
       # Only the macOS Intel entry declares a target; everything else builds
       # natively and skips this.
@@ -616,7 +620,11 @@ jobs:
         working-directory: frontend-react
         run: npm ci
 
-      - uses: dtolnay/rust-toolchain@stable
+      # 1.99.1, not stable: Rust 1.100 (9 Nov 2026) builds one folder deeper and ort-sys
+      # 2.0.0-rc.12 (copy-dylibs) then panics on Windows. Unpin together with an ort that handles it.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.1"
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
